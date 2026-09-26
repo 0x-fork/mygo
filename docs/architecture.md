@@ -1,0 +1,535 @@
+# MyGo architecture
+
+This guide explains how MyGo is put together: the layers, the threading
+model, how Go talks to the native toolkits without cgo, how the page and Go
+exchange typed messages, and how to extend the framework safely. Read it
+before changing anything under `internal/`.
+
+## Goals and constraints
+
+- **Low overhead.** A hello-world app is a ~7 MB binary with a ~35 MB
+  physical footprint on macOS (mostly AppKit/WebKit) and idles at 0% CPU.
+  Nothing polls: all work is driven by native events or explicit wake-ups.
+- **No cgo.** Everything builds with `CGO_ENABLED=0`, so any platform can be
+  cross-compiled from any machine. Native APIs are called at run time through
+  [purego](https://github.com/ebitengine/purego) (`dlopen` + assembly
+  trampolines), never through `import "C"`.
+- **The system webview.** WKWebView on macOS, WebKitGTK 4.1 (4.0 as a
+  fallback) on Linux. No browser engine is bundled. Windows (WebView2) and the
+  bundled CEF option are planned but not implemented; on unsupported
+  platforms the `internal/unsupported` backend makes `App.Run` fail with a
+  clear error while everything still compiles.
+- **Bun is dev tooling only.** It builds and tests the TypeScript bridge, and
+  installs and runs the frontend template's tools (Vite, TypeScript). Nothing
+  Bun-related ships in an app.
+- **Great DX over API parity.** The API has the feel of Electron (app
+  lifecycle, windows, menus, dialogs) but is Go-first: typed IPC with a
+  generated TypeScript client, `http.Handler` for custom protocols, typed
+  event structs, blocking calls that are safe from any goroutine.
+
+## Repository layout
+
+```
+.                       package mygo: the public API
+├── app.go              lifecycle, quit sequence, Dock, paths (paths.go)
+├── window.go           Window: native window + its page, events, Eval
+├── ipc.go              Bind/BindAs, method calls, Event[T], CallerWindow
+├── typescript.go       GenerateTypeScript / WriteTypeScript (uses internal/tsgen)
+├── protocol.go         custom schemes served by http.Handler, FileServer
+├── frontend.go         the app's frontend: relative URLs, devUrl, mygo://localhost
+├── menu.go             Menu/MenuItem model, roles, native item updates
+├── dialog.go modules.go shell, clipboard, screen, theme, tray, shortcuts, notifications
+├── loop.go             main-thread queue: postMain / onMain / await
+├── events.go           listener lists and the Preventable event types
+├── single_instance.go  RequestSingleInstanceLock over a Unix socket
+├── dev.go signal_*.go  IsDev, the `mygo dev` ready signal, quitting on SIGINT/SIGTERM
+├── backend_*.go        picks the backend per GOOS
+├── internal/
+│   ├── platform/       the contract every backend implements
+│   ├── darwin/         macOS: AppKit + WKWebView through the Objective-C runtime
+│   ├── linux/          Linux: GTK 3 + WebKitGTK through dlopen
+│   ├── unsupported/    stub for other platforms
+│   ├── fake/           in-memory backend for unit tests
+│   ├── bridge/         embeds bridge.js, built from packages/bridge
+│   ├── tsgen/          TypeScript client generator
+│   ├── accelerator/    parses "CmdOrCtrl+Shift+K"
+│   └── e2e/            GUI tests against the real backend (MYGO_E2E=1)
+├── packages/           Bun workspace (with the examples' frontends):
+│   ├── bridge/         the runtime injected into pages (→ internal/bridge/bridge.js)
+│   └── runtime/        mygo-runtime, the npm package apps and generated clients import
+├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
+├── examples/           hello, todo, frameless, native
+└── docs/               this guide
+```
+
+## Layers
+
+```
+ user code ──► package mygo ──► platform.Backend ──► darwin | linux | unsupported
+                 ▲    │               ▲                  │
+                 │    └─ handlers ────┘ (AppHandler,     └─ purego ─► AppKit/WebKit, GTK/WebKitGTK
+                 │                       WindowHandler)
+ page (JS) ◄── bridge.js ◄── Eval (batched) ─┘
+     └──── postMessage(JSON) ──► WindowHandler.Message
+```
+
+- **`package mygo`** owns all behavior that is not platform specific: option
+  defaults, the window registry, event listeners, the quit sequence, IPC
+  routing and encoding, menus, protocol handling, trust checks. It never
+  calls a native API directly.
+- **`internal/platform`** is a small, synchronous contract: a `Backend`
+  (event loop, window factory, menus, dialogs, clipboard, …), a `Window`
+  (chrome + webview), and two handler interfaces the core implements to
+  receive events (`AppHandler`, `WindowHandler`). Options arrive fully
+  defaulted; backends never invent policy.
+- **Backends** translate the contract to native calls. They keep native
+  objects alive, map native callbacks back to Go objects and report events.
+
+Keeping policy in the core is what lets `internal/fake` test almost all
+behavior without a GUI, and keeps each backend a thin translation layer.
+
+## Threading model
+
+Cocoa and GTK must be driven from the thread that started the process. The
+rules are:
+
+1. **The main goroutine is locked to the main thread** (`runtime.LockOSThread`
+   in `mygo.go`'s `init`), and `App.Run` must be called from it. `Run`
+   initializes the backend and blocks in the native event loop.
+2. **Every `platform` method is called on the main thread, and every handler
+   callback runs there.** The backend never needs locks for its own state.
+3. **Every public method is safe from any goroutine.** `loop.go` provides:
+   - `postMain(fn)` appends to a FIFO queue and calls `Backend.Signal`, which
+     makes the backend call `AppHandler.Dispatch` (→ `loop.drain`) on the main
+     thread. macOS uses a `CFRunLoopSource` added in all common modes (so it
+     fires while menus track, windows resize and modal panels run); Linux uses
+     `g_idle_add`, deduplicated with an atomic flag.
+   - `onMain(fn)` runs `fn` directly when already on the main thread, else posts
+     it and waits. After shutdown posted work is dropped instead of
+     deadlocking.
+   - `await(ch)` waits for an asynchronous native result. Off the main thread
+     it is a plain channel receive. **On the main thread it pumps native events
+     with `Backend.Step`** until the value arrives; whoever produces the value
+     calls `deliver`, which sends and then `Backend.Wake`s the loop. This is
+     what makes `win.Eval`, `CapturePage` and dialogs usable from event
+     listeners without deadlocking. Nested runs of the dispatch source are
+     expected and safe.
+4. **Event listeners run on the main thread**, synchronously, so cancelable
+   events (`OnClose`, `OnBeforeQuit`, `OnWillNavigate`, …) can answer the
+   native toolkit immediately. **IPC calls run on their own goroutines**, so
+   bound methods may block.
+5. **Validate in the caller's goroutine.** Anything that can panic on bad
+   input (for example `WindowOptions.BackgroundColor`) is checked before
+   hopping to the main thread, so the panic points at the user's call.
+
+Main-thread-only fields are marked as such in comments (for example
+`Window.native`, `Window.trusted`). Fields shared with other goroutines are
+guarded by a mutex or atomic.
+
+## Native interop without cgo
+
+purego gives three primitives, used everywhere:
+
+- `purego.SyscallN(fn, args...)` for integer/pointer arguments. Fast, no
+  reflection. Floats and structs cannot be passed this way.
+- `purego.RegisterFunc(&typedFn, addr)` for signatures with floats or
+  structs (`NSRect`, `CGFloat`, `GdkRGBA*` …). These are created once at
+  startup; calling them uses reflection, so they are kept off hot paths.
+- `purego.NewCallback(fn)` turns a Go function into a C function pointer. At
+  most ~2000 callbacks can exist per process and they are never freed, so
+  **callbacks are created once per signature at startup** and user data (a
+  window id, a request id) identifies the target. Never create callbacks per
+  window, per request or per call.
+
+### macOS (`internal/darwin`)
+
+- `objc.go` loads the frameworks, caches selectors and classes, and wraps
+  `objc_msgSend`: `send(obj, "selector:", args...)` for integer arguments and
+  pre-registered typed variants (`msgRect`, `msgSetFloat`, `msgInitWindow`,
+  …) for the rest. On amd64, methods returning structs larger than 16 bytes go
+  through `objc_msgSend_stret`.
+- Classes are defined at run time with `objc.RegisterClass`: `MyGoWindow`
+  (borderless-friendly `NSWindow`), `MyGoWebView` (records the last
+  `mouseDown:` for drag regions), `MyGoWindowDelegate` (window, navigation,
+  UI and script-message delegate in one object per window), the app delegate,
+  scheme handler, menu and tray targets. Only protocols that exist at run
+  time are adopted (`WKScriptMessageHandler` is not registered, and WebKit
+  does not need it).
+- **Memory is managed by hand.** Objects created with `alloc`/`init` are owned
+  (+1) and must be released; convenience constructors return autoreleased
+  objects. Code that creates temporary objects runs inside `withPool`.
+  Delegates and windows are released with `autorelease` from
+  `windowWillClose:` because AppKit still uses them while closing.
+- **Blocks.** Completion handlers passed to Apple APIs are created with
+  `objc.NewBlock` and released right after the call (the callee copies
+  them). Blocks received from Apple (decision and completion handlers) are
+  invoked with `callBlock`; when they are called later they are
+  `_Block_copy`d first and released after use.
+- **Coordinates.** AppKit's origin is the bottom-left of the primary screen;
+  MyGo's is the top-left. `rectToMac`/`rectFromMac` convert.
+- **Quitting.** Cmd+Q ends in `applicationShouldTerminate:`, which runs the
+  core quit sequence and then stops the run loop so `App.Run` returns (the
+  reply is `NSTerminateCancel`; AppKit never calls `exit`). Quit Apple Events
+  (Dock > Quit, AppleScript, logout) are handled by our own handler installed
+  in `applicationWillFinishLaunching:`, so senders get a success reply, or
+  error -128 when a listener cancels.
+
+### Linux (`internal/linux`)
+
+- `ffi.go` `dlopen`s GLib, GObject, GIO, GDK, GTK 3, WebKitGTK 4.1 (4.0),
+  JavaScriptCore, libsoup 3 (2.4), cairo, GdkPixbuf and, when installed,
+  AppIndicator. Symbols from newer WebKitGTK versions are bound optionally
+  and feature-detected (`webkitWebViewCallAsyncJavascriptFunction != nil`).
+- Signals are connected with `g_signal_connect_data`, passing the window id as
+  user data; `Backend.window(data)` resolves it and ignores closed windows.
+  GDK event structs are read at fixed 64-bit offsets (`field[T]`).
+- The main thread is the one that called `gtk_init_check`; `IsMainThread`
+  compares `gettid`. `Step` is `g_main_context_iteration(NULL, TRUE)` and
+  `Wake` is `g_main_context_wakeup`.
+- GTK geometry changes are asynchronous: `SetBounds` remembers the requested
+  rectangle and `Bounds` reports it until the configure event confirms it.
+- `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set unless the user set it, which
+  avoids blank webviews on NVIDIA drivers, VMs and containers.
+
+## IPC
+
+### The page runtime (`packages/bridge` → `internal/bridge/bridge.js`)
+
+`packages/bridge/src/bridge.ts` is bundled by Bun into an IIFE
+(`bun run build`) and committed, so building an app never needs Bun. The core wraps it with the
+window's configuration (`bridge.Script`) and every backend injects it at
+document start into the main frame. It installs:
+
+- `window.mygo`: `call(method, ...args)`, `on(event, fn)`, `once`, the
+  `window` controls (`minimize`, `toggleMaximize`, `close`, …), `platform`,
+  `windowId`, `version`. Frozen, so pages cannot tamper with it.
+- `window.__mygo.receive(messages)`, used by Go to deliver messages.
+- dom-ready notification and `--app-region: drag` handling for frameless
+  windows (the mousedown is reported, the backend starts a native window drag
+  from the recorded mouse event).
+
+The transport is `window.webkit.messageHandlers.mygo.postMessage` on both
+WebKit platforms (and `window.chrome.webview.postMessage` is already
+recognized for a future WebView2 backend).
+
+### The `mygo-runtime` package (`packages/runtime`)
+
+Apps reach the injected runtime through the `mygo-runtime` npm package:
+`call`, `on`/`once`, typed `event<T>(name)`, `currentWindow` controls,
+`isMyGo`, `isCallError`, `runtime()` (which throws a helpful error outside a
+MyGo window) and the public types (`Runtime`, `WindowControls`, `Platform`),
+which the bridge shares. It holds no transport of its own: it delegates to
+`window.mygo`, so the injected script stays the single implementation of the
+protocol. Its `dist/` is committed so the workspace and local projects
+(`mygo init --mygo <checkout>` depends on it with `file:`) need no build; the
+template depends on `^<version>` from npm, released in step with the Go
+module.
+
+### Wire protocol
+
+Page → Go (a JSON string per message, prefixed with the window's secret; see
+Trust):
+
+| message | meaning |
+|---|---|
+| `{"t":"call","id":N,"k":token,"m":"Service.Method","a":[...]}` | call a bound method |
+| `{"t":"dom-ready"}` | DOMContentLoaded fired |
+| `{"t":"drag"}` / `{"t":"dblclick"}` | mousedown / double click on a drag region |
+
+Go → page, batched into one `window.__mygo&&__mygo.receive([...])`
+evaluation per main-loop turn:
+
+| message | meaning |
+|---|---|
+| `{"t":"reply","id":N,"k":token,"ok":true,"v":value}` | successful call |
+| `{"t":"reply","id":N,"k":token,"ok":false,"e":"message"}` | error or panic |
+| `{"t":"event","n":"name","p":payload}` | typed event |
+
+`k` is a random per-page token: a reply meant for a page that has since
+navigated away can never resolve a promise of the new page.
+
+### Calls
+
+1. `WindowHandler.Message` runs on the main thread. Messages starting with
+   `{"t":"call",` are handed to a goroutine (`handleCall`) together with the
+   page context and the page's trust decision, captured on the main thread so
+   a racing navigation cannot change them. Everything else is decoded on the
+   main thread.
+2. `handleCall` decodes the envelope with `encoding/json/v2`, looks up the
+   method, decodes each argument into the parameter type, calls it and
+   encodes the result. Panics are recovered, logged with a stack trace and
+   returned as errors.
+3. The reply is queued with `Window.enqueue(msg, false)` and flushed on the
+   main thread.
+
+Bound methods may take a `context.Context` first: it carries the calling
+window (`CallerWindow`) and is canceled when the page navigates or the window
+closes. `Bind` validates every parameter and result type up front
+(`tsgen.Validate`), so unsupported types fail at startup, not at call time.
+
+JSON options (`jsonOptions` in `ipc.go`) are shared by calls and events:
+json/v2 defaults (nil slices encode as `[]`, case-sensitive names),
+`time.Duration` as nanoseconds, and U+2028/2029 escaped for JavaScript.
+
+### Events
+
+`NewEvent[T](name)` registers a typed event. `Emit` and `Broadcast` encode
+once and enqueue per window. **Events are held until the page reports
+dom-ready** (bounded to 1024 per window) and the hold resets on every
+navigation, so events sent right after creating a window, or during a
+navigation, are delivered once listeners exist. Replies are never held:
+module scripts may `await` a call at top level, and DOMContentLoaded waits for
+them.
+
+### Eval
+
+`Window.Eval(code)` uses the webview's native async-function API
+(`callAsyncJavaScript` on macOS, `webkit_web_view_call_async_javascript_function`
+on Linux), which awaits promises and ignores the page's Content Security
+Policy. The code is first wrapped as `return JSON.stringify({ok, v: await (code)})`;
+if that fails to compile the code is not an expression, and it is run again as
+a function body. A compile error means nothing executed, so code never runs
+twice. The result travels as a JSON string and is decoded in Go.
+
+### Trust
+
+Every page gets the runtime, but only trusted pages may call Go: the
+frontend (`mygo:` and the `mygo dev` server), custom-scheme pages
+(`Protocol.Handle`), `file:` and `about:` pages, loopback `http(s)` dev
+servers in development, and origins listed in `WindowOptions.TrustedOrigins`
+(`"*"` trusts everything). The decision is
+recomputed on every committed navigation. Untrusted calls are rejected
+without running any Go code.
+
+The message handler is reachable from every frame, while trust is decided
+by the main frame's URL, so an iframe of another origin must not be able to
+talk to Go: each window has a random secret (`crypto/rand`), passed only to
+the bridge's closure in its configuration, which prefixes every message;
+`handleMessage` drops messages without it. macOS additionally only accepts
+messages from the main frame (`WKScriptMessage.frameInfo.isMainFrame`);
+WebKitGTK exposes no frame information, so Linux relies on the secret.
+
+## Typed client generation (`internal/tsgen`)
+
+`mygo generate` builds the app and runs it with `MYGO_GENERATE=<file>`;
+`App.Run` then writes the client (`WriteTypeScript`) and returns before
+touching the GUI. The generator combines:
+
+- **Reflection** for correctness: types follow json/v2 encoding (embedded
+  structs are inlined with v2's conflict rules, `omitempty`/`omitzero` become
+  optional fields, pointers become `T | null`, `[]byte` is a base64 string,
+  `time.Time` a string, types with JSON methods `unknown`, text marshalers
+  `string`, generic instantiations get names like `PageTask`).
+- **Source code** for readability, when available: the entry PC of each bound
+  method (`runtime.FuncForPC`) locates its file, which is parsed with
+  `go/parser` to recover parameter names and doc comments (JSDoc). Named
+  string/number types with constants become union types (`"all" | "done"`),
+  including simple `iota` sequences. Packages not reached through a PC are
+  located with `go list`. Without sources (e.g. `-trimpath` binaries) the
+  client is still correct, just with `arg0` names and no docs.
+
+The output imports `call` and `event` from `mygo-runtime` and declares the
+interfaces, one object per service with camelCased methods, and an `events`
+object. `WriteTypeScript` only rewrites the file when its
+content changes, so dev servers don't reload needlessly.
+
+## Custom protocols
+
+`Protocol.Handle(scheme, http.Handler)` lets pages load `<scheme>://localhost/…`
+like a web origin (fetch, ES modules, relative URLs). `Protocol.serve` runs the
+handler on a goroutine with a `schemeWriter`: headers and body are buffered
+and handed to the main thread in 256 KiB chunks (and on `Flush`), the content
+type is sniffed when missing, panics become 500 responses. Backends turn
+responses into native ones:
+
+- macOS: `WKURLSchemeHandler`; `didReceiveResponse:`/`didReceiveData:`/
+  `didFinish`. A task stopped by WebKit cancels the request context and later
+  writes are ignored (touching a stopped task raises an Objective-C exception).
+- Linux: WebKitGTK wants a `GInputStream`, so the response body is streamed
+  through a pipe (`g_unix_input_stream_new`). A goroutine feeds the pipe from
+  an unbounded queue, because WebKit reads it on the main thread, which must
+  never block. Custom schemes are registered as secure and CORS-enabled.
+
+Schemes are registered per webview at creation time, so call
+`Protocol.Handle` before creating windows. `FileServer(fsys)` serves an
+`fs.FS` with an index.html fallback for client-side routing.
+
+## The frontend (`frontend.go`)
+
+Apps load their web UI with URLs without a scheme (`WindowOptions.URL: "/"`,
+`LoadURL("/settings")`), which `resolveURL` resolves against the frontend,
+as in Tauri:
+
+- during `mygo dev`, the dev server: `MYGO_DEV_URL`, from `devUrl` in
+  mygo.json (only honored when `IsDev`);
+- otherwise `mygo://localhost/`. The `mygo` scheme is registered with every
+  webview and, unless the app handles it with `Protocol.Handle`, serves the
+  files given to `SetFrontend`. `mygo build` calls `SetFrontend` from a
+  generated file that embeds `frontendDist` (see CLI), so app code has no
+  `//go:embed` and development builds need no built frontend. During
+  `mygo dev` without a dev server it serves `MYGO_FRONTEND_DIST` from disk,
+  and with nothing to serve, a page explaining how to get a frontend.
+
+## Windows, lifecycle and quitting
+
+- `NewWindow` validates options, waits for readiness when called off the main
+  thread, builds `platform.WindowOptions` (all defaults applied, bridge and
+  preload scripts, registered schemes) and registers the window.
+- The user's close (`WindowHandler.ShouldClose`) and `Window.Close` both emit
+  `OnClose`, which can be prevented. `Destroy` skips it. The backend reports
+  `Closed` synchronously; the core unregisters the window, closes child
+  windows, cancels the page context and, when it was the last window and no
+  quit is in progress, runs `OnWindowAllClosed` listeners or quits.
+- The quit sequence (`Application.prepareQuit`) is: `OnBeforeQuit` → close
+  every window (any `OnClose` can cancel) → `OnWillQuit` → stop the loop →
+  `App.Run` returns → `OnQuit`. It is used for `App.Quit`, Cmd+Q, quit
+  Apple Events, and SIGINT/SIGTERM alike (`signal_unix.go`; a second signal
+  exits immediately).
+- `window.open()` and `target=_blank` go through `SetWindowOpenHandler`. By
+  default http(s) URLs open in the default browser. Allowing one creates a
+  window around the configuration or related view WebKit provides, with its
+  own content manager so scripts and messages never leak between windows.
+
+## Menus
+
+`Menu`/`MenuItem` are plain Go values built from templates. Roles expand into
+labels, accelerators and submenus per platform (`roleDefaults`,
+`roleSubmenu`); macOS-only roles are hidden elsewhere. Items get a process
+unique id and are registered with weak pointers, so discarded context menus
+can be collected. The core sends immutable snapshots (`platform.Menu`) to the
+backend, which:
+
+- builds native menus and tracks native items per owner (app menu, window menu
+  bar, tray, popup) so `UpdateMenuItem` can change label/state in place and
+  rebuilt menus release their items,
+- performs edit roles natively (first responder on macOS,
+  `webkit_web_view_execute_editing_command` on Linux) and reports everything
+  else through `AppHandler.MenuItemClicked`; the core toggles checkbox/radio
+  state, performs window and view roles and calls `Click`.
+
+macOS gets a default menu bar (App, File, Edit, View, Window), which is what
+makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
+
+## CLI (`cmd/mygo`)
+
+- `init` renders `cmd/mygo/template` (Go + a TypeScript frontend built with
+  Vite; Bun installs it and runs its scripts), draws a default icon, fetches
+  modules, installs frontend dependencies and generates the client. The
+  template's mygo.json sets `devUrl`, `devCommand`, `buildCommand` and
+  `frontendDist`; its `vite.config.ts` pins the dev server to the port of
+  `devUrl`.
+- `generate` builds the app for the host and runs it in generate mode
+  (`MYGO_GENERATE`; `RequestSingleInstanceLock` then returns true at once).
+- `dev` (`dev.go`, `watch.go`) runs `devCommand` in the project directory,
+  waits for `devUrl` to answer and runs a development build, pointed at it
+  with `MYGO_DEV_URL` (or at `frontendDist` on disk without `devUrl`). The
+  build is packaged like a release: on macOS a bundle named
+  "<name> Dev" with identifier "<id>.dev" in `.mygo/dev/<goos>-<goarch>`, so
+  bundle-only features (notifications, URL schemes) work and its data stays
+  apart from the production app's. Builds are assembled in a staging
+  directory and renamed into place, so the running build keeps its files.
+  - *Ready handshake.* The CLI listens on a Unix socket and passes it in
+    `MYGO_READY_SOCKET`; the core connects once the first window is ready to
+    show or failed to load, right after launch when there is no window, and
+    at most 5 s after launch otherwise (`dev.go`). Nothing happens in
+    production builds.
+  - *Blue-green reload.* A change (polling every 250 ms, debounced) rebuilds;
+    when the executable, Info.plist and icon are unchanged nothing restarts.
+    Otherwise the new build is launched and only once it is ready is the old
+    one sent SIGTERM (quit sequence), then SIGKILL after 3 s. A build that
+    fails to compile, start or get ready within 20 s leaves the old one
+    running. A new instance takes over the single-instance lock, and the old
+    instance only removes the lock socket if it is still its own.
+  - *Watching.* Exactly what the build reads, from `go list -deps` after
+    every build: the directories of the compiled packages outside GOROOT and
+    the module cache (so local `replace` modules too), embedded files,
+    go.mod/go.sum, mygo.json and the icon. Frontend sources are the dev
+    server's business and never rebuild the app.
+  - Quitting the app ends `mygo dev`; a crash waits for the next change.
+- `build` generates the client, runs `buildCommand`, then compiles each
+  target with `-trimpath -ldflags "-s -w -X …production=1"` (`-H=windowsgui`
+  on Windows) into a staging directory, so a failed build keeps the previous
+  artifacts. `frontendDist` is embedded without touching the project
+  (`embed.go`): `go build -overlay` adds a generated `mygo_frontend_gen.go`
+  to the main package, with `//go:embed all:mygo_frontend` and a call to
+  `SetFrontend`, and maps every `frontendDist` file into that virtual
+  directory, so the frontend may live anywhere. macOS targets become `.app`
+  bundles (Info.plist, `.icns` rendered in pure Go), signed with
+  `macos.signingIdentity` (hardened runtime and timestamp for real
+  identities, ad hoc by default); `darwin/universal` combines both
+  architectures with a pure-Go fat-binary writer. Linux gets a `.desktop`
+  entry and icon. The production flag makes `IsDev` false, which disables
+  the web inspector by default.
+- On a macOS host, macOS targets also get "<name> <version>.dmg"
+  (`dmg.go`): `hdiutil` creates a writable HFS+ image from the app, the CLI
+  adds the `/Applications` link, the volume icon and a `.DS_Store` written in
+  pure Go (`dsstore.go`, byte-identical to dmgbuild's `ds_store` package) that
+  lays out the Finder window, then `hdiutil convert` compresses it with LZMA.
+  No AppleScript or Finder automation is involved, so it works headless and
+  in CI. The image is signed with a real identity and, with `macos.notarize`,
+  notarized with `notarytool` and stapled.
+
+Configuration lives in an optional `mygo.json` (`cmd/mygo/config.go`): app
+metadata, the frontend (`devUrl`, `devCommand`, `buildCommand`,
+`frontendDist`, `bindings`) and the `macos` section (minimum system version,
+signing identity, entitlements, DMG title, notarization profile).
+
+## Testing
+
+| suite | command | covers |
+|---|---|---|
+| core | `go test .` | lifecycle, quit, IPC, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance and its dev handover, dev ready signal (fake backend) |
+| generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
+| CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); the last two compile or run tools and are skipped with `-short` |
+| runtime | `bun run test` | the injected runtime and `mygo-runtime` |
+| GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, protocol, Eval, geometry, capture, menus, window.open |
+
+`internal/fake` runs its loop on the goroutine that calls `Run` and records
+evaluated scripts, so tests can assert on exactly what the page would
+receive. The unit tests run `App.Run` on the main goroutine from `TestMain`,
+like a real program.
+
+Linux GUI tests run in a container, since no cgo means the test binary
+cross-compiles:
+
+```sh
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go test -c -o e2e.test ./internal/e2e
+docker run --rm -v "$PWD:/work" -w /work -e MYGO_E2E=1 <image with libwebkit2gtk-4.1-0, xvfb, dbus> \
+  dbus-run-session -- xvfb-run -a ./e2e.test
+```
+
+## Adding a feature
+
+1. **Design the public API first** in `package mygo`: typed, goroutine-safe,
+   documented, with sensible zero values. Keep policy (defaults, validation,
+   state machines) here.
+2. **Extend `internal/platform`** with the smallest mechanism the backends
+   need: main-thread only, synchronous, or with a callback that runs on the
+   main thread exactly once.
+3. **Implement it in every backend**: `darwin`, `linux`, `fake` and
+   `unsupported` (return `platform.ErrUnsupported` or a zero value). Create
+   purego callbacks once, never per call.
+4. **Wire the core**: hop with `onMain`/`onMainValue`, or `postMain` + `await`
+   + `deliver` for asynchronous native results.
+5. **Test**: unit test through `internal/fake`, a GUI test in `internal/e2e`
+   when behavior depends on the toolkit, and run the Linux GUI tests in the
+   container.
+6. **If the page runtime changes**, edit `packages/bridge` or
+   `packages/runtime`, run `bun run test`, `bun run typecheck` and
+   `bun run build`, and commit `internal/bridge/bridge.js` and
+   `packages/runtime/dist`. If the generated client changes, update
+   `internal/tsgen/generate.go` and its tests.
+7. **Document** the behavior in the Go doc comments and platform
+   differences in the README.
+
+## Platform differences
+
+| feature | macOS | Linux |
+|---|---|---|
+| menu bar | application menu bar, default menu installed | per-window GTK menu bar, none by default |
+| tray | NSStatusItem, click events | AppIndicator (menu only, no click events) |
+| global shortcuts | Carbon hot keys | not available |
+| notifications | UserNotifications, packaged apps only | org.freedesktop.Notifications over D-Bus |
+| vibrancy, traffic lights, Dock | yes | ignored |
+| window position | honored | ignored by Wayland compositors |
+| content protection, click-through | yes | ignored |

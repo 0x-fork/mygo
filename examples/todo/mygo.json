@@ -1,0 +1,11 @@
+{
+  "name": "Todo",
+  "identifier": "dev.mygo.todo",
+  "version": "1.0.0",
+  "devUrl": "http://localhost:5173",
+  "devCommand": "bun run dev",
+  "buildCommand": "bun run build",
+  "frontendDist": "dist",
+  "bindings": "src/mygo.ts",
+  "out": "build"
+}

@@ -1,0 +1,704 @@
+//go:build linux && (amd64 || arm64)
+
+package linux
+
+import (
+	"bytes"
+	"errors"
+	"sync"
+	"unsafe"
+
+	"github.com/ebitengine/purego"
+
+	"github.com/egoist/mygo/internal/platform"
+)
+
+// GDK window state flags.
+const (
+	stateIconified  = 1 << 1
+	stateMaximized  = 1 << 2
+	stateFullscreen = 1 << 4
+	stateAbove      = 1 << 5
+)
+
+type window struct {
+	b    *Backend
+	id   int
+	h    platform.WindowHandler
+	opts *platform.WindowOptions
+
+	win     ptr // GtkWindow
+	box     ptr // GtkBox holding the menu bar and the webview
+	web     ptr // WebKitWebView
+	ucm     ptr // WebKitUserContentManager
+	menubar ptr
+	accel   ptr
+	owner   int
+	ownMenu bool
+
+	closed       bool
+	programmatic bool
+	keepAbove    bool
+	// requested holds bounds set with SetBounds until the window manager
+	// confirms them: GTK resizes and moves asynchronously.
+	requested    *platform.Rect
+	state        uint32
+	x, y, w, hgt int32
+	minW, minH   int32
+	maxW, maxH   int32
+
+	// The last button press on the page, used for window dragging and
+	// context menu positioning.
+	press struct {
+		button     int32
+		rootX      float64
+		rootY      float64
+		time       uint32
+		event      ptr
+		hasPressed bool
+	}
+}
+
+func (b *Backend) window(data ptr) *window {
+	w := b.windows[int(data)]
+	if w == nil || w.closed {
+		return nil
+	}
+	return w
+}
+
+func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
+	b.nextID++
+	w := &window{b: b, id: b.nextID, h: h, opts: o}
+	data := ptr(w.id)
+
+	w.win = gtkWindowNew(0)
+	gtkWindowSetTitle(w.win, cs(o.Title))
+	gtkWindowSetDefaultSize(w.win, int32(o.Width), int32(o.Height))
+	if o.Center {
+		gtkWindowSetPosition(w.win, 1) // GTK_WIN_POS_CENTER
+	} else {
+		gtkWindowMove(w.win, int32(o.X), int32(o.Y))
+	}
+	gtkWindowSetResizable(w.win, o.Resizable)
+	gtkWindowSetDeletable(w.win, o.Closable)
+	if o.Frameless {
+		gtkWindowSetDecorated(w.win, false)
+	}
+	if o.AlwaysOnTop {
+		w.SetAlwaysOnTop(true)
+	}
+	if o.SkipTaskbar {
+		gtkWindowSetSkipTaskbarHint(w.win, true)
+	}
+	if o.Opacity > 0 && o.Opacity < 1 {
+		gtkWidgetSetOpacity(w.win, o.Opacity)
+	}
+	w.minW, w.minH = int32(o.MinSize.Width), int32(o.MinSize.Height)
+	w.maxW, w.maxH = int32(o.MaxSize.Width), int32(o.MaxSize.Height)
+	w.applyGeometry()
+	if o.Transparent {
+		if visual := gdkScreenGetRGBAVisual(gtkWidgetGetScreen(w.win)); visual != 0 {
+			gtkWidgetSetVisual(w.win, visual)
+		}
+		gtkWidgetSetAppPaintable(w.win, true)
+	}
+	if p, ok := o.Parent.(*window); ok && p != nil {
+		gtkWindowSetTransientFor(w.win, p.win)
+		if o.Modal {
+			gtkWindowSetModal(w.win, true)
+		}
+	}
+
+	w.box = gtkBoxNew(1, 0) // vertical
+	gtkContainerAdd(w.win, w.box)
+	w.createWebView()
+	gtkBoxPackStart(w.box, w.web, true, true, 0)
+	w.accel = gtkAccelGroupNew()
+	gtkWindowAddAccelGroup(w.win, w.accel)
+	if b.appMenu != nil {
+		w.installMenu(b.appMenu)
+	}
+
+	connect(w.win, "delete-event", cbDeleteEvent, data)
+	connect(w.win, "destroy", cbDestroy, data)
+	connect(w.win, "focus-in-event", cbFocusIn, data)
+	connect(w.win, "focus-out-event", cbFocusOut, data)
+	connect(w.win, "configure-event", cbConfigure, data)
+	connect(w.win, "window-state-event", cbWindowState, data)
+
+	b.windows[w.id] = w
+	b.byWebView[w.web] = w
+	gtkWidgetShowAll(w.box)
+	if o.FullScreen {
+		gtkWindowFullscreen(w.win)
+	}
+	return w, nil
+}
+
+func (w *window) createWebView() {
+	o := w.opts
+	data := ptr(w.id)
+	w.ucm = webkitUserContentManagerNew()
+	for _, s := range o.Schemes {
+		w.b.registerScheme(s)
+	}
+	w.web = webkitWebViewNewWithUserContentManager(w.ucm)
+	webkitUserContentManagerRegisterHandler(w.ucm, cs("mygo"))
+	connect(w.ucm, "script-message-received::mygo", cbScriptMessage, data)
+	for _, s := range o.UserScripts {
+		frames, when := int32(1), int32(0) // top frame, document start
+		if s.AllFrames {
+			frames = 0
+		}
+		if s.AtDocumentEnd {
+			when = 1
+		}
+		script := webkitUserScriptNew(cs(s.Source), frames, when, 0, 0)
+		webkitUserContentManagerAddScript(w.ucm, script)
+		webkitUserScriptUnref(script)
+	}
+
+	settings := webkitWebViewGetSettings(w.web)
+	webkitSettingsSetEnableDeveloperExtras(settings, o.DevTools)
+	webkitSettingsSetAllowFileAccessFromFileURLs(settings, true)
+	webkitSettingsSetJavascriptCanAccessClipboard(settings, true)
+	if o.UserAgent != "" {
+		webkitSettingsSetUserAgent(settings, cs(o.UserAgent))
+	}
+	if o.Zoom > 0 && o.Zoom != 1 {
+		webkitWebViewSetZoomLevel(w.web, o.Zoom)
+	}
+	switch {
+	case o.Transparent:
+		webkitWebViewSetBackgroundColor(w.web, &gdkRGBA{})
+	case o.BackgroundColor != nil:
+		w.SetBackgroundColor(*o.BackgroundColor)
+	}
+
+	connect(w.web, "load-changed", cbLoadChanged, data)
+	connect(w.web, "load-failed", cbLoadFailed, data)
+	connect(w.web, "notify::title", cbTitle, data)
+	connect(w.web, "decide-policy", cbDecidePolicy, data)
+	connect(w.web, "create", cbCreate, data)
+	connect(w.web, "close", cbClose, data)
+	connect(w.web, "web-process-terminated", cbCrashed, data)
+	connect(w.web, "button-press-event", cbButtonPress, data)
+}
+
+func (w *window) applyGeometry() {
+	g := gdkGeometry{MinWidth: w.minW, MinHeight: w.minH, MaxWidth: w.maxW, MaxHeight: w.maxH}
+	mask := int32(0)
+	if w.minW > 0 || w.minH > 0 {
+		mask |= 1 << 1 // GDK_HINT_MIN_SIZE
+	}
+	if w.maxW > 0 || w.maxH > 0 {
+		if g.MaxWidth == 0 {
+			g.MaxWidth = 1 << 20
+		}
+		if g.MaxHeight == 0 {
+			g.MaxHeight = 1 << 20
+		}
+		mask |= 1 << 2 // GDK_HINT_MAX_SIZE
+	}
+	gtkWindowSetGeometryHints(w.win, 0, &g, mask)
+}
+
+func (w *window) cleanup() {
+	if w.closed {
+		return
+	}
+	w.closed = true
+	delete(w.b.windows, w.id)
+	delete(w.b.byWebView, w.web)
+	dropOwner(w.owner)
+	webkitUserContentManagerUnregisterHandler(w.ucm, cs("mygo"))
+	webkitUserContentManagerRemoveAllScripts(w.ucm)
+	gObjectUnref(w.ucm)
+	if w.press.event != 0 {
+		gdkEventFree(w.press.event)
+		w.press.event = 0
+	}
+}
+
+func (w *window) Handle() uintptr        { return w.win }
+func (w *window) WebViewHandle() uintptr { return w.web }
+
+func (w *window) SetTitle(title string) { gtkWindowSetTitle(w.win, cs(title)) }
+func (w *window) Title() string         { return goStr(gtkWindowGetTitle(w.win)) }
+
+func (w *window) SetBounds(r platform.Rect) {
+	w.requested = &r
+	gtkWindowMove(w.win, int32(r.X), int32(r.Y))
+	gtkWindowResize(w.win, int32(r.Width), int32(r.Height))
+}
+
+func (w *window) Bounds() platform.Rect {
+	if w.requested != nil {
+		return *w.requested
+	}
+	var x, y, width, height int32
+	gtkWindowGetPosition(w.win, &x, &y)
+	gtkWindowGetSize(w.win, &width, &height)
+	return platform.Rect{X: int(x), Y: int(y), Width: int(width), Height: int(height)}
+}
+
+func (w *window) SetContentBounds(r platform.Rect) { w.SetBounds(r) }
+func (w *window) ContentBounds() platform.Rect     { return w.Bounds() }
+
+func (w *window) SetMinimumSize(s platform.Size) {
+	w.minW, w.minH = int32(s.Width), int32(s.Height)
+	w.applyGeometry()
+}
+
+func (w *window) SetMaximumSize(s platform.Size) {
+	w.maxW, w.maxH = int32(s.Width), int32(s.Height)
+	w.applyGeometry()
+}
+
+func (w *window) SetResizable(v bool) { gtkWindowSetResizable(w.win, v) }
+func (w *window) IsResizable() bool   { return gtkWindowGetResizable(w.win) }
+func (w *window) SetMovable(bool)     {}
+func (w *window) IsMovable() bool     { return true }
+func (w *window) SetMinimizable(bool) {}
+func (w *window) IsMinimizable() bool { return true }
+func (w *window) SetMaximizable(bool) {}
+func (w *window) IsMaximizable() bool { return gtkWindowGetResizable(w.win) }
+func (w *window) SetClosable(v bool)  { gtkWindowSetDeletable(w.win, v) }
+func (w *window) IsClosable() bool    { return gtkWindowGetDeletable(w.win) }
+func (w *window) SetAlwaysOnTop(v bool) {
+	w.keepAbove = v
+	gtkWindowSetKeepAbove(w.win, v)
+}
+
+// IsAlwaysOnTop reports the requested state: only some window managers
+// reflect it in the window state.
+func (w *window) IsAlwaysOnTop() bool { return w.keepAbove || w.state&stateAbove != 0 }
+
+func (w *window) Show() {
+	gtkWidgetShow(w.win)
+	gtkWindowPresent(w.win)
+}
+
+func (w *window) ShowInactive()     { gtkWidgetShow(w.win) }
+func (w *window) Hide()             { gtkWidgetHide(w.win) }
+func (w *window) IsVisible() bool   { return gtkWidgetGetVisible(w.win) }
+func (w *window) Focus()            { gtkWindowPresent(w.win) }
+func (w *window) Blur()             {}
+func (w *window) IsFocused() bool   { return gtkWindowIsActive(w.win) }
+func (w *window) Minimize()         { gtkWindowIconify(w.win) }
+func (w *window) IsMinimized() bool { return w.state&stateIconified != 0 }
+func (w *window) Maximize()         { gtkWindowMaximize(w.win) }
+func (w *window) Unmaximize()       { gtkWindowUnmaximize(w.win) }
+func (w *window) IsMaximized() bool { return gtkWindowIsMaximized(w.win) }
+func (w *window) Restore()          { gtkWindowDeiconify(w.win) }
+
+func (w *window) SetFullScreen(v bool) {
+	if v {
+		gtkWindowFullscreen(w.win)
+	} else {
+		gtkWindowUnfullscreen(w.win)
+	}
+}
+
+func (w *window) IsFullScreen() bool { return w.state&stateFullscreen != 0 }
+
+func (w *window) Center() {
+	b := w.Bounds()
+	for _, d := range (screen{}).Displays() {
+		if d.Primary {
+			area := d.WorkArea
+			gtkWindowMove(w.win, int32(area.X+(area.Width-b.Width)/2), int32(area.Y+(area.Height-b.Height)/2))
+			return
+		}
+	}
+}
+
+func (w *window) SetBackgroundColor(c platform.Color) {
+	webkitWebViewSetBackgroundColor(w.web, &gdkRGBA{float64(c.R) / 255, float64(c.G) / 255, float64(c.B) / 255, float64(c.A) / 255})
+}
+
+func (w *window) SetOpacity(v float64)      { gtkWidgetSetOpacity(w.win, v) }
+func (w *window) Opacity() float64          { return gtkWidgetGetOpacity(w.win) }
+func (w *window) SetHasShadow(bool)         {}
+func (w *window) HasShadow() bool           { return true }
+func (w *window) SetIgnoreMouseEvents(bool) {}
+func (w *window) SetContentProtection(bool) {}
+func (w *window) SetVibrancy(string)        {}
+
+func (w *window) StartDrag() {
+	if !w.press.hasPressed {
+		return
+	}
+	gtkWindowBeginMoveDrag(w.win, w.press.button, int32(w.press.rootX), int32(w.press.rootY), w.press.time)
+}
+
+func (w *window) TitleBarDoubleClicked() {
+	if w.IsMaximized() {
+		w.Unmaximize()
+	} else {
+		w.Maximize()
+	}
+}
+
+func (w *window) Close() {
+	if !w.closed {
+		gtkWidgetDestroy(w.win)
+	}
+}
+
+func (w *window) LoadURL(url string) {
+	w.programmatic = true
+	webkitWebViewLoadURI(w.web, cs(url))
+}
+
+func (w *window) LoadHTML(html, baseURL string) {
+	w.programmatic = true
+	webkitWebViewLoadHTML(w.web, cs(html), optCS(baseURL))
+}
+
+func (w *window) LoadFile(path, _ string) {
+	f := gFileNewForPath(cs(path))
+	uri := takeStr(gFileGetURI(f))
+	gObjectUnref(f)
+	w.LoadURL(uri)
+}
+
+func (w *window) Reload(ignoreCache bool) {
+	if ignoreCache {
+		webkitWebViewReloadBypassCache(w.web)
+	} else {
+		webkitWebViewReload(w.web)
+	}
+}
+
+func (w *window) StopLoading()       { webkitWebViewStopLoading(w.web) }
+func (w *window) GoBack()            { webkitWebViewGoBack(w.web) }
+func (w *window) GoForward()         { webkitWebViewGoForward(w.web) }
+func (w *window) CanGoBack() bool    { return webkitWebViewCanGoBack(w.web) }
+func (w *window) CanGoForward() bool { return webkitWebViewCanGoForward(w.web) }
+func (w *window) URL() string        { return goStr(webkitWebViewGetURI(w.web)) }
+func (w *window) IsLoading() bool    { return webkitWebViewIsLoading(w.web) }
+
+func (w *window) Eval(js string) {
+	if webkitWebViewEvaluateJavascript != nil {
+		webkitWebViewEvaluateJavascript(w.web, cs(js), -1, nil, nil, 0, 0, 0)
+	} else if webkitWebViewRunJavascript != nil {
+		webkitWebViewRunJavascript(w.web, cs(js), 0, 0, 0)
+	}
+}
+
+func (w *window) CallAsyncFunction(body string, cb func(string, error)) {
+	if webkitWebViewCallAsyncJavascriptFunction == nil {
+		cb("", errors.New("mygo: Eval requires WebKitGTK 2.40 or later"))
+		return
+	}
+	id := pending.add(func(source, res ptr) {
+		var gerr ptr
+		v := webkitWebViewCallAsyncJavascriptFunctionFinish(source, res, &gerr)
+		if gerr != 0 {
+			cb("", gErr(gerr))
+			return
+		}
+		s := takeStr(jscValueToString(v))
+		gObjectUnref(v)
+		cb(s, nil)
+	})
+	webkitWebViewCallAsyncJavascriptFunction(w.web, cs(body), -1, 0, nil, nil, 0, cbAsyncReady, id)
+}
+
+func (w *window) SetZoom(f float64) { webkitWebViewSetZoomLevel(w.web, f) }
+func (w *window) Zoom() float64     { return webkitWebViewGetZoomLevel(w.web) }
+
+func (w *window) SetUserAgent(ua string) {
+	webkitSettingsSetUserAgent(webkitWebViewGetSettings(w.web), optCS(ua))
+}
+
+func (w *window) UserAgent() string {
+	return goStr(webkitSettingsGetUserAgent(webkitWebViewGetSettings(w.web)))
+}
+
+func (w *window) OpenDevTools() {
+	if w.opts.DevTools {
+		webkitWebInspectorShow(webkitWebViewGetInspector(w.web))
+	}
+}
+
+func (w *window) CloseDevTools() { webkitWebInspectorClose(webkitWebViewGetInspector(w.web)) }
+
+func (w *window) IsDevToolsOpened() bool {
+	return webkitWebInspectorGetWebView(webkitWebViewGetInspector(w.web)) != 0
+}
+
+func (w *window) CapturePage(cb func([]byte, error)) {
+	id := pending.add(func(source, res ptr) {
+		var gerr ptr
+		surface := webkitWebViewGetSnapshotFinish(source, res, &gerr)
+		if gerr != 0 {
+			cb(nil, gErr(gerr))
+			return
+		}
+		png, err := surfaceToPNG(surface)
+		cairoSurfaceDestroy(surface)
+		cb(png, err)
+	})
+	webkitWebViewGetSnapshot(w.web, 0, 0, 0, cbAsyncReady, id)
+}
+
+func (w *window) Print() {
+	op := webkitPrintOperationNew(w.web)
+	webkitPrintOperationRunDialog(op, w.win)
+	gObjectUnref(op)
+}
+
+// pending holds callbacks of asynchronous GIO operations by id.
+var pending = &asyncCalls{m: map[ptr]func(source, res ptr){}}
+
+type asyncCalls struct {
+	mu   sync.Mutex
+	next ptr
+	m    map[ptr]func(source, res ptr)
+}
+
+func (a *asyncCalls) add(fn func(source, res ptr)) ptr {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.next++
+	a.m[a.next] = fn
+	return a.next
+}
+
+func (a *asyncCalls) take(id ptr) func(source, res ptr) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	fn := a.m[id]
+	delete(a.m, id)
+	return fn
+}
+
+// surfaceToPNG encodes a cairo surface as PNG through a write callback.
+var pngBuffers = map[ptr]*bytes.Buffer{}
+
+func surfaceToPNG(surface ptr) ([]byte, error) {
+	key := ptr(len(pngBuffers) + 1)
+	for pngBuffers[key] != nil {
+		key++
+	}
+	buf := &bytes.Buffer{}
+	pngBuffers[key] = buf
+	defer delete(pngBuffers, key)
+	if status := cairoSurfaceWriteToPNGStream(surface, cbPNGWrite, key); status != 0 {
+		return nil, errors.New("mygo: cannot encode snapshot")
+	}
+	return buf.Bytes(), nil
+}
+
+// Signal handlers. data carries the window id.
+var (
+	cbDeleteEvent, cbDestroy, cbFocusIn, cbFocusOut, cbConfigure, cbWindowState ptr
+	cbScriptMessage, cbLoadChanged, cbLoadFailed, cbTitle, cbDecidePolicy       ptr
+	cbCreate, cbClose, cbCrashed, cbButtonPress, cbAsyncReady, cbPNGWrite       ptr
+)
+
+func field[T any](p ptr, offset uintptr) T {
+	return *(*T)(unsafe.Add(*(*unsafe.Pointer)(unsafe.Pointer(&p)), offset))
+}
+
+func initWindowCallbacks() {
+	b := func() *Backend { return theBackend }
+	cbDeleteEvent = purego.NewCallback(func(widget, event, data ptr) bool {
+		if w := b().window(data); w != nil {
+			return !w.h.ShouldClose()
+		}
+		return false
+	})
+	cbDestroy = purego.NewCallback(func(widget, data ptr) {
+		if w := b().window(data); w != nil {
+			w.cleanup()
+			w.h.Closed()
+		}
+	})
+	cbFocusIn = purego.NewCallback(func(widget, event, data ptr) bool {
+		if w := b().window(data); w != nil {
+			w.h.Focused()
+		}
+		return false
+	})
+	cbFocusOut = purego.NewCallback(func(widget, event, data ptr) bool {
+		if w := b().window(data); w != nil {
+			w.h.Blurred()
+		}
+		return false
+	})
+	cbConfigure = purego.NewCallback(func(widget, event, data ptr) bool {
+		w := b().window(data)
+		if w == nil {
+			return false
+		}
+		// GdkEventConfigure: x, y, width, height at offsets 20..32.
+		x, y := field[int32](event, 20), field[int32](event, 24)
+		width, height := field[int32](event, 28), field[int32](event, 32)
+		moved := x != w.x || y != w.y
+		resized := width != w.w || height != w.hgt
+		w.x, w.y, w.w, w.hgt = x, y, width, height
+		if r := w.requested; r != nil && int32(r.Width) == width && int32(r.Height) == height {
+			w.requested = nil
+		}
+		if resized {
+			w.h.Resized()
+		}
+		if moved {
+			w.h.Moved()
+		}
+		return false
+	})
+	cbWindowState = purego.NewCallback(func(widget, event, data ptr) bool {
+		w := b().window(data)
+		if w == nil {
+			return false
+		}
+		// GdkEventWindowState: changed_mask at 20, new_window_state at 24.
+		changed, state := field[uint32](event, 20), field[uint32](event, 24)
+		w.state = state
+		if changed&stateIconified != 0 {
+			if state&stateIconified != 0 {
+				w.h.Minimized()
+			} else {
+				w.h.Restored()
+			}
+		}
+		if changed&stateMaximized != 0 {
+			if state&stateMaximized != 0 {
+				w.h.Maximized()
+			} else {
+				w.h.Unmaximized()
+			}
+		}
+		if changed&stateFullscreen != 0 {
+			if state&stateFullscreen != 0 {
+				w.h.EnteredFullScreen()
+			} else {
+				w.h.LeftFullScreen()
+			}
+		}
+		return false
+	})
+	cbButtonPress = purego.NewCallback(func(widget, event, data ptr) bool {
+		w := b().window(data)
+		if w == nil {
+			return false
+		}
+		// GdkEventButton: time 20, button 52, x_root 64, y_root 72.
+		w.press.time = field[uint32](event, 20)
+		w.press.button = int32(field[uint32](event, 52))
+		w.press.rootX = field[float64](event, 64)
+		w.press.rootY = field[float64](event, 72)
+		w.press.hasPressed = true
+		if w.press.event != 0 {
+			gdkEventFree(w.press.event)
+		}
+		w.press.event = gdkEventCopy(event)
+		return false
+	})
+	cbScriptMessage = purego.NewCallback(func(ucm, result, data ptr) {
+		if w := b().window(data); w != nil {
+			w.h.Message(takeStr(jscValueToString(webkitJavascriptResultGetJSValue(result))))
+		}
+	})
+	cbLoadChanged = purego.NewCallback(func(web ptr, event int32, data ptr) {
+		w := b().window(data)
+		if w == nil {
+			return
+		}
+		switch event {
+		case 0: // WEBKIT_LOAD_STARTED
+			w.h.NavigationStarted(w.URL())
+		case 2: // WEBKIT_LOAD_COMMITTED
+			w.h.NavigationCommitted(w.URL())
+		case 3: // WEBKIT_LOAD_FINISHED
+			w.h.LoadFinished()
+		}
+	})
+	cbLoadFailed = purego.NewCallback(func(web ptr, event int32, uri, gerr, data ptr) bool {
+		w := b().window(data)
+		if w == nil || gerr == 0 {
+			return false
+		}
+		code := field[int32](gerr, 4)
+		// Cancelled loads (302) and navigations stopped by policy (102)
+		// are not failures.
+		if code == 302 || code == 102 {
+			return false
+		}
+		w.h.LoadFailed(goStr(uri), int(code), goStr(field[ptr](gerr, 8)))
+		return false
+	})
+	cbTitle = purego.NewCallback(func(web, pspec, data ptr) {
+		if w := b().window(data); w != nil {
+			w.h.TitleChanged(goStr(webkitWebViewGetTitle(w.web)))
+		}
+	})
+	cbDecidePolicy = purego.NewCallback(func(web, decision ptr, kind int32, data ptr) bool {
+		w := b().window(data)
+		if w == nil || kind != 0 { // only WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION
+			return false
+		}
+		action := webkitNavigationPolicyDecisionGetNavigationAction(decision)
+		navType := webkitNavigationActionGetNavigationType(action)
+		mainFrame := true
+		if webkitNavigationPolicyDecisionGetFrameName != nil {
+			mainFrame = webkitNavigationPolicyDecisionGetFrameName(decision) == 0
+		}
+		nav := platform.Navigation{
+			URL:           goStr(webkitURIRequestGetURI(webkitNavigationActionGetRequest(action))),
+			IsMainFrame:   mainFrame,
+			UserInitiated: webkitNavigationActionIsUserGesture(action) || navType == 0 || navType == 1,
+			IsReload:      navType == 2 || navType == 3,
+		}
+		if nav.IsMainFrame && w.programmatic {
+			w.programmatic = false
+			nav.IsReload = true
+		}
+		if w.h.WillNavigate(nav) {
+			webkitPolicyDecisionUse(decision)
+		} else {
+			webkitPolicyDecisionIgnore(decision)
+		}
+		return true
+	})
+	cbCreate = purego.NewCallback(func(web, action, data ptr) ptr {
+		w := b().window(data)
+		if w == nil {
+			return 0
+		}
+		// WebKitGTK makes a related view share the opener's user content
+		// manager, which would route the new window's IPC to the opener.
+		// Open an independent window instead; its page has no opener.
+		url := goStr(webkitURIRequestGetURI(webkitNavigationActionGetRequest(action)))
+		if child, ok := w.h.NewWindow(platform.NewWindowRequest{URL: url}).(*window); ok && child != nil {
+			child.LoadURL(url)
+		}
+		return 0
+	})
+	cbClose = purego.NewCallback(func(web, data ptr) {
+		if w := b().window(data); w != nil {
+			w.h.ClosedByPage()
+		}
+	})
+	cbCrashed = purego.NewCallback(func(web ptr, reason int32, data ptr) {
+		if w := b().window(data); w != nil {
+			w.h.RenderProcessGone(map[int32]string{0: "crashed", 1: "exceeded memory limit", 2: "terminated by API"}[reason])
+		}
+	})
+	cbAsyncReady = purego.NewCallback(func(source, res, data ptr) {
+		if fn := pending.take(data); fn != nil {
+			fn(source, res)
+		}
+	})
+	cbPNGWrite = purego.NewCallback(func(closure, data ptr, length uint32) int32 {
+		if buf := pngBuffers[closure]; buf != nil && length > 0 {
+			buf.Write(unsafe.Slice(*(**byte)(unsafe.Pointer(&data)), length))
+		}
+		return 0 // CAIRO_STATUS_SUCCESS
+	})
+}

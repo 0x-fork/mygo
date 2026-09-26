@@ -1,0 +1,17 @@
+{
+  "name": "todo-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "mygo-runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^7",
+    "vite": "^8"
+  }
+}

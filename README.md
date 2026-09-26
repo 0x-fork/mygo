@@ -10,4 +10,4 @@ MyGo is a desktop framework based on System Webview (by default), or bundled CEF
 ## Project
 
 - Focused on ultra-low memory usage, high performance, low CPU usage
-- Ergonomic API, feels familar if you come from Electron
+- Ergonomic API, great DX
