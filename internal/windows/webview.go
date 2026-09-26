@@ -74,29 +74,27 @@ func (w *window) createWebView() {
 		return
 	}
 	if w.b.envErr != nil {
-		w.showError(w.b.envErr)
+		log.Print(w.b.envErr)
 		return
 	}
 	hr := withHandler(func(hr, controller uintptr) {
-		if failed(hr) || controller == 0 {
-			w.showError(hresultError("creating the WebView2 controller", hr))
+		// Closing the window aborts the creation (E_ABORT).
+		if w.closed || w.destroying {
+			if controller != 0 {
+				comCall(controller, ctlClose)
+			}
 			return
 		}
-		if w.closed {
-			comCall(controller, ctlClose)
+		if failed(hr) || controller == 0 {
+			log.Print(hresultError("creating the WebView2 controller", hr))
 			return
 		}
 		addRef(controller)
 		w.setUp(controller)
 	}, func(h uintptr) uintptr { return comCall(w.b.env, envCreateController, w.hwnd, h) })
 	if failed(hr) {
-		w.showError(hresultError("creating the WebView2 controller", hr))
+		log.Print(hresultError("creating the WebView2 controller", hr))
 	}
-}
-
-func (w *window) showError(err error) {
-	log.Print(err)
-	w.b.messageBox(w.hwnd, &platform.MessageBoxOptions{Type: "error", Title: "WebView2", Message: "The page cannot be shown", Detail: err.Error(), Buttons: []string{"OK"}})
 }
 
 func (w *window) setUp(controller uintptr) {

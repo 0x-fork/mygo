@@ -327,7 +327,11 @@ func TestWindowGeometryAndState(t *testing.T) {
 		t.Errorf("SetBounds -> %+v", b)
 	}
 	cw, ch := w.ContentSize()
-	if cw != 420 || ch > 320 || (runtime.GOOS == "darwin" && ch == 320) {
+	widthOK := cw == 420
+	if runtime.GOOS == "windows" {
+		widthOK = cw > 380 && cw <= 420 // the bounds include the resize borders
+	}
+	if !widthOK || ch > 320 || (runtime.GOOS != "linux" && ch == 320) {
 		t.Errorf("content size = %dx%d, expected the title bar to be excluded", cw, ch)
 	}
 	w.SetTitle("Renamed")

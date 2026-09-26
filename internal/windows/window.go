@@ -26,6 +26,7 @@ type window struct {
 	ready      bool
 	pending    []func()
 	closed     bool
+	destroying bool
 
 	minW, minH, maxW, maxH int // DIPs
 	movable, closable      bool
@@ -319,9 +320,10 @@ func (w *window) frameCalcSize(wp, lp uintptr) uintptr {
 }
 
 func (w *window) destroy() {
-	if w.closed {
+	if w.closed || w.destroying {
 		return
 	}
+	w.destroying = true
 	// Re-enable the owner first, or Windows activates another app.
 	if w.opts.Modal && w.parent != nil && !w.parent.closed {
 		procEnableWindow.Call(w.parent.hwnd, 1)
