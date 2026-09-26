@@ -13,12 +13,13 @@ before changing anything under `internal/`.
 - **No cgo.** Everything builds with `CGO_ENABLED=0`, so any platform can be
   cross-compiled from any machine. Native APIs are called at run time through
   [purego](https://github.com/ebitengine/purego) (`dlopen` + assembly
-  trampolines), never through `import "C"`.
+  trampolines) on macOS and Linux and through the `syscall` package on
+  Windows, never through `import "C"`.
 - **The system webview.** WKWebView on macOS, WebKitGTK 4.1 (4.0 as a
-  fallback) on Linux. No browser engine is bundled. Windows (WebView2) and the
-  bundled CEF option are planned but not implemented; on unsupported
-  platforms the `internal/unsupported` backend makes `App.Run` fail with a
-  clear error while everything still compiles.
+  fallback) on Linux, WebView2 on Windows (amd64 and arm64). No browser engine
+  is bundled. The bundled CEF option is planned but not implemented; on
+  unsupported platforms the `internal/unsupported` backend makes `App.Run`
+  fail with a clear error while everything still compiles.
 - **Bun is dev tooling only.** It builds and tests the TypeScript bridge, and
   installs and runs the frontend template's tools (Vite, TypeScript). Nothing
   Bun-related ships in an app.
@@ -48,6 +49,7 @@ before changing anything under `internal/`.
 │   ├── platform/       the contract every backend implements
 │   ├── darwin/         macOS: AppKit + WKWebView through the Objective-C runtime
 │   ├── linux/          Linux: GTK 3 + WebKitGTK through dlopen
+│   ├── windows/        Windows: Win32 + WebView2 through syscall and COM
 │   ├── unsupported/    stub for other platforms
 │   ├── fake/           in-memory backend for unit tests
 │   ├── bridge/         embeds bridge.js, built from packages/bridge
@@ -190,6 +192,53 @@ purego gives three primitives, used everywhere:
   rectangle and `Bounds` reports it until the configure event confirms it.
 - `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set unless the user set it, which
   avoids blank webviews on NVIDIA drivers, VMs and containers.
+
+### Windows (`internal/windows`)
+
+- Win32 is called through `syscall` (`LazyDLL` procs; system DLLs are loaded
+  by absolute path from the system directory). `IsMainThread` compares the
+  thread id recorded during package initialization. The loop is
+  `GetMessageW`; `Signal` and `Wake` post messages to a hidden top-level
+  application window, which also receives tray, hot key, theme
+  (`WM_SETTINGCHANGE`) and display broadcasts. `Quit` posts `WM_QUIT`, which
+  modal loops (dialogs, menus) forward, so quitting works while they run.
+- **COM.** `comCall` calls vtable methods; its indices come from
+  `WebView2.h` (constants in `webview2.go`). Handler objects (event and
+  completion handlers) share one vtable whose callbacks are created once and
+  route `Invoke` to a Go function per object; the objects live in a map until
+  COM releases them. Call wrappers are `go:uintptrescapes`, so
+  `uintptr(unsafe.Pointer(&x))` arguments stay valid.
+- **WebView2 without a loader DLL.** `createEnvironment` finds the Evergreen
+  runtime in the registry (`EdgeUpdate\ClientState\<channel>\EBWebView`)
+  and calls `CreateWebViewEnvironmentWithOptionsInternal` of its
+  `EmbeddedBrowserWebView.dll`, as `WebView2Loader.dll` does; a loader next to
+  the executable wins. The environment and each controller are created
+  asynchronously: window methods that need the webview wait in `pending`.
+  User data lives in `%LOCALAPPDATA%\<name>\WebView2`.
+- **Custom schemes** load from `https://<scheme>.localhost/` (a secure origin
+  WebView2 lets the app answer through `WebResourceRequested`); the backend
+  maps URLs both ways, so the core only sees `<scheme>://localhost/`.
+  Responses are buffered: WebView2 takes a whole stream. `LoadHTML` with a
+  base URL serves the document from that URL the same way.
+- **Eval** goes through the DevTools protocol (`Runtime.evaluate` with
+  `awaitPromise`), which reports syntax errors and ignores the page's CSP.
+  Edit roles run `document.execCommand` with a user gesture; paste inserts
+  the clipboard text.
+- Scripts injected at document creation run in every frame, so the
+  main-frame-only ones (the bridge) are wrapped in `window === window.top`.
+  Iframes get no `chrome.webview` handler.
+- **ABI.** On x64, structs over 8 bytes are passed by reference and Go
+  mirrors the first integer arguments into the XMM registers, so doubles can
+  be passed as bits. On ARM64, 16-byte structs travel in two registers and
+  floats cannot be passed, so zoom falls back to CSS (`abi_*.go`).
+- DPI: the process is per-monitor aware (v2); the backend converts between
+  pixels and DIPs with the window's or monitor's DPI. Frameless windows drop
+  the caption in `WM_NCCALCSIZE` but keep the side and bottom borders, which
+  Windows 10+ draws invisibly outside the window, so they still resize.
+- Message boxes are task dialogs (comctl32 v6, activated from shell32's
+  manifest for executables without one); their structs are packed and laid
+  out by hand. Notifications are notification-area balloons, which Windows
+  10+ shows as toasts.
 
 ## IPC
 
@@ -482,7 +531,7 @@ signing identity, entitlements, DMG title, notarization profile).
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
 | CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); the last two compile or run tools and are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime and `mygo-runtime` |
-| GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, protocol, Eval, geometry, capture, menus, window.open |
+| GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, protocol, Eval, geometry, capture, menus, window.open; on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
 
 `internal/fake` runs its loop on the goroutine that calls `Run` and records
 evaluated scripts, so tests can assert on exactly what the page would
@@ -506,9 +555,9 @@ docker run --rm -v "$PWD:/work" -w /work -e MYGO_E2E=1 <image with libwebkit2gtk
 2. **Extend `internal/platform`** with the smallest mechanism the backends
    need: main-thread only, synchronous, or with a callback that runs on the
    main thread exactly once.
-3. **Implement it in every backend**: `darwin`, `linux`, `fake` and
-   `unsupported` (return `platform.ErrUnsupported` or a zero value). Create
-   purego callbacks once, never per call.
+3. **Implement it in every backend**: `darwin`, `linux`, `windows`, `fake`
+   and `unsupported` (return `platform.ErrUnsupported` or a zero value).
+   Create callbacks once, never per call.
 4. **Wire the core**: hop with `onMain`/`onMainValue`, or `postMain` + `await`
    + `deliver` for asynchronous native results.
 5. **Test**: unit test through `internal/fake`, a GUI test in `internal/e2e`
@@ -524,12 +573,15 @@ docker run --rm -v "$PWD:/work" -w /work -e MYGO_E2E=1 <image with libwebkit2gtk
 
 ## Platform differences
 
-| feature | macOS | Linux |
-|---|---|---|
-| menu bar | application menu bar, default menu installed | per-window GTK menu bar, none by default |
-| tray | NSStatusItem, click events | AppIndicator (menu only, no click events) |
-| global shortcuts | Carbon hot keys | not available |
-| notifications | UserNotifications, packaged apps only | org.freedesktop.Notifications over D-Bus |
-| vibrancy, traffic lights, Dock | yes | ignored |
-| window position | honored | ignored by Wayland compositors |
-| content protection, click-through | yes | ignored |
+| feature | macOS | Linux | Windows |
+|---|---|---|---|
+| menu bar | application menu bar, default menu installed | per-window GTK menu bar, none by default | per-window Win32 menu bar, none by default |
+| tray | NSStatusItem, click events | AppIndicator (menu only, no click events) | notification area icon, click events |
+| global shortcuts | Carbon hot keys | not available | `RegisterHotKey` |
+| notifications | UserNotifications, packaged apps only | org.freedesktop.Notifications over D-Bus | notification-area balloons (toasts) |
+| vibrancy | all materials | ignored | Windows 11 Mica, Acrylic, Tabbed |
+| traffic lights, Dock | yes | ignored | ignored |
+| window position | honored | ignored by Wayland compositors | honored |
+| content protection, click-through | yes | ignored | yes |
+| custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `https://<scheme>.localhost` (the page's `location`) |
+| window.open | keeps the opener | independent window | independent window |
