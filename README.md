@@ -1,6 +1,6 @@
 # MyGo
 
-MyGo is a desktop framework based on System Webview (by default), or bundled CEF.
+MyGo is a desktop framework based on System Webview (by default), or bundled CEF, written in Golang.
 
 ## Plan
 
