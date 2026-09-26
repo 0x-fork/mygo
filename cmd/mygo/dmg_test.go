@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -180,6 +181,7 @@ func TestFrontendOverlay(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// MyGo's own requirements, so that nothing is downloaded.
 	sum, err := os.ReadFile(filepath.Join(repo, "go.sum"))
 	if err != nil {
 		t.Fatal(err)
@@ -187,11 +189,22 @@ func TestFrontendOverlay(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "go.sum"), sum, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tidy := exec.Command("go", "mod", "tidy")
-	tidy.Dir, tidy.Env = dir, append(os.Environ(), "GOPROXY=off") // purego is in the module cache
-	if out, err := tidy.CombinedOutput(); err != nil {
-		t.Fatalf("go mod tidy: %v\n%s", err, out)
+	mod, err := os.ReadFile(filepath.Join(repo, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	var requires []string
+	for _, line := range strings.Split(string(mod), "\n") {
+		if f := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "require ")); len(f) >= 2 && strings.Contains(f[0], ".") && strings.HasPrefix(f[1], "v") {
+			requires = append(requires, "require "+f[0]+" "+f[1])
+		}
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "go.mod"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintln(f, strings.Join(requires, "\n"))
+	f.Close()
 
 	c := &Config{root: dir, Main: "./cmd/app", FrontendDist: "web/missing"}
 	if _, err := frontendOverlay(c, t.TempDir()); err == nil || !strings.Contains(err.Error(), "buildCommand") {
