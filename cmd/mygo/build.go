@@ -13,7 +13,9 @@ type buildOptions struct {
 	sign         string // macOS signing identity
 	skipDMG      bool
 	skipNotarize bool
-	overlay      string // go build -overlay file embedding the frontend
+	pkg          string            // directory of the main package
+	work         string            // for generated files
+	overlay      map[string]string // go build -overlay entries (the frontend)
 }
 
 func runBuild(args []string) error {
@@ -72,7 +74,17 @@ outside the Mac App Store, and macos.notarize to notarize the disk image.`)
 		return err
 	}
 	defer os.RemoveAll(work)
-	if opts.overlay, err = frontendOverlay(c, work); err != nil {
+	opts.work = work
+	if opts.pkg, err = packageDir(c); err != nil {
+		return err
+	}
+	// Left behind by an interrupted build.
+	for _, p := range sysoFiles(opts.pkg) {
+		if strings.HasPrefix(filepath.Base(p), "mygo_windows_") {
+			os.Remove(p)
+		}
+	}
+	if opts.overlay, err = frontendFiles(c, opts.pkg, work); err != nil {
 		return err
 	}
 
@@ -117,9 +129,20 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 	}
 	compile := func(arch, out string) error {
 		logf("building %s/%s", goos, arch)
+		if goos == "windows" {
+			cleanup, err := windowsResources(c, opts.pkg, arch)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+		}
+		overlay, err := writeOverlay(filepath.Join(opts.work, "overlay.json"), opts.overlay)
+		if err != nil {
+			return err
+		}
 		flags := []string{"-trimpath", "-ldflags", ldflags}
-		if opts.overlay != "" {
-			flags = append(flags, "-overlay", opts.overlay)
+		if overlay != "" {
+			flags = append(flags, "-overlay", overlay)
 		}
 		return buildBinary(c, out, []string{"GOOS=" + goos, "GOARCH=" + arch}, flags...)
 	}
@@ -193,6 +216,34 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		paths = append(paths, final)
 	}
 	return paths, nil
+}
+
+// windowsResources puts the resources of the executable (icon, manifest,
+// version) in the main package for one build, unless the app has resources
+// of its own. go build -overlay does not apply to .syso files, so the file
+// is written into the package and removed by cleanup.
+func windowsResources(c *Config, pkg, arch string) (cleanup func(), err error) {
+	cleanup = func() {}
+	for _, p := range sysoFiles(pkg) {
+		if !strings.HasPrefix(filepath.Base(p), "mygo_windows_") {
+			logf("using the .syso resources of the app")
+			return cleanup, nil
+		}
+	}
+	syso, err := winresSyso(c, arch)
+	if err != nil {
+		return cleanup, err
+	}
+	path := filepath.Join(pkg, "mygo_windows_"+arch+".syso")
+	if err := os.WriteFile(path, syso, 0o644); err != nil {
+		return cleanup, err
+	}
+	return func() { os.Remove(path) }, nil
+}
+
+func sysoFiles(pkg string) []string {
+	files, _ := filepath.Glob(filepath.Join(pkg, "*.syso"))
+	return files
 }
 
 func sizeOf(path string) string {

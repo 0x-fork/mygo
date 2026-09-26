@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"debug/pe"
 	"fmt"
 	"os"
 	"os/exec"
@@ -166,7 +167,7 @@ func TestFrontendOverlay(t *testing.T) {
 	}
 	dir := t.TempDir()
 	files := map[string]string{
-		"go.mod":                   "module example.com/app\n\ngo 1.27\n\nrequire github.com/egoist/mygo v0.0.0\n\nreplace github.com/egoist/mygo => " + repo + "\n",
+		"go.mod":                   "module example.com/app\n\nrequire github.com/egoist/mygo v0.0.0\n\nreplace github.com/egoist/mygo => " + repo + "\n",
 		"cmd/app/main.go":          "package main\n\nimport \"github.com/egoist/mygo\"\n\nfunc main() { mygo.App.Run() }\n",
 		"web/dist/index.html":      "<p>embedded frontend</p>",
 		"web/dist/assets/app-1.js": "console.log('embedded asset')",
@@ -195,6 +196,9 @@ func TestFrontendOverlay(t *testing.T) {
 	}
 	var requires []string
 	for _, line := range strings.Split(string(mod), "\n") {
+		if strings.HasPrefix(line, "go ") {
+			requires = append(requires, line) // the go version MyGo needs
+		}
 		if f := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "require ")); len(f) >= 2 && strings.Contains(f[0], ".") && strings.HasPrefix(f[1], "v") {
 			requires = append(requires, "require "+f[0]+" "+f[1])
 		}
@@ -207,11 +211,20 @@ func TestFrontendOverlay(t *testing.T) {
 	f.Close()
 
 	c := &Config{root: dir, Main: "./cmd/app", FrontendDist: "web/missing"}
-	if _, err := frontendOverlay(c, t.TempDir()); err == nil || !strings.Contains(err.Error(), "buildCommand") {
+	pkg, err := packageDir(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	if _, err := frontendFiles(c, pkg, work); err == nil || !strings.Contains(err.Error(), "buildCommand") {
 		t.Errorf("missing frontendDist: %v", err)
 	}
 	c.FrontendDist = "web/dist"
-	overlay, err := frontendOverlay(c, t.TempDir())
+	embedded, err := frontendFiles(c, pkg, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlay, err := writeOverlay(filepath.Join(work, "overlay.json"), embedded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,5 +245,81 @@ func TestFrontendOverlay(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "cmd", "app", frontendGenFile)); err == nil {
 		t.Error("the overlay must not write into the project")
+	}
+}
+
+// TestWindowsResources links the generated resources into Windows
+// executables and finds them in the .rsrc section.
+func TestWindowsResources(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles programs")
+	}
+	repo, _ := filepath.Abs("../..")
+	mod, err := os.ReadFile(filepath.Join(repo, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goLine := ""
+	for _, line := range strings.Split(string(mod), "\n") {
+		if strings.HasPrefix(line, "go ") {
+			goLine = line
+		}
+	}
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"go.mod":  "module example.com/restest\n\n" + goLine + "\n",
+		"main.go": "package main\n\nfunc main() {}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "icon.png"), defaultIcon(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &Config{root: dir, Name: "Res Test", Version: "1.2.3", Identifier: "com.example.restest", Icon: "icon.png"}
+	c.applyDefaults()
+	utf16le := func(s string) []byte {
+		var b []byte
+		for _, r := range s {
+			b = append(b, byte(r), 0)
+		}
+		return b
+	}
+	for _, arch := range []string{"amd64", "arm64", "386"} {
+		cleanup, err := windowsResources(c, dir, arch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exe := filepath.Join(t.TempDir(), "app.exe")
+		err = buildBinary(c, exe, []string{"GOOS=windows", "GOARCH=" + arch})
+		cleanup()
+		if err != nil {
+			t.Fatalf("%s: %v", arch, err)
+		}
+		if left := sysoFiles(dir); len(left) > 0 {
+			t.Errorf("%s: left %q in the package", arch, left)
+		}
+		f, err := pe.Open(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sec := f.Section(".rsrc")
+		if sec == nil {
+			f.Close()
+			t.Fatalf("%s: no .rsrc section", arch)
+		}
+		data, _ := sec.Data()
+		f.Close()
+		for what, want := range map[string][]byte{
+			"version":     utf16le("com.example.restest"),
+			"version key": utf16le("MyGoIdentifier"),
+			"manifest":    []byte("PerMonitorV2"),
+			"icon":        []byte("\x89PNG"),
+		} {
+			if !bytes.Contains(data, want) {
+				t.Errorf("%s: the resources lack the %s", arch, what)
+			}
+		}
 	}
 }

@@ -40,21 +40,33 @@ func pngToICNS(src []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// pngToICO renders a Windows .ico with PNG payloads.
-func pngToICO(src []byte) ([]byte, error) {
+// windowsIconSizes are the sizes of Windows icons, in pixels.
+var windowsIconSizes = []int{16, 24, 32, 48, 64, 128, 256}
+
+// iconImages renders src at each of the windowsIconSizes as PNG.
+func iconImages(src []byte) ([][]byte, error) {
 	img, err := png.Decode(bytes.NewReader(src))
 	if err != nil {
 		return nil, err
 	}
-	sizes := []int{16, 24, 32, 48, 64, 128, 256}
-	images := make([][]byte, len(sizes))
-	for i, s := range sizes {
+	images := make([][]byte, len(windowsIconSizes))
+	for i, s := range windowsIconSizes {
 		var p bytes.Buffer
 		if err := png.Encode(&p, resize(img, s)); err != nil {
 			return nil, err
 		}
 		images[i] = p.Bytes()
 	}
+	return images, nil
+}
+
+// pngToICO renders a Windows .ico with PNG payloads.
+func pngToICO(src []byte) ([]byte, error) {
+	images, err := iconImages(src)
+	if err != nil {
+		return nil, err
+	}
+	sizes := windowsIconSizes
 	var out bytes.Buffer
 	_ = binary.Write(&out, binary.LittleEndian, [3]uint16{0, 1, uint16(len(sizes))})
 	offset := 6 + 16*len(sizes)

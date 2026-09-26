@@ -39,24 +39,21 @@ func init() {
 }
 `
 
-// frontendOverlay writes, in work, the overlay that embeds FrontendDist
-// and returns its path, or "" when the app has no frontend to embed.
-func frontendOverlay(c *Config, work string) (string, error) {
+// frontendFiles returns the overlay entries that embed FrontendDist into
+// the main package in pkg, writing the generated source into work. It
+// returns nothing when the app has no frontend to embed.
+func frontendFiles(c *Config, pkg, work string) (map[string]string, error) {
+	replace := map[string]string{}
 	if c.FrontendDist == "" {
-		return "", nil
+		return replace, nil
 	}
 	dist := c.path(c.FrontendDist)
-	pkg, err := packageDir(c)
-	if err != nil {
-		return "", err
-	}
 	for _, name := range []string{frontendGenFile, frontendGenDir} {
 		if _, err := os.Lstat(filepath.Join(pkg, name)); err == nil {
-			return "", fmt.Errorf("%s is in the way of embedding the frontend; rename it", filepath.Join(pkg, name))
+			return nil, fmt.Errorf("%s is in the way of embedding the frontend; rename it", filepath.Join(pkg, name))
 		}
 	}
-	replace := map[string]string{}
-	err = filepath.WalkDir(dist, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(dist, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -71,25 +68,33 @@ func frontendOverlay(c *Config, work string) (string, error) {
 		return nil
 	})
 	if os.IsNotExist(err) {
-		return "", fmt.Errorf("frontendDist %s does not exist; set buildCommand in mygo.json to build it", c.FrontendDist)
+		return nil, fmt.Errorf("frontendDist %s does not exist; set buildCommand in mygo.json to build it", c.FrontendDist)
 	}
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if len(replace) == 0 {
-		return "", fmt.Errorf("frontendDist %s is empty", c.FrontendDist)
+		return nil, fmt.Errorf("frontendDist %s is empty", c.FrontendDist)
 	}
 	gen := filepath.Join(work, frontendGenFile)
 	if err := os.WriteFile(gen, []byte(frontendGenSource), 0o644); err != nil {
-		return "", err
+		return nil, err
 	}
 	replace[filepath.Join(pkg, frontendGenFile)] = gen
+	return replace, nil
+}
+
+// writeOverlay writes a go build -overlay file, or returns "" when there is
+// nothing to overlay.
+func writeOverlay(path string, replace map[string]string) (string, error) {
+	if len(replace) == 0 {
+		return "", nil
+	}
 	data, err := json.Marshal(struct{ Replace map[string]string }{replace})
 	if err != nil {
 		return "", err
 	}
-	overlay := filepath.Join(work, "overlay.json")
-	return overlay, os.WriteFile(overlay, data, 0o644)
+	return path, os.WriteFile(path, data, 0o644)
 }
 
 // packageDir returns the directory of the app's main package.
