@@ -263,7 +263,11 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 
 	dc := devConfig(c)
 	name := dc.executableName()
-	if runtime.GOOS != "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
+	case "windows":
+		name += ".exe"
+	default:
 		name = slugify(dc.Name)
 	}
 	bin := filepath.Join(stage, name)

@@ -109,11 +109,9 @@ type WindowOptions struct {
 	// a white flash in dark apps. CSS syntax: "#1e1e1e", "#rgba",
 	// "rgb(30 30 30)".
 	BackgroundColor string
-	// Vibrancy puts a blurred material behind a transparent page (macOS):
-	// "sidebar", "under-window", "window", "content", "header", "titlebar",
-	// "hud", "popover", "menu", "sheet", "tooltip", "selection",
-	// "fullscreen-ui", "under-page".
-	Vibrancy string
+	// Vibrancy puts a translucent, blurred material behind a transparent
+	// page (macOS and Windows 11), e.g. VibrancySidebar.
+	Vibrancy Vibrancy
 	// Opacity of the window between 0 and 1 (default 1).
 	Opacity float64
 	// Parent makes this window a child window that stays on top of it.
@@ -316,7 +314,7 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		Frameless:      o.Frameless,
 		Transparent:    o.Transparent,
 		TitleBarStyle:  string(o.TitleBarStyle),
-		Vibrancy:       o.Vibrancy,
+		Vibrancy:       string(o.Vibrancy),
 		Opacity:        o.Opacity,
 		Modal:          o.Modal,
 		UserAgent:      o.UserAgent,
@@ -712,10 +710,10 @@ func (w *Window) SetContentProtection(v bool) {
 	w.do(func(n platform.Window) { n.SetContentProtection(v) })
 }
 
-// SetVibrancy sets the blur material behind the page (macOS), "" removes
-// it. See WindowOptions.Vibrancy.
-func (w *Window) SetVibrancy(material string) {
-	w.do(func(n platform.Window) { n.SetVibrancy(material) })
+// SetVibrancy sets the material behind the page; VibrancyNone removes it.
+// See WindowOptions.Vibrancy.
+func (w *Window) SetVibrancy(v Vibrancy) {
+	w.do(func(n platform.Window) { n.SetVibrancy(string(v)) })
 }
 
 // SetMenu sets the menu bar of this window (Linux, Windows). On macOS the

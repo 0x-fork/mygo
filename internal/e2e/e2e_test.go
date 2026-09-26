@@ -306,7 +306,7 @@ func TestEvalForms(t *testing.T) {
 }
 
 func TestVibrancy(t *testing.T) {
-	for _, material := range []string{"sidebar", "no-such-material"} {
+	for _, material := range []mygo.Vibrancy{mygo.VibrancySidebar, mygo.VibrancyMica, "no-such-material"} {
 		w := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200, Vibrancy: material, Transparent: true})
 		w.LoadHTML("<p>vibrancy</p>", "")
 		waitFor(t, w, "document.readyState === 'complete'")

@@ -1,10 +1,10 @@
-//go:build windows
+//go:build windows && (amd64 || arm64)
 
 package mygo
 
 import (
 	"github.com/egoist/mygo/internal/platform"
-	"github.com/egoist/mygo/internal/unsupported"
+	win "github.com/egoist/mygo/internal/windows"
 )
 
-func newBackend() platform.Backend { return unsupported.New() }
+func newBackend() platform.Backend { return win.New() }

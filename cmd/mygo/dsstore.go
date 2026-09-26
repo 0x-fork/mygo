@@ -166,12 +166,12 @@ func binaryPlist(dict map[string]any) []byte {
 	}
 
 	sizeOf := func(n int) int {
-		switch {
-		case n < 1<<8:
+		switch v := uint64(n); {
+		case v < 1<<8:
 			return 1
-		case n < 1<<16:
+		case v < 1<<16:
 			return 2
-		case n < 1<<32:
+		case v < 1<<32:
 			return 4
 		}
 		return 8
@@ -191,7 +191,7 @@ func binaryPlist(dict map[string]any) []byte {
 			return append(b, 0x10, byte(v))
 		case v < 1<<16:
 			return putUint(append(b, 0x11), uint64(v), 2)
-		case v < 1<<32:
+		case int64(v) < 1<<32:
 			return putUint(append(b, 0x12), uint64(v), 4)
 		}
 		return putUint(append(b, 0x13), uint64(v), 8)

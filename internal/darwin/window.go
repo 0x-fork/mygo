@@ -434,10 +434,13 @@ func (w *window) SetContentProtection(v bool) {
 	send(w.win, "setSharingType:", sharing)
 }
 
+// vibrancyMaterials maps mygo.Vibrancy values to NSVisualEffectMaterial.
 var vibrancyMaterials = map[string]uintptr{
 	"titlebar": 3, "selection": 4, "menu": 5, "popover": 6, "sidebar": 7, "header": 10,
 	"sheet": 11, "window": 12, "hud": 13, "fullscreen-ui": 15, "tooltip": 17, "content": 18,
 	"under-window": 21, "under-page": 22,
+	// Windows 11 backdrops.
+	"mica": 21, "tabbed": 21, "acrylic": 13,
 }
 
 func (w *window) SetVibrancy(material string) {

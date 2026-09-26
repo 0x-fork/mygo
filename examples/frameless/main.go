@@ -66,7 +66,7 @@ func main() {
 		}
 		if runtime.GOOS == "darwin" {
 			// A translucent material behind the transparent page.
-			opts.Vibrancy = "under-window"
+			opts.Vibrancy = mygo.VibrancyUnderWindow
 		}
 		mygo.NewWindow(opts).LoadHTML(page, "")
 	})
