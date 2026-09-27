@@ -1224,19 +1224,33 @@ func TestJavaScriptAlert(t *testing.T) {
 	if _, ok := endSheet(w); !ok {
 		t.Skip("dialog automation not available on this platform")
 	}
-	// alert() blocks the page until the sheet is dismissed.
-	if _, err := w.Eval("setTimeout(() => { alert('hello'); window.alertDone = true }, 0)"); err != nil {
-		t.Fatal(err)
-	}
+	// alert() blocks the page until the sheet is dismissed, and WebKit
+	// often answers the Eval that schedules it only after the timer ran:
+	// dismiss the sheet without waiting for the Eval.
+	evaluated := make(chan error, 1)
+	go func() {
+		_, err := w.Eval("setTimeout(() => { alert('hello'); window.alertDone = true }, 0)")
+		evaluated <- err
+	}()
 	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
 		if ok, _ := endSheet(w); ok {
-			waitFor(t, w, "window.alertDone")
-			return
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("alert sheet never appeared")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatal("alert sheet never appeared")
+	select {
+	case err := <-evaluated:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Eval did not return after the alert was dismissed")
+	}
+	waitFor(t, w, "window.alertDone")
 }
 
 func TestWindowOpenAllowed(t *testing.T) {
