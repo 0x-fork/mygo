@@ -30,7 +30,11 @@ cgo, so any platform can be compiled from any machine; signing and disk
 images need macOS.
 
 Set macos.signingIdentity in mygo.json (or -sign) to a Developer ID to ship
-outside the Mac App Store, and macos.notarize to notarize the disk image.`)
+outside the Mac App Store, and macos.notarize to notarize the disk image.
+
+With updates in mygo.json and the key of mygo keygen in
+MYGO_UPDATER_PRIVATE_KEY, each platform also gets a signed update archive
+and update-<platform>.json: publish them where updates point to.`)
 	platforms := flags.String("platform", runtime.GOOS+"/"+runtime.GOARCH, "comma separated GOOS/GOARCH targets, e.g. darwin/universal,linux/amd64,windows/amd64")
 	debug := flags.Bool("debug", false, "keep development features such as the web inspector")
 	skipBuildCommand := flags.Bool("skip-build-command", false, "do not run buildCommand")
@@ -129,7 +133,8 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		return nil, err
 	}
 
-	ldflags := "-s -w" + packageFlags(c)
+	target := goos + "-" + goarch
+	ldflags := "-s -w" + packageFlags(c) + updateFlags(c, target)
 	if !opts.debug {
 		ldflags += " -X github.com/egoist/mygo.production=1"
 	}
@@ -225,7 +230,29 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		artifacts = append(append(artifacts, exe), files...)
 	}
 
-	final := filepath.Join(out, goos+"-"+goarch)
+	if c.Updates != nil {
+		// The app as installed: the bundle, else everything next to the
+		// executable.
+		var entries []string
+		if goos == "darwin" {
+			entries = []string{filepath.Base(artifacts[0])}
+		} else {
+			all, err := os.ReadDir(stage)
+			if err != nil {
+				return nil, err
+			}
+			for _, e := range all {
+				entries = append(entries, e.Name())
+			}
+		}
+		files, err := writeUpdate(c, stage, target, entries)
+		if err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, files...)
+	}
+
+	final := filepath.Join(out, target)
 	if err := replacePath(stage, final); err != nil {
 		return nil, err
 	}

@@ -62,7 +62,9 @@ type Config struct {
 	// `mygo build` writes; apps register them at run time with
 	// mygo.App.RegisterURLScheme where there is no installer.
 	URLSchemes []string `json:"urlSchemes"`
-	MacOS      MacOS    `json:"macos"`
+	// Updates configures signed updates, which mygo.Updater installs.
+	Updates *Updates `json:"updates"`
+	MacOS   MacOS    `json:"macos"`
 
 	root string
 }
@@ -113,6 +115,11 @@ func loadConfig(root string) (*Config, error) {
 	c.applyDefaults()
 	if n := c.MacOS.Notarize; n != nil && n.KeychainProfile == "" {
 		return nil, fmt.Errorf("mygo.json: macos.notarize needs a keychainProfile (see xcrun notarytool store-credentials)")
+	}
+	if c.Updates != nil {
+		if err := c.Updates.validate(); err != nil {
+			return nil, err
+		}
 	}
 	for _, scheme := range c.URLSchemes {
 		if !schemeRe.MatchString(scheme) {

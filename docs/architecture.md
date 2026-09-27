@@ -492,6 +492,23 @@ as in Tauri:
   arguments and working directory. A development build exits with code 75
   instead, and `mygo dev` starts the same build again, also when that
   happens before it was ready.
+- Updates (`updater.go`, `internal/update`, `cmd/mygo/updates.go`), in pure
+  Go on every platform. `mygo keygen` creates an Ed25519 key pair; with
+  `updates` in mygo.json (the public key, and a GitHub repository or a base
+  URL) `mygo build` links the manifest URL of the target and the public key
+  into the app, and when the private key is available
+  (`MYGO_UPDATER_PRIVATE_KEY` or `updates.privateKey`) archives the app as
+  installed (the bundle, else everything next to the executable) into
+  `<name>-<version>-<target>.tar.gz`, signs its SHA-256, and writes
+  `update-<target>.json` with the `## <version>` section of CHANGELOG.md as
+  notes. `Updater.Check` fetches the manifest (HTTPS only, loopback HTTP for
+  tests) and compares versions semantically; `Update.Install` streams the
+  archive next to the app, verifies size and signature, unpacks it (files,
+  directories and relative links only) and swaps it in: the bundle is
+  renamed on macOS, the entries of the app directory on Linux and Windows,
+  where the running executable is renamed away and removed at the next
+  launch. `App.Relaunch` then starts the new version from the path the app
+  started from. Development builds are never updated.
 - `window.open()` and `target=_blank` go through `SetWindowOpenHandler`. By
   default http(s) URLs open in the default browser. Allowing one creates a
   window around the configuration or related view WebKit provides, with its
@@ -594,6 +611,8 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   No AppleScript or Finder automation is involved, so it works headless and
   in CI. The image is signed with a real identity and, with `macos.notarize`,
   notarized with `notarytool` and stapled.
+
+- `keygen` writes the update signing keys (see Updates above).
 
 Configuration lives in an optional `mygo.json` (`cmd/mygo/config.go`): app
 metadata (the icon defaults to `resources/icon.png`), extra `resources`,

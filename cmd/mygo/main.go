@@ -23,6 +23,7 @@ Commands:
 	generate       write the typed TypeScript client for bound Go services
 	dev            run a development build with live reload
 	build          build production apps (a .app and a .dmg on macOS)
+	keygen         create the key pair that signs updates
 	doctor         check that the development environment is ready
 	version        print the MyGo version
 
@@ -49,6 +50,8 @@ func main() {
 		err = runBuild(args)
 	case "doctor":
 		err = runDoctor(args)
+	case "keygen":
+		err = runKeygen(args)
 	case "version", "-v", "--version":
 		fmt.Println("mygo", version)
 	case "help", "-h", "--help":

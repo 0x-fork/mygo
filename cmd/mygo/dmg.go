@@ -100,6 +100,11 @@ func buildDMG(c *Config, app, dir string, opts buildOptions) (string, error) {
 		if err := notarize(c.MacOS.Notarize, dmg); err != nil {
 			return "", err
 		}
+		// The ticket covers the app too: staple it for updates, which
+		// install the bare app.
+		if err := command("xcrun", "stapler", "staple", app); err != nil {
+			return "", err
+		}
 	}
 	return dmg, nil
 }

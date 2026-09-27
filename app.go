@@ -89,6 +89,7 @@ func (a *Application) Run() error {
 	}
 	a.running = true
 	a.mu.Unlock()
+	go cleanUpdateLeftovers()
 
 	b := backend()
 	if err := b.Init(appHandler{}, platform.AppOptions{

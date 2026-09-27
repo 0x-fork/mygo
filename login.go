@@ -90,11 +90,9 @@ func relaunchNow() {
 	if launchedByDev() {
 		os.Exit(devRelaunchCode)
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	cmd := exec.Command(exe, os.Args[1:]...)
+	// The executable the app started from, which an update may have
+	// replaced.
+	cmd := exec.Command(startExe, os.Args[1:]...)
 	cmd.Dir = startDir
 	if runtime.GOOS != "windows" {
 		// GUI executables on Windows have no standard streams to pass on.
