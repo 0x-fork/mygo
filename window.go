@@ -109,8 +109,9 @@ type WindowOptions struct {
 	// transparent background shows the desktop through.
 	Transparent bool
 	// BackgroundColor fills the window until the page paints, which avoids
-	// a white flash in dark apps. CSS syntax: "#1e1e1e", "#rgba",
-	// "rgb(30 30 30)".
+	// a flash of another color while it loads. CSS syntax: "#1e1e1e",
+	// "#rgba", "rgb(30 30 30)", or "light-dark(#f5f5f7, #1e1e1e)" for a
+	// page that follows the light or dark appearance.
 	BackgroundColor string
 	// Vibrancy puts a translucent, blurred material behind a transparent
 	// page (macOS and Windows 11), e.g. VibrancySidebar.
@@ -161,7 +162,9 @@ type Window struct {
 	destroyed atomic.Bool
 	shown     bool
 	readyShow bool
-	menu      *Menu
+	// background is the BackgroundColor, if any. Main thread only.
+	background *background
+	menu       *Menu
 	// stateKey is WindowOptions.StateKey; stateTimer captures the state
 	// once it settled. Main thread only.
 	stateKey   string
@@ -246,7 +249,7 @@ var windows struct {
 // waits for that.
 func NewWindow(opts WindowOptions) *Window {
 	// Validate in the caller's goroutine so mistakes point at the call.
-	bg, err := backgroundColor(opts.BackgroundColor)
+	bg, err := backgroundOption(opts.BackgroundColor)
 	if err != nil {
 		panic(err)
 	}
@@ -265,27 +268,54 @@ func NewWindow(opts WindowOptions) *Window {
 	return w
 }
 
-func backgroundColor(s string) (*platform.Color, error) {
+func backgroundOption(s string) (*background, error) {
 	if s == "" {
 		return nil, nil
 	}
-	c, err := parseColor(s)
+	bg, err := parseBackground(s)
 	if err != nil {
 		return nil, err
 	}
-	return &c, nil
+	return &bg, nil
 }
 
-func newWindow(opts WindowOptions, bg *platform.Color, native uintptr) *Window {
+// backgroundColor returns the window's background for the current
+// appearance, or nil. Main thread only.
+func (w *Window) backgroundColor() *platform.Color {
+	if w.background == nil {
+		return nil
+	}
+	c := w.background.light
+	if w.background.dark != c && backend().Theme().IsDark() {
+		c = w.background.dark
+	}
+	return &c
+}
+
+// updateBackgrounds gives windows with a light and a dark background the
+// one of the current appearance. Main thread only.
+func updateBackgrounds() {
+	for _, w := range Windows() {
+		if bg := w.background; w.native != nil && bg != nil && bg.light != bg.dark {
+			w.native.SetBackgroundColor(*w.backgroundColor())
+		}
+	}
+}
+
+func newWindow(opts WindowOptions, bg *background, native uintptr) *Window {
 	windows.Lock()
 	windows.nextID++
 	id := windows.nextID
 	windows.Unlock()
 
-	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.TrustedOrigins, secret: rand.Text(), stateKey: opts.StateKey}
+	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.TrustedOrigins, secret: rand.Text(), stateKey: opts.StateKey, background: bg}
 	w.resetPage()
 	popts := w.platformOptions(&opts)
-	popts.BackgroundColor = bg
+	popts.BackgroundColor = w.backgroundColor()
+	if opts.Transparent {
+		// Backends keep transparent windows clear; so do theme changes.
+		w.background = nil
+	}
 	popts.Native = native
 	if w.stateKey != "" {
 		restoreWindowState(w.stateKey, popts)
@@ -701,13 +731,17 @@ func (w *Window) SetAlwaysOnTop(v bool) { w.do(func(n platform.Window) { n.SetAl
 // IsAlwaysOnTop reports whether the window stays above other windows.
 func (w *Window) IsAlwaysOnTop() bool { return get(w, platform.Window.IsAlwaysOnTop) }
 
-// SetBackgroundColor sets the color shown behind the page, in CSS syntax.
+// SetBackgroundColor sets the color shown behind the page, in the syntax of
+// WindowOptions.BackgroundColor.
 func (w *Window) SetBackgroundColor(color string) error {
-	c, err := parseColor(color)
+	bg, err := parseBackground(color)
 	if err != nil {
 		return err
 	}
-	w.do(func(n platform.Window) { n.SetBackgroundColor(c) })
+	w.do(func(n platform.Window) {
+		w.background = &bg
+		n.SetBackgroundColor(*w.backgroundColor())
+	})
 	return nil
 }
 
@@ -1463,7 +1497,7 @@ func (h *windowHandler) NewWindow(req platform.NewWindowRequest) platform.Window
 	}
 	// The webview loads the URL itself.
 	o.URL = ""
-	bg, err := backgroundColor(o.BackgroundColor)
+	bg, err := backgroundOption(o.BackgroundColor)
 	if err != nil {
 		log.Printf("mygo: window open handler: %v", err)
 	}

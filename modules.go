@@ -225,7 +225,11 @@ func (t *ThemeModule) SetSource(s ThemeSource) {
 	t.mu.Lock()
 	t.source = s
 	t.mu.Unlock()
-	onMain(func() { backend().Theme().SetSource(string(s)) })
+	onMain(func() {
+		backend().Theme().SetSource(string(s))
+		// Not every backend reports its own change.
+		updateBackgrounds()
+	})
 }
 
 // OnUpdated is called when the effective appearance changes.

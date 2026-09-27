@@ -39,7 +39,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `Frameless` | no title bar and borders: the page draws them, see [custom title bars](frontend.md#custom-title-bars) |
 | `TitleBarStyle`, `TrafficLightPosition` | hides the title bar but keeps the window buttons, and moves them (macOS) |
 | `Transparent`, `Vibrancy` | a transparent window, and the material behind a transparent page (macOS, Windows 11) |
-| `BackgroundColor` | fills the window until the page paints, in CSS syntax such as `"#1e1e1e"` |
+| `BackgroundColor` | fills the window until the page paints, in CSS syntax such as `"#1e1e1e"`, or `"light-dark(#f5f5f7, #1e1e1e)"` to follow the appearance |
 | `Opacity` | between 0 and 1 |
 | `DisableResize`, `DisableMove`, `DisableMinimize`, `DisableMaximize`, `DisableClose`, `DisableFullScreen`, `DisableShadow` | take abilities away |
 | `AlwaysOnTop` | keeps the window above others |
@@ -53,8 +53,10 @@ on the screen. Sizes and positions are in device-independent pixels.
 ## Show windows without flashing
 
 A window shows its `BackgroundColor`, white by default, until the page
-paints. To show windows only once their page is ready, create them hidden
-and show them from `OnReadyToShow`:
+paints, so make it the page's background. When the page follows dark mode,
+give both colors with `light-dark(<light>, <dark>)`: the window switches
+with the appearance. To show windows only once their page is ready, create
+them hidden and show them from `OnReadyToShow`:
 
 ```go
 win := mygo.NewWindow(mygo.WindowOptions{URL: "/", Hidden: true, BackgroundColor: "#1e1e1e"})

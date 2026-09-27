@@ -60,7 +60,7 @@ func openWindow() {
 		MinWidth:        360,
 		MinHeight:       420,
 		TitleBarStyle:   mygo.TitleBarHidden,
-		BackgroundColor: "#f5f5f7",
-		URL:             "/", // the frontend: devUrl in development, frontendDist once built
+		BackgroundColor: "light-dark(#f5f5f7, #1c1c1e)", // the page's --bg
+		URL:             "/",                            // the frontend: devUrl in development, frontendDist once built
 	})
 }

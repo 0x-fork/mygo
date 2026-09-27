@@ -69,6 +69,40 @@ func parseColor(s string) (platform.Color, error) {
 	return platform.Color{}, bad
 }
 
+// background is a window background: one color, or a light and a dark one
+// that follow the app's appearance.
+type background struct{ light, dark platform.Color }
+
+// parseBackground parses a CSS color or light-dark(<light>, <dark>).
+func parseBackground(s string) (background, error) {
+	args, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(s)), "light-dark(")
+	if !ok {
+		c, err := parseColor(s)
+		return background{c, c}, err
+	}
+	if args, ok = strings.CutSuffix(args, ")"); ok {
+		// Split at the comma outside of rgb(…).
+		depth := 0
+		for i, r := range args {
+			switch r {
+			case '(':
+				depth++
+			case ')':
+				depth--
+			case ',':
+				if depth == 0 {
+					light, err1 := parseColor(args[:i])
+					dark, err2 := parseColor(args[i+1:])
+					if err1 == nil && err2 == nil {
+						return background{light, dark}, nil
+					}
+				}
+			}
+		}
+	}
+	return background{}, fmt.Errorf("mygo: invalid color %q", s)
+}
+
 func colorComponent(s string, alpha bool) (uint8, error) {
 	pct := strings.HasSuffix(s, "%")
 	v, err := strconv.ParseFloat(strings.TrimSuffix(s, "%"), 64)

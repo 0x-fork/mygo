@@ -206,12 +206,16 @@ the page does not handle them no longer replaces the page with the file.
 Pages follow the system appearance through the `prefers-color-scheme` media
 query. Declare `color-scheme: light dark` in CSS so that form controls and
 scrollbars follow too, and give windows a `BackgroundColor` matching the
-page, which the window shows until the page paints:
+page in both appearances, which the window shows until the page paints:
 
 ```css
 :root {
   color-scheme: light dark;
 }
+```
+
+```go
+mygo.NewWindow(mygo.WindowOptions{URL: "/", BackgroundColor: "light-dark(#f5f5f7, #1e1e1e)"})
 ```
 
 `mygo.Theme.SetSource(mygo.ThemeDark)` forces an appearance, which pages see

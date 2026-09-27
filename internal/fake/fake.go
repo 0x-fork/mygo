@@ -247,6 +247,7 @@ type Window struct {
 	// PDF holds the options of the last PrintToPDF.
 	PDF platform.PDFOptions
 	// What the window extras were last set to.
+	Background      platform.Color
 	Progress        string
 	ProgressValue   float64
 	Flashing        bool
@@ -311,6 +312,12 @@ func (w *Window) Handle() uintptr        { return 1 }
 func (w *Window) WebViewHandle() uintptr { return 2 }
 func (w *Window) SetTitle(t string)      { w.mu.Lock(); w.title = t; w.mu.Unlock() }
 func (w *Window) Title() string          { w.mu.Lock(); defer w.mu.Unlock(); return w.title }
+func (w *Window) SetBackgroundColor(c platform.Color) {
+	w.mu.Lock()
+	w.Background = c
+	w.mu.Unlock()
+}
+
 func (w *Window) SetBounds(r platform.Rect) {
 	w.mu.Lock()
 	w.bounds = r
@@ -350,7 +357,6 @@ func (w *Window) Restore()                           { w.mu.Lock(); w.minimized 
 func (w *Window) SetFullScreen(v bool)               { w.mu.Lock(); w.full = v; w.mu.Unlock() }
 func (w *Window) IsFullScreen() bool                 { w.mu.Lock(); defer w.mu.Unlock(); return w.full }
 func (w *Window) Center()                            {}
-func (w *Window) SetBackgroundColor(platform.Color)  {}
 func (w *Window) SetOpacity(float64)                 {}
 func (w *Window) Opacity() float64                   { return 1 }
 func (w *Window) SetHasShadow(bool)                  {}

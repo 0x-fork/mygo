@@ -188,6 +188,37 @@ func TestInvalidBackgroundColor(t *testing.T) {
 	NewWindow(WindowOptions{BackgroundColor: "nope"})
 }
 
+func TestBackgroundFollowsTheme(t *testing.T) {
+	light, dark := platform.Color{R: 0xf6, G: 0xf7, B: 0xf9, A: 255}, platform.Color{R: 0x0f, G: 0x11, B: 0x15, A: 255}
+	w, fw := testWindow(t, WindowOptions{BackgroundColor: "light-dark(#f6f7f9, rgb(15, 17, 21))"})
+	if c := fw.Opts.BackgroundColor; c == nil || *c != light {
+		t.Errorf("initial background: %v", c)
+	}
+	Theme.SetSource(ThemeDark)
+	defer Theme.SetSource(ThemeSystem)
+	if fw.Background != dark {
+		t.Errorf("dark background: %v", fw.Background)
+	}
+	_, dfw := testWindow(t, WindowOptions{BackgroundColor: "light-dark(#f6f7f9, #0f1115)"})
+	if c := dfw.Opts.BackgroundColor; c == nil || *c != dark {
+		t.Errorf("background of a window created in dark mode: %v", c)
+	}
+	_, tfw := testWindow(t, WindowOptions{Transparent: true, BackgroundColor: "light-dark(#f6f7f9, #0f1115)"})
+	if err := w.SetBackgroundColor("light-dark(#fff, #000)"); err != nil || fw.Background != (platform.Color{A: 255}) {
+		t.Errorf("SetBackgroundColor: %v, %v", fw.Background, err)
+	}
+	Theme.SetSource(ThemeLight)
+	if fw.Background != (platform.Color{R: 255, G: 255, B: 255, A: 255}) {
+		t.Errorf("light background: %v", fw.Background)
+	}
+	if tfw.Background != (platform.Color{}) {
+		t.Errorf("a theme change gave a transparent window a background: %v", tfw.Background)
+	}
+	if err := w.SetBackgroundColor("light-dark(#fff)"); err == nil {
+		t.Error("SetBackgroundColor accepted an invalid color")
+	}
+}
+
 func TestCloseCanBePrevented(t *testing.T) {
 	w, fw := testWindow(t, WindowOptions{})
 	var allow atomic.Bool
@@ -1088,6 +1119,27 @@ func TestParseColor(t *testing.T) {
 	for _, bad := range []string{"", "#12", "red", "rgb(1,2)", "#zzzzzz"} {
 		if _, err := parseColor(bad); err == nil {
 			t.Errorf("parseColor(%q) should fail", bad)
+		}
+	}
+}
+
+func TestParseBackground(t *testing.T) {
+	white, black := platform.Color{R: 255, G: 255, B: 255, A: 255}, platform.Color{A: 255}
+	tests := map[string]background{
+		"#fff":                                 {white, white},
+		"light-dark(#fff, #000)":               {white, black},
+		" Light-Dark( #FFF,rgb(0, 0, 0) ) ":    {white, black},
+		"light-dark(rgb(255 255 255), #000f)":  {white, black},
+		"light-dark(transparent, transparent)": {},
+	}
+	for in, want := range tests {
+		if got, err := parseBackground(in); err != nil || got != want {
+			t.Errorf("parseBackground(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "light-dark(#fff)", "light-dark(#fff, #000", "light-dark(#fff, #000, #111)", "light-dark(#fff, red)", "light-dark()"} {
+		if _, err := parseBackground(bad); err == nil {
+			t.Errorf("parseBackground(%q) should fail", bad)
 		}
 	}
 }
