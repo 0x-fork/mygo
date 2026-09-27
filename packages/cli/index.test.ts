@@ -24,7 +24,15 @@ test("the packages have the version of the Go module", async () => {
   for (const platform of platforms) {
     const pkg = readJSON(join(platformDir(platform), "package.json"));
     const [os, cpu] = platform.split("-");
-    expect(pkg).toMatchObject({ name: `mygo-cli-${platform}`, version: v, os: [os], cpu: [cpu] });
+    expect(pkg).toMatchObject({ name: `mygo-cli-${platform}`, version: v, os: [os], cpu: [cpu], license: "MIT" });
+  }
+});
+
+test("the published packages carry the license", () => {
+  const license = readFileSync(join(dir, "..", "..", "LICENSE"), "utf8");
+  for (const pkg of [join(dir, "..", "runtime"), dir, ...platforms.map(platformDir)]) {
+    expect(readJSON(join(pkg, "package.json")).license).toBe("MIT");
+    expect(readFileSync(join(pkg, "LICENSE"), "utf8")).toBe(license);
   }
 });
 

@@ -334,9 +334,8 @@ workspace examples run it that way.
 
 `bun run --cwd packages/cli binaries [platform...]` cross-compiles the
 binaries (ignored by git) and writes the manifests with the version of
-`mygo.Version`; `bun run --cwd packages/cli release [--dry-run]` builds all
-of them and publishes the platform packages, then mygo-cli, skipping
-versions already on npm. The binary is named `mygo`, like an unrelated npm
+`mygo.Version`; `bun scripts/publish.ts` publishes the packages (see
+[Releasing](#releasing)). The binary is named `mygo`, like an unrelated npm
 package: docs say `bunx mygo-cli`, never `bunx mygo`, outside a project.
 
 ### Wire protocol
@@ -763,6 +762,29 @@ D-Bus activates get `DISPLAY`, set `XDG_CURRENT_DESKTOP=KDE`, start
 the test binary's app ID. It passes on Debian 13 (portal 1.20, Plasma 6.3)
 and Debian 12 (portal 1.16, Plasma 5.27); Ubuntu 24.04 (portal 1.18, Plasma
 5.27) binds no shortcuts for any app.
+
+## Releasing
+
+The Go module, the CLI and the npm packages share one version:
+
+```sh
+bun scripts/version.ts 0.2.0   # mygo.Version, the CLI and every package.json
+git commit -am "Release 0.2.0" && git tag v0.2.0 && git push origin main v0.2.0
+```
+
+The tag starts `.github/workflows/release.yml`, which runs CI
+(`ci.yml`: the tests of every platform, GUI tests included), checks that
+the tag matches the versions (`bun scripts/version.ts --check`), and runs
+`bun scripts/publish.ts --provenance`: it builds the CLI's binaries and
+publishes mygo-runtime, the platform packages and mygo-cli, skipping
+versions already on npm, prereleases under the `next` dist-tag. It then
+asks the Go module proxy for the tag and creates the GitHub release.
+
+npm authenticates the workflow as a trusted publisher of each package
+(`release.yml` of this repository, set in the package's settings on npm),
+which npm allows only for packages that exist: the first release uses an
+`NPM_TOKEN` secret of the repository instead. `bun scripts/publish.ts
+--dry-run` shows what would be published.
 
 ## Adding a feature
 

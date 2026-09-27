@@ -53,3 +53,7 @@ Read the [documentation](docs/README.md).
 
 MyGo is at v0.1: the system webview on macOS 12+, Linux and Windows 10+
 (x64 and arm64). v0.2 will add a bundled CEF option.
+
+## License
+
+MIT

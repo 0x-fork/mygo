@@ -13,6 +13,7 @@
     "url": "git+https://github.com/egoist/mygo.git",
     "directory": "packages/runtime"
   },
+  "license": "MIT",
   "type": "module",
   "sideEffects": false,
   "exports": {

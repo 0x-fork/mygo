@@ -1,8 +1,9 @@
 // Builds the mygo binaries of the platform packages in npm/, for every
 // platform or for those given as arguments (e.g. `bun run build.ts
 // darwin-arm64`), and writes the manifests of mygo-cli and its platform
-// packages with the version of the Go module (mygo.Version).
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+// packages with the version of the Go module (mygo.Version), and their
+// license.
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { platforms } from "./index.js";
 
@@ -52,11 +53,13 @@ export async function writeManifests(v: string): Promise<void> {
       version: v,
       description,
       repository: { ...repository, directory: `packages/cli/npm/${platform}` },
+      license: "MIT",
       os: [os],
       cpu: [cpu],
       files: ["bin"],
       preferUnplugged: true,
     });
+    await copyFile(join(root, "LICENSE"), join(platformDir(platform), "LICENSE"));
     await writeFile(
       join(platformDir(platform), "README.md"),
       `# ${name}\n\n${description}, the command line tool of MyGo. Install\n` +
