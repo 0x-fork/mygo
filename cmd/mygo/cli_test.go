@@ -218,7 +218,7 @@ func TestPackageFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry, _ := os.ReadFile(files[len(files)-1])
-	for _, want := range []string{"Exec=my-app %u\n", "MimeType=x-scheme-handler/myapp;\n"} {
+	for _, want := range []string{"Exec=my-app %U\n", "MimeType=x-scheme-handler/myapp;\n"} {
 		if !strings.Contains(string(entry), want) {
 			t.Errorf("desktop entry lacks %q:\n%s", want, entry)
 		}
