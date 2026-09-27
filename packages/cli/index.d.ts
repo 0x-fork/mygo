@@ -86,8 +86,10 @@ export interface Config {
   frontendDist?: string;
 
   /**
-   * Files and directories copied into the app under their base names, next
-   * to the contents of the project's resources directory.
+   * Files and directories copied into the app of every platform under their
+   * base names, next to the contents of the project's resources directory,
+   * whose directories named after a platform, such as
+   * `resources/linux-amd64`, hold the files of one platform.
    */
   resources?: string[];
   /** The URL schemes the app opens, such as `myapp` for `myapp://…`, which reach `App.OnOpenURL`. */

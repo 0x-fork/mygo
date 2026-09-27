@@ -146,9 +146,11 @@ func TestWatcher(t *testing.T) {
 	w.set(&buildInputs{sourceDirs: []string{dir}})
 	expect(true, "edit during a build")
 
-	// Resources are watched whole, and may not exist yet.
+	// Resources are watched whole, and may not exist yet, but for the
+	// platform directories of other platforms, which development builds
+	// do not ship.
 	res := filepath.Join(dir, "resources")
-	w.set(&buildInputs{sourceDirs: []string{dir}, trees: []string{res}})
+	w.set(&buildInputs{sourceDirs: []string{dir}, resources: res})
 	expect(false, "new inputs")
 	writeFiles(t, res, map[string]string{"data/words.txt": "hello"})
 	expect(true, "new resources")
@@ -156,6 +158,27 @@ func TestWatcher(t *testing.T) {
 	expect(false, "hidden file in resources")
 	writeFiles(t, res, map[string]string{"data/words.txt": "hello, world"})
 	expect(true, "edited resource")
+	other := "windows-arm64"
+	if runtime.GOOS == "windows" {
+		other = "linux-amd64"
+	}
+	writeFiles(t, res, map[string]string{other + "/bin/server": "x", "darwin-universal/bin/server": "x"})
+	expect(false, "resources of other platforms")
+	writeFiles(t, res, map[string]string{runtime.GOOS + "-" + runtime.GOARCH + "/bin/server": "x"})
+	expect(true, "resources of this platform")
+	writeFiles(t, res, map[string]string{runtime.GOOS + "/bin/tool": "x"})
+	expect(true, "resources of this system")
+	if runtime.GOOS != "windows" {
+		// Linked entries are followed, as builds follow them.
+		sidecar := filepath.Join(dir, "sidecar")
+		writeFiles(t, sidecar, map[string]string{"server": "1"})
+		if err := os.Symlink(sidecar, filepath.Join(res, runtime.GOOS, "sidecar")); err != nil {
+			t.Fatal(err)
+		}
+		expect(true, "linked resource")
+		writeFiles(t, sidecar, map[string]string{"server": "12"})
+		expect(true, "edited linked resource")
+	}
 	if err := os.RemoveAll(res); err != nil {
 		t.Fatal(err)
 	}
@@ -185,8 +208,8 @@ func TestListBuildInputs(t *testing.T) {
 			t.Errorf("files lacks %s: %q", f, in.files)
 		}
 	}
-	if !slices.Equal(in.trees, []string{filepath.Join(root, "notes"), filepath.Join(root, "resources")}) {
-		t.Errorf("trees = %q", in.trees)
+	if !slices.Equal(in.trees, []string{filepath.Join(root, "notes")}) || in.resources != filepath.Join(root, "resources") {
+		t.Errorf("trees = %q, resources = %q", in.trees, in.resources)
 	}
 	// The CLI embeds its project template.
 	if !slices.Contains(in.fileDirs, filepath.Join(root, "cmd", "mygo", "template")) {

@@ -57,10 +57,12 @@ type Config struct {
 	// `mygo dev` without DevURL, it is served from disk.
 	FrontendDist string `json:"frontendDist"`
 
-	// Resources lists extra files and directories to ship with the app.
-	// Each is copied under its base name into the app's resource directory
-	// (mygo.PathResources), next to the contents of the project's resources
-	// directory, which are always included.
+	// Resources lists extra files and directories to ship with the app of
+	// every platform. Each is copied under its base name into the app's
+	// resource directory (mygo.PathResources), next to the contents of the
+	// project's resources directory, which are always included; its
+	// directories named after a platform, such as resources/linux-amd64,
+	// hold the files of one platform.
 	Resources []string `json:"resources"`
 
 	// URLSchemes are the custom URL schemes (deep links) of the app, e.g.

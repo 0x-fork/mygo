@@ -300,7 +300,7 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 		return nil, sum, err
 	}
 
-	res, err := dc.resources(reservedNames(dc, runtime.GOOS)...)
+	res, err := dc.resources(runtime.GOOS, runtime.GOARCH, reservedNames(dc, runtime.GOOS)...)
 	if err != nil {
 		return nil, sum, err
 	}

@@ -28,12 +28,13 @@ const (
 	// first use.
 	PathLogs PathName = "logs"
 	// PathResources is the directory of the files the app ships with: the
-	// contents of the project's resources directory and the resources
-	// listed in mygo.config.ts, which `mygo dev` and `mygo build` copy there.
-	// It is Contents/Resources in a macOS app bundle and the executable's
-	// directory elsewhere. Under `go run` and `go test`, whose executables
-	// are temporary, it is the resources directory in the working
-	// directory.
+	// contents of the project's resources directory, with those of its
+	// directories for the app's platform (such as resources/darwin-arm64)
+	// merged in, and the resources listed in mygo.config.ts, which
+	// `mygo dev` and `mygo build` copy there. It is Contents/Resources in a
+	// macOS app bundle and the executable's directory elsewhere. Under
+	// `go run` and `go test`, whose executables are temporary, it is the
+	// resources directory in the working directory, as it is.
 	PathResources PathName = "resources"
 	PathTemp      PathName = "temp"
 	PathExe       PathName = "exe"

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"cmp"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -16,46 +18,96 @@ import (
 // resourcesDir is the project directory whose contents ship with the app:
 // resources/data/words.txt is installed as data/words.txt in the app's
 // resource directory (mygo.PathResources), which is Contents/Resources in a
-// macOS bundle and the executable's directory elsewhere.
+// macOS bundle and the executable's directory elsewhere. Its platform
+// directories hold what only one platform's apps ship, laid out the same
+// way: resources/linux-amd64/bin/server is installed as bin/server in the
+// linux/amd64 app.
 const resourcesDir = "resources"
 
 // bundleIcon is the file name of the icon in Contents/Resources.
 const bundleIcon = "AppIcon.icns"
 
-// resource is a file or directory installed as name in the resource
-// directory.
-type resource struct {
-	name string
-	src  string
+// Platform directories are named after a system MyGo builds apps for,
+// alone or with an architecture: darwin, linux-arm64, windows-amd64.
+var (
+	platformOS   = []string{"darwin", "linux", "windows"}
+	platformArch = []string{"386", "amd64", "arm", "arm64", "loong64", "mips", "mips64", "mips64le", "mipsle", "ppc64", "ppc64le", "riscv64", "s390x"}
+)
+
+// platformDir reports whether name, an entry of the resources directory,
+// is a platform directory, and for which system and architecture: goarch
+// is "" for every architecture, and "universal" for darwin-universal,
+// which only universal macOS apps ship.
+func platformDir(name string) (goos, goarch string, ok bool) {
+	goos, goarch, hasArch := strings.Cut(name, "-")
+	switch {
+	case !slices.Contains(platformOS, goos):
+	case !hasArch:
+		return goos, "", true
+	case slices.Contains(platformArch, goarch), name == "darwin-universal":
+		return goos, goarch, true
+	}
+	return "", "", false
 }
 
-// resources lists what the app ships with: the entries of the project's
-// resources directory, then the extra resources of mygo.json under their
-// base names. Names starting with a dot are left out of directories.
-// Destination names must be unique, ignoring case as macOS and Windows do,
-// and differ from reserved, the files the packaging adds itself.
-func (c *Config) resources(reserved ...string) ([]resource, error) {
-	own := map[string]string{} // by lower-case name, like taken
-	for _, name := range reserved {
-		own[strings.ToLower(name)] = name
+// What other tools call systems and architectures, to catch platform
+// directories named like theirs, which would ship to every platform.
+var (
+	osAliases   = map[string]string{"darwin": "darwin", "macos": "darwin", "mac": "darwin", "osx": "darwin", "linux": "linux", "windows": "windows", "win": "windows", "win32": "windows", "win64": "windows"}
+	archAliases = map[string]string{"x64": "amd64", "x86_64": "amd64", "aarch64": "arm64", "x86": "386", "ia32": "386", "i386": "386", "i686": "386"}
+)
+
+// platformDirTypo returns the platform directory that name, an entry of the
+// resources directory that is not one, looks meant to be, or "".
+func platformDirTypo(name string) string {
+	lower := strings.ToLower(name)
+	if _, _, ok := platformDir(lower); ok {
+		return lower // Linux, Darwin-ARM64
 	}
-	taken := map[string]string{}
-	var list []resource
-	add := func(name, src string) error {
-		rel, err := filepath.Rel(c.root, src)
-		if err != nil || strings.HasPrefix(rel, "..") {
-			rel = src
-		}
-		key := strings.ToLower(name)
-		if file, ok := own[key]; ok {
-			return fmt.Errorf("resource %s would replace the app's own %s", rel, file)
-		}
-		if prev, ok := taken[key]; ok {
-			return fmt.Errorf("resources %s and %s would both be installed as %s", prev, rel, name)
-		}
-		taken[key] = rel
-		list = append(list, resource{name, src})
-		return nil
+	switch lower {
+	case "macos", "osx", "win32", "win64":
+		return osAliases[lower]
+	}
+	sys, arch, _ := strings.Cut(lower, "-")
+	if alias, ok := archAliases[arch]; ok {
+		arch = alias
+	}
+	want := osAliases[sys] + "-" + arch
+	if _, _, ok := platformDir(want); ok {
+		return want
+	}
+	return ""
+}
+
+// resource is a file, directory or link installed at name in the resource
+// directory.
+type resource struct {
+	name string // the path there, with slashes
+	// src is copied to name; "" makes a directory where directories of
+	// several sources merge, whose contents are resources of their own.
+	src string
+	// nested is set when src is inside a directory of resources: a link
+	// is then copied as a link, while the entries of the resources
+	// directory, and listed resources, are followed.
+	nested bool
+	// lipo is the x86_64 half of a universal binary whose arm64 half is
+	// src.
+	lipo string
+}
+
+// resources lists what the app for goos/goarch ships with: the entries of
+// the project's resources directory and of its platform directories named
+// goos and goos-goarch, whose directories merge, then the extra resources
+// of the configuration under their base names. For darwin/universal, the
+// contents of darwin-arm64 and darwin-amd64 also merge, into one tree for
+// both architectures (see merger.combine). Names starting with a dot are
+// left out of directories. Installed paths must be unique, ignoring case
+// as macOS and Windows do, and top-level names must differ from reserved,
+// the files the packaging adds itself.
+func (c *Config) resources(goos, goarch string, reserved ...string) ([]resource, error) {
+	m := &merger{c: c, reserved: map[string]string{}}
+	for _, name := range reserved {
+		m.reserved[strings.ToLower(name)] = name
 	}
 
 	dir := c.path(resourcesDir)
@@ -69,11 +121,50 @@ func (c *Config) resources(reserved ...string) ([]resource, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
+	var top []source
+	platforms := map[string]bool{}
 	for _, e := range entries {
-		if !hiddenName(e.Name()) {
-			if err := add(e.Name(), filepath.Join(dir, e.Name())); err != nil {
+		name, path := e.Name(), filepath.Join(dir, e.Name())
+		if hiddenName(name) {
+			continue
+		}
+		if _, _, ok := platformDir(name); ok {
+			if !isDir(path) {
+				return nil, fmt.Errorf("%s is not a directory, but named like the resources of a platform", m.rel(path))
+			}
+			platforms[name] = true
+			continue
+		}
+		if want := platformDirTypo(name); want != "" {
+			return nil, fmt.Errorf("%s would ship to every platform: name the resources of one platform after its GOOS and GOARCH, as in %s",
+				m.rel(path), m.rel(filepath.Join(dir, want)))
+		}
+		top = append(top, source{name: name, path: path})
+	}
+	for _, name := range []string{goos, goos + "-" + goarch} {
+		if platforms[name] {
+			list, err := m.children(source{path: filepath.Join(dir, name)}, false)
+			if err != nil {
 				return nil, err
 			}
+			top = append(top, list...)
+		}
+	}
+	if goos == "darwin" && goarch == "universal" {
+		arm, amd := filepath.Join(dir, "darwin-arm64"), filepath.Join(dir, "darwin-amd64")
+		switch {
+		case platforms["darwin-arm64"] && platforms["darwin-amd64"]:
+			list, err := m.children(source{path: arm, amd64: amd}, false)
+			if err != nil {
+				return nil, err
+			}
+			top = append(top, list...)
+		case platforms["darwin-arm64"] || platforms["darwin-amd64"]:
+			if platforms["darwin-amd64"] {
+				arm, amd = amd, arm
+			}
+			return nil, fmt.Errorf("a universal app combines %s with %s, which does not exist (files for both architectures go in %s)",
+				m.rel(arm), m.rel(amd), filepath.Join(resourcesDir, "darwin"))
 		}
 	}
 	for _, p := range c.Resources {
@@ -84,11 +175,341 @@ func (c *Config) resources(reserved ...string) ([]resource, error) {
 		if _, err := os.Stat(src); err != nil {
 			return nil, fmt.Errorf("%s: resource %s: %w", c.configName(), p, err)
 		}
-		if err := add(filepath.Base(src), src); err != nil {
-			return nil, err
+		top = append(top, source{name: filepath.Base(src), path: src, listed: true})
+	}
+	if err := m.merge(top); err != nil {
+		return nil, err
+	}
+	return m.list, nil
+}
+
+// otherArch returns the name of a platform directory for goos and another
+// architecture when there is none for goarch: the app for goos/goarch
+// likely lacks what the other one holds.
+func (c *Config) otherArch(goos, goarch string) string {
+	if goarch == "universal" {
+		return "" // combines darwin-arm64 and darwin-amd64
+	}
+	entries, _ := os.ReadDir(c.path(resourcesDir))
+	other := ""
+	for _, e := range entries {
+		switch sys, arch, ok := platformDir(e.Name()); {
+		case !ok || sys != goos || arch == "":
+		case arch == goarch:
+			return ""
+		case other == "":
+			other = e.Name()
 		}
 	}
+	return other
+}
+
+// source is a file, directory or link that a resource comes from: one of
+// the project's, or for a universal app, one in darwin-arm64 with its
+// counterpart in darwin-amd64.
+type source struct {
+	name   string // where it is installed
+	path   string
+	amd64  string // the darwin-amd64 counterpart of path
+	nested bool   // inside a directory of the project: links are not followed
+	listed bool   // in the resources of the configuration, which never merge
+}
+
+func (s source) stat(path string) (fs.FileInfo, error) {
+	if s.nested {
+		return os.Lstat(path)
+	}
+	return os.Stat(path)
+}
+
+// merger lists resources, merging the directories that several sources
+// install at the same place.
+type merger struct {
+	c        *Config
+	reserved map[string]string // the packaging's own files, by lower-case name
+	list     []resource
+}
+
+// merge adds sources to the list. Sources installed at the same place, or
+// at names that differ only in case, must be directories of the same name,
+// which merge, and not listed in the configuration.
+func (m *merger) merge(sources []source) error {
+	var keys []string
+	groups := map[string][]source{}
+	for _, s := range sources {
+		key := strings.ToLower(s.name)
+		if _, ok := groups[key]; !ok {
+			keys = append(keys, key)
+		}
+		groups[key] = append(groups[key], s)
+	}
+	for _, key := range keys {
+		group := groups[key]
+		if own, ok := m.reserved[key]; ok {
+			return fmt.Errorf("resource %s would replace the app's own %s", m.rel(group[0].path), own)
+		}
+		if err := m.place(group); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// place adds the sources installed at one place: a source, a universal
+// pair, which merges when it is two directories and combines when it is
+// not, or directories that merge.
+func (m *merger) place(group []source) error {
+	first := group[0]
+	if len(group) == 1 && first.amd64 == "" {
+		m.list = append(m.list, resource{name: first.name, src: first.path, nested: first.nested})
+		return nil
+	}
+	var children []source
+	for i, s := range group {
+		dir, err := m.isDir(s)
+		if err != nil {
+			return err
+		}
+		if !dir && len(group) == 1 {
+			return m.combine(s)
+		}
+		if !dir || s.name != first.name || s.listed || first.listed {
+			other := group[1]
+			if i > 0 {
+				other = s
+			}
+			return fmt.Errorf("resources %s and %s would both be installed as %s", m.rel(first.path), m.rel(other.path), other.name)
+		}
+		list, err := m.children(s, true)
+		if err != nil {
+			return err
+		}
+		children = append(children, list...)
+	}
+	m.list = append(m.list, resource{name: first.name})
+	return m.merge(children)
+}
+
+// isDir reports whether s is a directory: for a universal pair, both
+// halves or neither must be.
+func (m *merger) isDir(s source) (bool, error) {
+	info, err := s.stat(s.path)
+	if err != nil {
+		return false, err
+	}
+	if s.amd64 != "" {
+		other, err := s.stat(s.amd64)
+		if err != nil {
+			return false, err
+		}
+		if info.IsDir() != other.IsDir() {
+			return false, fmt.Errorf("%s and %s differ: a universal app holds one of them", m.rel(s.path), m.rel(s.amd64))
+		}
+	}
+	return info.IsDir(), nil
+}
+
+// children returns the entries of the directory s, installed under its
+// name, and for a universal pair, the pairs of entries of its directories,
+// which must have the same names. nested tells whether s is in a
+// directory of the project rather than a platform directory.
+func (m *merger) children(s source, nested bool) ([]source, error) {
+	names, err := entryNames(s.path)
+	if err != nil {
+		return nil, err
+	}
+	if s.amd64 != "" {
+		amd64, err := entryNames(s.amd64)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range names {
+			if _, ok := slices.BinarySearch(amd64, n); !ok {
+				return nil, m.unpaired(filepath.Join(s.path, n), s.amd64)
+			}
+		}
+		for _, n := range amd64 {
+			if _, ok := slices.BinarySearch(names, n); !ok {
+				return nil, m.unpaired(filepath.Join(s.amd64, n), s.path)
+			}
+		}
+	}
+	list := make([]source, 0, len(names))
+	for _, n := range names {
+		child := source{name: n, path: filepath.Join(s.path, n), nested: nested}
+		if s.name != "" {
+			child.name = s.name + "/" + n
+		}
+		if s.amd64 != "" {
+			child.amd64 = filepath.Join(s.amd64, n)
+		}
+		list = append(list, child)
+	}
 	return list, nil
+}
+
+// entryNames returns the names in dir, sorted, but those starting with a
+// dot.
+func entryNames(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if !hiddenName(e.Name()) {
+			names = append(names, e.Name())
+		}
+	}
+	return names, nil
+}
+
+// combine adds the files or links of a universal pair: an arm64 and an
+// x86_64 Mach-O file become a universal binary, and identical links and
+// files, but code for one architecture, are installed once. Anything else
+// cannot be one file for both architectures.
+func (m *merger) combine(s source) error {
+	arm, err := s.stat(s.path)
+	if err != nil {
+		return err
+	}
+	amd, err := s.stat(s.amd64)
+	if err != nil {
+		return err
+	}
+	switch {
+	case arm.Mode().IsRegular() && amd.Mode().IsRegular():
+		armCPU, thin := machOCPU(s.path)
+		amdCPU, _ := machOCPU(s.amd64)
+		if armCPU == cpuARM64 && amdCPU == cpuAMD64 {
+			m.list = append(m.list, resource{name: s.name, src: s.path, nested: s.nested, lipo: s.amd64})
+			return nil
+		}
+		if !thin { // the code of one architecture would not run on the other
+			same, err := sameContents(s.path, s.amd64)
+			if err != nil {
+				return err
+			}
+			if same {
+				m.list = append(m.list, resource{name: s.name, src: s.path, nested: s.nested})
+				return nil
+			}
+		}
+		if a, b := machOKind(s.path), machOKind(s.amd64); a != "" || b != "" {
+			return fmt.Errorf("cannot make a universal binary of %s (%s) and %s (%s): it takes arm64 and x86_64 code",
+				m.rel(s.path), cmp.Or(a, "not code"), m.rel(s.amd64), cmp.Or(b, "not code"))
+		}
+	case arm.Mode()&fs.ModeSymlink != 0 && amd.Mode()&fs.ModeSymlink != 0:
+		armLink, err := os.Readlink(s.path)
+		if err != nil {
+			return err
+		}
+		amdLink, err := os.Readlink(s.amd64)
+		if err != nil {
+			return err
+		}
+		if armLink == amdLink {
+			m.list = append(m.list, resource{name: s.name, src: s.path, nested: s.nested})
+			return nil
+		}
+	}
+	return fmt.Errorf("%s and %s differ: a universal app holds one of them (files for both architectures go in %s)",
+		m.rel(s.path), m.rel(s.amd64), filepath.Join(resourcesDir, "darwin"))
+}
+
+// unpaired is the error for path, in one of darwin-arm64 and darwin-amd64,
+// whose counterpart is missing from dir, the other one.
+func (m *merger) unpaired(path, dir string) error {
+	return fmt.Errorf("%s has no counterpart in %s to make a universal app with (files for both architectures go in %s)",
+		m.rel(path), m.rel(dir), filepath.Join(resourcesDir, "darwin"))
+}
+
+// rel returns path relative to the project, for messages.
+func (m *merger) rel(path string) string {
+	rel, err := filepath.Rel(m.c.root, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return path
+	}
+	return rel
+}
+
+// CPU types of Mach-O files.
+const (
+	cpuAMD64 = 0x01000007
+	cpuARM64 = 0x0100000c
+)
+
+// machOCPU returns the CPU type of a 64-bit Mach-O file for one
+// architecture, what writeUniversal combines.
+func machOCPU(path string) (uint32, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+	var h [12]byte
+	if _, err := io.ReadFull(f, h[:]); err != nil || binary.LittleEndian.Uint32(h[:]) != 0xfeedfacf {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint32(h[4:]), true
+}
+
+// machOKind describes the code in a file for messages, or returns "" when
+// it is not a Mach-O file.
+func machOKind(path string) string {
+	switch cpu, thin := machOCPU(path); {
+	case cpu == cpuARM64:
+		return "arm64 code"
+	case cpu == cpuAMD64:
+		return "x86_64 code"
+	case thin:
+		return "code for another architecture"
+	}
+	if ok, _ := machO(path); ok {
+		return "universal or 32-bit code"
+	}
+	return ""
+}
+
+// sameContents reports whether the files a and b hold the same bytes.
+func sameContents(a, b string) (bool, error) {
+	fa, err := os.Open(a)
+	if err != nil {
+		return false, err
+	}
+	defer fa.Close()
+	fb, err := os.Open(b)
+	if err != nil {
+		return false, err
+	}
+	defer fb.Close()
+	ia, err := fa.Stat()
+	if err != nil {
+		return false, err
+	}
+	ib, err := fb.Stat()
+	if err != nil {
+		return false, err
+	}
+	if ia.Size() != ib.Size() {
+		return false, nil
+	}
+	bufA, bufB := make([]byte, 64<<10), make([]byte, 64<<10)
+	for {
+		n, err := io.ReadFull(fa, bufA)
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			return false, err
+		}
+		if _, err := io.ReadFull(fb, bufB[:n]); err != nil {
+			return false, err
+		}
+		if !bytes.Equal(bufA[:n], bufB[:n]) {
+			return false, nil
+		}
+		if n < len(bufA) {
+			return true, nil // the end of both, which have the same size
+		}
+	}
 }
 
 // reservedNames are the files the packaging puts in the resource directory
@@ -109,10 +530,17 @@ func hiddenName(name string) bool { return strings.HasPrefix(name, ".") }
 // copyResources copies list into dir.
 func copyResources(list []resource, dir string) error {
 	for _, r := range list {
+		dst := filepath.Join(dir, filepath.FromSlash(r.name))
+		if r.src == "" {
+			if err := os.MkdirAll(dst, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
 		if within(dir, r.src) {
 			return fmt.Errorf("resource %s contains the directory it is copied to", r.src)
 		}
-		if err := copyResource(r.src, filepath.Join(dir, r.name)); err != nil {
+		if err := r.copyTo(dst); err != nil {
 			return err
 		}
 	}
@@ -123,8 +551,24 @@ func copyResources(list []resource, dir string) error {
 // is followed when it is a symbolic link, links inside it are copied as
 // links. Permissions are kept, so executables stay executable.
 func copyResource(src, dst string) error {
-	return walkResource(src, func(path string, info fs.FileInfo) error {
-		rel, err := filepath.Rel(src, path)
+	return resource{src: src}.copyTo(dst)
+}
+
+// copyTo copies r to dst like copyResource, and combines the halves of a
+// universal binary.
+func (r resource) copyTo(dst string) error {
+	if r.lipo != "" {
+		info, err := os.Stat(r.src)
+		if err != nil {
+			return err
+		}
+		if err := writeUniversal(dst, r.src, r.lipo); err != nil {
+			return err
+		}
+		return os.Chmod(dst, info.Mode().Perm())
+	}
+	return r.walk(func(path string, info fs.FileInfo) error {
+		rel, err := filepath.Rel(r.src, path)
 		if err != nil {
 			return err
 		}
@@ -148,7 +592,18 @@ func copyResource(src, dst string) error {
 // walkResource calls fn for src and, when it is a directory, everything in
 // it, in the order copyResource copies them.
 func walkResource(src string, fn func(path string, info fs.FileInfo) error) error {
-	info, err := os.Stat(src)
+	return resource{src: src}.walk(fn)
+}
+
+// walk calls fn for the source of r and, when it is a directory,
+// everything in it, in the order copyTo copies them. Only links inside it
+// are not followed, or with nested, the source itself too.
+func (r resource) walk(fn func(path string, info fs.FileInfo) error) error {
+	stat := os.Stat
+	if r.nested {
+		stat = os.Lstat
+	}
+	info, err := stat(r.src)
 	if err != nil {
 		return err
 	}
@@ -175,14 +630,18 @@ func walkResource(src string, fn func(path string, info fs.FileInfo) error) erro
 		}
 		return nil
 	}
-	return walk(src, info)
+	return walk(r.src, info)
 }
 
 // hashResources writes what list is made of to w (names, permissions,
 // sizes and modification times), to tell whether it changed.
 func hashResources(w io.Writer, list []resource) error {
 	for _, r := range list {
-		err := walkResource(r.src, func(path string, info fs.FileInfo) error {
+		if r.src == "" {
+			fmt.Fprintf(w, "%s\x00dir\x00", r.name)
+			continue
+		}
+		err := r.walk(func(path string, info fs.FileInfo) error {
 			rel, _ := filepath.Rel(r.src, path)
 			fmt.Fprintf(w, "%s\x00%s\x00%v\x00", r.name, rel, info.Mode())
 			if !info.IsDir() { // a directory's time changes with hidden files too
@@ -192,6 +651,13 @@ func hashResources(w io.Writer, list []resource) error {
 		})
 		if err != nil {
 			return err
+		}
+		if r.lipo != "" {
+			info, err := os.Stat(r.lipo)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(w, "%d\x00%d\x00", info.Size(), info.ModTime().UnixNano())
 		}
 	}
 	return nil

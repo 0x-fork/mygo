@@ -2,10 +2,14 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
+	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -53,7 +57,7 @@ func TestResources(t *testing.T) {
 	if c.Icon != filepath.Join("resources", "icon.png") {
 		t.Errorf("icon = %q, want resources/icon.png by default", c.Icon)
 	}
-	list, err := c.resources(reservedNames(c, "darwin")...)
+	list, err := c.resources("darwin", "arm64", reservedNames(c, "darwin")...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,18 +145,18 @@ func TestResourceErrors(t *testing.T) {
 		if tc.reserved != "" {
 			reserved = append(reserved, tc.reserved)
 		}
-		if _, err := c.resources(reserved...); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if _, err := c.resources("linux", "amd64", reserved...); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err = %v, want %q", tc.json, err, tc.want)
 		}
 	}
 
 	// No resources at all, and a file where the directory belongs.
 	c := &Config{root: t.TempDir()}
-	if list, err := c.resources(); err != nil || len(list) != 0 {
+	if list, err := c.resources("linux", "amd64"); err != nil || len(list) != 0 {
 		t.Errorf("no resources: %v, %v", list, err)
 	}
 	writeFiles(t, c.root, map[string]string{"resources": "not a directory"})
-	if _, err := c.resources(); err == nil {
+	if _, err := c.resources("linux", "amd64"); err == nil {
 		t.Error("a resources file should fail")
 	}
 
@@ -175,7 +179,7 @@ func TestPlaceBuild(t *testing.T) {
 	writeFiles(t, dir, map[string]string{"app": "old", "stale.txt": "", "kept/x": "", ".staging-1/y": ""})
 	writeFiles(t, stage, map[string]string{"app": "new"})
 	writeFiles(t, src, map[string]string{"kept/x": "x2", "fresh.txt": "fresh"})
-	res := []resource{{"kept", filepath.Join(src, "kept")}, {"fresh.txt", filepath.Join(src, "fresh.txt")}}
+	res := []resource{{name: "kept", src: filepath.Join(src, "kept")}, {name: "fresh.txt", src: filepath.Join(src, "fresh.txt")}}
 	if err := placeBuild(stage, dir, res); err != nil {
 		t.Fatal(err)
 	}
@@ -374,17 +378,22 @@ func TestNestedCodesignArgs(t *testing.T) {
 }
 
 // TestBuildResources builds an app for each platform and finds its
-// resources where the app looks for them, then builds again without one.
+// resources, and only those of its platform, where the app looks for them,
+// then builds again without one.
 func TestBuildResources(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles programs")
 	}
 	dir := testModule(t, map[string]string{
-		"main.go":              "package main\n\nimport \"github.com/egoist/mygo\"\n\nfunc main() { mygo.App.Run() }\n",
-		"mygo.json":            `{"name": "Res App", "resources": ["extra.txt"]}`,
-		"resources/data/a.txt": "a",
-		"resources/icon.png":   string(defaultIcon()),
-		"extra.txt":            "extra",
+		"main.go":                                "package main\n\nimport \"github.com/egoist/mygo\"\n\nfunc main() { mygo.App.Run() }\n",
+		"mygo.json":                              `{"name": "Res App", "resources": ["extra.txt"]}`,
+		"resources/data/a.txt":                   "a",
+		"resources/icon.png":                     string(defaultIcon()),
+		"resources/darwin/bin/server":            "darwin",
+		"resources/linux-amd64/bin/server":       "linux",
+		"resources/windows-amd64/bin/server.exe": "windows",
+		"resources/windows-arm64/bin/server.exe": "windows arm64",
+		"extra.txt":                              "extra",
 	})
 	c, err := loadConfig(dir)
 	if err != nil {
@@ -403,9 +412,21 @@ func TestBuildResources(t *testing.T) {
 			t.Fatalf("%s: %v", tc.goos, err)
 		}
 		res := filepath.Join(dir, "dist", filepath.FromSlash(tc.resources))
-		for name, content := range map[string]string{"data/a.txt": "a", "extra.txt": "extra"} {
+		server := "server"
+		if tc.goos == "windows" {
+			server += ".exe"
+		}
+		for name, content := range map[string]string{"data/a.txt": "a", "extra.txt": "extra", "bin/" + server: tc.goos} {
 			if b, err := os.ReadFile(filepath.Join(res, filepath.FromSlash(name))); err != nil || string(b) != content {
 				t.Errorf("%s: %s = %q, %v", tc.goos, name, b, err)
+			}
+		}
+		if names, err := entryNames(filepath.Join(res, "bin")); err != nil || !slices.Equal(names, []string{server}) {
+			t.Errorf("%s: bin holds %q, %v", tc.goos, names, err)
+		}
+		for _, name := range []string{"darwin", "linux-amd64", "windows-amd64", "windows-arm64"} {
+			if _, err := os.Stat(filepath.Join(res, name)); err == nil {
+				t.Errorf("%s: the platform directory %s was copied", tc.goos, name)
 			}
 		}
 		if tc.goos == "darwin" {
@@ -439,6 +460,324 @@ func TestBuildResources(t *testing.T) {
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), ".") {
 			t.Errorf("left behind: %s", e.Name())
+		}
+	}
+}
+
+// dirFiles returns the files and links in dir by their slash paths there,
+// with their contents, or "-> target" for links.
+func dirFiles(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, path)
+		if d.Type()&fs.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			files[filepath.ToSlash(rel)] = "-> " + link
+			return err
+		}
+		b, err := os.ReadFile(path)
+		files[filepath.ToSlash(rel)] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// TestPlatformResources ships the platform directories of the resources
+// directory with the apps of their platform only, merged with the rest.
+func TestPlatformResources(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"mygo.json":                              `{"name": "App", "resources": ["legal/NOTICE.txt"]}`,
+		"legal/NOTICE.txt":                       "notice",
+		"resources/data/words.txt":               "hello",
+		"resources/bin/tool":                     "tool",
+		"resources/windows-icons/tray.ico":       "not a platform directory",
+		"resources/darwin/bin/helper":            "darwin helper",
+		"resources/darwin-arm64/bin/server":      "darwin arm64 server",
+		"resources/darwin-amd64/bin/server":      "darwin amd64 server",
+		"resources/darwin-universal/fat.txt":     "universal apps only",
+		"resources/linux-amd64/bin/server":       "linux amd64 server",
+		"resources/linux-amd64/.hidden":          "",
+		"resources/linux-arm64/lib/libx.so":      "linux arm64 library",
+		"resources/windows/bin/.keep":            "",
+		"resources/windows-amd64/bin/server.exe": "windows amd64 server",
+	})
+	c, err := loadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := map[string]string{"data/words.txt": "hello", "bin/tool": "tool", "windows-icons/tray.ico": "not a platform directory", "NOTICE.txt": "notice"}
+	for _, tc := range []struct {
+		goos, goarch string
+		want         map[string]string
+	}{
+		{"darwin", "arm64", map[string]string{"bin/helper": "darwin helper", "bin/server": "darwin arm64 server"}},
+		{"darwin", "amd64", map[string]string{"bin/helper": "darwin helper", "bin/server": "darwin amd64 server"}},
+		{"linux", "amd64", map[string]string{"bin/server": "linux amd64 server"}},
+		{"linux", "arm64", map[string]string{"lib/libx.so": "linux arm64 library"}},
+		{"linux", "riscv64", nil},
+		{"windows", "amd64", map[string]string{"bin/server.exe": "windows amd64 server"}},
+	} {
+		list, err := c.resources(tc.goos, tc.goarch, reservedNames(c, tc.goos)...)
+		if err != nil {
+			t.Fatalf("%s/%s: %v", tc.goos, tc.goarch, err)
+		}
+		out := t.TempDir()
+		if err := copyResources(list, out); err != nil {
+			t.Fatal(err)
+		}
+		want := maps.Clone(shared)
+		maps.Copy(want, tc.want)
+		if got := dirFiles(t, out); !maps.Equal(got, want) {
+			t.Errorf("%s/%s: resources = %q, want %q", tc.goos, tc.goarch, got, want)
+		}
+	}
+
+	// Builds for an architecture without a platform directory likely lack
+	// what the others hold.
+	for platform, want := range map[string]string{
+		"linux/riscv64": "linux-amd64", "windows/arm64": "windows-amd64",
+		"linux/amd64": "", "darwin/arm64": "", "darwin/universal": "", "freebsd/amd64": "",
+	} {
+		goos, goarch, _ := strings.Cut(platform, "/")
+		if got := c.otherArch(goos, goarch); got != want {
+			t.Errorf("otherArch(%s) = %q, want %q", platform, got, want)
+		}
+	}
+}
+
+// fragments reports whether s holds every fragment, in which file paths
+// are written with slashes after "p:".
+func fragments(s string, want ...string) bool {
+	for _, w := range want {
+		w = slashPath.ReplaceAllStringFunc(w, func(p string) string { return filepath.FromSlash(p[len("p:"):]) })
+		if !strings.Contains(s, w) {
+			return false
+		}
+	}
+	return true
+}
+
+var slashPath = regexp.MustCompile(`p:\S+`)
+
+func TestPlatformResourceErrors(t *testing.T) {
+	for _, tc := range []struct {
+		files    map[string]string
+		platform string // default linux/amd64
+		want     []string
+	}{
+		{files: map[string]string{"resources/bin/server": "", "resources/linux-amd64/bin/server": ""},
+			want: []string{"p:resources/bin/server and p:resources/linux-amd64/bin/server would both be installed as bin/server"}},
+		{files: map[string]string{"resources/linux/x": "", "resources/linux-amd64/x": ""},
+			want: []string{"p:resources/linux/x and p:resources/linux-amd64/x would both be installed as x"}},
+		{files: map[string]string{"resources/Bin/tool": "", "resources/linux-amd64/bin/server": ""},
+			want: []string{"p:resources/Bin and p:resources/linux-amd64/bin would both be installed as bin"}},
+		{files: map[string]string{"resources/bin": "a file", "resources/linux/bin/server": ""},
+			want: []string{"p:resources/bin and p:resources/linux/bin would both be installed as bin"}},
+		{files: map[string]string{"resources/windows/App.exe": ""}, platform: "windows/amd64",
+			want: []string{"resource p:resources/windows/App.exe would replace the app's own App.exe"}},
+		{files: map[string]string{"mygo.json": `{"name": "App", "resources": ["vendor/bin"]}`, "vendor/bin/x": "", "resources/linux-amd64/bin/y": ""},
+			want: []string{"p:resources/linux-amd64/bin and p:vendor/bin would both be installed as bin"}},
+		{files: map[string]string{"resources/linux": "a file"},
+			want: []string{"p:resources/linux is not a directory"}},
+		{files: map[string]string{"resources/darwin-x64/server": ""},
+			want: []string{"p:resources/darwin-x64 would ship to every platform: name the resources of one platform after its GOOS and GOARCH, as in p:resources/darwin-amd64"}},
+		{files: map[string]string{"resources/macos/x": ""}, want: []string{"as in p:resources/darwin"}},
+		{files: map[string]string{"resources/Linux-ARM64/x": ""}, want: []string{"as in p:resources/linux-arm64"}},
+		{files: map[string]string{"resources/win32-x64/x": ""}, want: []string{"as in p:resources/windows-amd64"}},
+		{files: map[string]string{"resources/linux-x86_64/x": ""}, want: []string{"as in p:resources/linux-amd64"}},
+	} {
+		dir := t.TempDir()
+		files := map[string]string{"mygo.json": `{"name": "App"}`}
+		maps.Copy(files, tc.files)
+		writeFiles(t, dir, files)
+		c, err := loadConfig(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		goos, goarch, _ := strings.Cut(cmp.Or(tc.platform, "linux/amd64"), "/")
+		if _, err := c.resources(goos, goarch, reservedNames(c, goos)...); err == nil || !fragments(err.Error(), tc.want...) {
+			t.Errorf("%q: err = %v, want %q", slices.Sorted(maps.Keys(tc.files)), err, tc.want)
+		}
+	}
+
+	// Names other tools use in other ways ship to every platform.
+	for _, name := range []string{"mac", "win", "js", "windows-icons", "linux-", "darwin-universe"} {
+		if want := platformDirTypo(name); want != "" {
+			t.Errorf("platformDirTypo(%q) = %q", name, want)
+		}
+		if _, _, ok := platformDir(name); ok {
+			t.Errorf("%s is a platform directory", name)
+		}
+	}
+}
+
+// withCPU returns a copy of the Mach-O file b for another CPU type.
+func withCPU(b []byte, cpu uint32) []byte {
+	b = bytes.Clone(b)
+	binary.LittleEndian.PutUint32(b[4:], cpu)
+	return b
+}
+
+// fatSlices returns the CPU types and contents of the architectures of the
+// universal binary at path.
+func fatSlices(t *testing.T, path string) (cpus []uint32, data [][]byte) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) < 8 || binary.BigEndian.Uint32(b) != 0xcafebabe {
+		t.Fatalf("%s is not a universal binary", path)
+	}
+	for i := range binary.BigEndian.Uint32(b[4:]) {
+		arch := b[8+20*i:]
+		offset, size := binary.BigEndian.Uint32(arch[8:]), binary.BigEndian.Uint32(arch[12:])
+		cpus = append(cpus, binary.BigEndian.Uint32(arch))
+		data = append(data, b[offset:offset+size])
+	}
+	return cpus, data
+}
+
+// TestUniversalResources merges darwin-arm64 and darwin-amd64 for
+// universal apps: identical files and links are shipped once, arm64 and
+// x86_64 code as universal binaries.
+func TestUniversalResources(t *testing.T) {
+	arm := thinMachO(binary.LittleEndian, 0x19)
+	amd := withCPU(arm, cpuAMD64)
+	project := func(files map[string]string) *Config {
+		t.Helper()
+		dir := t.TempDir()
+		all := map[string]string{"mygo.json": `{"name": "App"}`}
+		maps.Copy(all, files)
+		writeFiles(t, dir, all)
+		c, err := loadConfig(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	c := project(map[string]string{
+		"resources/bin/tool":                                      "tool",
+		"resources/darwin/any.txt":                                "any",
+		"resources/darwin-universal/fat.txt":                      "fat",
+		"resources/darwin-arm64/bin/server":                       string(arm),
+		"resources/darwin-amd64/bin/server":                       string(amd),
+		"resources/darwin-arm64/share/data.txt":                   "same",
+		"resources/darwin-amd64/share/data.txt":                   "same",
+		"resources/darwin-arm64/Helper.app/Contents/MacOS/Helper": string(arm),
+		"resources/darwin-amd64/Helper.app/Contents/MacOS/Helper": string(amd),
+		"resources/darwin-arm64/Helper.app/Contents/Info.plist":   "plist",
+		"resources/darwin-amd64/Helper.app/Contents/Info.plist":   "plist",
+	})
+	res := filepath.Join(c.root, "resources")
+	if err := os.Chmod(filepath.Join(res, "darwin-arm64", "bin", "server"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	links := runtime.GOOS != "windows"
+	if links {
+		for _, arch := range []string{"darwin-arm64", "darwin-amd64"} {
+			if err := os.Symlink("server", filepath.Join(res, arch, "bin", "current")); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	list, err := c.resources("darwin", "universal", reservedNames(c, "darwin")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	if err := copyResources(list, out); err != nil {
+		t.Fatal(err)
+	}
+	got := dirFiles(t, out)
+	for name, want := range map[string]string{"bin/tool": "tool", "any.txt": "any", "fat.txt": "fat", "share/data.txt": "same", "Helper.app/Contents/Info.plist": "plist"} {
+		if got[name] != want {
+			t.Errorf("%s = %q, want %q", name, got[name], want)
+		}
+	}
+	for _, name := range []string{"bin/server", "Helper.app/Contents/MacOS/Helper"} {
+		cpus, data := fatSlices(t, filepath.Join(out, filepath.FromSlash(name)))
+		if !slices.Equal(cpus, []uint32{cpuARM64, cpuAMD64}) || !bytes.Equal(data[0], arm) || !bytes.Equal(data[1], amd) {
+			t.Errorf("%s: architectures %#x", name, cpus)
+		}
+	}
+	if links {
+		if got["bin/current"] != "-> server" {
+			t.Errorf("bin/current = %q, want a link to server", got["bin/current"])
+		}
+		if info, err := os.Stat(filepath.Join(out, "bin", "server")); err != nil || info.Mode().Perm() != 0o755 {
+			t.Errorf("bin/server lost the permissions of the arm64 one: %v", err)
+		}
+	}
+	var hash bytes.Buffer
+	if err := hashResources(&hash, list); err != nil || !bytes.Contains(hash.Bytes(), []byte("Helper.app/Contents/MacOS/Helper")) {
+		t.Errorf("hashResources: %v", err)
+	}
+
+	// Other macOS apps get their own architecture's files as they are.
+	list, err = c.resources("darwin", "arm64", reservedNames(c, "darwin")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out = t.TempDir()
+	if err := copyResources(list, out); err != nil {
+		t.Fatal(err)
+	}
+	if got := dirFiles(t, out); got["bin/server"] != string(arm) || got["fat.txt"] != "" || got["any.txt"] != "any" {
+		t.Errorf("darwin/arm64 resources: %q", slices.Sorted(maps.Keys(got)))
+	}
+
+	for _, tc := range []struct {
+		files map[string]string
+		links map[string]string
+		want  []string
+	}{
+		{files: map[string]string{"resources/darwin-arm64/data.txt": "a", "resources/darwin-amd64/data.txt": "b"},
+			want: []string{"p:resources/darwin-arm64/data.txt and p:resources/darwin-amd64/data.txt differ: a universal app holds one of them (files for both architectures go in p:resources/darwin)"}},
+		{files: map[string]string{"resources/darwin-arm64/bin/only": "", "resources/darwin-amd64/bin/x": ""},
+			want: []string{"p:resources/darwin-arm64/bin/only has no counterpart in p:resources/darwin-amd64/bin to make a universal app with"}},
+		{files: map[string]string{"resources/darwin-arm64/x": "", "resources/darwin-amd64/x": "", "resources/darwin-amd64/y": ""},
+			want: []string{"p:resources/darwin-amd64/y has no counterpart in p:resources/darwin-arm64 "}},
+		{files: map[string]string{"resources/darwin-arm64/x": ""},
+			want: []string{"a universal app combines p:resources/darwin-arm64 with p:resources/darwin-amd64, which does not exist"}},
+		{files: map[string]string{"resources/darwin-amd64/x": ""},
+			want: []string{"a universal app combines p:resources/darwin-amd64 with p:resources/darwin-arm64, which does not exist"}},
+		{files: map[string]string{"resources/darwin-arm64/server": string(arm), "resources/darwin-amd64/server": string(thinMachO(binary.LittleEndian, 0x19, 0x1d))},
+			want: []string{"cannot make a universal binary of p:resources/darwin-arm64/server (arm64 code) and p:resources/darwin-amd64/server (arm64 code): it takes arm64 and x86_64 code"}},
+		{files: map[string]string{"resources/darwin-arm64/server": string(arm), "resources/darwin-amd64/server": string(arm)},
+			want: []string{"p:resources/darwin-arm64/server (arm64 code) and p:resources/darwin-amd64/server (arm64 code)"}},
+		{files: map[string]string{"resources/darwin-arm64/server": string(amd), "resources/darwin-amd64/server": string(arm)},
+			want: []string{"(x86_64 code) and", "(arm64 code): it takes"}},
+		{files: map[string]string{"resources/darwin-arm64/server": string(arm), "resources/darwin-amd64/server": "#!/bin/sh"},
+			want: []string{"(arm64 code) and p:resources/darwin-amd64/server (not code)"}},
+		{files: map[string]string{"resources/darwin-arm64/x/y": "", "resources/darwin-amd64/x": ""},
+			want: []string{"p:resources/darwin-arm64/x and p:resources/darwin-amd64/x differ"}},
+		{files: map[string]string{"resources/darwin/bin/server": "", "resources/darwin-arm64/bin/server": string(arm), "resources/darwin-amd64/bin/server": string(amd)},
+			want: []string{"p:resources/darwin/bin/server and p:resources/darwin-arm64/bin/server would both be installed as bin/server"}},
+		{files: map[string]string{"resources/darwin-arm64/bin/a": "", "resources/darwin-amd64/bin/a": ""},
+			links: map[string]string{"resources/darwin-arm64/bin/l": "a", "resources/darwin-amd64/bin/l": "b"},
+			want:  []string{"p:resources/darwin-arm64/bin/l and p:resources/darwin-amd64/bin/l differ"}},
+	} {
+		if tc.links != nil && !links {
+			continue
+		}
+		c := project(tc.files)
+		for name, target := range tc.links {
+			if err := os.Symlink(target, filepath.Join(c.root, filepath.FromSlash(name))); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := c.resources("darwin", "universal"); err == nil || !fragments(err.Error(), tc.want...) {
+			t.Errorf("%q: err = %v, want %q", slices.Sorted(maps.Keys(tc.files)), err, tc.want)
 		}
 	}
 }

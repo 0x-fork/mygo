@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -26,8 +27,11 @@ at mygo://localhost/. macOS gets a signed .app bundle and a
 Applications; other platforms get an executable. The contents of the
 resources directory and the resources listed in mygo.json are copied into
 the bundle's Contents/Resources, or next to the executable, and the programs
-among them are signed with the app. MyGo needs no cgo, so any platform can
-be compiled from any machine; signing and disk images need macOS.
+among them are signed with the app. Directories of resources named after a
+platform, such as resources/darwin or resources/linux-amd64, only ship with
+that platform's apps; darwin/universal combines darwin-arm64 and
+darwin-amd64. MyGo needs no cgo, so any platform can be compiled from any
+machine; signing and disk images need macOS.
 
 Set macos.signingIdentity in mygo.json (or -sign) to a Developer ID to ship
 outside the Mac App Store, and macos.notarize to notarize the disk image.
@@ -137,9 +141,12 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 	if err := os.Chmod(stage, 0o755); err != nil {
 		return nil, err
 	}
-	res, err := c.resources(reservedNames(c, goos)...)
+	res, err := c.resources(goos, goarch, reservedNames(c, goos)...)
 	if err != nil {
 		return nil, err
+	}
+	if other := c.otherArch(goos, goarch); other != "" {
+		logf("no %s for %s/%s, though there is %s", filepath.Join(resourcesDir, goos+"-"+goarch), goos, goarch, filepath.Join(resourcesDir, other))
 	}
 
 	target := goos + "-" + goarch
@@ -199,6 +206,9 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		app, err := writeBundle(c, stage, bin, icns, res)
 		if err != nil {
 			return nil, err
+		}
+		if slices.ContainsFunc(res, func(r resource) bool { return r.lipo != "" }) {
+			logf("made universal binaries of the code in %s and %s", filepath.Join(resourcesDir, "darwin-arm64"), filepath.Join(resourcesDir, "darwin-amd64"))
 		}
 		if err := codesign(c, app, opts.sign, true); err != nil {
 			return nil, err
@@ -297,8 +307,16 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 	for i, a := range artifacts {
 		artifacts[i] = filepath.Join(final, filepath.Base(a))
 	}
-	if len(res) > 0 && goos != "darwin" {
-		logf("copied %d resources next to the executable", len(res))
+	if goos != "darwin" {
+		top := 0 // entries of the resource directory; the others are inside them
+		for _, r := range res {
+			if !strings.Contains(r.name, "/") {
+				top++
+			}
+		}
+		if top > 0 {
+			logf("copied %d resources next to the executable", top)
+		}
 	}
 	return artifacts, nil
 }

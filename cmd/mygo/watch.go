@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -25,7 +26,10 @@ type buildInputs struct {
 	sourceDirs []string // directories of compiled packages: their .go and .s files
 	fileDirs   []string // directories of embedded files: all their files
 	files      []string // go.mod and go.sum files, the configuration, the icon, entitlements
-	trees      []string // the resources: everything in them
+	// resources is the resources directory: everything in it but the
+	// platform directories of other platforms.
+	resources string
+	trees     []string // the listed resources: everything in them
 }
 
 // listBuildInputs asks go list for the packages the app is built from,
@@ -43,8 +47,8 @@ func listBuildInputs(c *Config) (*buildInputs, error) {
 		return dir == "" || modcache != "" && strings.HasPrefix(dir, modcache+string(filepath.Separator))
 	}
 	in := &buildInputs{
-		files: []string{filepath.Join(c.root, jsonConfig), filepath.Join(c.root, tsConfig)},
-		trees: []string{c.path(resourcesDir)},
+		files:     []string{filepath.Join(c.root, jsonConfig), filepath.Join(c.root, tsConfig)},
+		resources: c.path(resourcesDir),
 	}
 	if c.Icon != "" {
 		in.files = append(in.files, c.path(c.Icon))
@@ -126,7 +130,7 @@ func (w *watcher) set(in *buildInputs) {
 
 func (in *buildInputs) equal(o *buildInputs) bool {
 	return slices.Equal(in.sourceDirs, o.sourceDirs) && slices.Equal(in.fileDirs, o.fileDirs) &&
-		slices.Equal(in.files, o.files) && slices.Equal(in.trees, o.trees)
+		slices.Equal(in.files, o.files) && in.resources == o.resources && slices.Equal(in.trees, o.trees)
 }
 
 func fingerprint(in *buildInputs) uint64 {
@@ -160,7 +164,7 @@ func fingerprint(in *buildInputs) uint64 {
 			fmt.Fprintf(h, "%s\x00-\x00", f)
 		}
 	}
-	for _, t := range in.trees {
+	tree := func(t string) {
 		err := walkResource(t, func(path string, info fs.FileInfo) error {
 			if info.IsDir() {
 				// Its time changes with hidden files too.
@@ -173,6 +177,33 @@ func fingerprint(in *buildInputs) uint64 {
 		if err != nil {
 			fmt.Fprintf(h, "%s\x00-\x00", t)
 		}
+	}
+	// The entries of the resources directory are followed like listed
+	// resources, and so are those of the platform directories of this
+	// platform, which is the one mygo dev builds for.
+	var entries func(dir string, platforms bool)
+	entries = func(dir string, platforms bool) {
+		list, err := os.ReadDir(dir)
+		if err != nil {
+			fmt.Fprintf(h, "%s\x00-\x00", dir)
+			return
+		}
+		for _, e := range list {
+			path := filepath.Join(dir, e.Name())
+			switch goos, goarch, ok := platformDir(e.Name()); {
+			case hiddenName(e.Name()):
+			case !platforms || !ok:
+				tree(path)
+			case goos == runtime.GOOS && (goarch == "" || goarch == runtime.GOARCH):
+				entries(path, false)
+			}
+		}
+	}
+	if in.resources != "" {
+		entries(in.resources, true)
+	}
+	for _, t := range in.trees {
+		tree(t)
 	}
 	return h.Sum64()
 }

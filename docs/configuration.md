@@ -64,7 +64,7 @@ New projects set `out` to `build`, apart from Vite's `dist`.
 
 | Field | |
 |---|---|
-| `resources` | files and directories copied into the app, next to the contents of the `resources` directory, under their base names; see [resources](distribution.md#resources) |
+| `resources` | files and directories copied into the app of every platform, next to the contents of the `resources` directory, under their base names; see [resources](distribution.md#resources), and [platform resources](distribution.md#platform-resources) for the files of one platform |
 | `urlSchemes` | the URL schemes the app opens, such as `myapp` for `myapp://…`, which reach `App.OnOpenURL`; see [deep links](app.md#deep-links) |
 | `fileAssociations` | the file types the app opens, which reach `App.OnOpenFile`; see [file associations](app.md#file-associations) |
 

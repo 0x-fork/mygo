@@ -95,16 +95,59 @@ seed := filepath.Join(dir, "seed.db")
 `mygo dev` copies them into the development app too, and rebuilds it when
 they change. Hidden files are left out.
 
+### Platform resources
+
+Some resources belong to one platform, such as a program built for one
+system and processor. Directories of `resources` named after a platform
+hold them, laid out like `resources` itself:
+
+```
+resources/
+├── data/seed.db                    every app
+├── darwin/                         macOS apps
+├── darwin-arm64/bin/server         macOS on Apple silicon
+├── darwin-amd64/bin/server         macOS on Intel
+├── linux-amd64/bin/server          Linux on x86-64
+├── linux-arm64/bin/server          Linux on ARM64
+└── windows-amd64/bin/server.exe    Windows on x86-64
+```
+
+They are named like the targets of `-platform`: a system, `darwin`,
+`linux` or `windows`, for all of its apps, or a system and an
+architecture, as in `darwin-arm64` or `windows-amd64`, for one. An app
+ships the platform directories of its target merged with the other
+resources, so the Linux x86-64 app above has `data/seed.db` and its own
+`bin/server`, and nothing of the other platforms. A path that two
+directories would both install fails the build, and so does a directory
+named the way other tools name platforms, such as `darwin-x64` or `macos`,
+which would ship to every platform. The build also notes a target without
+a directory of its own when another architecture of its system has one,
+such as `linux/arm64` next to `linux-amd64`.
+
+A universal macOS app (`darwin/universal`) ships `darwin` and
+`darwin-universal`, and combines `darwin-arm64` with `darwin-amd64`:
+every file of one needs its counterpart in the other, programs and
+libraries become universal binaries, as `lipo` makes them, and other files
+must be identical. Put what serves both architectures, such as programs
+that already are universal binaries, in `darwin`.
+
+`mygo dev` ships the platform directories of the machine it runs on.
+Under `go run` and `go test`, `PathResources` is the `resources`
+directory as it is, platform directories included.
+
 ### Helper executables
 
 Programs the app runs, such as a server written in another language or a
-tool like `ffmpeg`, are resources too: put them in the `resources`
-directory and run them from there.
+tool like `ffmpeg`, are resources too: put the build for each platform in
+its [platform directory](#platform-resources) and run it from there.
 
 ```go
 dir, _ := mygo.App.Path(mygo.PathResources)
 cmd := exec.Command(filepath.Join(dir, "bin", "server"))
 ```
+
+The same code runs `bin\server.exe` on Windows, where `exec.Command`
+finds the program of an absolute path without its extension.
 
 `mygo build` signs them with the app, so that Gatekeeper and SmartScreen
 accept them and notarization passes:
@@ -123,7 +166,8 @@ Under the hardened runtime, some programs need entitlements, such as
 code as it runs. Code keeps the entitlements it was signed with, so the
 official builds of such runtimes work as they are, and
 `macos.helperEntitlements` gives code entitlements of its own, by its path
-among the resources:
+in the app's resources, such as `bin/server` for
+`resources/darwin-arm64/bin/server`:
 
 ```ts
 export default defineConfig({
@@ -144,9 +188,6 @@ export default defineConfig({
 </dict>
 </plist>
 ```
-
-Resources are the same for every platform, so give the programs of each
-platform names of their own, such as `bin/server` and `bin/server.exe`.
 
 ## macOS
 

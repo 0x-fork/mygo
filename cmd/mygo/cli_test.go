@@ -396,6 +396,7 @@ func TestSignWindowsResources(t *testing.T) {
 		"bin/.hidden.dll":   peHeaders(true, 0),
 		"data/seed.db":      []byte("MZ, but data"),
 		"helper.exe":        peHeaders(true, 0),
+		"lib/merged.dll":    peHeaders(false, 0),
 	}
 	for name, b := range files {
 		path := filepath.Join(src, filepath.FromSlash(name))
@@ -404,7 +405,8 @@ func TestSignWindowsResources(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	res := []resource{{"bin", filepath.Join(src, "bin")}, {"data", filepath.Join(src, "data")}, {"helper.exe", filepath.Join(src, "helper.exe")}}
+	res := []resource{{name: "bin", src: filepath.Join(src, "bin")}, {name: "data", src: filepath.Join(src, "data")}, {name: "helper.exe", src: filepath.Join(src, "helper.exe")},
+		{name: "lib"}, {name: "lib/merged.dll", src: filepath.Join(src, "lib", "merged.dll"), nested: true}}
 	if err := copyResources(res, dir); err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +414,7 @@ func TestSignWindowsResources(t *testing.T) {
 	if err := signWindowsResources(c, dir, res); err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]bool{"bin/tool.exe": true, "bin/plugins/x.dll": true, "helper.exe": true, "bin/vendor.exe": false, "data/seed.db": false} {
+	for name, want := range map[string]bool{"bin/tool.exe": true, "bin/plugins/x.dll": true, "helper.exe": true, "lib/merged.dll": true, "bin/vendor.exe": false, "data/seed.db": false} {
 		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
 		if err != nil {
 			t.Fatal(err)

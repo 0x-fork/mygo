@@ -694,7 +694,8 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   - *Watching.* Exactly what the build reads, from `go list -deps` after
     every build: the directories of the compiled packages outside GOROOT and
     the module cache (so local `replace` modules too), embedded files,
-    go.mod/go.sum, the configuration, the icon and the resources. Frontend sources
+    go.mod/go.sum, the configuration, the icon and the resources, but not
+    the platform directories of other platforms. Frontend sources
     are the dev server's business and never rebuild the app. A build keeps
     the watcher's baseline unless it changed what is watched, so edits made
     during a build trigger another one.
@@ -718,11 +719,22 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   in `resources` in the configuration under their base names, are copied into
   `Contents/Resources` of macOS bundles and next to the executable on
   Linux and Windows, by `build` and `dev` alike; apps find them with
-  `App.Path(PathResources)` (under `go run`, `./resources`). Names starting
-  with a dot are skipped; listed paths are followed when they are links,
-  links inside them are copied as links, permissions are kept. Destination
-  names must be unique ignoring case and must not replace the packaging's
-  own files (`AppIcon.icns`, the executable, the `.desktop` entry). Code
+  `App.Path(PathResources)` (under `go run`, `./resources`). The platform
+  directories of `resources/`, named `<goos>` or `<goos>-<goarch>`
+  (`platformDir`; names other tools use, such as `darwin-x64`, are
+  errors), ship with the apps of that target only, their entries merged
+  with the shared ones: `merger` groups what goes to one path, ignoring
+  case, and only descends into directories that several sources share, so
+  a whole tree from one source stays one entry. For `darwin/universal`,
+  `darwin-arm64` and `darwin-amd64` are walked as pairs whose names must
+  match: identical files and links ship once, an arm64 and an x86_64
+  Mach-O file become a universal binary (`writeUniversal`) when copied,
+  anything else fails. Names starting with a dot are skipped; the entries
+  of these directories and listed paths are followed when they are links,
+  links inside them are copied as links, permissions are kept. Installed
+  paths must be unique ignoring case (listed resources never merge), and
+  top-level names must not replace the packaging's own files
+  (`AppIcon.icns`, the executable, the `.desktop` entry). Code
   among them is signed before the app (`signNestedCode`), since
   `codesign --deep` only covers code directories and notarization rejects
   unsigned code: Mach-O files, then the bundles holding them, deepest
@@ -774,7 +786,7 @@ profile).
 |---|---|---|
 | core | `go test .` | lifecycle, quit, IPC, channels, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance and its dev handover, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
-| CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, resources (staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
+| CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, resources (platform directories, universal pairs, staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime and `mygo-runtime` |
 | GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, channels, protocol, Eval, geometry, capture, menus, window.open; on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
 

@@ -86,7 +86,11 @@ func signWindows(c *Config, file string) error {
 // signature: those signed by their publishers keep their signatures.
 func signWindowsResources(c *Config, dir string, res []resource) error {
 	for _, r := range res {
-		err := walkResource(filepath.Join(dir, r.name), func(path string, info fs.FileInfo) error {
+		if r.src == "" {
+			continue // a directory whose contents are resources of their own
+		}
+		copied := resource{src: filepath.Join(dir, filepath.FromSlash(r.name)), nested: r.nested}
+		err := copied.walk(func(path string, info fs.FileInfo) error {
 			if !info.Mode().IsRegular() {
 				return nil
 			}
