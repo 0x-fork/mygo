@@ -25,11 +25,11 @@ Without devUrl, the app serves frontendDist from disk. On macOS the
 development app is a real bundle, "<name> Dev" with the identifier
 "<identifier>.dev", in .mygo/dev.
 
-Changes to the Go code, mygo.json or the icon rebuild the app, regenerate
-the TypeScript client and relaunch it. The new build replaces the running
-one once it has started, so a build that fails or crashes keeps the
-previous one running. Frontend changes are left to the dev server. Quitting
-the app ends mygo dev.`)
+Changes to the Go code, mygo.json, the icon or the resources rebuild the
+app, regenerate the TypeScript client and relaunch it. The new build
+replaces the running one once it has started, so a build that fails or
+crashes keeps the previous one running. Frontend changes are left to the
+dev server. Quitting the app ends mygo dev.`)
 	skipDevCommand := flags.Bool("skip-dev-command", false, "do not run devCommand")
 	sign := flags.String("sign", "-", "macOS signing identity for the development app")
 	if err := flags.Parse(args); err != nil {
@@ -280,6 +280,11 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 		return nil, sum, err
 	}
 
+	res, err := dc.resources(reservedNames(dc, runtime.GOOS)...)
+	if err != nil {
+		return nil, sum, err
+	}
+
 	// Fingerprint what the app is made of, to skip relaunching when a
 	// change did not affect it.
 	h := sha256.New()
@@ -292,6 +297,9 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 	if err != nil {
 		return nil, sum, err
 	}
+	if err := hashResources(h, res); err != nil {
+		return nil, sum, err
+	}
 	var icns []byte
 	if runtime.GOOS == "darwin" {
 		if icns, err = s.icon(c); err != nil {
@@ -299,7 +307,7 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 		}
 		iconFile := ""
 		if icns != nil {
-			iconFile = "icon.icns"
+			iconFile = bundleIcon
 		}
 		h.Write(icns)
 		h.Write(infoPlist(dc, name, iconFile))
@@ -314,7 +322,7 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 	}
 	exe := filepath.Join(dir, name)
 	if runtime.GOOS == "darwin" {
-		app, err := writeBundle(dc, stage, bin, icns)
+		app, err := writeBundle(dc, stage, bin, icns, res)
 		if err != nil {
 			return nil, sum, err
 		}
@@ -326,7 +334,7 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 			return nil, sum, err
 		}
 		exe = bundleExecutable(final)
-	} else if err := replacePath(bin, exe); err != nil {
+	} else if err := placeBuild(stage, dir, res); err != nil {
 		return nil, sum, err
 	}
 	built := time.Since(started)
@@ -341,6 +349,36 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 	}
 	logf("%s (built in %.1fs, ready in %.1fs)", verb, built.Seconds(), (time.Since(started) - built).Seconds())
 	return p, sum, nil
+}
+
+// placeBuild moves the executable in stage and the resources res next to
+// it into dir, and removes what an earlier build left there and this one
+// does not have.
+func placeBuild(stage, dir string, res []resource) error {
+	if err := copyResources(res, stage); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(stage)
+	if err != nil {
+		return err
+	}
+	placed := map[string]bool{}
+	for _, e := range entries {
+		if err := replacePath(filepath.Join(stage, e.Name()), filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+		placed[e.Name()] = true
+	}
+	entries, err = os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !placed[e.Name()] && !hiddenName(e.Name()) {
+			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+		}
+	}
+	return nil
 }
 
 // icon returns the app icon as .icns, rendering it only when it changed.

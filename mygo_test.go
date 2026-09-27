@@ -997,6 +997,22 @@ func TestPaths(t *testing.T) {
 	if _, err := App.Path("nope"); err == nil {
 		t.Error("unknown path should fail")
 	}
+	// This test binary is built by go test.
+	wd, _ := os.Getwd()
+	if p, err := App.Path(PathResources); err != nil || p != filepath.Join(wd, "resources") {
+		t.Errorf("resources under go test = %q, %v", p, err)
+	}
+	for _, c := range []struct{ exe, want string }{
+		{"/Applications/My App.app/Contents/MacOS/My App", "/Applications/My App.app/Contents/Resources"},
+		{"/opt/my-app/my-app", "/opt/my-app"},
+		{`/tmp/go-build123/b001/exe/app`, "/work/resources"},
+		{`/tmp/go-build123/b001/app.test`, "/work/resources"},
+	} {
+		exe, want := filepath.FromSlash(c.exe), filepath.FromSlash(c.want)
+		if got := resourcesDir(exe, filepath.FromSlash("/work")); got != want {
+			t.Errorf("resourcesDir(%q) = %q, want %q", exe, got, want)
+		}
+	}
 }
 
 func TestModules(t *testing.T) {

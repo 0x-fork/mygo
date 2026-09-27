@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"debug/pe"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,7 +113,7 @@ func TestBuildDMG(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := writeBundle(c, dir, bin, icns)
+	app, err := writeBundle(c, dir, bin, icns, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,54 +160,13 @@ func TestFrontendOverlay(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles a program")
 	}
-	repo, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
 	files := map[string]string{
-		"go.mod":                   "module example.com/app\n\nrequire github.com/egoist/mygo v0.0.0\n\nreplace github.com/egoist/mygo => " + repo + "\n",
 		"cmd/app/main.go":          "package main\n\nimport \"github.com/egoist/mygo\"\n\nfunc main() { mygo.App.Run() }\n",
 		"web/dist/index.html":      "<p>embedded frontend</p>",
 		"web/dist/assets/app-1.js": "console.log('embedded asset')",
 		"web/dist/_routes/.hidden": "hidden file",
 	}
-	for name, content := range files {
-		path := filepath.Join(dir, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// MyGo's own requirements, so that nothing is downloaded.
-	sum, err := os.ReadFile(filepath.Join(repo, "go.sum"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "go.sum"), sum, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	mod, err := os.ReadFile(filepath.Join(repo, "go.mod"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var requires []string
-	for _, line := range strings.Split(string(mod), "\n") {
-		if strings.HasPrefix(line, "go ") {
-			requires = append(requires, line) // the go version MyGo needs
-		}
-		if f := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "require ")); len(f) >= 2 && strings.Contains(f[0], ".") && strings.HasPrefix(f[1], "v") {
-			requires = append(requires, "require "+f[0]+" "+f[1])
-		}
-	}
-	f, err := os.OpenFile(filepath.Join(dir, "go.mod"), os.O_APPEND|os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Fprintln(f, strings.Join(requires, "\n"))
-	f.Close()
+	dir := testModule(t, files)
 
 	c := &Config{root: dir, Main: "./cmd/app", FrontendDist: "web/missing"}
 	pkg, err := packageDir(c)
@@ -245,6 +203,51 @@ func TestFrontendOverlay(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "cmd", "app", frontendGenFile)); err == nil {
 		t.Error("the overlay must not write into the project")
+	}
+}
+
+// testModule writes files into a new Go module that requires MyGo from this
+// checkout, with MyGo's own requirements so that building it downloads
+// nothing, and returns its directory.
+func testModule(t *testing.T, files map[string]string) string {
+	t.Helper()
+	repo, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	writeFiles(t, dir, files)
+	mod, err := os.ReadFile(filepath.Join(repo, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gomod := "module example.com/app\n\nrequire github.com/egoist/mygo v0.0.0\n\nreplace github.com/egoist/mygo => " + repo + "\n"
+	for _, line := range strings.Split(string(mod), "\n") {
+		if strings.HasPrefix(line, "go ") {
+			gomod += line + "\n" // the go version MyGo needs
+		}
+		if f := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "require ")); len(f) >= 2 && strings.Contains(f[0], ".") && strings.HasPrefix(f[1], "v") {
+			gomod += "require " + f[0] + " " + f[1] + "\n"
+		}
+	}
+	sum, err := os.ReadFile(filepath.Join(repo, "go.sum"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFiles(t, dir, map[string]string{"go.mod": gomod, "go.sum": string(sum)})
+	return dir
+}
+
+func writeFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, content := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

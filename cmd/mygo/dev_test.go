@@ -115,12 +115,35 @@ func TestWatcher(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect(true, "new source")
+
+	// An edit made while a build runs is not lost when the build hands
+	// over the same inputs.
+	if err := os.WriteFile(file, []byte("package main // edited during a build"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w.set(&buildInputs{sourceDirs: []string{dir}})
+	expect(true, "edit during a build")
+
+	// Resources are watched whole, and may not exist yet.
+	res := filepath.Join(dir, "resources")
+	w.set(&buildInputs{sourceDirs: []string{dir}, trees: []string{res}})
+	expect(false, "new inputs")
+	writeFiles(t, res, map[string]string{"data/words.txt": "hello"})
+	expect(true, "new resources")
+	writeFiles(t, res, map[string]string{"data/.DS_Store": "junk"})
+	expect(false, "hidden file in resources")
+	writeFiles(t, res, map[string]string{"data/words.txt": "hello, world"})
+	expect(true, "edited resource")
+	if err := os.RemoveAll(res); err != nil {
+		t.Fatal(err)
+	}
+	expect(true, "removed resources")
 }
 
 // TestListBuildInputs lists the inputs of the mygo command itself.
 func TestListBuildInputs(t *testing.T) {
 	root, _ := filepath.Abs("../..")
-	c := &Config{root: root, Main: "./cmd/mygo", Icon: "icon.png"}
+	c := &Config{root: root, Main: "./cmd/mygo", Icon: "icon.png", Resources: []string{"notes"}}
 	in, err := listBuildInputs(c)
 	if err != nil {
 		t.Fatal(err)
@@ -137,6 +160,9 @@ func TestListBuildInputs(t *testing.T) {
 		if !slices.Contains(in.files, f) {
 			t.Errorf("files lacks %s: %q", f, in.files)
 		}
+	}
+	if !slices.Equal(in.trees, []string{filepath.Join(root, "notes"), filepath.Join(root, "resources")}) {
+		t.Errorf("trees = %q", in.trees)
 	}
 	// The CLI embeds its project template.
 	if !slices.Contains(in.fileDirs, filepath.Join(root, "cmd", "mygo", "template")) {

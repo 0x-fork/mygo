@@ -462,8 +462,9 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
 ## CLI (`cmd/mygo`)
 
 - `init` renders `cmd/mygo/template` (Go + a TypeScript frontend built with
-  Vite; Bun installs it and runs its scripts), draws a default icon, fetches
-  modules, installs frontend dependencies and generates the client. The
+  Vite; Bun installs it and runs its scripts), draws a default icon at
+  `resources/icon.png`, fetches modules, installs frontend dependencies and
+  generates the client. The
   template's mygo.json sets `devUrl`, `devCommand`, `buildCommand` and
   `frontendDist`; its `vite.config.ts` pins the dev server to the port of
   `devUrl`.
@@ -492,8 +493,10 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   - *Watching.* Exactly what the build reads, from `go list -deps` after
     every build: the directories of the compiled packages outside GOROOT and
     the module cache (so local `replace` modules too), embedded files,
-    go.mod/go.sum, mygo.json and the icon. Frontend sources are the dev
-    server's business and never rebuild the app.
+    go.mod/go.sum, mygo.json, the icon and the resources. Frontend sources
+    are the dev server's business and never rebuild the app. A build keeps
+    the watcher's baseline unless it changed what is watched, so edits made
+    during a build trigger another one.
   - Quitting the app ends `mygo dev`; a crash waits for the next change.
 - `build` generates the client, runs `buildCommand`, then compiles each
   target with `-trimpath -ldflags "-s -w -X …production=1"` (`-H=windowsgui`
@@ -509,6 +512,22 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   architectures with a pure-Go fat-binary writer. Linux gets a `.desktop`
   entry and icon. The production flag makes `IsDev` false, which disables
   the web inspector by default.
+- *Resources* (`resources.go`), as in quickgui: the contents of the
+  project's `resources/` directory, plus the files and directories listed
+  in `resources` in mygo.json under their base names, are copied into
+  `Contents/Resources` of macOS bundles and next to the executable on
+  Linux and Windows, by `build` and `dev` alike; apps find them with
+  `App.Path(PathResources)` (under `go run`, `./resources`). Names starting
+  with a dot are skipped; listed paths are followed when they are links,
+  links inside them are copied as links, permissions are kept. Destination
+  names must be unique ignoring case and must not replace the packaging's
+  own files (`AppIcon.icns`, the executable, the `.desktop` entry). Signing
+  with a real identity signs Mach-O files among the resources first, since
+  `codesign --deep` only covers code directories and notarization rejects
+  unsigned code. `resources/icon.png` is the default icon. Each platform's
+  output directory is assembled in a staging directory that replaces it
+  whole, so removed resources do not linger; development builds on Linux
+  and Windows remove what the previous build placed and this one lacks.
 - On a macOS host, macOS targets also get "<name> <version>.dmg"
   (`dmg.go`): `hdiutil` creates a writable HFS+ image from the app, the CLI
   adds the `/Applications` link, the volume icon and a `.DS_Store` written in
@@ -519,9 +538,10 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   notarized with `notarytool` and stapled.
 
 Configuration lives in an optional `mygo.json` (`cmd/mygo/config.go`): app
-metadata, the frontend (`devUrl`, `devCommand`, `buildCommand`,
-`frontendDist`, `bindings`) and the `macos` section (minimum system version,
-signing identity, entitlements, DMG title, notarization profile).
+metadata (the icon defaults to `resources/icon.png`), extra `resources`,
+the frontend (`devUrl`, `devCommand`, `buildCommand`, `frontendDist`,
+`bindings`) and the `macos` section (minimum system version, signing
+identity, entitlements, DMG title, notarization profile).
 
 ## Testing
 
@@ -529,7 +549,7 @@ signing identity, entitlements, DMG title, notarization profile).
 |---|---|---|
 | core | `go test .` | lifecycle, quit, IPC, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance and its dev handover, dev ready signal (fake backend) |
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
-| CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); the last two compile or run tools and are skipped with `-short` |
+| CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, resources (staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime and `mygo-runtime` |
 | GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, protocol, Eval, geometry, capture, menus, window.open; on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
 

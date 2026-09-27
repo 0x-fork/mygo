@@ -73,7 +73,10 @@ func runInit(args []string) error {
 	if err := writeTemplate(dir, data); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "icon.png"), defaultIcon(), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, resourcesDir), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, resourcesDir, "icon.png"), defaultIcon(), 0o644); err != nil {
 		return err
 	}
 

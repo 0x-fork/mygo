@@ -69,7 +69,7 @@ func buildDMG(c *Config, app, dir string, opts buildOptions) (string, error) {
 	if err := writeDSStore(filepath.Join(mnt, ".DS_Store"), appName); err != nil {
 		return "", err
 	}
-	if icon := filepath.Join(app, "Contents", "Resources", "icon.icns"); fileExists(icon) {
+	if icon := filepath.Join(app, "Contents", "Resources", bundleIcon); fileExists(icon) {
 		if err := copyFile(icon, filepath.Join(mnt, ".VolumeIcon.icns"), 0o644); err != nil {
 			return "", err
 		}

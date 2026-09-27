@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,11 +20,12 @@ import (
 
 // buildInputs is what building the app reads, which is what mygo dev
 // watches: the frontend is the dev server's business, so editing it never
-// rebuilds the app.
+// rebuilds the app. Resources are copied into the app, so they count.
 type buildInputs struct {
 	sourceDirs []string // directories of compiled packages: their .go and .s files
 	fileDirs   []string // directories of embedded files: all their files
 	files      []string // go.mod and go.sum files, mygo.json, the icon
+	trees      []string // the resources: everything in them
 }
 
 // listBuildInputs asks go list for the packages the app is built from,
@@ -40,9 +42,15 @@ func listBuildInputs(c *Config) (*buildInputs, error) {
 	outside := func(dir string) bool {
 		return dir == "" || modcache != "" && strings.HasPrefix(dir, modcache+string(filepath.Separator))
 	}
-	in := &buildInputs{files: []string{filepath.Join(c.root, "mygo.json")}}
+	in := &buildInputs{
+		files: []string{filepath.Join(c.root, "mygo.json")},
+		trees: []string{c.path(resourcesDir)},
+	}
 	if c.Icon != "" {
 		in.files = append(in.files, c.path(c.Icon))
+	}
+	for _, p := range c.Resources {
+		in.trees = append(in.trees, c.path(p))
 	}
 	dec := json.NewDecoder(&out)
 	for {
@@ -70,7 +78,7 @@ func listBuildInputs(c *Config) (*buildInputs, error) {
 			in.files = append(in.files, p.Module.GoMod, filepath.Join(filepath.Dir(p.Module.GoMod), "go.sum"))
 		}
 	}
-	for _, s := range []*[]string{&in.sourceDirs, &in.fileDirs, &in.files} {
+	for _, s := range []*[]string{&in.sourceDirs, &in.fileDirs, &in.files, &in.trees} {
 		slices.Sort(*s)
 		*s = slices.Compact(*s)
 	}
@@ -100,17 +108,25 @@ type watcher struct {
 	reset  bool // inputs changed: take a new baseline
 }
 
-// set replaces what is watched.
+// set replaces what is watched. The same inputs keep their baseline, so
+// that edits made during a build still count as changes.
 func (w *watcher) set(in *buildInputs) {
 	w.mu.Lock()
-	w.inputs, w.reset = in, true
+	if w.inputs == nil || !w.inputs.equal(in) {
+		w.inputs, w.reset = in, true
+	}
 	w.mu.Unlock()
+}
+
+func (in *buildInputs) equal(o *buildInputs) bool {
+	return slices.Equal(in.sourceDirs, o.sourceDirs) && slices.Equal(in.fileDirs, o.fileDirs) &&
+		slices.Equal(in.files, o.files) && slices.Equal(in.trees, o.trees)
 }
 
 func fingerprint(in *buildInputs) uint64 {
 	h := fnv.New64a()
 	add := func(path string, info os.FileInfo) {
-		fmt.Fprintf(h, "%s\x00%d\x00%d\x00", path, info.Size(), info.ModTime().UnixNano())
+		fmt.Fprintf(h, "%s\x00%v\x00%d\x00%d\x00", path, info.Mode(), info.Size(), info.ModTime().UnixNano())
 	}
 	list := func(dir string, keep func(name string) bool) {
 		entries, _ := os.ReadDir(dir)
@@ -136,6 +152,20 @@ func fingerprint(in *buildInputs) uint64 {
 			add(f, info)
 		} else {
 			fmt.Fprintf(h, "%s\x00-\x00", f)
+		}
+	}
+	for _, t := range in.trees {
+		err := walkResource(t, func(path string, info fs.FileInfo) error {
+			if info.IsDir() {
+				// Its time changes with hidden files too.
+				fmt.Fprintf(h, "%s\x00dir\x00", path)
+			} else {
+				add(path, info)
+			}
+			return nil
+		})
+		if err != nil {
+			fmt.Fprintf(h, "%s\x00-\x00", t)
 		}
 	}
 	return h.Sum64()

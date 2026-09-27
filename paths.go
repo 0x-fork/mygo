@@ -26,7 +26,15 @@ const (
 	PathCache PathName = "cache"
 	// PathLogs is where the application should write logs. It is created on
 	// first use.
-	PathLogs      PathName = "logs"
+	PathLogs PathName = "logs"
+	// PathResources is the directory of the files the app ships with: the
+	// contents of the project's resources directory and the resources
+	// listed in mygo.json, which `mygo dev` and `mygo build` copy there.
+	// It is Contents/Resources in a macOS app bundle and the executable's
+	// directory elsewhere. Under `go run` and `go test`, whose executables
+	// are temporary, it is the resources directory in the working
+	// directory.
+	PathResources PathName = "resources"
 	PathTemp      PathName = "temp"
 	PathExe       PathName = "exe"
 	PathDesktop   PathName = "desktop"
@@ -92,6 +100,13 @@ func defaultPath(name PathName) (path string, create bool, err error) {
 		return filepath.Join(dir, App.Name(), "logs"), true, err
 	case PathTemp:
 		return os.TempDir(), false, nil
+	case PathResources:
+		exe, err := os.Executable()
+		if err != nil {
+			return "", false, err
+		}
+		wd, err := os.Getwd()
+		return resourcesDir(exe, wd), false, err
 	case PathExe:
 		exe, err := os.Executable()
 		return exe, false, err
@@ -99,6 +114,26 @@ func defaultPath(name PathName) (path string, create bool, err error) {
 		return userDir(home, name), false, nil
 	}
 	return "", false, fmt.Errorf("mygo: unknown path %q", name)
+}
+
+// resourcesDir returns the resource directory of the executable exe, given
+// the working directory wd.
+func resourcesDir(exe, wd string) string {
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	dir := filepath.Dir(exe)
+	if filepath.Base(dir) == "MacOS" && filepath.Base(filepath.Dir(dir)) == "Contents" {
+		return filepath.Join(filepath.Dir(dir), "Resources")
+	}
+	// go run and go test build into $WORK/b001/exe and $WORK/b001, where
+	// $WORK is a temporary go-build directory.
+	for d, i := dir, 0; i < 3; d, i = filepath.Dir(d), i+1 {
+		if strings.HasPrefix(filepath.Base(d), "go-build") {
+			return filepath.Join(wd, "resources")
+		}
+	}
+	return dir
 }
 
 // userDir resolves the user's standard folders, honoring the XDG user dirs

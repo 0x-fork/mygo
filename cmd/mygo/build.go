@@ -23,9 +23,11 @@ func runBuild(args []string) error {
 mygo.json, then compiles the app with the frontendDist files embedded, served
 at mygo://localhost/. macOS gets a signed .app bundle and a
 "<name> <version>.dmg" disk image whose window invites dragging the app to
-Applications; other platforms get an executable. MyGo needs no cgo, so any
-platform can be compiled from any machine; signing and disk images need
-macOS.
+Applications; other platforms get an executable. The contents of the
+resources directory and the resources listed in mygo.json are copied into
+the bundle's Contents/Resources, or next to the executable. MyGo needs no
+cgo, so any platform can be compiled from any machine; signing and disk
+images need macOS.
 
 Set macos.signingIdentity in mygo.json (or -sign) to a Developer ID to ship
 outside the Mac App Store, and macos.notarize to notarize the disk image.`)
@@ -107,17 +109,25 @@ outside the Mac App Store, and macos.notarize to notarize the disk image.`)
 
 // buildPlatform builds and packages the app for one platform into
 // <out>/<goos>-<goarch> and returns the artifacts. Everything is prepared
-// in a staging directory first, so a failed build keeps the previous one.
+// in a staging directory that then replaces the platform directory, so a
+// failed build keeps the previous one and nothing stale remains.
 func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string, error) {
-	outDir := filepath.Join(c.path(c.Out), goos+"-"+goarch)
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	out := c.path(c.Out)
+	if err := os.MkdirAll(out, 0o755); err != nil {
 		return nil, err
 	}
-	stage, err := os.MkdirTemp(outDir, ".staging-")
+	stage, err := os.MkdirTemp(out, ".staging-"+goos+"-"+goarch+"-")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(stage)
+	if err := os.Chmod(stage, 0o755); err != nil {
+		return nil, err
+	}
+	res, err := c.resources(reservedNames(c, goos)...)
+	if err != nil {
+		return nil, err
+	}
 
 	ldflags := "-s -w"
 	if !opts.debug {
@@ -148,7 +158,7 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 	}
 
 	name := c.executableName()
-	var staged []string
+	var artifacts []string
 	switch goos {
 	case "darwin":
 		bin := filepath.Join(stage, name)
@@ -163,6 +173,8 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 			if err := writeUniversal(bin, arm, amd); err != nil {
 				return nil, err
 			}
+			os.Remove(arm)
+			os.Remove(amd)
 		} else if err := compile(goarch, bin); err != nil {
 			return nil, err
 		}
@@ -170,14 +182,14 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		if err != nil {
 			return nil, err
 		}
-		app, err := writeBundle(c, stage, bin, icns)
+		app, err := writeBundle(c, stage, bin, icns, res)
 		if err != nil {
 			return nil, err
 		}
 		if err := codesign(c, app, opts.sign, true); err != nil {
 			return nil, err
 		}
-		staged = append(staged, app)
+		artifacts = append(artifacts, app)
 		switch {
 		case opts.skipDMG:
 		case runtime.GOOS != "darwin":
@@ -187,35 +199,43 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 			if err != nil {
 				return nil, err
 			}
-			staged = append(staged, dmg)
+			artifacts = append(artifacts, dmg)
 		}
 	case "windows":
-		out := filepath.Join(stage, name+".exe")
-		if err := compile(goarch, out); err != nil {
+		exe := filepath.Join(stage, name+".exe")
+		if err := compile(goarch, exe); err != nil {
 			return nil, err
 		}
-		staged = append(staged, out)
+		if err := copyResources(res, stage); err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, exe)
 	default:
-		out := filepath.Join(stage, slugify(name))
-		if err := compile(goarch, out); err != nil {
+		exe := filepath.Join(stage, slugify(name))
+		if err := compile(goarch, exe); err != nil {
 			return nil, err
 		}
 		files, err := writeLinuxDesktop(c, stage, slugify(name))
 		if err != nil {
 			return nil, err
 		}
-		staged = append(append(staged, out), files...)
-	}
-
-	var paths []string
-	for _, s := range staged {
-		final := filepath.Join(outDir, filepath.Base(s))
-		if err := replacePath(s, final); err != nil {
+		if err := copyResources(res, stage); err != nil {
 			return nil, err
 		}
-		paths = append(paths, final)
+		artifacts = append(append(artifacts, exe), files...)
 	}
-	return paths, nil
+
+	final := filepath.Join(out, goos+"-"+goarch)
+	if err := replacePath(stage, final); err != nil {
+		return nil, err
+	}
+	for i, a := range artifacts {
+		artifacts[i] = filepath.Join(final, filepath.Base(a))
+	}
+	if len(res) > 0 && goos != "darwin" {
+		logf("copied %d resources next to the executable", len(res))
+	}
+	return artifacts, nil
 }
 
 // windowsResources puts the resources of the executable (icon, manifest,

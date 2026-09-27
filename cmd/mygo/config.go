@@ -19,7 +19,8 @@ type Config struct {
 	Identifier string `json:"identifier"`
 	Version    string `json:"version"`
 	Copyright  string `json:"copyright"`
-	// Icon is a square PNG, ideally 1024x1024.
+	// Icon is a square PNG, ideally 1024x1024 (default:
+	// resources/icon.png when it exists).
 	Icon string `json:"icon"`
 	// Main is the Go package of the app (default ".").
 	Main string `json:"main"`
@@ -48,6 +49,12 @@ type Config struct {
 	// embeds it into the app, which serves it at mygo://localhost/. During
 	// `mygo dev` without DevURL, it is served from disk.
 	FrontendDist string `json:"frontendDist"`
+
+	// Resources lists extra files and directories to ship with the app.
+	// Each is copied under its base name into the app's resource directory
+	// (mygo.PathResources), next to the contents of the project's resources
+	// directory, which are always included.
+	Resources []string `json:"resources"`
 
 	// URLSchemes registers custom URL schemes (deep links) on macOS.
 	URLSchemes []string `json:"urlSchemes"`
@@ -132,6 +139,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Out == "" {
 		c.Out = "dist"
+	}
+	if c.Icon == "" && fileExists(filepath.Join(c.root, resourcesDir, "icon.png")) {
+		c.Icon = filepath.Join(resourcesDir, "icon.png")
 	}
 	if c.MacOS.MinimumSystemVersion == "" {
 		c.MacOS.MinimumSystemVersion = "12.0"

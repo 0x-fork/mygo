@@ -13,9 +13,9 @@ import (
 )
 
 // writeBundle assembles <dir>/<executable>.app around the executable bin,
-// which is moved into it, and returns the bundle path. icns is the icon, or
-// nil.
-func writeBundle(c *Config, dir, bin string, icns []byte) (string, error) {
+// which is moved into it, with the icon icns (or nil) and the resources res,
+// and returns the bundle path.
+func writeBundle(c *Config, dir, bin string, icns []byte, res []resource) (string, error) {
 	name := c.executableName()
 	app := filepath.Join(dir, name+".app")
 	if err := os.RemoveAll(app); err != nil {
@@ -32,10 +32,13 @@ func writeBundle(c *Config, dir, bin string, icns []byte) (string, error) {
 	}
 	iconFile := ""
 	if icns != nil {
-		iconFile = "icon.icns"
+		iconFile = bundleIcon
 		if err := os.WriteFile(filepath.Join(contents, "Resources", iconFile), icns, 0o644); err != nil {
 			return "", err
 		}
+	}
+	if err := copyResources(res, filepath.Join(contents, "Resources")); err != nil {
+		return "", err
 	}
 	if err := os.WriteFile(filepath.Join(contents, "Info.plist"), infoPlist(c, name, iconFile), 0o644); err != nil {
 		return "", err
@@ -126,14 +129,18 @@ func codesignArgs(path, identity, entitlements string, production bool) []string
 	return append(args, path)
 }
 
-// codesign signs a bundle. Signing needs macOS: elsewhere only the
-// executable's ad-hoc signature from the Go linker remains.
+// codesign signs a bundle, and the code among its resources. Signing needs
+// macOS: elsewhere only the executable's ad-hoc signature from the Go linker
+// remains.
 func codesign(c *Config, path, identity string, production bool) error {
 	if runtime.GOOS != "darwin" {
 		if identity != "-" {
 			logf("not signing %s: code signing needs macOS", filepath.Base(path))
 		}
 		return nil
+	}
+	if err := signNestedCode(path, identity, production); err != nil {
+		return err
 	}
 	entitlements := ""
 	if c.MacOS.Entitlements != "" {
@@ -148,6 +155,7 @@ func codesign(c *Config, path, identity string, production bool) error {
 
 // replacePath moves src to dst, replacing what dst held. The old dst is
 // renamed away before it is removed, so a running app keeps its files.
+// Removing it is best effort: Windows keeps running executables.
 func replacePath(src, dst string) error {
 	old := ""
 	if _, err := os.Lstat(dst); err == nil {
@@ -164,7 +172,7 @@ func replacePath(src, dst string) error {
 		return err
 	}
 	if old != "" {
-		return os.RemoveAll(old)
+		_ = os.RemoveAll(old)
 	}
 	return nil
 }
