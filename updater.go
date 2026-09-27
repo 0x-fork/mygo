@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/egoist/mygo/internal/update"
@@ -246,20 +247,20 @@ func swapFiles(dir, target string) error {
 	undo := func() {
 		for i := len(moved) - 1; i >= 0; i-- {
 			_ = os.RemoveAll(moved[i][0])
-			_ = os.Rename(moved[i][1], moved[i][0])
+			_ = rename(moved[i][1], moved[i][0])
 		}
 	}
 	for _, e := range entries {
 		dst := filepath.Join(target, e.Name())
 		if _, err := os.Lstat(dst); err == nil {
 			aside := filepath.Join(target, "."+e.Name()+suffix)
-			if err := os.Rename(dst, aside); err != nil {
+			if err := rename(dst, aside); err != nil {
 				undo()
 				return err
 			}
 			moved = append(moved, [2]string{dst, aside})
 		}
-		if err := os.Rename(filepath.Join(dir, e.Name()), dst); err != nil {
+		if err := rename(filepath.Join(dir, e.Name()), dst); err != nil {
 			undo()
 			return err
 		}
@@ -268,6 +269,22 @@ func swapFiles(dir, target string) error {
 		_ = os.RemoveAll(m[1])
 	}
 	return nil
+}
+
+// rename renames a file of the app, retrying for a few seconds while
+// Windows reports it in use: antivirus software opens new executables, such
+// as the app that just started and the one of the update, to scan them.
+func rename(from, to string) error {
+	for i := 1; ; i++ {
+		err := os.Rename(from, to)
+		if err == nil || i == 10 || runtime.GOOS != "windows" ||
+			// ERROR_SHARING_VIOLATION, or ERROR_ACCESS_DENIED for a directory
+			// holding an open file.
+			!errors.Is(err, syscall.Errno(32)) && !errors.Is(err, syscall.Errno(5)) {
+			return err
+		}
+		time.Sleep(time.Duration(i) * 100 * time.Millisecond)
+	}
 }
 
 // cleanUpdateLeftovers removes what an update could not remove while the

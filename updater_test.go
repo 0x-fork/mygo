@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/internal/update"
 )
@@ -127,5 +128,32 @@ func TestUpdater(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(main); string(b) != "v1" {
 		t.Errorf("a refused update changed main to %q", b)
+	}
+}
+
+func TestUpdaterWaitsForOpenFiles(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows keeps open files from being renamed")
+	}
+	ctx := context.Background()
+	srv, key, _ := updateServer(t, "1.2.0", "v2")
+	up, err := checkUpdate(ctx, srv.URL+"/update.json", key, "1.1.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, main := installedApp(t)
+	// Open main as antivirus software does to scan it: Go opens files
+	// without sharing their deletion, which renaming needs.
+	f, err := os.Open(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+	time.AfterFunc(500*time.Millisecond, func() { f.Close() })
+	if err := installUpdate(ctx, up.manifest, key, target, nil); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(main); string(b) != "v2" {
+		t.Errorf("after the update main = %q", b)
 	}
 }
