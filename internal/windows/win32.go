@@ -168,6 +168,10 @@ var (
 	procRegOpenKeyExW    = advapi32.NewProc("RegOpenKeyExW")
 	procRegQueryValueExW = advapi32.NewProc("RegQueryValueExW")
 	procRegCloseKey      = advapi32.NewProc("RegCloseKey")
+	procRegCreateKeyExW  = advapi32.NewProc("RegCreateKeyExW")
+	procRegSetValueExW   = advapi32.NewProc("RegSetValueExW")
+	procRegDeleteValueW  = advapi32.NewProc("RegDeleteValueW")
+	procRegDeleteTreeW   = advapi32.NewProc("RegDeleteTreeW")
 
 	// version
 	procGetFileVersionInfoSizeW = versionD.NewProc("GetFileVersionInfoSizeW")

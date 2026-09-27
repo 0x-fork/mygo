@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -276,7 +277,7 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 	} else {
 		logf("rebuilding")
 	}
-	if err := buildBinaryContext(ctx, c, bin, nil); err != nil {
+	if err := buildBinaryContext(ctx, c, bin, nil, "-ldflags", strings.TrimSpace(packageFlags(dc))); err != nil {
 		return nil, sum, err
 	}
 

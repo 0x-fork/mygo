@@ -1108,9 +1108,6 @@ func TestEncodeReply(t *testing.T) {
 }
 
 func TestSingleInstance(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix sockets only")
-	}
 	if !App.RequestSingleInstanceLock() {
 		t.Fatal("first instance did not get the lock")
 	}
@@ -1122,7 +1119,11 @@ func TestSingleInstance(t *testing.T) {
 		got <- args
 	})
 	defer off()
-	cmd := exec.Command(os.Args[0], "-test.run=^$", "--from-second", "instance")
+	urls := make(chan string, 1)
+	defer App.OnOpenURL(func(u string) { urls <- u })()
+	defer func(s string) { packageURLSchemes = s }(packageURLSchemes)
+	packageURLSchemes = "mygo-test"
+	cmd := exec.Command(os.Args[0], "-test.run=^$", "--from-second", "instance", "mygo-test://open?x=1")
 	cmd.Env = append(os.Environ(), "MYGO_TEST_SECOND_INSTANCE=1")
 	out, err := cmd.Output()
 	if err != nil {
@@ -1138,6 +1139,15 @@ func TestSingleInstance(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("OnSecondInstance not called")
+	}
+	// Deep links started a second instance: the first one opens them.
+	select {
+	case u := <-urls:
+		if u != "mygo-test://open?x=1" {
+			t.Errorf("OnOpenURL got %q", u)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("OnOpenURL not called for the forwarded URL")
 	}
 }
 

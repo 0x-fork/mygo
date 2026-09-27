@@ -125,6 +125,8 @@ var (
 	gUnixInputStreamNew            func(fd int32, closeFD bool) ptr
 	gInputStreamReadAll            func(stream ptr, buf unsafe.Pointer, count uintptr, read *uintptr, cancellable ptr, err *ptr) bool
 	gAppInfoLaunchDefaultForURI    func(uri *byte, ctx ptr, err *ptr) bool
+	gAppInfoGetDefaultForURIScheme func(scheme *byte) ptr
+	gAppInfoGetID                  func(info ptr) ptr
 	gFileNewForPath                func(path *byte) ptr
 	gFileGetURI                    func(file ptr) ptr
 	gFileTrash                     func(file ptr, cancellable ptr, err *ptr) bool
@@ -490,6 +492,8 @@ func load() error {
 	mustBind(i, &gUnixInputStreamNew, "g_unix_input_stream_new")
 	mustBind(i, &gInputStreamReadAll, "g_input_stream_read_all")
 	mustBind(i, &gAppInfoLaunchDefaultForURI, "g_app_info_launch_default_for_uri")
+	mustBind(i, &gAppInfoGetDefaultForURIScheme, "g_app_info_get_default_for_uri_scheme")
+	mustBind(i, &gAppInfoGetID, "g_app_info_get_id")
 	mustBind(i, &gFileNewForPath, "g_file_new_for_path")
 	mustBind(i, &gFileGetURI, "g_file_get_uri")
 	mustBind(i, &gFileTrash, "g_file_trash")

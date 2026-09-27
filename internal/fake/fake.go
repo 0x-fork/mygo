@@ -33,6 +33,8 @@ type Backend struct {
 	hotkeys   map[int]string
 	clipboard string
 	theme     string
+	// URLSchemes are the registered URL schemes, by scheme: "id name".
+	URLSchemes map[string]string
 	// Dialog results returned by the next dialog.
 	OpenResult    []string
 	SaveResult    string
@@ -167,7 +169,7 @@ func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 	b.mu.Unlock()
 }
 
-func (b *Backend) App() platform.AppController { return app{} }
+func (b *Backend) App() platform.AppController { return app{b} }
 func (b *Backend) Dialogs() platform.Dialogs   { return dialogs{b} }
 func (b *Backend) Clipboard() platform.Clipboard {
 	return clipboard{b}
@@ -402,7 +404,7 @@ func (w *Window) UserClose() bool {
 	return true
 }
 
-type app struct{}
+type app struct{ b *Backend }
 
 func (app) SetActivationPolicy(string)                {}
 func (app) Activate()                                 {}
@@ -417,6 +419,29 @@ func (app) SetDockIcon([]byte) error                  { return nil }
 func (app) ShowAboutPanel(platform.AboutPanelOptions) {}
 func (app) Locale() string                            { return "en-US" }
 func (app) Package() (platform.PackageInfo, bool)     { return platform.PackageInfo{}, false }
+
+func (a app) RegisterURLScheme(scheme, id, name string) error {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	if a.b.URLSchemes == nil {
+		a.b.URLSchemes = map[string]string{}
+	}
+	a.b.URLSchemes[scheme] = id + " " + name
+	return nil
+}
+
+func (a app) UnregisterURLScheme(scheme, id, name string) error {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	delete(a.b.URLSchemes, scheme)
+	return nil
+}
+
+func (a app) IsURLSchemeRegistered(scheme, id, name string) bool {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	return a.b.URLSchemes[scheme] == id+" "+name
+}
 
 type dialogs struct{ b *Backend }
 

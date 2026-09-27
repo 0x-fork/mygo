@@ -132,6 +132,11 @@ type AppController interface {
 	SetDockIcon(png []byte) error
 	ShowAboutPanel(opts AboutPanelOptions)
 	Locale() string
+	// RegisterURLScheme makes the app, identified by id (its identifier)
+	// and named name, the handler of the URLs of scheme for the user.
+	RegisterURLScheme(scheme, id, name string) error
+	UnregisterURLScheme(scheme, id, name string) error
+	IsURLSchemeRegistered(scheme, id, name string) bool
 	// Package describes the application bundle the process runs from; ok
 	// is false for a plain executable (e.g. `go run`).
 	Package() (info PackageInfo, ok bool)

@@ -464,6 +464,20 @@ as in Tauri:
   `zoom:` on macOS, `gtk_window_maximize` before mapping on Linux,
   `SW_SHOWMAXIMIZED` on the first show on Windows, where `Maximize` on a
   hidden window also waits for it to be shown.
+- Deep links (`deeplink.go`). `mygo build` and `mygo dev` link the name,
+  version, identifier and `urlSchemes` of mygo.json into the binary
+  (`-X …packageName=…`), which is how Linux builds know them (`IsPackaged`,
+  `Name`, `Version`) and every platform knows which launch arguments are
+  deep links. URLs of those schemes, and of ones registered with
+  `RegisterURLScheme`, reach `OnOpenURL`: from Apple Events on macOS, from
+  the launch arguments once the app is ready, and from the arguments a
+  second instance forwards. `RegisterURLScheme` writes
+  `HKCU\Software\Classes\<scheme>` on Windows and, on Linux, a hidden
+  `<id>.url-handler.desktop` in `$XDG_DATA_HOME/applications` made the
+  default in `$XDG_CONFIG_HOME/mimeapps.list` (what `xdg-mime default`
+  does); on macOS it calls `LSSetDefaultHandlerForURLScheme` for a scheme
+  the Info.plist declares. The Linux `.desktop` of `mygo build` also
+  declares the schemes (`Exec=… %u`, `MimeType=x-scheme-handler/…`).
 - `window.open()` and `target=_blank` go through `SetWindowOpenHandler`. By
   default http(s) URLs open in the default browser. Allowing one creates a
   window around the configuration or related view WebKit provides, with its
@@ -583,6 +597,10 @@ identity, entitlements, DMG title, notarization profile).
 | runtime | `bun run test` | the injected runtime and `mygo-runtime` |
 | GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, protocol, Eval, geometry, capture, menus, window.open; on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
 
+The XDG variables let the URL scheme test check that GLib opens the scheme
+with the handler it registered; without them it writes to temporary
+directories, which GLib does not see.
+
 `internal/fake` runs its loop on the goroutine that calls `Run` and records
 evaluated scripts, so tests can assert on exactly what the page would
 receive. The unit tests run `App.Run` on the main goroutine from `TestMain`,
@@ -593,7 +611,9 @@ cross-compiles:
 
 ```sh
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go test -c -o e2e.test ./internal/e2e
-docker run --rm -v "$PWD:/work" -w /work -e MYGO_E2E=1 <image with libwebkit2gtk-4.1-0, xvfb, dbus> \
+docker run --rm -v "$PWD:/work" -w /work -e MYGO_E2E=1 \
+  -e XDG_DATA_HOME=/tmp/xdg-data -e XDG_CONFIG_HOME=/tmp/xdg-config \
+  <image with libwebkit2gtk-4.1-0, xvfb, dbus> \
   dbus-run-session -- xvfb-run -a ./e2e.test
 ```
 
@@ -637,6 +657,7 @@ docker run --rm -v "$PWD:/work" -w /work -e MYGO_E2E=1 <image with libwebkit2gtk
 | FlashFrame | informational Dock bounce | urgency hint | `FlashWindowEx` until focused |
 | visible on all workspaces | `NSWindowCollectionBehaviorCanJoinAllSpaces` | `gtk_window_stick` | ignored |
 | window icon | ignored | `gtk_window_set_icon` | `WM_SETICON` at the window's DPI |
+| URL schemes | Info.plist (`urlSchemes`); `RegisterURLScheme` makes the app the default handler | desktop entry + `mimeapps.list` | `HKCU\Software\Classes` |
 | window position | honored | ignored by Wayland compositors | honored |
 | content protection, click-through | yes | ignored | yes |
 | custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `https://<scheme>.localhost` (the page's `location`) |

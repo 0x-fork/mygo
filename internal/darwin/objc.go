@@ -70,6 +70,7 @@ func mustDlopen(path string) uintptr {
 
 var (
 	libObjC, libCF, libCG, libAppKit, libWebKit, libFoundation, libCarbon uintptr
+	libCoreServices                                                       uintptr
 	loadOnce                                                              sync.Once
 )
 
@@ -83,6 +84,7 @@ func load() {
 		libAppKit = mustDlopen("/System/Library/Frameworks/AppKit.framework/AppKit")
 		libWebKit = mustDlopen("/System/Library/Frameworks/WebKit.framework/WebKit")
 		libCarbon = mustDlopen("/System/Library/Frameworks/Carbon.framework/Carbon")
+		libCoreServices = mustDlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices")
 		// Optional frameworks, loaded so their classes are registered.
 		_, _ = purego.Dlopen("/System/Library/Frameworks/UniformTypeIdentifiers.framework/UniformTypeIdentifiers", purego.RTLD_GLOBAL|purego.RTLD_NOW)
 		_, _ = purego.Dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", purego.RTLD_GLOBAL|purego.RTLD_NOW)

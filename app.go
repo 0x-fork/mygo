@@ -223,6 +223,8 @@ func (a *Application) handleReady() {
 	for _, fn := range fns {
 		fn()
 	}
+	// After the windows the app opens when ready, which URLs may target.
+	postMain(launchURLs)
 	devReadyAfterLaunch()
 }
 
@@ -239,7 +241,7 @@ func (a *Application) Name() string {
 	if name != "" {
 		return name
 	}
-	if info, ok := backend().App().Package(); ok && info.Name != "" {
+	if info, ok := packageInfo(); ok && info.Name != "" {
 		return info.Name
 	}
 	exe, err := os.Executable()
@@ -263,7 +265,7 @@ func (a *Application) Version() string {
 	v := a.version
 	a.mu.Unlock()
 	if v == "" {
-		if info, ok := backend().App().Package(); ok {
+		if info, ok := packageInfo(); ok {
 			return info.Version
 		}
 	}
@@ -280,7 +282,7 @@ func (a *Application) SetVersion(v string) {
 // IsPackaged reports whether the application runs from an app bundle
 // (created by `mygo dev` and `mygo build`) rather than a plain executable.
 func (a *Application) IsPackaged() bool {
-	_, ok := backend().App().Package()
+	_, ok := packageInfo()
 	return ok
 }
 
@@ -411,8 +413,11 @@ func (a *Application) OnDidResignActive(fn func()) (off func()) {
 }
 
 // OnOpenURL is called when the application is asked to open a URL of a
-// scheme it registered (packaged macOS apps). Register it before Run to
-// receive the URL the app was launched with.
+// scheme it handles: one listed in urlSchemes in mygo.json or registered
+// with RegisterURLScheme. Register it before Run to receive the URL the app
+// was launched with. On Windows and Linux, where a URL starts a new
+// instance of the app, use RequestSingleInstanceLock so that the first
+// instance gets the URLs of later ones.
 func (a *Application) OnOpenURL(fn func(url string)) (off func()) {
 	return a.onOpenURL.add(fn, false)
 }

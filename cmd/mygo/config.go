@@ -56,7 +56,11 @@ type Config struct {
 	// directory, which are always included.
 	Resources []string `json:"resources"`
 
-	// URLSchemes registers custom URL schemes (deep links) on macOS.
+	// URLSchemes are the custom URL schemes (deep links) of the app, e.g.
+	// "myapp" for myapp://…, whose URLs reach mygo.App.OnOpenURL. macOS
+	// registers them with the app bundle, Linux with the desktop entry
+	// `mygo build` writes; apps register them at run time with
+	// mygo.App.RegisterURLScheme where there is no installer.
 	URLSchemes []string `json:"urlSchemes"`
 	MacOS      MacOS    `json:"macos"`
 
@@ -110,6 +114,16 @@ func loadConfig(root string) (*Config, error) {
 	if n := c.MacOS.Notarize; n != nil && n.KeychainProfile == "" {
 		return nil, fmt.Errorf("mygo.json: macos.notarize needs a keychainProfile (see xcrun notarytool store-credentials)")
 	}
+	for _, scheme := range c.URLSchemes {
+		if !schemeRe.MatchString(scheme) {
+			return nil, fmt.Errorf("mygo.json: urlSchemes: %q is not a URL scheme (a letter, then letters, digits, +, - or .)", scheme)
+		}
+	}
+	for _, v := range []string{c.Name, c.Version, c.Identifier} {
+		if strings.Contains(v, "'") && strings.Contains(v, `"`) {
+			return nil, fmt.Errorf("mygo.json: %q cannot contain both kinds of quotes", v)
+		}
+	}
 	if c.DevURL != "" {
 		if u, err := url.Parse(c.DevURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return nil, fmt.Errorf("mygo.json: devUrl %q is not an http(s) URL", c.DevURL)
@@ -118,7 +132,10 @@ func loadConfig(root string) (*Config, error) {
 	return c, nil
 }
 
-var nonIdent = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+var (
+	nonIdent = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+	schemeRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*$`)
+)
 
 func (c *Config) applyDefaults() {
 	if c.Name == "" {

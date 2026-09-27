@@ -30,3 +30,5 @@ func setDroppedFiles(w *mygo.Window, paths []string) bool {
 
 // The progress bar is shown by the shell, out of the app's reach.
 func dockTileImage() ([]byte, bool) { return nil, false }
+
+func defaultURLHandler(string) (string, bool) { return "", false }

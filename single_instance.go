@@ -84,7 +84,8 @@ func (a *Application) RequestSingleInstanceLock() bool {
 			a.OnQuit(releaseSingleInstanceLock)
 			return true
 		}
-		if !errors.Is(err, syscall.EADDRINUSE) {
+		// Windows reports WSAEADDRINUSE.
+		if !errors.Is(err, syscall.EADDRINUSE) && !errors.Is(err, syscall.Errno(10048)) {
 			// Locking is not possible here (e.g. read-only temp dir):
 			// behave as if this were the only instance.
 			return true
@@ -122,6 +123,7 @@ func acceptSecondInstances(ln net.Listener) {
 				for _, fn := range singleInstance.handlers.snapshot() {
 					fn(msg.Args, msg.WorkingDir)
 				}
+				deliverURLArgs(msg.Args)
 			})
 		}()
 	}

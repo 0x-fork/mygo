@@ -557,6 +557,60 @@ func TestWindowExtras(t *testing.T) {
 	}
 }
 
+func TestURLScheme(t *testing.T) {
+	const scheme = "mygo-e2e"
+	switch runtime.GOOS {
+	case "darwin":
+		// The test binary has no Info.plist to declare the scheme in.
+		if err := mygo.App.RegisterURLScheme(scheme); err == nil || !strings.Contains(err.Error(), "urlSchemes") {
+			t.Errorf("RegisterURLScheme of an undeclared scheme: %v", err)
+		}
+		if mygo.App.IsURLSchemeRegistered(scheme) {
+			t.Error("an undeclared scheme is registered")
+		}
+		return
+	}
+	// GLib reads the XDG directories once: it only sees the handler where
+	// the runner points them, as the container of the GUI tests does.
+	// Elsewhere the handler is kept out of the user's configuration.
+	glib := os.Getenv("XDG_DATA_HOME") != "" && os.Getenv("XDG_CONFIG_HOME") != ""
+	if runtime.GOOS == "linux" && !glib {
+		t.Setenv("XDG_DATA_HOME", t.TempDir())
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	}
+	if mygo.App.IsURLSchemeRegistered(scheme) {
+		t.Fatal("registered before RegisterURLScheme")
+	}
+	if err := mygo.App.RegisterURLScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	defer mygo.App.UnregisterURLScheme(scheme)
+	if !mygo.App.IsURLSchemeRegistered(scheme) {
+		t.Error("not registered after RegisterURLScheme")
+	}
+	if runtime.GOOS == "linux" {
+		entries, _ := filepath.Glob(filepath.Join(os.Getenv("XDG_DATA_HOME"), "applications", "*.url-handler.desktop"))
+		mimeapps, _ := os.ReadFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "mimeapps.list"))
+		if len(entries) != 1 || !strings.Contains(string(mimeapps), "x-scheme-handler/"+scheme+"="+filepath.Base(entries[0])) {
+			t.Errorf("handler %q, mimeapps.list:\n%s", entries, mimeapps)
+		} else if entry, _ := os.ReadFile(entries[0]); !strings.Contains(string(entry), "MimeType=x-scheme-handler/"+scheme+";") || !strings.Contains(string(entry), `" %u`) {
+			t.Errorf("handler entry:\n%s", entry)
+		} else if _, ok := defaultURLHandler(scheme); ok && glib {
+			// GLib, like xdg-open, opens the scheme with the handler.
+			eventually(t, "GLib to find the handler", func() bool {
+				id, _ := defaultURLHandler(scheme)
+				return id == filepath.Base(entries[0])
+			})
+		}
+	}
+	if err := mygo.App.UnregisterURLScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if mygo.App.IsURLSchemeRegistered(scheme) {
+		t.Error("still registered after UnregisterURLScheme")
+	}
+}
+
 func TestCloseEvents(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	var prevent atomic.Bool

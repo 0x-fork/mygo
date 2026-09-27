@@ -129,7 +129,7 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		return nil, err
 	}
 
-	ldflags := "-s -w"
+	ldflags := "-s -w" + packageFlags(c)
 	if !opts.debug {
 		ldflags += " -X github.com/egoist/mygo.production=1"
 	}
@@ -238,6 +238,37 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 	return artifacts, nil
 }
 
+// packageFlags are the -ldflags that link what mygo.json says about the app
+// into it: Linux executables carry no metadata of their own, and the URL
+// schemes tell every platform which launch arguments are deep links.
+func packageFlags(c *Config) string {
+	var b strings.Builder
+	for _, v := range [][2]string{
+		{"packageName", c.Name},
+		{"packageVersion", c.Version},
+		{"packageIdentifier", c.Identifier},
+		{"packageURLSchemes", strings.Join(c.URLSchemes, ",")},
+	} {
+		if v[1] != "" {
+			b.WriteString(" -X " + ldflagsQuote("github.com/egoist/mygo."+v[0]+"="+v[1]))
+		}
+	}
+	return b.String()
+}
+
+// ldflagsQuote quotes an argument in -ldflags, which go build splits at
+// spaces outside single or double quotes, without escapes (loadConfig
+// rejects values with both kinds of quotes).
+func ldflagsQuote(s string) string {
+	switch {
+	case !strings.ContainsAny(s, " \t'\""):
+		return s
+	case !strings.Contains(s, "'"):
+		return "'" + s + "'"
+	}
+	return `"` + s + `"`
+}
+
 // windowsResources puts the resources of the executable (icon, manifest,
 // version) in the main package for one build, unless the app has resources
 // of its own. go build -overlay does not apply to .syso files, so the file
@@ -295,6 +326,15 @@ func writeLinuxDesktop(c *Config, dir, name string) ([]string, error) {
 		files = append(files, path)
 	}
 	entry := fmt.Sprintf("[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nIcon=%s\nCategories=Utility;\nTerminal=false\n", c.Name, name, icon)
+	if len(c.URLSchemes) > 0 {
+		// Opens deep links, which reach mygo.App.OnOpenURL.
+		entry = strings.Replace(entry, "Exec="+name+"\n", "Exec="+name+" %u\n", 1)
+		entry += "MimeType="
+		for _, s := range c.URLSchemes {
+			entry += "x-scheme-handler/" + s + ";"
+		}
+		entry += "\n"
+	}
 	path := filepath.Join(dir, name+".desktop")
 	if err := os.WriteFile(path, []byte(entry), 0o644); err != nil {
 		return nil, err

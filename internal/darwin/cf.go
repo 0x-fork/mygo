@@ -17,6 +17,10 @@ var (
 	cfRelease             func(obj uintptr)
 	kCFRunLoopCommonModes uintptr
 
+	// LaunchServices.
+	lsSetDefaultHandlerForURLScheme  func(scheme, bundleID id) int32
+	lsCopyDefaultHandlerForURLScheme func(scheme id) id
+
 	cgDisplayIsBuiltin func(display uint32) bool
 	cgDisplayRotation  func(display uint32) float64
 	nsBeep             func()
@@ -51,6 +55,9 @@ func loadCF() {
 		panic(err)
 	}
 	kCFRunLoopCommonModes = **(**uintptr)(unsafe.Pointer(&p))
+
+	purego.RegisterLibFunc(&lsSetDefaultHandlerForURLScheme, libCoreServices, "LSSetDefaultHandlerForURLScheme")
+	purego.RegisterLibFunc(&lsCopyDefaultHandlerForURLScheme, libCoreServices, "LSCopyDefaultHandlerForURLScheme")
 
 	purego.RegisterLibFunc(&cgDisplayIsBuiltin, libCG, "CGDisplayIsBuiltin")
 	purego.RegisterLibFunc(&cgDisplayRotation, libCG, "CGDisplayRotation")

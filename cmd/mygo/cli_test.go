@@ -182,3 +182,44 @@ func TestTemplate(t *testing.T) {
 		t.Error("slugify")
 	}
 }
+
+func TestPackageFlags(t *testing.T) {
+	c := &Config{Name: "Bob's App", Version: "1.0.0", Identifier: "com.example.bob", URLSchemes: []string{"bob", "bob-dev"}}
+	got := packageFlags(c)
+	want := ` -X "github.com/egoist/mygo.packageName=Bob's App" -X github.com/egoist/mygo.packageVersion=1.0.0` +
+		` -X github.com/egoist/mygo.packageIdentifier=com.example.bob -X github.com/egoist/mygo.packageURLSchemes=bob,bob-dev`
+	if got != want {
+		t.Errorf("packageFlags =\n%s\nwant\n%s", got, want)
+	}
+	if q := ldflagsQuote(`say "hi"`); q != `'say "hi"'` {
+		t.Errorf("ldflagsQuote = %s", q)
+	}
+
+	dir := t.TempDir()
+	write := func(json string) error {
+		if err := os.WriteFile(filepath.Join(dir, "mygo.json"), []byte(json), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := loadConfig(dir)
+		return err
+	}
+	if err := write(`{"urlSchemes": ["my app"]}`); err == nil || !strings.Contains(err.Error(), "urlSchemes") {
+		t.Errorf("invalid scheme: %v", err)
+	}
+	if err := write(`{"name": "Both ' and \""}`); err == nil || !strings.Contains(err.Error(), "quotes") {
+		t.Errorf("name with both quotes: %v", err)
+	}
+
+	// The desktop entry of Linux builds opens the app's URLs.
+	c = &Config{Name: "My App", URLSchemes: []string{"myapp"}}
+	files, err := writeLinuxDesktop(c, dir, "my-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, _ := os.ReadFile(files[len(files)-1])
+	for _, want := range []string{"Exec=my-app %u\n", "MimeType=x-scheme-handler/myapp;\n"} {
+		if !strings.Contains(string(entry), want) {
+			t.Errorf("desktop entry lacks %q:\n%s", want, entry)
+		}
+	}
+}

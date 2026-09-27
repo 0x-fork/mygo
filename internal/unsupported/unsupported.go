@@ -46,19 +46,22 @@ func (*Backend) RemoveNotification(string)                                  {}
 
 type app struct{}
 
-func (app) SetActivationPolicy(string)                {}
-func (app) Activate()                                 {}
-func (app) Hide()                                     {}
-func (app) Unhide()                                   {}
-func (app) IsHidden() bool                            { return false }
-func (app) SetBadge(string)                           {}
-func (app) Badge() string                             { return "" }
-func (app) Bounce(bool) int                           { return 0 }
-func (app) CancelBounce(int)                          {}
-func (app) SetDockIcon([]byte) error                  { return errUnsupported }
-func (app) ShowAboutPanel(platform.AboutPanelOptions) {}
-func (app) Locale() string                            { return "en-US" }
-func (app) Package() (platform.PackageInfo, bool)     { return platform.PackageInfo{}, false }
+func (app) SetActivationPolicy(string)                        {}
+func (app) Activate()                                         {}
+func (app) Hide()                                             {}
+func (app) Unhide()                                           {}
+func (app) IsHidden() bool                                    { return false }
+func (app) SetBadge(string)                                   {}
+func (app) Badge() string                                     { return "" }
+func (app) Bounce(bool) int                                   { return 0 }
+func (app) CancelBounce(int)                                  {}
+func (app) SetDockIcon([]byte) error                          { return errUnsupported }
+func (app) ShowAboutPanel(platform.AboutPanelOptions)         {}
+func (app) Locale() string                                    { return "en-US" }
+func (app) Package() (platform.PackageInfo, bool)             { return platform.PackageInfo{}, false }
+func (app) RegisterURLScheme(string, string, string) error    { return errUnsupported }
+func (app) UnregisterURLScheme(string, string, string) error  { return errUnsupported }
+func (app) IsURLSchemeRegistered(string, string, string) bool { return false }
 
 type dialogs struct{}
 

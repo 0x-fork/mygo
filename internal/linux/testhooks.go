@@ -67,3 +67,14 @@ func TestSetDroppedFiles(handle uintptr, paths []string) {
 		}
 	}
 }
+
+// TestDefaultURLHandler returns the id of the application GLib opens URLs
+// of scheme with, as xdg-open and GTK apps do.
+func TestDefaultURLHandler(scheme string) string {
+	info := gAppInfoGetDefaultForURIScheme(cs(scheme))
+	if info == 0 {
+		return ""
+	}
+	defer gObjectUnref(info)
+	return goStr(gAppInfoGetID(info))
+}

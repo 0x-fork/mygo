@@ -44,3 +44,5 @@ func dockTileImage() (png []byte, supported bool) {
 	mygo.RunOnMain(func() { png = darwin.TestDockTileImage() })
 	return png, true
 }
+
+func defaultURLHandler(string) (string, bool) { return "", false }
