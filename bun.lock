@@ -9,17 +9,57 @@
       },
     },
     "examples/todo": {
-      "name": "todo-frontend",
+      "name": "todo",
       "dependencies": {
         "mygo-runtime": "workspace:*",
       },
       "devDependencies": {
+        "mygo-cli": "workspace:*",
         "typescript": "^7",
         "vite": "^8",
       },
     },
     "packages/bridge": {
       "name": "mygo-bridge",
+    },
+    "packages/cli": {
+      "name": "mygo-cli",
+      "version": "0.1.0",
+      "bin": {
+        "mygo": "bin/mygo.js",
+      },
+      "optionalDependencies": {
+        "mygo-cli-darwin-arm64": "0.1.0",
+        "mygo-cli-darwin-x64": "0.1.0",
+        "mygo-cli-linux-arm64": "0.1.0",
+        "mygo-cli-linux-x64": "0.1.0",
+        "mygo-cli-win32-arm64": "0.1.0",
+        "mygo-cli-win32-x64": "0.1.0",
+      },
+    },
+    "packages/cli/npm/darwin-arm64": {
+      "name": "mygo-cli-darwin-arm64",
+      "version": "0.1.0",
+    },
+    "packages/cli/npm/darwin-x64": {
+      "name": "mygo-cli-darwin-x64",
+      "version": "0.1.0",
+    },
+    "packages/cli/npm/linux-arm64": {
+      "name": "mygo-cli-linux-arm64",
+      "version": "0.1.0",
+    },
+    "packages/cli/npm/linux-x64": {
+      "name": "mygo-cli-linux-x64",
+      "version": "0.1.0",
+    },
+    "packages/cli/npm/win32-arm64": {
+      "name": "mygo-cli-win32-arm64",
+      "version": "0.1.0",
+    },
+    "packages/cli/npm/win32-x64": {
+      "name": "mygo-cli-win32-x64",
+      "version": "0.1.0",
     },
     "packages/runtime": {
       "name": "mygo-runtime",
@@ -139,6 +179,20 @@
 
     "mygo-bridge": ["mygo-bridge@workspace:packages/bridge"],
 
+    "mygo-cli": ["mygo-cli@workspace:packages/cli"],
+
+    "mygo-cli-darwin-arm64": ["mygo-cli-darwin-arm64@workspace:packages/cli/npm/darwin-arm64"],
+
+    "mygo-cli-darwin-x64": ["mygo-cli-darwin-x64@workspace:packages/cli/npm/darwin-x64"],
+
+    "mygo-cli-linux-arm64": ["mygo-cli-linux-arm64@workspace:packages/cli/npm/linux-arm64"],
+
+    "mygo-cli-linux-x64": ["mygo-cli-linux-x64@workspace:packages/cli/npm/linux-x64"],
+
+    "mygo-cli-win32-arm64": ["mygo-cli-win32-arm64@workspace:packages/cli/npm/win32-arm64"],
+
+    "mygo-cli-win32-x64": ["mygo-cli-win32-x64@workspace:packages/cli/npm/win32-x64"],
+
     "mygo-runtime": ["mygo-runtime@workspace:packages/runtime"],
 
     "nanoid": ["nanoid@3.3.19", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug=="],
@@ -155,7 +209,7 @@
 
     "tinyglobby": ["tinyglobby@0.2.17", "", { "dependencies": { "fdir": "^6.5.0", "picomatch": "^4.0.4" } }, "sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g=="],
 
-    "todo-frontend": ["todo-frontend@workspace:examples/todo"],
+    "todo": ["todo@workspace:examples/todo"],
 
     "typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 

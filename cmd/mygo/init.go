@@ -28,10 +28,13 @@ type templateData struct {
 	Identifier string
 	// Runtime is the version of the mygo-runtime npm package.
 	Runtime string
+	// CLI is the version of the mygo-cli npm package, which runs mygo in
+	// the scripts of package.json, and Mygo the command they run.
+	CLI, Mygo string
 }
 
 func runInit(args []string) error {
-	flags := newFlags("init", "[flags] <dir>", "Creates a new MyGo project with a TypeScript frontend built with Vite.\nBun installs the frontend dependencies and runs its scripts.")
+	flags := newFlags("init", "[flags] <dir>", "Creates a new MyGo project with a TypeScript frontend built with Vite.\nBun installs its dependencies, the mygo-cli package among them, and runs\nits scripts: bun run dev and bun run build.")
 	name := flags.String("name", "", "application name (default: directory name)")
 	module := flags.String("module", "", "Go module path (default: directory name)")
 	local := flags.String("mygo", "", "path to a local checkout of MyGo to use via a replace directive")
@@ -59,14 +62,15 @@ func runInit(args []string) error {
 		data.Module = data.Slug
 	}
 	data.Identifier = "com.example." + strings.ReplaceAll(data.Slug, "-", "")
-	data.Runtime = "^" + version
+	data.Runtime, data.CLI, data.Mygo = "^"+version, "^"+version, "mygo"
 	if *local != "" {
-		// The runtime package of the local checkout, like the Go module.
+		// The runtime package of the local checkout, like the Go module,
+		// and its CLI, which go run builds from the replaced module.
 		abs, err := filepath.Abs(filepath.Join(*local, "packages", "runtime"))
 		if err != nil {
 			return err
 		}
-		data.Runtime = "file:" + abs
+		data.Runtime, data.CLI, data.Mygo = "file:"+abs, "", "go run github.com/egoist/mygo/cmd/mygo"
 	}
 
 	logf("creating %s", dir)
@@ -101,8 +105,8 @@ func runInit(args []string) error {
 	}
 
 	if _, err := exec.LookPath("bun"); err != nil {
-		logf("bun not found: install it from https://bun.sh, then run bun install in frontend")
-	} else if err := run(filepath.Join(dir, "frontend"), "bun install"); err != nil {
+		logf("bun not found: install it from https://bun.sh, then run bun install")
+	} else if err := run(dir, "bun install"); err != nil {
 		return err
 	}
 	c, err := loadConfig(dir)
@@ -121,7 +125,7 @@ func runInit(args []string) error {
 			rel = r
 		}
 	}
-	fmt.Printf("\nCreated %s. Next steps:\n\n  cd %s\n  mygo dev      # develop with live reload\n  mygo build    # package the app\n\n", data.Name, rel)
+	fmt.Printf("\nCreated %s. Next steps:\n\n  cd %s\n  bun run dev      # develop with live reload\n  bun run build    # package the app\n\n", data.Name, rel)
 	return nil
 }
 

@@ -3,8 +3,9 @@
   "identifier": "{{.Identifier}}",
   "version": "0.1.0",
   "devUrl": "http://localhost:5173",
-  "devCommand": "bun run --cwd frontend dev",
-  "buildCommand": "bun run --cwd frontend build",
-  "frontendDist": "frontend/dist",
-  "bindings": "frontend/src/mygo.ts"
+  "devCommand": "bun run dev:web",
+  "buildCommand": "bun run build:web",
+  "frontendDist": "dist",
+  "bindings": "src/mygo.ts",
+  "out": "build"
 }

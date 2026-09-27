@@ -1,9 +1,9 @@
 // Todo is a small but complete MyGo app: typed services and events shared
 // with a TypeScript frontend, persistence, dialogs, menus and multiple
-// windows kept in sync.
+// windows kept in sync. In examples/todo:
 //
-//	go run ./cmd/mygo dev examples/todo    # live reload with the Vite dev server
-//	go run ./cmd/mygo build examples/todo  # the app and a disk image in examples/todo/build
+//	bun run dev    # live reload with the Vite dev server
+//	bun run build  # the app and a disk image in build/
 package main
 
 import (

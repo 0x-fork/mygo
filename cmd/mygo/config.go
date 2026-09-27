@@ -136,6 +136,9 @@ func loadConfig(root string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !isDir(abs) {
+		return nil, fmt.Errorf("%s is not a directory", root)
+	}
 	c := &Config{root: abs}
 	data, err := os.ReadFile(filepath.Join(abs, "mygo.json"))
 	switch {

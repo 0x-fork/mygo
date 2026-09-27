@@ -21,8 +21,8 @@ before changing anything under `internal/`.
   unsupported platforms the `internal/unsupported` backend makes `App.Run`
   fail with a clear error while everything still compiles.
 - **Bun is dev tooling only.** It builds and tests the TypeScript bridge, and
-  installs and runs the frontend template's tools (Vite, TypeScript). Nothing
-  Bun-related ships in an app.
+  installs and runs the template's tools (Vite, TypeScript, the mygo-cli
+  package). Nothing Bun-related ships in an app.
 - **Great DX over API parity.** The API has the feel of Electron (app
   lifecycle, windows, menus, dialogs) but is Go-first: typed IPC with a
   generated TypeScript client, `http.Handler` for custom protocols, typed
@@ -58,7 +58,9 @@ before changing anything under `internal/`.
 │   └── e2e/            GUI tests against the real backend (MYGO_E2E=1)
 ├── packages/           Bun workspace (with the examples' frontends):
 │   ├── bridge/         the runtime injected into pages (→ internal/bridge/bridge.js)
-│   └── runtime/        mygo-runtime, the npm package apps and generated clients import
+│   ├── runtime/        mygo-runtime, the npm package apps and generated clients import
+│   └── cli/            mygo-cli, the npm package of the CLI, and in npm/ its
+│                       per-platform binary packages
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native
 └── docs/               this guide
@@ -315,6 +317,27 @@ protocol. Its `dist/` is committed so the workspace and local projects
 (`mygo init --mygo <checkout>` depends on it with `file:`) need no build; the
 template depends on `^<version>` from npm, released in step with the Go
 module.
+
+### The `mygo-cli` package (`packages/cli`)
+
+The CLI is also published to npm, so that projects pin it in package.json
+and run it from their scripts. Like esbuild, each platform's binary is a
+package of its own, `mygo-cli-<os>-<cpu>` in `packages/cli/npm`, with `os`
+and `cpu` fields; `mygo-cli` lists them all as optional dependencies, so
+package managers install only the matching one, and its `bin/mygo.js`
+resolves that package and replaces itself with the binary
+(`process.execve` in Node.js 23.11 and later and in Bun; elsewhere it spawns
+the binary, waits and passes its exit status on). `MYGO_CLI_BINARY` points
+it at another build. In a checkout of this repository, where the platform
+packages hold no binary, it builds `cmd/mygo` from source instead: the
+workspace examples run it that way.
+
+`bun run --cwd packages/cli binaries [platform...]` cross-compiles the
+binaries (ignored by git) and writes the manifests with the version of
+`mygo.Version`; `bun run --cwd packages/cli release [--dry-run]` builds all
+of them and publishes the platform packages, then mygo-cli, skipping
+versions already on npm. The binary is named `mygo`, like an unrelated npm
+package: docs say `bunx mygo-cli`, never `bunx mygo`, outside a project.
 
 ### Wire protocol
 
@@ -587,13 +610,17 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
 
 ## CLI (`cmd/mygo`)
 
-- `init` renders `cmd/mygo/template` (Go + a TypeScript frontend built with
-  Vite; Bun installs it and runs its scripts), draws a default icon at
-  `resources/icon.png`, fetches modules, installs frontend dependencies and
-  generates the client. The
-  template's mygo.json sets `devUrl`, `devCommand`, `buildCommand` and
-  `frontendDist`; its `vite.config.ts` pins the dev server to the port of
-  `devUrl`.
+- `init` renders `cmd/mygo/template`: a Go module and a TypeScript frontend
+  built with Vite, side by side at the project root like the examples, draws
+  a default icon at `resources/icon.png`, fetches modules, installs the
+  JavaScript dependencies with Bun and generates the client. package.json
+  runs the CLI from mygo-cli (`bun run dev`, `bun run build`), or with
+  `go run github.com/egoist/mygo/cmd/mygo` for `-mygo <checkout>`, whose
+  go.mod replaces the module with the checkout. mygo.json sets `devUrl`,
+  `devCommand` and `buildCommand` (the `dev:web` and `build:web` scripts,
+  which run Vite and never mygo), `frontendDist` (Vite's `dist`) and `out`
+  (`build`, so the two do not meet); `vite.config.ts` pins the dev server to
+  the port of `devUrl` and does not watch the development app and builds.
 - `generate` builds the app for the host and runs it in generate mode
   (`MYGO_GENERATE`; `RequestSingleInstanceLock` then returns true at once).
 - `dev` (`dev.go`, `watch.go`) runs `devCommand` in the project directory,

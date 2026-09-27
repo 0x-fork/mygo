@@ -5,3 +5,5 @@ examples/*/dist/
 examples/*/build/
 /mygo
 /cmd/mygo/mygo
+packages/cli/npm/*/bin/
+.DS_Store
