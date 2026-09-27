@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -65,6 +66,7 @@ type Config struct {
 	// Updates configures signed updates, which mygo.Updater installs.
 	Updates *Updates `json:"updates"`
 	MacOS   MacOS    `json:"macos"`
+	Windows Windows  `json:"windows"`
 	Linux   Linux    `json:"linux"`
 
 	root string
@@ -116,6 +118,9 @@ func loadConfig(root string) (*Config, error) {
 	c.applyDefaults()
 	if n := c.MacOS.Notarize; n != nil && n.KeychainProfile == "" {
 		return nil, fmt.Errorf("mygo.json: macos.notarize needs a keychainProfile (see xcrun notarytool store-credentials)")
+	}
+	if c.Windows.Certificate != "" && c.Windows.SignCommand != "" {
+		return nil, errors.New("mygo.json: windows.certificate and windows.signCommand exclude each other")
 	}
 	if c.Updates != nil {
 		if err := c.Updates.validate(); err != nil {

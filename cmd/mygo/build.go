@@ -211,6 +211,11 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		if err := compile(goarch, exe); err != nil {
 			return nil, err
 		}
+		if c.Windows.signs() {
+			if err := signWindows(c, exe); err != nil {
+				return nil, err
+			}
+		}
 		if err := copyResources(res, stage); err != nil {
 			return nil, err
 		}
@@ -250,6 +255,11 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 			return nil, err
 		}
 		if setup != "" {
+			if c.Windows.signs() {
+				if err := signWindows(c, setup); err != nil {
+					return nil, err
+				}
+			}
 			artifacts = append(artifacts, setup)
 		}
 	}

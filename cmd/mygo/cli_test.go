@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -221,5 +222,27 @@ func TestPackageFlags(t *testing.T) {
 		if !strings.Contains(string(entry), want) {
 			t.Errorf("desktop entry lacks %q:\n%s", want, entry)
 		}
+	}
+}
+
+func TestWindowsSignCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	dir := t.TempDir()
+	file := filepath.Join(dir, "My App.exe")
+	if err := os.WriteFile(file, []byte("MZ"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &Config{root: dir, Windows: Windows{SignCommand: `printf signed >> %1`}}
+	if err := signWindows(c, file); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(file); string(b) != "MZsigned" {
+		t.Errorf("the sign command got %q", b)
+	}
+	c.Windows.SignCommand = "false %1"
+	if err := signWindows(c, file); err == nil {
+		t.Error("a failing sign command succeeded")
 	}
 }

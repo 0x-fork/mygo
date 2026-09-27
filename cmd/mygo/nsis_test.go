@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -43,7 +44,8 @@ func TestWindowsInstaller(t *testing.T) {
 	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
 		return
 	}
-	install := filepath.Join(t.TempDir(), "Setup Test")
+	// NSIS takes /D= unquoted, and Go quotes arguments with spaces.
+	install := filepath.Join(t.TempDir(), "SetupTest")
 	if out, err := exec.Command(setup, "/S", "/D="+install).CombinedOutput(); err != nil {
 		t.Fatalf("installing: %v\n%s", err, out)
 	}
@@ -65,5 +67,50 @@ func TestWindowsInstaller(t *testing.T) {
 			t.Fatal("the uninstaller left the app installed")
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestWindowsSigning signs a build with a throwaway self-signed
+// certificate. It runs on CI only (MYGO_TEST_SIGN), as it adds the
+// certificate to the user's store for a moment.
+func TestWindowsSigning(t *testing.T) {
+	if runtime.GOOS != "windows" || os.Getenv("MYGO_TEST_SIGN") == "" {
+		t.Skip("set MYGO_TEST_SIGN on a disposable Windows machine")
+	}
+	pfx := filepath.Join(t.TempDir(), "test.pfx")
+	ps := func(script string) string {
+		t.Helper()
+		out, err := exec.Command("powershell", "-NoProfile", "-Command", script).CombinedOutput()
+		if err != nil {
+			t.Fatalf("powershell: %v\n%s", err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	ps(`$c = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MyGo Test" -CertStoreLocation Cert:\CurrentUser\My; ` +
+		`$p = ConvertTo-SecureString -String "secret" -Force -AsPlainText; ` +
+		`Export-PfxCertificate -Cert $c -FilePath "` + pfx + `" -Password $p | Out-Null; Remove-Item $c.PSPath`)
+	t.Setenv("MYGO_WINDOWS_CERTIFICATE_PASSWORD", "secret")
+	dir := testModule(t, map[string]string{
+		"main.go":   "package main\n\nfunc main() {}\n",
+		"mygo.json": `{"name": "Signed App", "version": "1.0.0", "windows": {"certificate": "` + filepath.ToSlash(pfx) + `"}}`,
+	})
+	c, err := loadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := buildOptions{sign: "-", work: t.TempDir()}
+	if opts.pkg, err = packageDir(c); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := buildPlatform(c, "windows", "amd64", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range artifacts {
+		if strings.HasSuffix(a, ".exe") {
+			if subject := ps(`(Get-AuthenticodeSignature "` + a + `").SignerCertificate.Subject`); subject != "CN=MyGo Test" {
+				t.Errorf("%s is signed by %q", filepath.Base(a), subject)
+			}
+		}
 	}
 }
