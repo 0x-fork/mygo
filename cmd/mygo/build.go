@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,7 +54,7 @@ and update-<platform>.json: publish them where updates point to.`)
 		c.Out = *out
 	}
 	if *upload && (c.Updates == nil || c.Updates.GitHub == "") {
-		return errors.New("-upload needs updates.github in mygo.json")
+		return fmt.Errorf("-upload needs updates.github in %s", c.configName())
 	}
 	opts := buildOptions{debug: *debug, sign: c.MacOS.SigningIdentity, skipDMG: *skipDMG, skipNotarize: *skipNotarize}
 	if *sign != "" {

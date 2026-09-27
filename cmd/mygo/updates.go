@@ -45,20 +45,20 @@ type Updates struct {
 
 func (u *Updates) validate() error {
 	if u.PublicKey == "" {
-		return errors.New("mygo.json: updates needs the publicKey of mygo keygen")
+		return errors.New("updates needs the publicKey of mygo keygen")
 	}
 	if _, err := update.ParsePublicKey(u.PublicKey); err != nil {
-		return fmt.Errorf("mygo.json: updates.publicKey: %w", err)
+		return fmt.Errorf("updates.publicKey: %w", err)
 	}
 	switch {
 	case (u.GitHub == "") == (u.URL == ""):
-		return errors.New("mygo.json: updates needs either github (owner/name) or url")
+		return errors.New("updates needs either github (owner/name) or url")
 	case u.GitHub != "" && strings.Count(u.GitHub, "/") != 1:
-		return fmt.Errorf("mygo.json: updates.github %q is not owner/name", u.GitHub)
+		return fmt.Errorf("updates.github %q is not owner/name", u.GitHub)
 	case u.URL != "":
 		p, err := url.Parse(u.URL)
 		if err != nil || p.Scheme != "https" || p.Host == "" {
-			return fmt.Errorf("mygo.json: updates.url %q is not an https URL", u.URL)
+			return fmt.Errorf("updates.url %q is not an https URL", u.URL)
 		}
 	}
 	if u.TagPrefix == "" {
@@ -120,7 +120,7 @@ func (c *Config) signingKey() (ed25519.PrivateKey, error) {
 		return nil, err
 	}
 	if base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)) != strings.TrimSpace(c.Updates.PublicKey) {
-		return nil, errors.New("the update signing key does not match updates.publicKey in mygo.json")
+		return nil, fmt.Errorf("the update signing key does not match updates.publicKey in %s", c.configName())
 	}
 	return key, nil
 }
@@ -226,6 +226,6 @@ apps only accept updates signed with it, so losing it strands them.`)
 		return err
 	}
 	logf("wrote %s (secret) and %s", secret, public)
-	fmt.Printf("Add to mygo.json:\n\n  \"updates\": {\n    \"publicKey\": %q,\n    \"github\": \"owner/name\"\n  }\n", pubText)
+	fmt.Printf("Add to mygo.json, or mygo.config.ts:\n\n  \"updates\": {\n    \"publicKey\": %q,\n    \"github\": \"owner/name\"\n  }\n", pubText)
 	return nil
 }

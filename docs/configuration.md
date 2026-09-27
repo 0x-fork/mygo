@@ -1,7 +1,8 @@
-# mygo.json
+# Configuration
 
 `mygo.json`, at the root of a project, describes the app and how the CLI
-develops and builds it. Every field is optional.
+develops and builds it; `mygo.config.ts` can take its place, see
+[below](#mygoconfigts). Every field is optional.
 
 ```json
 {
@@ -117,3 +118,45 @@ See [Windows](distribution.md#windows).
 | `depends` | | Debian packages the app needs besides GTK and WebKitGTK |
 
 See [Linux](distribution.md#linux).
+
+## mygo.config.ts
+
+The configuration can be TypeScript instead: `mygo.config.ts`, whose
+default export is the configuration. `defineConfig` of the `mygo-cli`
+package, which new projects depend on, types it, so editors complete and
+document every field:
+
+```ts
+import { defineConfig } from "mygo-cli";
+import pkg from "./package.json" with { type: "json" };
+
+export default defineConfig({
+  name: "My App",
+  identifier: "com.example.myapp",
+  version: pkg.version,
+  devUrl: "http://localhost:5173",
+  devCommand: "bun run dev:web",
+  buildCommand: "bun run build:web",
+  frontendDist: "dist",
+  out: "build",
+  macos: {
+    signingIdentity: process.env.MACOS_SIGNING_IDENTITY ?? "-",
+  },
+});
+```
+
+The default export may also be a function, which can be async, of the
+command running (`"dev"`, `"build"`, `"generate"` or `"init"`):
+
+```ts
+export default defineConfig(({ command }) => ({
+  name: command === "dev" ? "My App (dev)" : "My App",
+}));
+```
+
+The CLI evaluates the file with [Bun](https://bun.sh), or else Node.js 22.6
+or later, in the project directory, and checks the result like mygo.json.
+Node.js runs TypeScript by removing the types, so it takes type
+annotations but not syntax that generates code, such as `enum`. What the
+file prints goes to the terminal, apart from the CLI's output. A project has
+either `mygo.json` or `mygo.config.ts`, not both.

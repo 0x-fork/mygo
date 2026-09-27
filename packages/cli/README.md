@@ -31,6 +31,23 @@ package managers install only the one that matches the machine. The `mygo`
 command then runs that binary. Set `MYGO_CLI_BINARY` to the path of another
 build of the CLI to use it instead.
 
+## mygo.config.ts
+
+`defineConfig` types the configuration of a project in `mygo.config.ts`,
+which the CLI accepts in place of `mygo.json`:
+
+```ts
+import { defineConfig } from "mygo-cli";
+
+export default defineConfig({
+  name: "My App",
+  identifier: "com.example.myapp",
+  devUrl: "http://localhost:5173",
+});
+```
+
+## The binary
+
 From JavaScript, `binaryPath()` returns the path of the binary:
 
 ```ts

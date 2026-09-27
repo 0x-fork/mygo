@@ -26,11 +26,11 @@ Without devUrl, the app serves frontendDist from disk. On macOS the
 development app is a real bundle, "<name> Dev" with the identifier
 "<identifier>.dev", in .mygo/dev.
 
-Changes to the Go code, mygo.json, the icon or the resources rebuild the
-app, regenerate the TypeScript client and relaunch it. The new build
-replaces the running one once it has started, so a build that fails or
-crashes keeps the previous one running. Frontend changes are left to the
-dev server. Quitting the app ends mygo dev.`)
+Changes to the Go code, mygo.json or mygo.config.ts, the icon or the
+resources rebuild the app, regenerate the TypeScript client and relaunch
+it. The new build replaces the running one once it has started, so a build
+that fails or crashes keeps the previous one running. Frontend changes are
+left to the dev server. Quitting the app ends mygo dev.`)
 	skipDevCommand := flags.Bool("skip-dev-command", false, "do not run devCommand")
 	sign := flags.String("sign", "-", "macOS signing identity for the development app")
 	if err := flags.Parse(args); err != nil {

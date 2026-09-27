@@ -48,7 +48,9 @@ my-app/
 ```
 
 Builds go to `dist/` (the frontend) and `build/` (the packaged apps), and
-the development app to `.mygo/`; `.gitignore` leaves them out.
+the development app to `.mygo/`; `.gitignore` leaves them out. The
+configuration can also be TypeScript, `mygo.config.ts`, see
+[configuration](configuration.md#mygoconfigts).
 
 ## Develop
 

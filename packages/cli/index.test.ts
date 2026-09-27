@@ -3,7 +3,7 @@ import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build, dir, goTargets, platformDir, version } from "./build.ts";
-import { platformPackage, platforms } from "./index.js";
+import { defineConfig, platformPackage, platforms } from "./index.js";
 
 const host = `${process.platform}-${process.arch}`;
 const exe = process.platform === "win32" ? "mygo.exe" : "mygo";
@@ -85,4 +85,15 @@ test("mygo explains a missing platform package", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("defineConfig returns the configuration", async () => {
+  const config = defineConfig({
+    name: "My App",
+    fileAssociations: [{ ext: ["md"], role: "Viewer" }],
+    macos: { infoPlist: { NSCameraUsageDescription: "Scan documents." } },
+  });
+  expect(config.name).toBe("My App");
+  const fn = defineConfig(({ command }) => ({ devUrl: command === "dev" ? "http://localhost:5173" : undefined }));
+  expect(await fn({ command: "dev" })).toEqual({ devUrl: "http://localhost:5173" });
 });

@@ -621,6 +621,14 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   which run Vite and never mygo), `frontendDist` (Vite's `dist`) and `out`
   (`build`, so the two do not meet); `vite.config.ts` pins the dev server to
   the port of `devUrl` and does not watch the development app and builds.
+- The configuration is `mygo.json`, or `mygo.config.ts` (`config_ts.go`):
+  Bun, else Node.js 22.6 or later (with `--experimental-strip-types` before
+  22.18 and 23.6), runs a loader that imports it, awaits its default export
+  or calls it with `{ command }`, and writes JSON to a temporary file, which
+  then goes through the same checks as mygo.json. Errors name the file in
+  use. `defineConfig` and the types of the configuration come from
+  `packages/cli/index.d.ts`; `TestConfigTypes` keeps its interfaces in step
+  with the `Config` struct.
 - `generate` builds the app for the host and runs it in generate mode
   (`MYGO_GENERATE`; `RequestSingleInstanceLock` then returns true at once).
 - `dev` (`dev.go`, `watch.go`) runs `devCommand` in the project directory,

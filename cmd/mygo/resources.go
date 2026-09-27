@@ -78,10 +78,10 @@ func (c *Config) resources(reserved ...string) ([]resource, error) {
 	for _, p := range c.Resources {
 		src := c.path(p)
 		if filepath.Clean(src) == dir {
-			return nil, fmt.Errorf("mygo.json: resources lists %s, whose contents are always included; list only extra files", p)
+			return nil, fmt.Errorf("%s: resources lists %s, whose contents are always included; list only extra files", c.configName(), p)
 		}
 		if _, err := os.Stat(src); err != nil {
-			return nil, fmt.Errorf("mygo.json: resource %s: %w", p, err)
+			return nil, fmt.Errorf("%s: resource %s: %w", c.configName(), p, err)
 		}
 		if err := add(filepath.Base(src), src); err != nil {
 			return nil, err

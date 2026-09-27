@@ -15,7 +15,7 @@ import (
 // Installed apps see the update once the release is published.
 func publishGitHub(c *Config, artifacts []string) error {
 	if c.Updates == nil || c.Updates.GitHub == "" {
-		return errors.New("-upload needs updates.github in mygo.json")
+		return fmt.Errorf("-upload needs updates.github in %s", c.configName())
 	}
 	gh, err := exec.LookPath("gh")
 	if err != nil {

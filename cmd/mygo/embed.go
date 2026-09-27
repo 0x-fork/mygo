@@ -68,7 +68,7 @@ func frontendFiles(c *Config, pkg, work string) (map[string]string, error) {
 		return nil
 	})
 	if os.IsNotExist(err) {
-		return nil, fmt.Errorf("frontendDist %s does not exist; set buildCommand in mygo.json to build it", c.FrontendDist)
+		return nil, fmt.Errorf("frontendDist %s does not exist; set buildCommand in %s to build it", c.FrontendDist, c.configName())
 	}
 	if err != nil {
 		return nil, err

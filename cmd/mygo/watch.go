@@ -24,7 +24,7 @@ import (
 type buildInputs struct {
 	sourceDirs []string // directories of compiled packages: their .go and .s files
 	fileDirs   []string // directories of embedded files: all their files
-	files      []string // go.mod and go.sum files, mygo.json, the icon
+	files      []string // go.mod and go.sum files, the configuration, the icon
 	trees      []string // the resources: everything in them
 }
 
@@ -43,7 +43,7 @@ func listBuildInputs(c *Config) (*buildInputs, error) {
 		return dir == "" || modcache != "" && strings.HasPrefix(dir, modcache+string(filepath.Separator))
 	}
 	in := &buildInputs{
-		files: []string{filepath.Join(c.root, "mygo.json")},
+		files: []string{filepath.Join(c.root, jsonConfig), filepath.Join(c.root, tsConfig)},
 		trees: []string{c.path(resourcesDir)},
 	}
 	if c.Icon != "" {

@@ -38,6 +38,10 @@ func main() {
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	running = cmd
+	if cmd == "gen" {
+		running = "generate"
+	}
 	var err error
 	switch cmd {
 	case "init":

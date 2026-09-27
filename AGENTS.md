@@ -64,4 +64,6 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   the same version as the Go module (`mygo.Version`, also the CLI's
   `version`); the template depends on both. `bun run --cwd packages/cli
   release` builds and publishes the CLI; never commit its binaries.
+- The configuration types of `packages/cli/index.d.ts` (for `mygo.config.ts`)
+  mirror `Config` in `cmd/mygo/config.go`; `TestConfigTypes` checks them.
 - Tests: unit tests through `internal/fake`; GUI behavior in `internal/e2e`.

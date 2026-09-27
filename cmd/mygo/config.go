@@ -11,8 +11,14 @@ import (
 	"strings"
 )
 
-// Config is read from mygo.json in the project root. Every field is
-// optional.
+// The configuration of a project is in one of these files at its root.
+const (
+	jsonConfig = "mygo.json"
+	tsConfig   = "mygo.config.ts"
+)
+
+// Config is read from mygo.json or mygo.config.ts in the project root.
+// Every field is optional.
 type Config struct {
 	// Name is the display name of the app (default: directory name).
 	Name string `json:"name"`
@@ -73,6 +79,15 @@ type Config struct {
 	Linux   Linux    `json:"linux"`
 
 	root string
+	file string // the configuration file, "" without one
+}
+
+// configName names the configuration file in messages.
+func (c *Config) configName() string {
+	if c.file == "" {
+		return jsonConfig
+	}
+	return filepath.Base(c.file)
 }
 
 // FileAssociation is a type of file the app opens: the system lists the app
@@ -140,56 +155,82 @@ func loadConfig(root string) (*Config, error) {
 		return nil, fmt.Errorf("%s is not a directory", root)
 	}
 	c := &Config{root: abs}
-	data, err := os.ReadFile(filepath.Join(abs, "mygo.json"))
-	switch {
-	case err == nil:
+	data, file, err := readConfig(abs)
+	c.file = file
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", c.configName(), err)
+	}
+	if data != nil {
 		if err := json.Unmarshal(data, c); err != nil {
-			return nil, fmt.Errorf("mygo.json: %w", err)
+			return nil, fmt.Errorf("%s: %w", c.configName(), err)
 		}
-	case !os.IsNotExist(err):
-		return nil, err
 	}
 	c.applyDefaults()
+	if err := c.validate(); err != nil {
+		return nil, fmt.Errorf("%s: %w", c.configName(), err)
+	}
+	return c, nil
+}
+
+// readConfig returns the configuration of the project in root as JSON, and
+// the file it comes from: mygo.json, or mygo.config.ts, which a JavaScript
+// runtime evaluates. Without either it returns nothing.
+func readConfig(root string) (data []byte, file string, err error) {
+	jsonFile, tsFile := filepath.Join(root, jsonConfig), filepath.Join(root, tsConfig)
+	switch hasJSON, hasTS := fileExists(jsonFile), fileExists(tsFile); {
+	case hasJSON && hasTS:
+		return nil, "", fmt.Errorf("%s configures the project too; keep one of them", jsonConfig)
+	case hasTS:
+		data, err = evalTSConfig(root, tsFile)
+		return data, tsFile, err
+	case hasJSON:
+		data, err = os.ReadFile(jsonFile)
+		return data, jsonFile, err
+	}
+	return nil, "", nil
+}
+
+func (c *Config) validate() error {
 	if n := c.MacOS.Notarize; n != nil && n.KeychainProfile == "" {
-		return nil, fmt.Errorf("mygo.json: macos.notarize needs a keychainProfile (see xcrun notarytool store-credentials)")
+		return errors.New("macos.notarize needs a keychainProfile (see xcrun notarytool store-credentials)")
 	}
 	for i, fa := range c.FileAssociations {
 		if len(fa.Ext) == 0 {
-			return nil, fmt.Errorf("mygo.json: fileAssociations[%d] has no ext", i)
+			return fmt.Errorf("fileAssociations[%d] has no ext", i)
 		}
 		for _, ext := range fa.Ext {
 			if !extRe.MatchString(ext) {
-				return nil, fmt.Errorf("mygo.json: fileAssociations[%d]: %q is not a file name extension (without the dot)", i, ext)
+				return fmt.Errorf("fileAssociations[%d]: %q is not a file name extension (without the dot)", i, ext)
 			}
 		}
 		if fa.Role != "" && fa.Role != "Editor" && fa.Role != "Viewer" {
-			return nil, fmt.Errorf("mygo.json: fileAssociations[%d].role is Editor or Viewer", i)
+			return fmt.Errorf("fileAssociations[%d].role is Editor or Viewer", i)
 		}
 	}
 	if c.Windows.Certificate != "" && c.Windows.SignCommand != "" {
-		return nil, errors.New("mygo.json: windows.certificate and windows.signCommand exclude each other")
+		return errors.New("windows.certificate and windows.signCommand exclude each other")
 	}
 	if c.Updates != nil {
 		if err := c.Updates.validate(); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	for _, scheme := range c.URLSchemes {
 		if !schemeRe.MatchString(scheme) {
-			return nil, fmt.Errorf("mygo.json: urlSchemes: %q is not a URL scheme (a letter, then letters, digits, +, - or .)", scheme)
+			return fmt.Errorf("urlSchemes: %q is not a URL scheme (a letter, then letters, digits, +, - or .)", scheme)
 		}
 	}
 	for _, v := range []string{c.Name, c.Version, c.Identifier} {
 		if strings.Contains(v, "'") && strings.Contains(v, `"`) {
-			return nil, fmt.Errorf("mygo.json: %q cannot contain both kinds of quotes", v)
+			return fmt.Errorf("%q cannot contain both kinds of quotes", v)
 		}
 	}
 	if c.DevURL != "" {
 		if u, err := url.Parse(c.DevURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return nil, fmt.Errorf("mygo.json: devUrl %q is not an http(s) URL", c.DevURL)
+			return fmt.Errorf("devUrl %q is not an http(s) URL", c.DevURL)
 		}
 	}
-	return c, nil
+	return nil
 }
 
 var (

@@ -67,6 +67,14 @@ export function binaryPath() {
   return bin;
 }
 
+/**
+ * Types the configuration of mygo.config.ts: an object, or a function of the
+ * command running that returns one.
+ */
+export function defineConfig(config) {
+  return config;
+}
+
 /** Reports whether dir is a checkout of the MyGo repository. */
 function isCheckout(dir) {
   try {
