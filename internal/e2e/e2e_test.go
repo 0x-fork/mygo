@@ -753,11 +753,15 @@ func TestPermissions(t *testing.T) {
 	if err := w.LoadURL("app://localhost/"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, w, `location.href === "app://localhost/" && document.readyState === "complete"`)
+	origin := "app://localhost"
+	if runtime.GOOS == "windows" {
+		origin = "https://app.localhost" // how WebView2 serves custom schemes
+	}
+	waitFor(t, w, `location.origin === "`+origin+`" && document.readyState === "complete"`)
 	// The app's own pages are secure contexts with a real origin, which
 	// secure-context APIs (camera, Web Crypto) and storage need.
-	if got := mustEval(t, w, `[window.isSecureContext, location.origin, typeof crypto.subtle].join(" ")`); got != "true app://localhost object" {
-		t.Errorf("app://localhost/: %v", got)
+	if got := mustEval(t, w, `[window.isSecureContext, typeof crypto.subtle].join(" ")`); got != "true object" {
+		t.Errorf("%s: %v", origin, got)
 	}
 	if ok, _ := mygo.EvalAs[bool](w, `typeof Notification !== "undefined" && !!Notification.requestPermission`); !ok {
 		t.Skip("the engine has no Notification API")
