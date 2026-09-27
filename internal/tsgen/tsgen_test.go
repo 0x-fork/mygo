@@ -43,8 +43,14 @@ func modelOf(name string, svc any) Service {
 
 func generate(t *testing.T) string {
 	t.Helper()
+	tasks := modelOf("Tasks", &fixture.Tasks{})
+	for i, m := range tasks.Methods {
+		if m.Name == "Watch" {
+			tasks.Methods[i].Channels = []bool{false, true}
+		}
+	}
 	out, err := Generate(Model{
-		Services: []Service{modelOf("Tasks", &fixture.Tasks{})},
+		Services: []Service{tasks},
 		Events:   []Event{{Name: "task-added", Type: reflect.TypeFor[fixture.Task]()}},
 	})
 	if err != nil {
@@ -56,7 +62,7 @@ func generate(t *testing.T) string {
 func TestGenerate(t *testing.T) {
 	src := generate(t)
 	for _, want := range []string{
-		`import { call, event } from "mygo-runtime";`,
+		`import { call, event, type Channel } from "mygo-runtime";`,
 		`export type Status = "todo" | "done";`,
 		`export type Priority = 0 | 1 | 2;`,
 		"/** Task is a unit of work. */\nexport interface Task {",
@@ -84,6 +90,7 @@ func TestGenerate(t *testing.T) {
 		"  add(...tasks: Task[]): Promise<void> {\n    return call(\"Tasks.Add\", ...tasks);\n  },",
 		"  count(): Promise<number> {",
 		"  delete(arg0: number): Promise<void> {",
+		"  watch(status: Status, updates: Channel<Task>): Promise<void> {\n    return call(\"Tasks.Watch\", status, updates);\n  },",
 		`  taskAdded: event<Task>("task-added"),`,
 	} {
 		if !strings.Contains(src, want) {
@@ -125,7 +132,7 @@ func TestGeneratedCodeTypeChecks(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "client.ts"), []byte(generate(t)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	usage := `import { runtime } from "mygo-runtime";
+	usage := `import { Channel, runtime } from "mygo-runtime";
 import { Tasks, events, type Task, type Status } from "./client";
 const s: Status = "todo";
 const page = await Tasks.list(s, 10);
@@ -134,6 +141,14 @@ await Tasks.add({ id: 1, title: "x", status: "done", priority: 2, tags: [], due:
 const off = events.taskAdded.on((t) => t.title.toUpperCase());
 off();
 runtime().window.minimize();
+const updates = new Channel<Task>();
+const watching = Tasks.watch("todo", updates);
+for await (const task of updates) task.title.toUpperCase();
+updates.onmessage = (task) => task.id.toFixed();
+updates.close();
+await watching;
+// @ts-expect-error a channel of another type
+Tasks.watch("todo", new Channel<string>());
 // @ts-expect-error invalid enum value
 Tasks.list("nope", 1);
 `

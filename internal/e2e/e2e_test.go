@@ -55,6 +55,31 @@ type Tick struct {
 	N int `json:"n"`
 }
 
+// Streams streams numbers through channels.
+type Streams struct{ stopped chan error }
+
+// Count sends 0 to n-1.
+func (Streams) Count(n int, ch *mygo.Channel[int]) error {
+	for i := range n {
+		if err := ch.Send(i); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Forever sends numbers until the page stops it.
+func (s *Streams) Forever(ctx context.Context, ch *mygo.Channel[int]) error {
+	for i := 0; ; i++ {
+		if err := ch.Send(i); err != nil {
+			s.stopped <- ctx.Err()
+			return err
+		}
+	}
+}
+
+var streams = &Streams{stopped: make(chan error, 1)}
+
 var ticked = mygo.NewEvent[Tick]("ticked")
 
 const page = `<!doctype html><html><head><title>E2E</title></head>
@@ -82,7 +107,7 @@ func TestMain(m *testing.M) {
 		quitDuringDialog()
 		return
 	}
-	mygo.Bind(Greeter{}, probe)
+	mygo.Bind(Greeter{}, probe, streams)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -293,6 +318,49 @@ func TestIPCAndProtocol(t *testing.T) {
 	}
 	if u := w.URL(); u != "app://localhost/" {
 		t.Errorf("URL = %q", u)
+	}
+}
+
+func TestChannels(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Hidden: true})
+	if err := w.LoadURL("app://localhost/"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, w, "window.run")
+	start := time.Now()
+	got, err := mygo.EvalAs[string](w, `(async () => {
+		const ch = mygo.channel();
+		const done = mygo.call("Streams.Count", 100000, ch);
+		let n = 0, sum = 0;
+		for await (const v of ch) {
+			if (v !== n++) throw new Error("out of order: " + v);
+			sum += v;
+		}
+		await done;
+		return n + ":" + sum;
+	})()`)
+	if err != nil || got != "100000:4999950000" {
+		t.Fatalf("streamed %q, %v", got, err)
+	}
+	t.Logf("100000 values in %v", time.Since(start))
+
+	// Leaving the loop stops the method: Send fails, the context is canceled.
+	got, err = mygo.EvalAs[string](w, `(async () => {
+		const ch = mygo.channel();
+		const done = mygo.call("Streams.Forever", ch);
+		for await (const v of ch) if (v === 50000) break;
+		return await done.then(() => "resolved", (e) => e.message);
+	})()`)
+	if err != nil || got != mygo.ErrChannelClosed.Error() {
+		t.Errorf("stopped stream: %q, %v", got, err)
+	}
+	select {
+	case err := <-streams.stopped:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("context of the stopped call: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the method did not stop")
 	}
 }
 

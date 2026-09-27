@@ -30,6 +30,16 @@ func (benchService) Noop()                           {}
 func (benchService) Echo(s string) string            { return s }
 func (benchService) Items(v []benchItem) []benchItem { return v }
 
+// Count sends 0 to n-1.
+func (benchService) Count(n int, ch *Channel[int]) error {
+	for i := range n {
+		if err := ch.Send(i); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 var (
 	benchOnce  sync.Once
 	benchEvent *Event[benchItem]
@@ -80,6 +90,7 @@ func benchItems(n int) []benchItem {
 }
 
 func BenchmarkCallNoop(b *testing.B)    { benchmarkCall(b, "Noop", []any{}) }
+func BenchmarkChannel1K(b *testing.B)   { benchmarkCall(b, "Count", []any{1000, 1}) }
 func BenchmarkCallEcho1KB(b *testing.B) { benchmarkCall(b, "Echo", []any{strings.Repeat("x", 1<<10)}) }
 func BenchmarkCallEcho1MB(b *testing.B) { benchmarkCall(b, "Echo", []any{strings.Repeat("x", 1<<20)}) }
 func BenchmarkCallItems1K(b *testing.B) { benchmarkCall(b, "Items", []any{benchItems(1000)}) }

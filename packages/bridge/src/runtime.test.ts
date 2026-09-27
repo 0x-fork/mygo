@@ -90,6 +90,116 @@ describe("events", () => {
   });
 });
 
+describe("channels", () => {
+  type AckMsg = Extract<Outgoing, { t: "chan-ack" }>;
+  type CloseMsg = Extract<Outgoing, { t: "chan-close" }>;
+
+  test("stream values to onmessage, in order, until Go closes them", async () => {
+    const { sent, runtime, internal } = setup();
+    const got: unknown[] = [];
+    let closed = 0;
+    const ch = runtime.channel<number>((v) => got.push(v));
+    ch.onclose = () => closed++;
+    const p = runtime.call("Svc.Stream", "x", ch);
+    const { id, k, a } = sent[0] as CallMsg;
+    expect(a).toEqual(["x", 1]); // the channel goes as its id
+
+    internal.receive([
+      { t: "chan", c: 1, k, p: 1 },
+      { t: "chan", c: 1, k: "stale", p: 99 },
+      { t: "chan", c: 1, k, p: 2, a: 1 },
+    ]);
+    expect(got).toEqual([1, 2]);
+    expect(sent[1]).toEqual({ t: "chan-ack", c: 1, k, n: 2 } satisfies AckMsg);
+
+    internal.receive([
+      { t: "chan", c: 1, k, end: true },
+      { t: "reply", id, k, ok: true },
+    ]);
+    await p;
+    expect(ch.closed).toBe(true);
+    expect(closed).toBe(1);
+    internal.receive({ t: "chan", c: 1, k, p: 3 }); // after the end
+    expect(got).toEqual([1, 2]);
+  });
+
+  test("iterate values, including those that arrived first", async () => {
+    const { sent, runtime, internal } = setup();
+    const ch = runtime.channel<string>();
+    runtime.call("Svc.Stream", ch);
+    const { k } = sent[0] as CallMsg;
+    internal.receive([
+      { t: "chan", c: 1, k, p: "a" },
+      { t: "chan", c: 1, k, p: "b", a: 1 },
+    ]);
+    expect(sent.length).toBe(1); // not taken yet: no acknowledgment
+    const got: string[] = [];
+    const loop = (async () => {
+      for await (const v of ch) got.push(v);
+    })();
+    await Promise.resolve();
+    expect(sent[1]).toMatchObject({ t: "chan-ack", n: 2 });
+    internal.receive([
+      { t: "chan", c: 1, k, p: "c" },
+      { t: "chan", c: 1, k, end: true },
+    ]);
+    await loop;
+    expect(got).toEqual(["a", "b", "c"]);
+  });
+
+  test("leaving the loop closes the channel", async () => {
+    const { sent, runtime, internal } = setup();
+    const ch = runtime.channel<number>();
+    runtime.call("Svc.Stream", ch);
+    const { k } = sent[0] as CallMsg;
+    internal.receive([
+      { t: "chan", c: 1, k, p: 1 },
+      { t: "chan", c: 1, k, p: 2 },
+    ]);
+    for await (const v of ch) {
+      if (v === 1) break;
+    }
+    expect(ch.closed).toBe(true);
+    expect(sent[1]).toEqual({ t: "chan-close", c: 1, k } satisfies CloseMsg);
+    // A closed channel can not be passed again.
+    await expect(runtime.call("Svc.Stream", ch)).rejects.toThrow("one call");
+  });
+
+  test("onmessage and a waiting iterator both get their due", async () => {
+    const { sent, runtime, internal } = setup();
+    const ch = runtime.channel<number>();
+    runtime.call("Svc.Stream", ch);
+    const { k } = sent[0] as CallMsg;
+    const it = ch[Symbol.asyncIterator]();
+    const next = it.next();
+    internal.receive({ t: "chan", c: 1, k, p: 1 });
+    expect(await next).toEqual({ value: 1, done: false });
+    const got: number[] = [];
+    ch.onmessage = (v) => got.push(v);
+    const pending = it.next();
+    internal.receive([
+      { t: "chan", c: 1, k, p: 2 },
+      { t: "chan", c: 1, k, end: true },
+    ]);
+    expect(got).toEqual([2]);
+    expect(await pending).toEqual({ value: undefined, done: true });
+  });
+
+  test("a failed call ends its channels", async () => {
+    const { sent, runtime, internal } = setup();
+    const ch = runtime.channel();
+    const p = runtime.call("Svc.Missing", ch);
+    const { id, k } = sent[0] as CallMsg;
+    const done = (async () => {
+      for await (const _ of ch);
+    })();
+    internal.receive({ t: "reply", id, k, ok: false, e: "method Svc.Missing is not bound" });
+    await expect(p).rejects.toThrow("not bound");
+    await done;
+    expect(ch.closed).toBe(true);
+  });
+});
+
 test("runtime object is frozen", () => {
   const { runtime } = setup();
   expect(runtime.platform).toBe("darwin");

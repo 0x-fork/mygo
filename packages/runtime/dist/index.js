@@ -15,6 +15,9 @@ function call(method, ...args) {
     return Promise.reject(err);
   }
 }
+var Channel = function(onmessage) {
+  return runtime().channel(onmessage);
+};
 function on(name, listener) {
   return runtime().on(name, listener);
 }
@@ -45,6 +48,7 @@ var currentWindow = {
   setTitle: async (title) => runtime().window.setTitle(title)
 };
 export {
+  Channel,
   call,
   currentWindow,
   event,

@@ -13,7 +13,7 @@
  *
  * @module
  */
-import type { Runtime, WindowControls } from "./types";
+import type { Channel as ChannelType, Runtime, WindowControls } from "./types";
 
 export type { Platform, Runtime, WindowControls } from "./types";
 
@@ -51,6 +51,28 @@ export function call<T = unknown>(method: string, ...args: unknown[]): Promise<T
     return Promise.reject(err);
   }
 }
+
+/**
+ * A stream of values from a Go method that takes a `*mygo.Channel[T]`.
+ * Create one, pass it to the call in place of that parameter, and iterate
+ * it or handle its values with `onmessage`:
+ *
+ * ```ts
+ * const lines = new Channel<string>();
+ * const done = Shell.tail("ping -c 3 example.com", lines);
+ * for await (const line of lines) output.append(line + "\n");
+ * await done;
+ * ```
+ *
+ * It closes when the method returns; `close()`, or breaking out of the
+ * loop, stops the method. A channel serves one call.
+ */
+export type Channel<T = unknown> = ChannelType<T>;
+
+/** Creates a {@link Channel}, optionally with its `onmessage` handler. */
+export const Channel = function <T>(onmessage?: (value: T) => void): Channel<T> {
+  return runtime().channel<T>(onmessage);
+} as unknown as new <T = unknown>(onmessage?: (value: T) => void) => Channel<T>;
 
 /** Subscribes to a Go event by name. Returns a function that unsubscribes. */
 export function on<T = unknown>(name: string, listener: (payload: T) => void): () => void {

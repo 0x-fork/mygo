@@ -34,8 +34,8 @@ document.body.textContent = await Greeter.greet("Ada");
 
 - [Getting started](getting-started.md): install the tools, then create,
   develop and build an app.
-- [Calling Go from the frontend](bindings.md): bound services, typed events
-  and the generated TypeScript client.
+- [Calling Go from the frontend](bindings.md): bound services, channels,
+  typed events and the generated TypeScript client.
 - [The frontend](frontend.md): how pages load during development and in
   builds, the `mygo-runtime` package, custom protocols, custom title bars
   and dropped files.

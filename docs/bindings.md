@@ -1,9 +1,10 @@
 # Calling Go from the frontend
 
 The frontend calls Go through **bound services**: Go values whose exported
-methods pages can call. Go reaches pages with **typed events**. `mygo
-generate` turns both into a TypeScript client, so calls and events are
-checked by the compiler on both sides and documented in your editor.
+methods pages can call, and which may stream values back through
+**channels**. Go reaches pages with **typed events**. `mygo generate` turns
+them into a TypeScript client, so calls, channels and events are checked by
+the compiler on both sides and documented in your editor.
 
 ## Bind a service
 
@@ -58,6 +59,8 @@ A method may:
 
 - take any number of JSON-encodable arguments, including a variadic one,
   optionally after a `context.Context`;
+- take `*mygo.Channel[T]` parameters, to stream values to the caller while
+  it runs (see [channels](#channels));
 - return nothing, a value, an error, or a value and an error.
 
 Every call runs on its own goroutine, so methods may block, for example on
@@ -253,6 +256,67 @@ events.progress.once((p) => console.log("first progress", p));
 
 Event names must be unique; names starting with `mygo:` are reserved.
 
+## Channels
+
+A method that produces values over time, such as the lines a command
+prints, the tokens of a model's answer or the progress of a download,
+streams them to its caller through a `*mygo.Channel[T]` parameter, like a
+response that arrives in parts:
+
+```go
+// Tail runs a command and sends the lines it prints.
+func (Shell) Tail(ctx context.Context, command string, lines *mygo.Channel[string]) error {
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	scanner := bufio.NewScanner(out)
+	for scanner.Scan() {
+		if err := lines.Send(scanner.Text()); err != nil {
+			return err // the page stopped listening
+		}
+	}
+	return cmd.Wait()
+}
+```
+
+The client types the parameter as a `Channel` of `mygo-runtime`, which the
+page creates and passes in its place, then iterates:
+
+```ts
+import { Channel } from "mygo-runtime";
+import { Shell } from "./mygo";
+
+const lines = new Channel<string>();
+const done = Shell.tail("ping -c 3 example.com", lines);
+for await (const line of lines) output.append(line + "\n");
+await done; // rejects if Tail returned an error
+```
+
+Instead of iterating, pass a function, `new Channel<string>((line) =>
+output.append(line))`, or set `lines.onmessage`.
+
+- Values arrive in order, all of them before the call's promise settles.
+- The channel closes when the method returns, or calls `Close`: the loop
+  ends once it took the values sent before, and `onclose` is called.
+- The page stops the stream with `lines.close()`, or by breaking out of the
+  loop: `Send` then fails with `mygo.ErrChannelClosed` and the method's
+  context is canceled, which here kills the command. Navigating away and
+  closing the window do the same.
+- `Send` waits while the page has more than a MiB of values yet to take,
+  so a method faster than the page does not pile them up in memory. On the
+  main thread, in an event listener for example, it never waits.
+
+A channel serves one call. Channels are parameters only: `Bind` rejects
+methods that return one or take one inside another value.
+
+Events or channels? An event goes to every listener of a page, for as long
+as it lives; a channel carries the answer of one call and ends with it.
+
 ## Without the generated client
 
 `mygo-runtime` calls methods and subscribes to events by name, and pages
@@ -268,6 +332,9 @@ on<ExportProgress>("progress", (p) => console.log(p));
 ```html
 <script>
   mygo.call("Notes.Add", "Groceries").then((note) => console.log(note));
+  // mygo.channel() creates a channel.
+  const lines = mygo.channel((line) => console.log(line));
+  mygo.call("Shell.Tail", "ls", lines);
 </script>
 ```
 

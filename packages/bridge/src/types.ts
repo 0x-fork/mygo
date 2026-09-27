@@ -1,7 +1,7 @@
 // The public types are those of the mygo-runtime package.
 import type { Platform } from "../../runtime/src/types";
 
-export type { Platform, Runtime, WindowControls } from "../../runtime/src/types";
+export type { Channel, Platform, Runtime, WindowControls } from "../../runtime/src/types";
 
 /** Configuration injected by the Go side in front of the bridge. */
 export interface BridgeConfig {
@@ -15,6 +15,9 @@ export interface BridgeConfig {
 /** Messages posted from the page to Go. */
 export type Outgoing =
   | { t: "call"; id: number; k: string; m: string; a: unknown[] }
+  /** Channel c took the values up to the n-th. */
+  | { t: "chan-ack"; c: number; k: string; n: number }
+  | { t: "chan-close"; c: number; k: string }
   | { t: "dom-ready" }
   | { t: "drag" }
   | { t: "dblclick" };
@@ -22,4 +25,6 @@ export type Outgoing =
 /** Messages delivered from Go to the page. */
 export type Incoming =
   | { t: "event"; n: string; p?: unknown }
-  | { t: "reply"; id: number; k: string; ok: boolean; v?: unknown; e?: string };
+  | { t: "reply"; id: number; k: string; ok: boolean; v?: unknown; e?: string }
+  /** A value p of channel c, which asks for an acknowledgment with a, or its end. */
+  | { t: "chan"; c: number; k: string; p?: unknown; a?: 1; end?: true };

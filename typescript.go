@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 
 	"github.com/egoist/mygo/internal/tsgen"
 )
@@ -23,14 +25,24 @@ func GenerateTypeScript() ([]byte, error) {
 		}
 		svc := tsgen.Service{Name: s.name, Type: s.typ}
 		for _, m := range s.methods {
-			svc.Methods = append(svc.Methods, tsgen.Method{
+			meth := tsgen.Method{
 				Name:     m.name,
 				Params:   m.params,
 				Variadic: m.variadic,
 				Result:   m.result,
 				HasCtx:   m.ctx,
 				PC:       m.pc,
-			})
+			}
+			if m.streams {
+				// The client declares what channels carry.
+				meth.Params, meth.Channels = slices.Clone(m.params), m.chans
+				for i, isChan := range m.chans {
+					if isChan {
+						meth.Params[i] = reflect.Zero(m.params[i]).Interface().(channelParam).valueType()
+					}
+				}
+			}
+			svc.Methods = append(svc.Methods, meth)
 		}
 		model.Services = append(model.Services, svc)
 	}

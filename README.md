@@ -7,8 +7,8 @@ macOS, WebKitGTK on Linux, WebView2 on Windows. An app is a single Go
 binary of a few megabytes, focused on low memory and CPU use.
 
 - **Pure Go, no cgo**: build for every platform from any machine.
-- **Typed IPC**: bind Go services and send typed events; the TypeScript
-  client is generated from your Go code.
+- **Typed IPC**: bind Go services, stream values through channels and send
+  typed events; the TypeScript client is generated from your Go code.
 - **Desktop APIs**: windows, menus, tray, dialogs, notifications, global
   shortcuts, deep links, file associations and more.
 - **Ready to ship**: app bundles and disk images, Windows installers, Debian

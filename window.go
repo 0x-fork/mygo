@@ -182,6 +182,8 @@ type Window struct {
 	permissionHandler func(PermissionRequest) bool
 	pageCtx           context.Context
 	pageCancel        context.CancelFunc
+	// channels are those of the current page, by the page's id for them.
+	channels map[int64]*channel
 
 	outMu    sync.Mutex
 	outbox   []message
@@ -1175,6 +1177,7 @@ func (w *Window) resetPage() {
 	w.mu.Lock()
 	prev := w.pageCancel
 	w.pageCtx, w.pageCancel = ctx, cancel
+	w.channels = nil // they close with the previous page's context
 	w.mu.Unlock()
 	if prev != nil {
 		prev()
@@ -1538,6 +1541,9 @@ func (w *Window) handleMessage(msg string) {
 		T string  `json:"t"`
 		X float64 `json:"x"` // drop
 		Y float64 `json:"y"`
+		C int64   `json:"c"` // channels
+		K string  `json:"k"`
+		N int64   `json:"n"`
 	}
 	if err := json.Unmarshal(stringBytes(msg), &m); err != nil {
 		return
@@ -1563,6 +1569,14 @@ func (w *Window) handleMessage(msg string) {
 	case "drop":
 		if w.native != nil {
 			w.filesDropped(w.native.DroppedFiles(), int(m.X), int(m.Y))
+		}
+	case "chan-ack":
+		if c := w.channel(m.C, m.K); c != nil {
+			c.ack(m.N)
+		}
+	case "chan-close":
+		if c := w.channel(m.C, m.K); c != nil {
+			c.close(closedByPage)
 		}
 	}
 }

@@ -1,5 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
-import { call, currentWindow, event, isCallError, isMyGo, on, onFileDrop, runtime, type FileDrop, type Runtime } from "./index";
+import {
+  Channel,
+  call,
+  currentWindow,
+  event,
+  isCallError,
+  isMyGo,
+  on,
+  onFileDrop,
+  runtime,
+  type FileDrop,
+  type Runtime,
+} from "./index";
 
 const calls: [string, unknown[]][] = [];
 const listeners = new Map<string, (payload: unknown) => void>();
@@ -15,6 +27,8 @@ const fake: Runtime = {
     }
     return method as T;
   },
+  channel: <T>(onmessage?: (value: T) => void) =>
+    ({ onmessage, onclose: null, closed: false, close() {}, [Symbol.asyncIterator]: () => ({}) }) as unknown as Channel<T>,
   on: (name, listener) => {
     listeners.set(name, listener as (payload: unknown) => void);
     return () => listeners.delete(name);
@@ -72,6 +86,15 @@ test("delegates to window.mygo", async () => {
   const err = await call("Svc.Fail").catch((e: unknown) => e);
   expect(isCallError(err)).toBe(true);
   expect(isCallError(new Error("other"))).toBe(false);
+});
+
+test("Channel", () => {
+  expect(() => new Channel()).toThrow("runtime not found");
+  (globalThis as { mygo?: Runtime }).mygo = fake;
+  const fn = (n: number) => n;
+  const ch = new Channel<number>(fn);
+  expect(ch.onmessage).toBe(fn);
+  expect(ch.closed).toBe(false);
 });
 
 test("onFileDrop", () => {

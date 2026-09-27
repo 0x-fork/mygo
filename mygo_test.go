@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"slices"
@@ -556,6 +557,172 @@ func TestEvents(t *testing.T) {
 		}
 	}()
 	NewEvent[int]("test:progress")
+}
+
+// Channels.
+
+type streamer struct {
+	sent    chan error // what Send returned
+	stopped chan error // why Wait returned
+}
+
+// Count sends 0 to n-1.
+func (s *streamer) Count(n int, ch *Channel[int]) error {
+	for i := range n {
+		if err := ch.Send(i); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Blobs sends n strings of size bytes, reporting each Send.
+func (s *streamer) Blobs(n, size int, ch *Channel[string]) {
+	blob := strings.Repeat("x", size)
+	for range n {
+		s.sent <- ch.Send(blob)
+	}
+}
+
+// Wait sends a value, then waits for the call to be canceled.
+func (s *streamer) Wait(ctx context.Context, ch *Channel[string]) error {
+	_ = ch.Send("ready")
+	<-ctx.Done()
+	s.sent <- ch.Send("late")
+	s.stopped <- ctx.Err()
+	return ctx.Err()
+}
+
+// pageMessages returns the messages the page received, in order.
+func pageMessages(t *testing.T, fw *fake.Window) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, s := range fw.Scripts() {
+		const prefix = "__mygo.receive("
+		if !strings.HasPrefix(s, prefix) {
+			continue
+		}
+		var msgs []map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimSuffix(strings.TrimPrefix(s, prefix), ")")), &msgs); err != nil {
+			t.Fatalf("bad script %q: %v", s, err)
+		}
+		out = append(out, msgs...)
+	}
+	return out
+}
+
+func TestChannels(t *testing.T) {
+	s := &streamer{sent: make(chan error, 16), stopped: make(chan error, 1)}
+	BindAs("Stream", s)
+	_, fw := testWindow(t, WindowOptions{})
+
+	// Values arrive in order, then the end, then the reply.
+	call(t, fw, 1, "Stream.Count", 3, 7)
+	var got []string
+	for _, m := range pageMessages(t, fw) {
+		switch {
+		case m["t"] == "chan" && m["end"] == true:
+			got = append(got, "end")
+		case m["t"] == "chan":
+			if m["c"] != float64(7) || m["k"] != "tok" {
+				t.Errorf("value for another channel: %v", m)
+			}
+			got = append(got, fmt.Sprint(m["p"]))
+		case m["t"] == "reply":
+			got = append(got, "reply")
+		}
+	}
+	if strings.Join(got, ",") != "0,1,2,end,reply" {
+		t.Errorf("page received %v", got)
+	}
+
+	// The page takes a MiB at most before it acknowledges some.
+	const size = 600 << 10
+	page(fw, `{"t":"call","id":2,"k":"tok","m":"Stream.Blobs","a":[3,`+fmt.Sprint(size)+`,8]}`)
+	for range 2 {
+		if err := <-s.sent; err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case err := <-s.sent:
+		t.Fatalf("Send did not wait for the page: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	asks := 0
+	for _, m := range pageMessages(t, fw) {
+		if m["c"] == float64(8) && m["a"] == float64(1) {
+			asks++
+		}
+	}
+	if asks != 2 {
+		t.Errorf("%d values asked for an acknowledgment, want 2", asks)
+	}
+	page(fw, `{"t":"chan-ack","c":8,"k":"stale","n":2}`) // another page's
+	select {
+	case <-s.sent:
+		t.Fatal("an acknowledgment of another page counted")
+	case <-time.After(20 * time.Millisecond):
+	}
+	page(fw, `{"t":"chan-ack","c":8,"k":"tok","n":2}`)
+	if err := <-s.sent; err != nil {
+		t.Fatal(err)
+	}
+	received(t, fw, func(m map[string]any) bool { return m["t"] == "reply" && m["id"] == float64(2) })
+
+	// The page closing the channel cancels the call.
+	page(fw, `{"t":"call","id":3,"k":"tok","m":"Stream.Wait","a":[9]}`)
+	received(t, fw, func(m map[string]any) bool { return m["c"] == float64(9) && m["p"] == "ready" })
+	page(fw, `{"t":"chan-close","c":9,"k":"tok"}`)
+	if err := <-s.stopped; !errors.Is(err, context.Canceled) {
+		t.Errorf("call context: %v", err)
+	}
+	if err := <-s.sent; !errors.Is(err, ErrChannelClosed) {
+		t.Errorf("Send after the page closed the channel = %v", err)
+	}
+	received(t, fw, func(m map[string]any) bool { return m["t"] == "reply" && m["id"] == float64(3) })
+	for _, m := range pageMessages(t, fw) {
+		if m["c"] == float64(9) && m["end"] == true {
+			t.Error("the page was told about the end of a channel it closed")
+		}
+	}
+
+	// So does navigating away.
+	page(fw, `{"t":"call","id":4,"k":"tok","m":"Stream.Wait","a":[10]}`)
+	received(t, fw, func(m map[string]any) bool { return m["c"] == float64(10) && m["p"] == "ready" })
+	onMain(func() { fw.H.NavigationCommitted("about:blank#next") })
+	if err := <-s.stopped; !errors.Is(err, context.Canceled) {
+		t.Errorf("call context after navigating: %v", err)
+	}
+	if err := <-s.sent; !errors.Is(err, ErrChannelClosed) {
+		t.Errorf("Send after navigating = %v", err)
+	}
+
+	m := call(t, fw, 5, "Stream.Count", 1)
+	if m["ok"] != false || !strings.Contains(fmt.Sprint(m["e"]), "not a Channel") {
+		t.Errorf("call without its channel: %v", m)
+	}
+}
+
+type badStreams struct{}
+
+func (badStreams) Result() *Channel[int]            { return nil }
+func (badStreams) Nested(struct{ C *Channel[int] }) {}
+func (badStreams) Variadic(chs ...*Channel[int])    {}
+
+func TestChannelsAreParameters(t *testing.T) {
+	for _, name := range []string{"Result", "Nested", "Variadic"} {
+		m, _ := reflect.TypeFor[badStreams]().MethodByName(name)
+		if _, err := newMethod("Bad", m, reflect.ValueOf(badStreams{})); err == nil {
+			t.Errorf("%s: a misplaced channel should not bind", name)
+		}
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("an event of channels should panic")
+		}
+	}()
+	NewEvent[*Channel[int]]("test:channel")
 }
 
 func TestMessagesAreBatched(t *testing.T) {

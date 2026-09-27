@@ -35,6 +35,7 @@ before changing anything under `internal/`.
 ├── app.go              lifecycle, quit sequence, Dock, paths (paths.go)
 ├── window.go           Window: native window + its page, events, Eval
 ├── ipc.go              Bind/BindAs, method calls, Event[T], CallerWindow
+├── channel.go          Channel[T]: values streamed to a call's page
 ├── typescript.go       GenerateTypeScript / WriteTypeScript (uses internal/tsgen)
 ├── protocol.go         custom schemes served by http.Handler, FileServer
 ├── frontend.go         the app's frontend: relative URLs, devUrl, mygo://localhost
@@ -352,6 +353,8 @@ Trust):
 | message | meaning |
 |---|---|
 | `{"t":"call","id":N,"k":token,"m":"Service.Method","a":[...]}` | call a bound method |
+| `{"t":"chan-ack","c":N,"k":token,"n":S}` | the page took the values of channel N up to the S-th |
+| `{"t":"chan-close","c":N,"k":token}` | the page closed channel N |
 | `{"t":"dom-ready"}` | DOMContentLoaded fired |
 | `{"t":"drag"}` / `{"t":"dblclick"}` | mousedown / double click on a drag region |
 
@@ -364,6 +367,8 @@ faster, unless the inspector is enabled (development builds):
 |---|---|
 | `{"t":"reply","id":N,"k":token,"ok":true,"v":value}` | successful call |
 | `{"t":"reply","id":N,"k":token,"ok":false,"e":"message"}` | error or panic |
+| `{"t":"chan","c":N,"k":token,"p":value}` | a value of channel N; `"a":1` asks for an acknowledgment |
+| `{"t":"chan","c":N,"k":token,"end":true}` | Go closed channel N |
 | `{"t":"event","n":"name","p":payload}` | typed event |
 
 `k` is a random per-page token: a reply meant for a page that has since
@@ -404,6 +409,24 @@ navigation, so events sent right after creating a window, or during a
 navigation, are delivered once listeners exist. Replies are never held:
 module scripts may `await` a call at top level, and DOMContentLoaded waits for
 them.
+
+### Channels
+
+A `*Channel[T]` parameter (`channel.go`) streams values to the page that
+made the call. The page's `Channel` goes into the call's arguments as an
+id it chose; `method.call` creates the Go side for that page, registered
+in `Window.channels`, and closes it when the method returns, before the
+reply is queued, so the page gets the values, the end, then the result.
+The page may close it earlier, which cancels the call's context, a context
+derived from the page's for calls with channels; so does the page going
+away. Values are queued in the window's outbox like replies, so they are
+batched and stay in order with them.
+
+Flow control keeps a producer faster than the page from piling up
+messages: every half MiB of messages, a value asks for an acknowledgment,
+which the page sends once it took that value (handled it, or yielded it to
+an iterator), and `Send` waits while more than a MiB is unacknowledged. It
+never waits on the main thread, which receives the acknowledgments.
 
 ### Eval
 
@@ -740,11 +763,11 @@ identity, entitlements, DMG title, notarization profile).
 
 | suite | command | covers |
 |---|---|---|
-| core | `go test .` | lifecycle, quit, IPC, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance and its dev handover, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
+| core | `go test .` | lifecycle, quit, IPC, channels, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance and its dev handover, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
 | CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, resources (staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime and `mygo-runtime` |
-| GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, protocol, Eval, geometry, capture, menus, window.open; on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
+| GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, channels, protocol, Eval, geometry, capture, menus, window.open; on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
 
 The XDG variables let the URL scheme test check that GLib opens the scheme
 with the handler it registered; without them it writes to temporary

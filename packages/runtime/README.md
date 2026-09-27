@@ -25,6 +25,18 @@ if (isMyGo() && runtime().platform === "darwin") {
 await currentWindow.toggleMaximize();
 ```
 
+A Go method that streams values through a `*mygo.Channel[T]` parameter takes
+a `Channel` in its place:
+
+```ts
+import { Channel } from "mygo-runtime";
+
+const lines = new Channel<string>();
+const done = Shell.tail("ls -R", lines);
+for await (const line of lines) console.log(line);
+await done;
+```
+
 A Go method returning an error rejects with a `CallError` (see
 `isCallError`). Outside a MyGo window, e.g. when the dev server is opened in a
 browser, calls reject and `isMyGo()` is false.

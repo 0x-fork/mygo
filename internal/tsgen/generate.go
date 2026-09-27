@@ -30,8 +30,11 @@ type Service struct {
 // Method is a bound method. Params excludes the receiver and an optional
 // leading context.Context (HasCtx).
 type Method struct {
-	Name     string
-	Params   []reflect.Type
+	Name   string
+	Params []reflect.Type
+	// Channels marks the parameters that are channels (mygo.Channel),
+	// whose Params are the type of their values.
+	Channels []bool
 	Variadic bool
 	Result   reflect.Type
 	HasCtx   bool
@@ -87,6 +90,7 @@ func Generate(m Model) ([]byte, error) {
 	g.src.resolvePackages(collectPackages(m))
 
 	var services bytes.Buffer
+	channels := false
 	for _, s := range m.Services {
 		base := s.Type
 		if base.Kind() == reflect.Pointer {
@@ -121,12 +125,15 @@ func Generate(m Model) ([]byte, error) {
 					name += "_"
 				}
 				used[name] = true
-				typ := g.ts(pt)
 				if meth.Variadic && pi == len(meth.Params)-1 {
 					params = append(params, "..."+name+": "+arrayOf(g.ts(pt.Elem())))
 					args = append(args, "..."+name)
-					_ = typ
 					continue
+				}
+				typ := g.ts(pt)
+				if pi < len(meth.Channels) && meth.Channels[pi] {
+					typ = "Channel<" + typ + ">"
+					channels = true
 				}
 				params = append(params, name+": "+typ)
 				args = append(args, name)
@@ -166,6 +173,9 @@ func Generate(m Model) ([]byte, error) {
 	}
 	if events.Len() > 0 {
 		imports = append(imports, "event")
+	}
+	if channels {
+		imports = append(imports, "type Channel")
 	}
 	if len(imports) > 0 {
 		fmt.Fprintf(&out, "import { %s } from %q;\n", strings.Join(imports, ", "), RuntimePackage)

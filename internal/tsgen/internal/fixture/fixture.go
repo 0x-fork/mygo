@@ -87,3 +87,7 @@ func (Tasks) Count() int { return 0 }
 
 // Delete removes a task; the parameter is unnamed on purpose.
 func (Tasks) Delete(int64) {}
+
+// Watch sends the tasks with the given status as they change. The test
+// declares updates a channel of tasks.
+func (Tasks) Watch(status Status, updates Task) {}

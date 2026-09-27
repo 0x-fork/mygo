@@ -39,9 +39,13 @@ type method struct {
 	ctx      bool
 	params   []reflect.Type
 	variadic bool
-	result   reflect.Type
-	hasErr   bool
-	pc       uintptr
+	// chans marks the parameters that are channels (*Channel[T]), if any
+	// is (streams).
+	chans   []bool
+	streams bool
+	result  reflect.Type
+	hasErr  bool
+	pc      uintptr
 }
 
 type eventInfo struct {
@@ -158,10 +162,17 @@ func newMethod(service string, m reflect.Method, recv reflect.Value) (*method, e
 	}
 	for i := start; i < ft.NumIn(); i++ {
 		p := ft.In(i)
-		if err := tsgen.Validate(p); err != nil {
+		isChan := p.Implements(channelParamType)
+		t := p
+		if isChan {
+			t = reflect.Zero(p).Interface().(channelParam).valueType()
+		}
+		if err := validateType(t); err != nil {
 			return nil, fmt.Errorf("mygo: %s: parameter %d: %w", where, i-start+1, err)
 		}
 		mi.params = append(mi.params, p)
+		mi.chans = append(mi.chans, isChan)
+		mi.streams = mi.streams || isChan
 	}
 	switch ft.NumOut() {
 	case 0:
@@ -180,12 +191,21 @@ func newMethod(service string, m reflect.Method, recv reflect.Value) (*method, e
 		return nil, fmt.Errorf("mygo: %s: methods may return at most a value and an error", where)
 	}
 	if mi.result != nil {
-		if err := tsgen.Validate(mi.result); err != nil {
+		if err := validateType(mi.result); err != nil {
 			return nil, fmt.Errorf("mygo: %s: result: %w", where, err)
 		}
 	}
 	mi.pc = methodPC(recv.Type(), m.Name)
 	return mi, nil
+}
+
+// validateType reports an error if values of type t cannot cross the IPC
+// boundary.
+func validateType(t reflect.Type) error {
+	if hasChannel(t, map[reflect.Type]bool{}) {
+		return fmt.Errorf("type %s holds a Channel, which can only be a parameter", t)
+	}
+	return tsgen.Validate(t)
 }
 
 // methodPC returns the entry of the method's own code rather than the
@@ -208,7 +228,22 @@ func lookupMethod(name string) *method {
 	return ipc.methods[name]
 }
 
-func (m *method) call(ctx context.Context, args []rawValue) (result any, err error) {
+// call calls the method for the page of w whose context is page and whose
+// token is token.
+func (m *method) call(w *Window, page context.Context, token string, args []rawValue) (result any, err error) {
+	ctx, cancel := page, context.CancelFunc(nil)
+	var chans []*channel
+	if m.streams {
+		// The page closing a channel cancels the call. The channels close
+		// when it returns, before its result is sent.
+		ctx, cancel = context.WithCancel(page)
+		defer func() {
+			for _, c := range chans {
+				c.close(closedByGo)
+			}
+			cancel()
+		}()
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
@@ -221,6 +256,22 @@ func (m *method) call(ctx context.Context, args []rawValue) (result any, err err
 	}
 	last := len(m.params) - 1
 	for i, t := range m.params {
+		if m.chans[i] {
+			// The page passes the id of its channel.
+			var id int64
+			if i < len(args) {
+				_ = json.Unmarshal(args[i], &id)
+			}
+			if id <= 0 {
+				return nil, fmt.Errorf("invalid argument %d: not a Channel", i+1)
+			}
+			c := w.newChannel(page, ctx, cancel, id, token)
+			chans = append(chans, c)
+			v := reflect.New(t.Elem())
+			v.Interface().(channelParam).init(c)
+			in = append(in, v)
+			continue
+		}
 		if m.variadic && i == last {
 			for j := i; j < len(args); j++ {
 				v, err := decodeArg(args[j], t.Elem(), j)
@@ -299,7 +350,7 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 	} else if mi := lookupMethod(m.M); mi == nil {
 		err = fmt.Errorf("method %s is not bound", m.M)
 	} else {
-		result, err = mi.call(ctx, m.A)
+		result, err = mi.call(w, ctx, m.K, m.A)
 	}
 	w.enqueue(encodeReply(m.ID, m.K, result, err), false)
 }
@@ -366,7 +417,7 @@ func NewEvent[T any](name string) *Event[T] {
 		panic(fmt.Sprintf("mygo: event %q: names starting with \"mygo:\" are reserved", name))
 	}
 	t := reflect.TypeFor[T]()
-	if err := tsgen.Validate(t); err != nil {
+	if err := validateType(t); err != nil {
 		panic(fmt.Sprintf("mygo: event %q: %v", name, err))
 	}
 	pc, file, line, _ := runtime.Caller(1)
