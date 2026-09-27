@@ -62,7 +62,7 @@ before changing anything under `internal/`.
 │   └── cli/            mygo-cli, the npm package of the CLI, and in npm/ its
 │                       per-platform binary packages
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
-├── examples/           hello, todo, frameless, native
+├── examples/           hello, todo, frameless, native, vibrancy
 └── docs/               the user guides, and this architecture guide
 ```
 

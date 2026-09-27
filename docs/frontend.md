@@ -166,7 +166,9 @@ does.
 On macOS a window can keep its traffic lights and only hide the title bar,
 so the page extends under it: set `TitleBarStyle` to `mygo.TitleBarHidden`,
 or `mygo.TitleBarHiddenInset` for more room around the buttons, and move
-them with `TrafficLightPosition`.
+them with `TrafficLightPosition`. In full screen they only show with the
+menu bar: `OnEnterFullScreen` and `OnLeaveFullScreen` tell when the page
+may use the room it keeps for them.
 
 `Transparent: true` lets a page with a transparent background show the
 desktop through, and `Vibrancy` puts a blurred material behind it on macOS
@@ -181,7 +183,8 @@ mygo.NewWindow(mygo.WindowOptions{
 })
 ```
 
-See `examples/frameless` for a complete custom title bar.
+See `examples/frameless` for a complete custom title bar, and
+`examples/vibrancy` for a translucent sidebar under an inset title bar.
 
 ## Dropped files
 

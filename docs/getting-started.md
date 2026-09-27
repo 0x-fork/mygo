@@ -147,6 +147,7 @@ The apps run where they are, but to ship them to users, sign them: see
 - [Menus and the tray](menus.md) and the [native APIs](native.md).
 - The examples in the repository: `examples/hello` (the smallest app),
   `examples/todo` (typed services and events, persistence, dialogs, menus,
-  several windows), `examples/frameless` (a custom title bar) and
+  several windows), `examples/frameless` (a custom title bar),
+  `examples/vibrancy` (a translucent sidebar under an inset title bar) and
   `examples/native` (menus, a tray icon, dialogs, notifications, a global
   shortcut, the clipboard and dark mode).
