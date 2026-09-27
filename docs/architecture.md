@@ -256,10 +256,26 @@ document start into the main frame. It installs:
 - dom-ready notification and `--app-region: drag` handling for frameless
   windows (the mousedown is reported, the backend starts a native window drag
   from the recorded mouse event).
+- File drops (`Window.OnFileDrop`, `onFileDrop` in mygo-runtime). Unlike
+  Tauri, whose native drop handler takes drops away from the page (on
+  Windows, HTML5 drag and drop needs it turned off), MyGo leaves the page's
+  drag and drop alone and reads the paths next to it. A capture listener on
+  `drop` posts `{t:"drop", x, y}` when the drop carries files; the core then
+  takes the paths the backend recorded just before the page saw the drop:
+  `performDragOperation:` of the web view subclass (calling super) on
+  macOS, `drag-data-received` then `drag-drop` (before WebKit's own
+  handlers) on Linux, and on Windows the File objects the bridge posts with
+  `postMessageWithAdditionalObjects` (`ICoreWebView2File.Path`), with
+  WebView2's own drop handling left on. Drags that start in the page are
+  ignored (`dragstart`/`dragend` tracking), and so are drops the page
+  handles; where the page does not handle dragged files, bubbling
+  `dragover`/`drop` listeners cancel them, so a drop reaches Go instead of
+  the engine replacing the page with the file. Paths go to Go listeners and,
+  as the `mygo:file-drop` event, to trusted pages only. Event names starting
+  with `mygo:` are reserved.
 
 The transport is `window.webkit.messageHandlers.mygo.postMessage` on both
-WebKit platforms (and `window.chrome.webview.postMessage` is already
-recognized for a future WebView2 backend).
+WebKit platforms and `window.chrome.webview.postMessage` on WebView2.
 
 ### The `mygo-runtime` package (`packages/runtime`)
 

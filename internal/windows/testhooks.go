@@ -43,3 +43,11 @@ func TestActivateMenuItem(hwnd uintptr, path ...string) error {
 	}
 	return nil
 }
+
+// TestSetDroppedFiles makes paths the files of the next drop on a window's
+// page, as if they had been dragged there.
+func TestSetDroppedFiles(hwnd uintptr, paths []string) {
+	if w := theBackend.windows[hwnd]; w != nil {
+		w.dropped = paths
+	}
+}

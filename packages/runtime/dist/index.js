@@ -31,6 +31,9 @@ function event(name) {
 function isCallError(err) {
   return err instanceof Error && err.name === "CallError";
 }
+function onFileDrop(listener) {
+  return on("mygo:file-drop", listener);
+}
 var currentWindow = {
   minimize: async () => runtime().window.minimize(),
   maximize: async () => runtime().window.maximize(),
@@ -48,6 +51,7 @@ export {
   isCallError,
   isMyGo,
   on,
+  onFileDrop,
   once,
   runtime
 };

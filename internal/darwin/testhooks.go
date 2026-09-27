@@ -85,3 +85,11 @@ func TestWebViewAttached(handle uintptr) bool {
 	w := theBackend.byNSWindow[id(handle)]
 	return w != nil && send(w.web, "window") == w.win
 }
+
+// TestSetDroppedFiles makes paths the files of the next drop on a window's
+// page, as if they had been dragged there.
+func TestSetDroppedFiles(handle uintptr, paths []string) {
+	if w := theBackend.byNSWindow[id(handle)]; w != nil {
+		w.dropped = paths
+	}
+}

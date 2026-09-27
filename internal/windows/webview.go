@@ -147,6 +147,9 @@ func (w *window) setUp(controller uintptr) {
 		if failed(comCall(args, msgTryGetWebMessageAsString, uintptr(unsafe.Pointer(&p)))) {
 			return // not a string
 		}
+		if paths := postedFiles(args); len(paths) > 0 {
+			w.dropped = paths
+		}
 		w.h.Message(takeWstr(p))
 	})
 	add(wvAddNewWindowRequested, w.newWindowRequested)
@@ -247,6 +250,48 @@ func (w *window) navigationCompleted(_, args uintptr) {
 		return
 	}
 	w.h.LoadFailed(w.URL(), int(status), "navigation failed (COREWEBVIEW2_WEB_ERROR_STATUS "+strconv.Itoa(int(status))+")")
+}
+
+// postedFiles returns the paths of the File objects a page posted with
+// chrome.webview.postMessageWithAdditionalObjects, as the bridge does with
+// dropped files.
+func postedFiles(args uintptr) []string {
+	args2 := queryInterface(args, &iidICoreWebView2WebMessageReceivedEventArgs2)
+	if args2 == 0 {
+		return nil // an older runtime
+	}
+	defer release(args2)
+	var objects uintptr
+	if failed(comCall(args2, msg2GetAdditionalObjects, uintptr(unsafe.Pointer(&objects)))) || objects == 0 {
+		return nil
+	}
+	defer release(objects)
+	var n uint32
+	comCall(objects, objectsGetCount, uintptr(unsafe.Pointer(&n)))
+	var paths []string
+	for i := range n {
+		var obj uintptr
+		if failed(comCall(objects, objectsGetValueAtIndex, uintptr(i), uintptr(unsafe.Pointer(&obj)))) || obj == 0 {
+			continue
+		}
+		if file := queryInterface(obj, &iidICoreWebView2File); file != 0 {
+			var p uintptr
+			if !failed(comCall(file, fileGetPath, uintptr(unsafe.Pointer(&p)))) {
+				if path := takeWstr(p); path != "" {
+					paths = append(paths, path)
+				}
+			}
+			release(file)
+		}
+		release(obj)
+	}
+	return paths
+}
+
+func (w *window) DroppedFiles() []string {
+	paths := w.dropped
+	w.dropped = nil
+	return paths
 }
 
 func (w *window) newWindowRequested(_, args uintptr) {

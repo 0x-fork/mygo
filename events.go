@@ -46,6 +46,22 @@ type TitleEvent struct {
 	Title string
 }
 
+// FileDropEvent is passed to Window.OnFileDrop listeners, and to the
+// page's onFileDrop listeners.
+type FileDropEvent struct {
+	// Paths of the dropped files and directories.
+	Paths []string `json:"paths"`
+	// X and Y are where the files were dropped, in CSS pixels from the
+	// top-left corner of the page's viewport, like a DOM event's clientX
+	// and clientY.
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
+// fileDropEvent is the name of the page event of dropped files. Names
+// starting with "mygo:" are MyGo's own.
+const fileDropEvent = "mygo:file-drop"
+
 // listeners is a goroutine safe list of event listeners of type F.
 type listeners[F any] struct {
 	mu   sync.Mutex

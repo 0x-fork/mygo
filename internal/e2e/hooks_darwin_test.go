@@ -34,3 +34,8 @@ func webViewAttached(w *mygo.Window) (attached bool, supported bool) {
 
 // Context menus track the mouse in a modal loop; not automated.
 func dismissPopups() (int, bool) { return 0, false }
+
+func setDroppedFiles(w *mygo.Window, paths []string) bool {
+	mygo.RunOnMain(func() { darwin.TestSetDroppedFiles(w.NativeHandle(), paths) })
+	return true
+}

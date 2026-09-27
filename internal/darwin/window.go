@@ -46,6 +46,7 @@ type window struct {
 	parent   *window
 
 	lastMouseDown id
+	dropped       []string // DroppedFiles
 	maximized     bool
 	programmatic  bool
 	closed        bool
@@ -732,6 +733,28 @@ func rectToMac(r platform.Rect) NSRect {
 	}
 }
 
+// draggedFiles returns the paths of the files on the pasteboard of a
+// drag.
+func draggedFiles(info id) []string {
+	var paths []string
+	withPool(func() {
+		opts := send(class("NSDictionary"), "dictionaryWithObject:forKey:", uintptr(nsBool(true)), uintptr(nsString("NSPasteboardURLReadingFileURLsOnlyKey")))
+		urls := send(send(info, "draggingPasteboard"), "readObjectsForClasses:options:", uintptr(nsArray(class("NSURL"))), uintptr(opts))
+		for _, u := range arrayItems(urls) {
+			if p := goString(send(send(u, "filePathURL"), "path")); p != "" {
+				paths = append(paths, p)
+			}
+		}
+	})
+	return paths
+}
+
+func (w *window) DroppedFiles() []string {
+	paths := w.dropped
+	w.dropped = nil
+	return paths
+}
+
 func (b *Backend) windowFor(delegate id) *window {
 	w := b.byDelegate[delegate]
 	if w == nil || w.closed {
@@ -753,6 +776,14 @@ func registerWindowClasses() {
 				w.lastMouseDown = retain(ev)
 			}
 			sendSuper(self, "MyGoWebView", cmd, uintptr(ev))
+		}),
+		// Files dropped on the page: the page gets File objects, the app
+		// their paths.
+		method("performDragOperation:", func(self id, cmd objc.SEL, info id) bool {
+			if w := theBackend.byWebView[self]; w != nil {
+				w.dropped = draggedFiles(info)
+			}
+			return byte(sendSuper(self, "MyGoWebView", cmd, uintptr(info))) != 0
 		}),
 	})
 

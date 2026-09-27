@@ -81,6 +81,10 @@ const (
 	navCompletedGetIsSuccess      = 3
 	navCompletedGetWebErrorStatus = 4
 	msgTryGetWebMessageAsString   = 5
+	msg2GetAdditionalObjects      = 6
+	objectsGetCount               = 3
+	objectsGetValueAtIndex        = 4
+	fileGetPath                   = 3
 	newWinGetURI                  = 3
 	newWinPutHandled              = 6
 	newWinGetWindowFeatures       = 10
@@ -109,8 +113,10 @@ const (
 )
 
 var (
-	iidICoreWebView2Controller2 = guid("c979903e-d4ca-4228-92eb-47ee3fa96eab")
-	iidICoreWebView2Settings2   = guid("ee9a0f68-f46c-4e32-ac23-ef8cac224d2a")
+	iidICoreWebView2Controller2                  = guid("c979903e-d4ca-4228-92eb-47ee3fa96eab")
+	iidICoreWebView2Settings2                    = guid("ee9a0f68-f46c-4e32-ac23-ef8cac224d2a")
+	iidICoreWebView2WebMessageReceivedEventArgs2 = guid("06fc7ab7-c90c-4297-9389-33ca01cf6d5e")
+	iidICoreWebView2File                         = guid("f2c19559-6bc1-4583-a757-90021be9afec")
 )
 
 // The WebView2 Runtime channels, most stable first.

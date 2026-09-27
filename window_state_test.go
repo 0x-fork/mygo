@@ -104,3 +104,40 @@ func TestWindowState(t *testing.T) {
 		t.Errorf("options with a damaged file = %+v", o)
 	}
 }
+
+func TestFileDrop(t *testing.T) {
+	w, fw := readyWindow(t, WindowOptions{})
+	drops := make(chan *FileDropEvent, 1)
+	w.OnFileDrop(func(e *FileDropEvent) { drops <- e })
+
+	fw.Dropped = []string{"/tmp/a.txt", "/tmp/b"}
+	page(fw, `{"t":"drop","x":10.4,"y":20}`)
+	select {
+	case e := <-drops:
+		if len(e.Paths) != 2 || e.Paths[0] != "/tmp/a.txt" || e.X != 10 || e.Y != 20 {
+			t.Errorf("drop = %+v", e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("OnFileDrop was not called")
+	}
+	// about:blank is the app's own page: it gets the paths too.
+	m := received(t, fw, func(m map[string]any) bool { return m["t"] == "event" && m["n"] == "mygo:file-drop" })
+	if p := m["p"].(map[string]any); p["x"] != float64(10) || len(p["paths"].([]any)) != 2 {
+		t.Errorf("page event = %v", m)
+	}
+
+	// A drop without files (text, or a page posting on its own) is ignored.
+	page(fw, `{"t":"drop","x":1,"y":2}`)
+	select {
+	case e := <-drops:
+		t.Errorf("unexpected drop %+v", e)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	defer func() {
+		if recover() == nil {
+			t.Error("NewEvent accepted a reserved name")
+		}
+	}()
+	NewEvent[int]("mygo:file-drop")
+}

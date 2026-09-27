@@ -229,6 +229,8 @@ type Window struct {
 	zoom      float64
 	closed    bool
 	devtools  bool
+	// Dropped is what DroppedFiles returns, once.
+	Dropped []string
 	// AsyncFunction answers CallAsyncFunction.
 	AsyncFunction func(body string) (string, error)
 	// AsyncCallback, when set, receives CallAsyncFunction calls to answer
@@ -241,6 +243,14 @@ func (w *Window) Scripts() []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return append([]string(nil), w.scripts...)
+}
+
+func (w *Window) DroppedFiles() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	paths := w.Dropped
+	w.Dropped = nil
+	return paths
 }
 
 // IsClosed reports whether Close was called.

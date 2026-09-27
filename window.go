@@ -193,6 +193,7 @@ type Window struct {
 	onHide             listeners[func()]
 	onReadyToShow      listeners[func()]
 	onResize           listeners[func()]
+	onFileDrop         listeners[func(*FileDropEvent)]
 	onMove             listeners[func()]
 	onMaximize         listeners[func()]
 	onUnmaximize       listeners[func()]
@@ -1156,6 +1157,19 @@ func (w *Window) OnReadyToShow(fn func()) (off func()) { return w.onReadyToShow.
 // OnResize is called after the window was resized.
 func (w *Window) OnResize(fn func()) (off func()) { return w.onResize.add(fn, false) }
 
+// OnFileDrop is called when files, for example from Finder or Explorer, are
+// dropped on the page, with their paths. The app's own pages also get them,
+// through onFileDrop of mygo-runtime.
+//
+// The page's own drag and drop keeps working: drop events still reach it
+// with the File objects, and drags that start in the page are left alone.
+// Only where the page does not handle dragged files are they accepted, so
+// that dropping them there reaches OnFileDrop instead of replacing the page
+// with the file.
+func (w *Window) OnFileDrop(fn func(e *FileDropEvent)) (off func()) {
+	return w.onFileDrop.add(fn, false)
+}
+
 // OnMove is called after the window was moved.
 func (w *Window) OnMove(fn func()) (off func()) { return w.onMove.add(fn, false) }
 
@@ -1406,7 +1420,9 @@ func (w *Window) handleMessage(msg string) {
 		return
 	}
 	var m struct {
-		T string `json:"t"`
+		T string  `json:"t"`
+		X float64 `json:"x"` // drop
+		Y float64 `json:"y"`
 	}
 	if err := json.Unmarshal([]byte(msg), &m); err != nil {
 		return
@@ -1428,6 +1444,25 @@ func (w *Window) handleMessage(msg string) {
 	case "dblclick":
 		if w.native != nil {
 			w.native.TitleBarDoubleClicked()
+		}
+	case "drop":
+		if w.native != nil {
+			w.filesDropped(w.native.DroppedFiles(), int(m.X), int(m.Y))
+		}
+	}
+}
+
+// filesDropped tells OnFileDrop listeners, and the app's own pages, about
+// dropped files.
+func (w *Window) filesDropped(paths []string, x, y int) {
+	if len(paths) == 0 {
+		return
+	}
+	fire1(&w.onFileDrop, &FileDropEvent{Paths: paths, X: x, Y: y})
+	// Local paths are none of other pages' business.
+	if w.trusted {
+		if msg, err := encodeEvent(fileDropEvent, FileDropEvent{Paths: paths, X: x, Y: y}); err == nil {
+			w.enqueue(msg, true)
 		}
 	}
 }

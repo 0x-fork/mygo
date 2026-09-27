@@ -32,7 +32,8 @@ type window struct {
 	movable, closable      bool
 	frameless              bool
 	fullScreen             bool
-	showMaximized          bool // on the first show (WindowOptions.Maximized)
+	showMaximized          bool     // on the first show (WindowOptions.Maximized)
+	dropped                []string // DroppedFiles
 	saved                  struct {
 		style, exStyle uintptr
 		placement      windowPlacement
@@ -514,7 +515,7 @@ func (w *window) ShowInactive() {
 	}
 	procShowWindow.Call(w.hwnd, swShowNoActivate)
 }
-func (w *window) Hide()         { procShowWindow.Call(w.hwnd, swHide) }
+func (w *window) Hide() { procShowWindow.Call(w.hwnd, swHide) }
 
 func (w *window) IsVisible() bool {
 	r, _, _ := procIsWindowVisible.Call(w.hwnd)

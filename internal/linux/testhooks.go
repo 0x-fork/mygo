@@ -57,3 +57,13 @@ func TestDismissPopups() int {
 	}
 	return len(theBackend.popups)
 }
+
+// TestSetDroppedFiles makes paths the files of the next drop on a window's
+// page, as if they had been dragged there.
+func TestSetDroppedFiles(handle uintptr, paths []string) {
+	for _, w := range theBackend.windows {
+		if w.win == handle {
+			w.dropped = paths
+		}
+	}
+}

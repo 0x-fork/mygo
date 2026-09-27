@@ -47,6 +47,10 @@ type window struct {
 	minW, minH   int32
 	maxW, maxH   int32
 
+	// dragged holds the paths of the files dragged over the page, dropped
+	// those of the files dropped on it, for DroppedFiles.
+	dragged, dropped []string
+
 	// The last button press on the page, used for window dragging and
 	// context menu positioning.
 	press struct {
@@ -186,6 +190,8 @@ func (w *window) createWebView() {
 	connect(w.web, "close", cbClose, data)
 	connect(w.web, "web-process-terminated", cbCrashed, data)
 	connect(w.web, "button-press-event", cbButtonPress, data)
+	connect(w.web, "drag-data-received", cbDragData, data)
+	connect(w.web, "drag-drop", cbDragDrop, data)
 }
 
 func (w *window) applyGeometry() {
@@ -304,6 +310,12 @@ func (w *window) SetFullScreen(v bool) {
 }
 
 func (w *window) IsFullScreen() bool { return w.state&stateFullscreen != 0 }
+
+func (w *window) DroppedFiles() []string {
+	paths := w.dropped
+	w.dropped = nil
+	return paths
+}
 
 func (w *window) Center() {
 	b := w.Bounds()
@@ -500,6 +512,7 @@ var (
 	cbDeleteEvent, cbDestroy, cbFocusIn, cbFocusOut, cbConfigure, cbWindowState ptr
 	cbScriptMessage, cbLoadChanged, cbLoadFailed, cbTitle, cbDecidePolicy       ptr
 	cbCreate, cbClose, cbCrashed, cbButtonPress, cbAsyncReady, cbPNGWrite       ptr
+	cbDragData, cbDragDrop                                                      ptr
 )
 
 func field[T any](p ptr, offset uintptr) T {
@@ -600,6 +613,34 @@ func initWindowCallbacks() {
 			gdkEventFree(w.press.event)
 		}
 		w.press.event = gdkEventCopy(event)
+		return false
+	})
+	// WebKit asks for the data of a drag while it moves over the page,
+	// before the drop; the uri-list of files gives their paths.
+	cbDragData = purego.NewCallback(func(widget, context ptr, x, y int32, sel ptr, info, time uint32, data ptr) {
+		w := b().window(data)
+		uris := gtkSelectionDataGetUris(sel)
+		if w == nil || uris == 0 {
+			return
+		}
+		defer gStrfreev(uris)
+		var paths []string
+		for i := uintptr(0); ; i++ {
+			uri := *(*ptr)(unsafe.Add(*(*unsafe.Pointer)(unsafe.Pointer(&uris)), i*unsafe.Sizeof(uris)))
+			if uri == 0 {
+				break
+			}
+			if p := takeStr(gFilenameFromURI(goStr(uri), 0, 0)); p != "" {
+				paths = append(paths, p)
+			}
+		}
+		w.dragged = paths
+	})
+	// Runs before WebKit's own handler, which gets the drop to the page.
+	cbDragDrop = purego.NewCallback(func(widget, context ptr, x, y int32, time uint32, data ptr) bool {
+		if w := b().window(data); w != nil {
+			w.dropped, w.dragged = w.dragged, nil
+		}
 		return false
 	})
 	cbScriptMessage = purego.NewCallback(func(ucm, result, data ptr) {

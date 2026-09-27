@@ -22,3 +22,8 @@ func click(*mygo.Window, float64, float64) bool { return false }
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
 func dismissPopups() (int, bool) { return 0, false }
+
+func setDroppedFiles(w *mygo.Window, paths []string) bool {
+	mygo.RunOnMain(func() { win.TestSetDroppedFiles(w.NativeHandle(), paths) })
+	return true
+}

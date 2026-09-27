@@ -25,3 +25,8 @@ func dismissPopups() (n int, supported bool) {
 	mygo.RunOnMain(func() { n = linux.TestDismissPopups() })
 	return n, true
 }
+
+func setDroppedFiles(w *mygo.Window, paths []string) bool {
+	mygo.RunOnMain(func() { linux.TestSetDroppedFiles(w.NativeHandle(), paths) })
+	return true
+}

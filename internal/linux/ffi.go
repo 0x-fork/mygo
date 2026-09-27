@@ -101,6 +101,8 @@ func mustBind(lib ptr, fn any, name string) {
 var (
 	gFree                          func(p ptr)
 	gErrorFree                     func(e ptr)
+	gStrfreev                      func(v ptr)
+	gFilenameFromURI               func(uri string, hostname, gerr ptr) ptr
 	gErrorNewLiteral               func(domain uint32, code int32, msg *byte) ptr
 	gQuarkFromString               func(s *byte) uint32
 	gIdleAddFull                   func(priority int32, fn ptr, data ptr, notify ptr) uint32
@@ -300,6 +302,7 @@ var (
 	gtkSelectionDataGetData             func(sd ptr) ptr
 	gtkSelectionDataGetLength           func(sd ptr) int32
 	gtkSelectionDataFree                func(sd ptr)
+	gtkSelectionDataGetUris             func(sd ptr) ptr
 	gtkSettingsGetDefault               func() ptr
 	gtkAboutDialogNew                   func() ptr
 	gtkAboutDialogSetProgramName        func(d ptr, s *byte)
@@ -436,6 +439,8 @@ func load() error {
 	g := libGLib
 	mustBind(g, &gFree, "g_free")
 	mustBind(g, &gErrorFree, "g_error_free")
+	mustBind(g, &gStrfreev, "g_strfreev")
+	mustBind(g, &gFilenameFromURI, "g_filename_from_uri")
 	mustBind(g, &gErrorNewLiteral, "g_error_new_literal")
 	mustBind(g, &gQuarkFromString, "g_quark_from_string")
 	mustBind(g, &gIdleAddFull, "g_idle_add_full")
@@ -623,6 +628,7 @@ func load() error {
 	mustBind(t, &gtkClipboardWaitForTargets, "gtk_clipboard_wait_for_targets")
 	mustBind(t, &gtkClipboardClear, "gtk_clipboard_clear")
 	mustBind(t, &gtkSelectionDataGetData, "gtk_selection_data_get_data")
+	mustBind(t, &gtkSelectionDataGetUris, "gtk_selection_data_get_uris")
 	mustBind(t, &gtkSelectionDataGetLength, "gtk_selection_data_get_length")
 	mustBind(t, &gtkSelectionDataFree, "gtk_selection_data_free")
 	mustBind(t, &gtkSettingsGetDefault, "gtk_settings_get_default")

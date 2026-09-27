@@ -300,6 +300,10 @@ type Window interface {
 	IsDevToolsOpened() bool
 	// CapturePage takes a PNG snapshot of the visible page.
 	CapturePage(cb func(png []byte, err error))
+	// DroppedFiles returns the paths of the files of the latest drop on
+	// the page and forgets them. The page reports the drop itself (a
+	// "drop" message); backends record the paths before the page sees it.
+	DroppedFiles() []string
 	Print()
 }
 

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/egoist/mygo/internal/tsgen"
@@ -327,8 +328,12 @@ type Event[T any] struct {
 	name string
 }
 
-// NewEvent declares an event with payload type T. Names must be unique.
+// NewEvent declares an event with payload type T. Names must be unique;
+// those starting with "mygo:" are reserved.
 func NewEvent[T any](name string) *Event[T] {
+	if strings.HasPrefix(name, "mygo:") {
+		panic(fmt.Sprintf("mygo: event %q: names starting with \"mygo:\" are reserved", name))
+	}
 	t := reflect.TypeFor[T]()
 	if err := tsgen.Validate(t); err != nil {
 		panic(fmt.Sprintf("mygo: event %q: %v", name, err))

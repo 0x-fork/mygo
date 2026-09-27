@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -404,6 +405,97 @@ func TestWindowState(t *testing.T) {
 		b := w.Bounds()
 		return b.Width == 500 && b.Height == 400
 	})
+}
+
+// TestFileDrop drops files with synthetic DOM events, the platform side
+// being played by a test hook, and checks that the page's own drag and
+// drop is undisturbed.
+func TestFileDrop(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Title: "Drop", Width: 400, Height: 300})
+	drops := make(chan *mygo.FileDropEvent, 4)
+	w.OnFileDrop(func(e *mygo.FileDropEvent) { drops <- e })
+	w.LoadHTML(`<body style="margin:0;height:300px"><div id=zone style="height:100px"></div><div id=item draggable=true>item</div><script>
+window.log = [];
+mygo.on("mygo:file-drop", (p) => log.push("event:" + p.paths.join(",") + "@" + p.x + "," + p.y));
+zone.addEventListener("dragover", (e) => { e.preventDefault(); log.push("zone:dragover"); });
+zone.addEventListener("drop", (e) => { e.preventDefault(); log.push("zone:drop:" + [...e.dataTransfer.files].map((f) => f.name)); });
+document.addEventListener("dragover", (e) => log.push("document:dragover:" + e.defaultPrevented));
+item.addEventListener("dragstart", () => log.push("item:dragstart"));
+// Dispatches a drag event carrying a file at x, y and reports whether it
+// was canceled.
+window.drag = (target, type, x, y) => {
+  const dt = new DataTransfer();
+  dt.items.add(new File(["hi"], "dropped.txt"));
+  return !target.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true, clientX: x, clientY: y }));
+};
+</script></body>`, "")
+	waitFor(t, w, "window.drag")
+	expectDrop := func(want bool, what string) *mygo.FileDropEvent {
+		t.Helper()
+		select {
+		case e := <-drops:
+			if !want {
+				t.Errorf("%s: unexpected OnFileDrop %+v", what, e)
+			}
+			return e
+		case <-time.After(time.Second):
+			if want {
+				t.Fatalf("%s: OnFileDrop was not called", what)
+			}
+		}
+		return nil
+	}
+	eval := func(js string) any {
+		t.Helper()
+		v, err := w.Eval(js)
+		if err != nil {
+			t.Fatalf("%s: %v", js, err)
+		}
+		return v
+	}
+	if !setDroppedFiles(w, nil) {
+		t.Skip("no drop hook on this platform")
+	}
+
+	// Dropped on the page's drop zone: the page handles it as usual, and Go
+	// gets the path.
+	path := filepath.Join(t.TempDir(), "dropped.txt")
+	setDroppedFiles(w, []string{path})
+	eval(`[drag(zone, "dragover", 20, 30), drag(zone, "drop", 20, 30)]`)
+	if e := expectDrop(true, "drop zone"); len(e.Paths) != 1 || e.Paths[0] != path || e.X != 20 || e.Y != 30 {
+		t.Errorf("drop zone: %+v", e)
+	}
+	waitFor(t, w, `log.includes("event:`+strings.ReplaceAll(path, `\`, `\\`)+`@20,30")`)
+	if got := eval(`log.slice(0, 3).join(" ")`); got != "zone:dragover document:dragover:true zone:drop:dropped.txt" {
+		t.Errorf("the page's drag and drop: %v", got)
+	}
+
+	// Elsewhere, the page's listeners see the events untouched, and the
+	// bridge then accepts the files instead of letting the engine open them.
+	setDroppedFiles(w, []string{path})
+	if canceled := eval(`(log.length = 0, drag(document.body, "dragover", 50, 200))`); canceled != true {
+		t.Error("an unhandled file drag was not accepted")
+	}
+	if got := eval(`log.join(" ")`); got != "document:dragover:false" {
+		t.Errorf("the page saw %v", got)
+	}
+	if canceled := eval(`drag(document.body, "drop", 50, 200)`); canceled != true {
+		t.Error("an unhandled file drop was not canceled")
+	}
+	expectDrop(true, "unhandled area")
+
+	// A drag that starts in the page is left alone.
+	setDroppedFiles(w, []string{path})
+	eval(`item.dispatchEvent(new DragEvent("dragstart", { dataTransfer: new DataTransfer(), bubbles: true }))`)
+	if canceled := eval(`drag(document.body, "dragover", 50, 200)`); canceled != false {
+		t.Error("an in-page drag was accepted by the bridge")
+	}
+	if canceled := eval(`drag(document.body, "drop", 50, 200)`); canceled != false {
+		t.Error("an in-page drop was canceled by the bridge")
+	}
+	expectDrop(false, "in-page drag")
+	eval(`item.dispatchEvent(new DragEvent("dragend", { bubbles: true }))`)
+	setDroppedFiles(w, nil)
 }
 
 func TestCloseEvents(t *testing.T) {

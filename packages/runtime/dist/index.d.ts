@@ -56,5 +56,26 @@ export interface CallError extends Error {
 }
 /** Reports whether err comes from a Go method that returned an error. */
 export declare function isCallError(err: unknown): err is CallError;
+/** Files dropped on the window, e.g. from Finder or Explorer. */
+export interface FileDrop {
+    /** Absolute paths of the dropped files and directories. */
+    paths: string[];
+    /** Where they were dropped, in CSS pixels, like `clientX`. */
+    x: number;
+    /** Where they were dropped, in CSS pixels, like `clientY`. */
+    y: number;
+}
+/**
+ * Subscribes to files dropped on the window, with their paths, which DOM
+ * drop events do not tell. Only the app's own pages get them. Returns a
+ * function that unsubscribes.
+ *
+ * ```ts
+ * onFileDrop(({ paths, x, y }) => {
+ *   const target = document.elementFromPoint(x, y);
+ * });
+ * ```
+ */
+export declare function onFileDrop(listener: (drop: FileDrop) => void): () => void;
 /** The window hosting the page, e.g. for a custom title bar. */
 export declare const currentWindow: WindowControls;

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { call, currentWindow, event, isCallError, isMyGo, on, runtime, type Runtime } from "./index";
+import { call, currentWindow, event, isCallError, isMyGo, on, onFileDrop, runtime, type FileDrop, type Runtime } from "./index";
 
 const calls: [string, unknown[]][] = [];
 const listeners = new Map<string, (payload: unknown) => void>();
@@ -72,4 +72,14 @@ test("delegates to window.mygo", async () => {
   const err = await call("Svc.Fail").catch((e: unknown) => e);
   expect(isCallError(err)).toBe(true);
   expect(isCallError(new Error("other"))).toBe(false);
+});
+
+test("onFileDrop", () => {
+  (globalThis as { mygo?: Runtime }).mygo = fake;
+  const got: FileDrop[] = [];
+  const off = onFileDrop((d) => got.push(d));
+  listeners.get("mygo:file-drop")?.({ paths: ["/tmp/a.txt"], x: 10, y: 20 });
+  expect(got).toEqual([{ paths: ["/tmp/a.txt"], x: 10, y: 20 }]);
+  off();
+  expect(listeners.has("mygo:file-drop")).toBe(false);
 });
