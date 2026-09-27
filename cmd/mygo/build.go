@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,6 +43,7 @@ and update-<platform>.json: publish them where updates point to.`)
 	skipNotarize := flags.Bool("skip-notarize", false, "do not notarize even when macos.notarize is set")
 	sign := flags.String("sign", "", `macOS signing identity (default: macos.signingIdentity, or "-" for ad hoc)`)
 	out := flags.String("o", "", "output directory (default: out from mygo.json or dist)")
+	upload := flags.Bool("upload", false, "upload the installers and updates to the GitHub release of this version (updates.github), as a draft")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -51,6 +53,9 @@ and update-<platform>.json: publish them where updates point to.`)
 	}
 	if *out != "" {
 		c.Out = *out
+	}
+	if *upload && (c.Updates == nil || c.Updates.GitHub == "") {
+		return errors.New("-upload needs updates.github in mygo.json")
 	}
 	opts := buildOptions{debug: *debug, sign: c.MacOS.SigningIdentity, skipDMG: *skipDMG, skipNotarize: *skipNotarize}
 	if *sign != "" {
@@ -94,12 +99,14 @@ and update-<platform>.json: publish them where updates point to.`)
 		return err
 	}
 
+	var built []string
 	for _, p := range splitList(*platforms) {
 		goos, goarch, ok := strings.Cut(p, "/")
 		if !ok {
 			return fmt.Errorf("invalid platform %q, want GOOS/GOARCH", p)
 		}
 		paths, err := buildPlatform(c, goos, goarch, opts)
+		built = append(built, paths...)
 		if err != nil {
 			return err
 		}
@@ -107,6 +114,9 @@ and update-<platform>.json: publish them where updates point to.`)
 			rel, _ := filepath.Rel(c.root, path)
 			logf("built %s (%s)", rel, sizeOf(path))
 		}
+	}
+	if *upload {
+		return publishGitHub(c, built)
 	}
 	return nil
 }

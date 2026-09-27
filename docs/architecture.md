@@ -508,7 +508,12 @@ as in Tauri:
   renamed on macOS, the entries of the app directory on Linux and Windows,
   where the running executable is renamed away and removed at the next
   launch. `App.Relaunch` then starts the new version from the path the app
-  started from. Development builds are never updated.
+  started from. Development builds are never updated. `mygo build -upload`
+  publishes to `updates.github` with the `gh` CLI: it creates the release
+  `<tagPrefix><version>` as a draft with the changelog section as notes,
+  uploads installers and update archives, then the manifests, and leaves
+  publishing the draft (which makes the manifests "latest") to the
+  developer once every platform is there.
 - File associations (`fileAssociations` in mygo.json) are declared by the
   packages (see the table below) and their extensions linked into the
   binary; like deep links, files of those extensions among the launch

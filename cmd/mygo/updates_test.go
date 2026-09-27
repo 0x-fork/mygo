@@ -208,3 +208,40 @@ func main() {
 		}
 	}
 }
+
+func TestPublishGitHub(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a shell script as gh")
+	}
+	bin, dist := t.TempDir(), t.TempDir()
+	calls := filepath.Join(bin, "calls")
+	// gh: the release does not exist yet; every other call succeeds.
+	script := "#!/bin/sh\necho \"$@\" >> " + calls + "\n[ \"$2\" = view ] && exit 1\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var artifacts []string
+	for _, name := range []string{"App 1.2.0.dmg", "app-1.2.0-darwin-arm64.tar.gz", "update-darwin-arm64.json", "App Setup 1.2.0.exe", "App.exe"} {
+		p := filepath.Join(dist, name)
+		os.WriteFile(p, nil, 0o644)
+		artifacts = append(artifacts, p)
+	}
+	os.Mkdir(filepath.Join(dist, "App.app"), 0o755)
+	artifacts = append(artifacts, filepath.Join(dist, "App.app"))
+	c := &Config{root: t.TempDir(), Version: "1.2.0", Updates: &Updates{GitHub: "me/app", TagPrefix: "v"}}
+	if err := publishGitHub(c, artifacts); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(calls)
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 4 || !strings.HasPrefix(lines[1], "release create v1.2.0 --repo me/app --draft") {
+		t.Fatalf("gh calls:\n%s", b)
+	}
+	if !strings.Contains(lines[2], "App 1.2.0.dmg") || !strings.Contains(lines[2], "App Setup 1.2.0.exe") || strings.Contains(lines[2], "App.exe ") || strings.Contains(lines[2], "update-") {
+		t.Errorf("first upload: %s", lines[2])
+	}
+	if !strings.HasSuffix(lines[3], "update-darwin-arm64.json") {
+		t.Errorf("the manifests must go last: %s", lines[3])
+	}
+}
