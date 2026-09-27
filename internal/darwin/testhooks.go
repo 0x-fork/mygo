@@ -176,3 +176,15 @@ func TestDockMenu(click int) []string {
 	})
 	return titles
 }
+
+// TestFullScreenHidesToolbar reports whether a window asks to hide its
+// toolbar with the menu bar when it enters full screen.
+func TestFullScreenHidesToolbar(handle uintptr) bool {
+	win := id(handle)
+	delegate := send(win, "delegate")
+	if !respondsTo(delegate, "window:willUseFullScreenPresentationOptions:") {
+		return false
+	}
+	options := send(delegate, "window:willUseFullScreenPresentationOptions:", uintptr(win), presentationFullScreen|presentationAutoHideMenuBar)
+	return options&presentationAutoHideToolbar != 0
+}

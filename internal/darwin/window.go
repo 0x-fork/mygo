@@ -30,6 +30,11 @@ const (
 
 	collectionFullScreenPrimary = 1 << 7
 	collectionFullScreenNone    = 1 << 9
+
+	// NSApplicationPresentationOptions
+	presentationAutoHideMenuBar = 1 << 2
+	presentationFullScreen      = 1 << 10
+	presentationAutoHideToolbar = 1 << 11
 )
 
 var (
@@ -982,6 +987,16 @@ func registerWindowClasses() {
 				if w := b().windowFor(self); w != nil {
 					w.h.Restored()
 				}
+			}),
+			// The toolbar that insets the traffic lights holds no items: in
+			// full screen it hides with the menu bar instead of covering the
+			// top of the page.
+			method("window:willUseFullScreenPresentationOptions:", func(self id, _ objc.SEL, win id, proposed uint) uint {
+				const autoHide = presentationFullScreen | presentationAutoHideMenuBar
+				if send(win, "toolbar") != 0 && proposed&autoHide == autoHide {
+					return proposed | presentationAutoHideToolbar
+				}
+				return proposed
 			}),
 			method("windowDidEnterFullScreen:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {

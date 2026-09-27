@@ -64,3 +64,6 @@ func pressKeys(keys ...string) (ok bool) {
 	mygo.RunOnMain(func() { ok = linux.TestPressKeys(keys...) })
 	return ok
 }
+
+// Only macOS windows have a toolbar.
+func fullScreenHidesToolbar(*mygo.Window) (bool, bool) { return false, false }

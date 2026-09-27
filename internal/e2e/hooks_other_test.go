@@ -41,3 +41,6 @@ func pressCtrlShiftK() bool { return false }
 func usePortalShortcuts() (func(), bool) { return nil, false }
 
 func pressKeys(...string) bool { return false }
+
+// Only macOS windows have a toolbar.
+func fullScreenHidesToolbar(*mygo.Window) (bool, bool) { return false, false }

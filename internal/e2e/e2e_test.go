@@ -330,6 +330,19 @@ func TestVibrancy(t *testing.T) {
 	}
 }
 
+// The toolbar that insets the traffic lights holds no items: in full screen
+// it must hide with the menu bar instead of covering the top of the page.
+func TestFullScreenToolbar(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200, TitleBarStyle: mygo.TitleBarHiddenInset})
+	hides, ok := fullScreenHidesToolbar(w)
+	if !ok {
+		t.Skip("only macOS windows have a toolbar")
+	}
+	if !hides {
+		t.Error("the toolbar of an inset title bar stays in full screen")
+	}
+}
+
 func TestDockedDevTools(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "DevTools", Width: 800, Height: 600, DevTools: mygo.DevToolsEnabled})
 	w.LoadHTML("<p>inspect me</p>", "")

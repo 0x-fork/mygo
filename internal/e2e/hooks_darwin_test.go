@@ -69,3 +69,8 @@ func pressCtrlShiftK() bool { return false }
 func usePortalShortcuts() (func(), bool) { return nil, false }
 
 func pressKeys(...string) bool { return false }
+
+func fullScreenHidesToolbar(w *mygo.Window) (hides bool, supported bool) {
+	mygo.RunOnMain(func() { hides = darwin.TestFullScreenHidesToolbar(w.NativeHandle()) })
+	return hides, true
+}
