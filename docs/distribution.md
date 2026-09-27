@@ -12,13 +12,13 @@ It:
 
 1. writes the TypeScript client, so the frontend builds against the Go
    code;
-2. runs `buildCommand` from mygo.json, which builds the frontend into
+2. runs `buildCommand` from the configuration, which builds the frontend into
    `frontendDist`;
 3. compiles the app with the frontend embedded, for production: without
    the web inspector, and with the name, identifier and version of
-   mygo.json linked in;
+   the configuration linked in;
 4. packages it for each platform in `build/<os>-<arch>/` (`out` in
-   mygo.json);
+   the configuration);
 5. signs what it can, and with [updates](updates.md) configured, writes the
    signed update archives.
 
@@ -48,15 +48,15 @@ signing identity of macOS, and `-o` the output directory. See
 
 ## Name, icon and version
 
-mygo.json describes the app:
+The configuration describes the app:
 
-```json
-{
-  "name": "My App",
-  "identifier": "com.example.myapp",
-  "version": "1.2.0",
-  "copyright": "© 2026 Example Inc."
-}
+```ts
+export default defineConfig({
+  name: "My App",
+  identifier: "com.example.myapp",
+  version: "1.2.0",
+  copyright: "© 2026 Example Inc.",
+});
 ```
 
 - `name` is what users see: the app bundle, the executable, menus, the
@@ -66,7 +66,7 @@ mygo.json describes the app:
 - `version` is the app's version, which `App.Version()` returns and
   [updates](updates.md) compare.
 
-The icon is `resources/icon.png`, or the `icon` of mygo.json: a square PNG,
+The icon is `resources/icon.png`, or the `icon` of the configuration: a square PNG,
 ideally 1024×1024. `mygo build` makes it the `.icns` of macOS, the icon
 resource of the Windows executable and the icon of the Linux desktop entry.
 
@@ -75,12 +75,12 @@ resource of the Windows executable and the icon of the Linux desktop entry.
 Files the app reads at run time, such as a database seed, a helper binary
 or the images of a tray icon, ship with it. Everything in the `resources`
 directory of the project is copied into the app, as are the files and
-directories listed in `resources` in mygo.json, under their base names:
+directories listed in `resources` in the configuration, under their base names:
 
-```json
-{
-  "resources": ["third_party/licenses", "bin/helper"]
-}
+```ts
+export default defineConfig({
+  resources: ["third_party/licenses", "bin/helper"],
+});
 ```
 
 At run time `App.Path(mygo.PathResources)` is where they are:
@@ -108,13 +108,13 @@ Gatekeeper blocks them on others. To ship an app, sign it with a Developer
 ID of the [Apple Developer Program](https://developer.apple.com/programs/)
 and have Apple notarize it:
 
-```json
-{
-  "macos": {
-    "signingIdentity": "Developer ID Application: Jane Doe (TEAMID)",
-    "notarize": { "keychainProfile": "notary" }
-  }
-}
+```ts
+export default defineConfig({
+  macos: {
+    signingIdentity: "Developer ID Application: Jane Doe (TEAMID)",
+    notarize: { keychainProfile: "notary" },
+  },
+});
 ```
 
 Store the credentials of the notary service in the keychain once:
@@ -135,18 +135,18 @@ counts the Developer IDs.
 for example the usage descriptions that pages using the camera or the
 microphone need:
 
-```json
-{
-  "macos": {
-    "minimumSystemVersion": "13.0",
-    "infoPlist": {
-      "NSCameraUsageDescription": "Scan documents with the camera.",
-      "LSApplicationCategoryType": "public.app-category.productivity"
+```ts
+export default defineConfig({
+  macos: {
+    minimumSystemVersion: "13.0",
+    infoPlist: {
+      NSCameraUsageDescription: "Scan documents with the camera.",
+      LSApplicationCategoryType: "public.app-category.productivity",
     },
-    "entitlements": "entitlements.plist",
-    "dmgTitle": "My App Installer"
-  }
-}
+    entitlements: "entitlements.plist",
+    dmgTitle: "My App Installer",
+  },
+});
 ```
 
 `entitlements` signs the app with a property list of entitlements.
@@ -174,12 +174,10 @@ file associations.
 Unsigned apps make SmartScreen warn users. Sign the executable and the
 installer with a certificate:
 
-```json
-{
-  "windows": {
-    "certificate": "certs/code-signing.pfx"
-  }
-}
+```ts
+export default defineConfig({
+  windows: { certificate: "certs/code-signing.pfx" },
+});
 ```
 
 The password comes from the `MYGO_WINDOWS_CERTIFICATE_PASSWORD`
@@ -190,12 +188,12 @@ by default `http://timestamp.digicert.com`.
 Certificates on hardware tokens or in cloud services, such as Azure Trusted
 Signing, sign with a command of their own, in which `%1` is the file:
 
-```json
-{
-  "windows": {
-    "signCommand": "signtool sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 /a %1"
-  }
-}
+```ts
+export default defineConfig({
+  windows: {
+    signCommand: "signtool sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 /a %1",
+  },
+});
 ```
 
 ## Linux
@@ -205,15 +203,15 @@ desktop entry and the icon. With a maintainer, it also makes a Debian
 package, which installs the app in `/opt/my-app` with a `my-app` command,
 its desktop entry, icons, URL schemes and file types:
 
-```json
-{
-  "linux": {
-    "maintainer": "Jane Doe <jane@example.com>",
-    "comment": "Take notes",
-    "categories": ["Office"],
-    "depends": ["libayatana-appindicator3-1"]
-  }
-}
+```ts
+export default defineConfig({
+  linux: {
+    maintainer: "Jane Doe <jane@example.com>",
+    comment: "Take notes",
+    categories: ["Office"],
+    depends: ["libayatana-appindicator3-1"],
+  },
+});
 ```
 
 The package depends on GTK 3 and WebKitGTK; `depends` adds more packages.
@@ -222,14 +220,14 @@ The package depends on GTK 3 and WebKitGTK; `depends` adds more packages.
 
 ## URL schemes and file types
 
-`urlSchemes` and `fileAssociations` in mygo.json (see
+`urlSchemes` and `fileAssociations` in the configuration (see
 [deep links](app.md#deep-links) and [file associations](app.md#file-associations))
 are registered by each package: in the macOS app's `Info.plist`, by the
 Windows installer, and by the Linux desktop entry and Debian package.
 
 ## Publishing
 
-With `updates.github` set in mygo.json, `mygo build -upload` uploads the
+With `updates.github` set in the configuration, `mygo build -upload` uploads the
 disk images, installers, packages and update files to the GitHub release of
 the version, tagged `v1.2.0`, creating it as a draft. Review the draft and
 publish it. It needs the [GitHub CLI](https://cli.github.com) (`gh`),

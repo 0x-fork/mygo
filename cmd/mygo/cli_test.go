@@ -154,21 +154,25 @@ func TestWriteUniversal(t *testing.T) {
 
 func TestTemplate(t *testing.T) {
 	dir := t.TempDir()
-	data := templateData{Name: "Demo App", Slug: "demo-app", Module: "demo-app", Identifier: "com.example.demoapp", Runtime: "^0.1.0", CLI: "^0.1.0", Mygo: "mygo"}
+	data := templateData{Name: `The "Demo" App`, Slug: "demo-app", Module: "demo-app", Identifier: "com.example.demoapp",
+		Runtime: "^0.1.0", CLI: "^0.1.0", Mygo: "mygo", ConfigImport: "mygo-cli"}
 	if err := writeTemplate(dir, data); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"main.go", "mygo.json", ".gitignore", "package.json", "vite.config.ts", "index.html", "tsconfig.json", "src/main.ts", "src/style.css"} {
+	for _, f := range []string{"main.go", tsConfig, ".gitignore", "package.json", "vite.config.ts", "index.html", "tsconfig.json", "src/main.ts", "src/style.css"} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("missing %s", f)
 		}
 	}
 	main, _ := os.ReadFile(filepath.Join(dir, "main.go"))
-	if !strings.Contains(string(main), `Title:           "Demo App"`) {
-		t.Error("name not rendered into main.go")
+	if !strings.Contains(string(main), `Title:           "The \"Demo\" App"`) {
+		t.Errorf("name not rendered into main.go:\n%s", main)
 	}
 	if _, err := parser.ParseFile(token.NewFileSet(), "main.go", main, 0); err != nil {
 		t.Errorf("main.go does not parse: %v", err)
+	}
+	if html, _ := os.ReadFile(filepath.Join(dir, "index.html")); !strings.Contains(string(html), "<title>The &#34;Demo&#34; App</title>") {
+		t.Errorf("index.html:\n%s", html)
 	}
 	var pkg struct {
 		Name            string
@@ -183,35 +187,65 @@ func TestTemplate(t *testing.T) {
 	if pkg.Name != "demo-app" || pkg.Scripts["dev"] != "mygo dev" || pkg.Dependencies["mygo-runtime"] != "^0.1.0" || pkg.DevDependencies["mygo-cli"] != "^0.1.0" {
 		t.Errorf("package.json: %s", raw)
 	}
-	c, err := loadConfig(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.DevURL != "http://localhost:5173" || c.FrontendDist != "dist" || c.Out != "build" || c.Bindings != "src/mygo.ts" {
-		t.Errorf("template mygo.json: %+v", c)
-	}
-	// devCommand and buildCommand run scripts of package.json, which must
-	// not run mygo again.
-	for _, cmd := range []string{c.DevCommand, c.BuildCommand} {
-		script, ok := strings.CutPrefix(cmd, "bun run ")
-		if !ok || pkg.Scripts[script] == "" || strings.Contains(pkg.Scripts[script], "mygo") {
-			t.Errorf("%q does not run a frontend script of package.json", cmd)
-		}
-	}
 
-	// A project using a checkout of MyGo runs its CLI with go run.
+	// A project using a checkout of MyGo runs its CLI with go run, and
+	// imports defineConfig from the checkout.
 	local := t.TempDir()
-	data.CLI, data.Mygo = "", "go run github.com/egoist/mygo/cmd/mygo"
-	if err := writeTemplate(local, data); err != nil {
+	cli, _ := filepath.Abs(filepath.Join("..", "..", "packages", "cli", "index.js"))
+	local2 := data
+	local2.CLI, local2.Mygo, local2.ConfigImport = "", "go run github.com/egoist/mygo/cmd/mygo", moduleSpecifier(local, cli)
+	if err := writeTemplate(local, local2); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ = os.ReadFile(filepath.Join(local, "package.json"))
 	pkg.DevDependencies = nil
-	if err := json.Unmarshal(raw, &pkg); err != nil || pkg.DevDependencies["mygo-cli"] != "" || pkg.Scripts["build"] != data.Mygo+" build" {
+	if err := json.Unmarshal(raw, &pkg); err != nil || pkg.DevDependencies["mygo-cli"] != "" || pkg.Scripts["build"] != local2.Mygo+" build" {
 		t.Errorf("package.json of a local checkout (%v): %s", err, raw)
+	}
+
+	if _, err := configRuntime(); err != nil {
+		t.Skipf("reading mygo.config.ts: %v", err)
+	}
+	// In a project, mygo-cli is installed.
+	os.Mkdir(filepath.Join(dir, "node_modules"), 0o755)
+	if err := os.Symlink(filepath.Dir(cli), filepath.Join(dir, "node_modules", "mygo-cli")); err != nil {
+		t.Logf("not reading the project's configuration: %v", err)
+		dir = ""
+	}
+	for _, root := range []string{dir, local} {
+		if root == "" {
+			continue
+		}
+		c, err := loadConfig(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Name != data.Name || c.DevURL != "http://localhost:5173" || c.FrontendDist != "dist" || c.Out != "build" || c.Bindings != "src/mygo.ts" {
+			t.Errorf("template configuration: %+v", c)
+		}
+		// devCommand and buildCommand run scripts of package.json, which
+		// must not run mygo again.
+		for _, cmd := range []string{c.DevCommand, c.BuildCommand} {
+			script, ok := strings.CutPrefix(cmd, "bun run ")
+			if !ok || pkg.Scripts[script] == "" || strings.Contains(pkg.Scripts[script], "mygo") {
+				t.Errorf("%q does not run a frontend script of package.json", cmd)
+			}
+		}
 	}
 	if slugify("Hello, World!") != "hello-world" || slugify("!!!") != "app" {
 		t.Error("slugify")
+	}
+}
+
+func TestModuleSpecifier(t *testing.T) {
+	root := filepath.FromSlash("/work")
+	for target, want := range map[string]string{
+		"/work/mygo/packages/cli/index.js": "./mygo/packages/cli/index.js",
+		"/src/mygo/packages/cli/index.js":  "../src/mygo/packages/cli/index.js",
+	} {
+		if got := moduleSpecifier(root, filepath.FromSlash(target)); got != want {
+			t.Errorf("moduleSpecifier(%s) = %s, want %s", target, got, want)
+		}
 	}
 }
 

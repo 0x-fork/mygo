@@ -55,12 +55,12 @@ TypeScript client. See [the project](getting-started.md#the-project).
 mygo dev [flags] [dir]
 ```
 
-Develops the app with live reload. It runs `devCommand` from mygo.json,
+Develops the app with live reload. It runs `devCommand` from the configuration,
 such as a Vite dev server, waits for `devUrl` to answer, then builds a
 development app, which loads `devUrl` in place of its built frontend, and
 starts it. Without `devUrl` the app serves `frontendDist` from disk.
 
-Changes to the Go code, mygo.json, the icon or the resources rebuild the
+Changes to the Go code, the configuration, the icon or the resources rebuild the
 app, regenerate the TypeScript client and restart the app. The new build
 replaces the running one once it has started, so a build that fails or
 crashes keeps the previous one. Frontend changes are the dev server's to
@@ -90,7 +90,7 @@ Builds production apps: runs `buildCommand`, compiles the app with
 |---|---|
 | `-platform` | comma separated `GOOS/GOARCH` targets, e.g. `darwin/universal,windows/amd64,linux/amd64` (default: this machine's) |
 | `-debug` | keeps development features, such as the web inspector |
-| `-o` | the output directory (default: `out` from mygo.json) |
+| `-o` | the output directory (default: `out` of the configuration) |
 | `-sign` | the macOS signing identity (default: `macos.signingIdentity`) |
 | `-skip-build-command` | does not run `buildCommand` |
 | `-skip-dmg` | does not make macOS disk images |
@@ -104,8 +104,8 @@ mygo generate [-o file] [dir]
 ```
 
 Writes the typed TypeScript client for the services bound with `mygo.Bind`
-and the events declared with `mygo.NewEvent`, to `bindings` from
-mygo.json unless `-o` names another file. `mygo dev` and `mygo build` run
+and the events declared with `mygo.NewEvent`, to `bindings` of the
+configuration unless `-o` names another file. `mygo dev` and `mygo build` run
 it for you. See [the generated client](bindings.md#the-generated-client).
 
 ## mygo keygen
@@ -116,7 +116,7 @@ mygo keygen [flags]
 
 Creates the key pair that signs [updates](updates.md): `mygo-update.key`,
 the secret, and `mygo-update.pub`, and prints the `updates` section to add
-to mygo.json.
+to the configuration.
 
 | Flag | |
 |---|---|

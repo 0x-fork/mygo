@@ -27,7 +27,7 @@ type PermissionRequest struct {
 //
 // The operating system may still ask the user, like macOS does once per
 // app for the camera and the microphone. That needs usage descriptions in
-// macos.infoPlist of mygo.json (NSCameraUsageDescription,
+// macos.infoPlist of mygo.config.ts (NSCameraUsageDescription,
 // NSMicrophoneUsageDescription), without which macOS ends the app.
 func (w *Window) SetPermissionHandler(fn func(req PermissionRequest) bool) {
 	w.mu.Lock()

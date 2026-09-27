@@ -20,7 +20,7 @@ import (
 	"github.com/egoist/mygo/internal/update"
 )
 
-// Set by `mygo build` with -ldflags -X when mygo.json configures updates:
+// Set by `mygo build` with -ldflags -X when mygo.config.ts configures updates:
 // the manifest of this build's target and the public key updates must be
 // signed with.
 var (
@@ -33,7 +33,7 @@ var (
 var startExe, _ = os.Executable()
 
 // UpdaterModule installs new versions of the app, which `mygo build`
-// publishes when mygo.json configures updates: signed archives and a
+// publishes when mygo.config.ts configures updates: signed archives and a
 // manifest per platform. Use the Updater singleton:
 //
 //	update, err := mygo.Updater.Check(ctx)
@@ -48,7 +48,7 @@ type UpdaterModule struct{}
 var Updater = &UpdaterModule{}
 
 // ErrUpdatesDisabled is returned by Check for builds without updates:
-// development builds, and builds of apps without updates in mygo.json.
+// development builds, and builds of apps without updates in mygo.config.ts.
 var ErrUpdatesDisabled = errors.New("mygo: updates are not enabled for this build")
 
 // Update is a newer version of the app, found by Updater.Check.

@@ -1,33 +1,39 @@
 # Configuration
 
-`mygo.json`, at the root of a project, describes the app and how the CLI
-develops and builds it; `mygo.config.ts` can take its place, see
-[below](#mygoconfigts). Every field is optional.
+`mygo.config.ts`, at the root of a project, describes the app and how the
+CLI develops and builds it. Its default export is the configuration, typed
+by `defineConfig` from the `mygo-cli` package that projects depend on, so
+editors complete and document every field:
 
-```json
-{
-  "name": "My App",
-  "identifier": "com.example.myapp",
-  "version": "1.2.0",
-  "copyright": "© 2026 Example Inc.",
+```ts
+import { defineConfig } from "mygo-cli";
 
-  "devUrl": "http://localhost:5173",
-  "devCommand": "bun run dev:web",
-  "buildCommand": "bun run build:web",
-  "frontendDist": "dist",
-  "bindings": "src/mygo.ts",
-  "out": "build",
+export default defineConfig({
+  name: "My App",
+  identifier: "com.example.myapp",
+  version: "1.2.0",
+  copyright: "© 2026 Example Inc.",
 
-  "resources": ["third_party/licenses"],
-  "urlSchemes": ["myapp"],
-  "fileAssociations": [{ "ext": ["md"], "name": "Markdown Document", "mimeType": "text/markdown" }],
+  devUrl: "http://localhost:5173",
+  devCommand: "bun run dev:web",
+  buildCommand: "bun run build:web",
+  frontendDist: "dist",
+  bindings: "src/mygo.ts",
+  out: "build",
 
-  "updates": { "publicKey": "…", "github": "you/my-app" },
-  "macos": { "signingIdentity": "Developer ID Application: Jane Doe (TEAMID)" },
-  "windows": { "certificate": "certs/code-signing.pfx" },
-  "linux": { "maintainer": "Jane Doe <jane@example.com>" }
-}
+  resources: ["third_party/licenses"],
+  urlSchemes: ["myapp"],
+  fileAssociations: [{ ext: ["md"], name: "Markdown Document", mimeType: "text/markdown" }],
+
+  updates: { publicKey: "…", github: "you/my-app" },
+  macos: { signingIdentity: "Developer ID Application: Jane Doe (TEAMID)" },
+  windows: { certificate: "certs/code-signing.pfx" },
+  linux: { maintainer: "Jane Doe <jane@example.com>" },
+});
 ```
+
+Every field is optional. The configuration can also be JSON, in
+[mygo.json](#mygojson).
 
 ## The app
 
@@ -119,44 +125,48 @@ See [Windows](distribution.md#windows).
 
 See [Linux](distribution.md#linux).
 
-## mygo.config.ts
+## Computed configuration
 
-The configuration can be TypeScript instead: `mygo.config.ts`, whose
-default export is the configuration. `defineConfig` of the `mygo-cli`
-package, which new projects depend on, types it, so editors complete and
-document every field:
+The configuration is code, so it can compute fields: read the version from
+package.json, or a signing identity from the environment of CI. The default
+export may also be a function, which can be async, of the command running
+(`"dev"`, `"build"`, `"generate"` or `"init"`):
 
 ```ts
 import { defineConfig } from "mygo-cli";
 import pkg from "./package.json" with { type: "json" };
 
-export default defineConfig({
-  name: "My App",
-  identifier: "com.example.myapp",
+export default defineConfig(({ command }) => ({
+  name: command === "dev" ? "My App (dev)" : "My App",
   version: pkg.version,
-  devUrl: "http://localhost:5173",
-  devCommand: "bun run dev:web",
-  buildCommand: "bun run build:web",
-  frontendDist: "dist",
-  out: "build",
   macos: {
     signingIdentity: process.env.MACOS_SIGNING_IDENTITY ?? "-",
   },
-});
-```
-
-The default export may also be a function, which can be async, of the
-command running (`"dev"`, `"build"`, `"generate"` or `"init"`):
-
-```ts
-export default defineConfig(({ command }) => ({
-  name: command === "dev" ? "My App (dev)" : "My App",
 }));
 ```
 
-The CLI evaluates the file with [Bun](https://bun.sh), or else Node.js 22.6
-or later, in the project directory, and checks the result like mygo.json.
-Node.js runs TypeScript by removing the types, so it takes type
+## How it runs
+
+The CLI evaluates `mygo.config.ts` with [Bun](https://bun.sh), or else
+Node.js 22.6 or later, in the project directory, and checks the result.
+Node.js runs TypeScript by removing the types, so the file may use type
 annotations but not syntax that generates code, such as `enum`. What the
-file prints goes to the terminal, apart from the CLI's output. A project has
-either `mygo.json` or `mygo.config.ts`, not both.
+file prints goes to the terminal, apart from the CLI's output. `mygo dev`
+reloads the app when the file changes, but not when files it imports do.
+
+## mygo.json
+
+The configuration can be JSON instead, in `mygo.json`, which needs no
+JavaScript runtime to read:
+
+```json
+{
+  "name": "My App",
+  "identifier": "com.example.myapp",
+  "devUrl": "http://localhost:5173",
+  "macos": { "signingIdentity": "Developer ID Application: Jane Doe (TEAMID)" }
+}
+```
+
+It has the same fields. A project has either `mygo.config.ts` or
+`mygo.json`, not both.

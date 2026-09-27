@@ -56,7 +56,7 @@ document.body.textContent = await Greeter.greet("Ada");
 
 ## Reference
 
-- [Configuration](configuration.md): `mygo.json` or `mygo.config.ts`.
+- [Configuration](configuration.md): `mygo.config.ts`, or `mygo.json`.
 - [The mygo CLI](cli.md): its commands and flags.
 - The Go API: `go doc -all github.com/egoist/mygo`, with the documentation
   of every type and method.

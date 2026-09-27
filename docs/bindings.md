@@ -93,7 +93,7 @@ The context is not a parameter on the TypeScript side:
 
 ## The generated client
 
-`mygo generate` writes the client to the path of `bindings` in mygo.json,
+`mygo generate` writes the client to the path of `bindings` in mygo.config.ts,
 `src/mygo.ts` in new projects. `mygo dev` regenerates it whenever the Go
 code changes and `mygo build` before it builds the frontend, so you rarely
 run it yourself. For the service above it writes:

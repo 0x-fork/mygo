@@ -418,7 +418,7 @@ func (a *Application) OnDidResignActive(fn func()) (off func()) {
 }
 
 // OnOpenURL is called when the application is asked to open a URL of a
-// scheme it handles: one listed in urlSchemes in mygo.json or registered
+// scheme it handles: one listed in urlSchemes in mygo.config.ts or registered
 // with RegisterURLScheme. Register it before Run to receive the URL the app
 // was launched with. On Windows and Linux, where a URL starts a new
 // instance of the app, use RequestSingleInstanceLock so that the first
@@ -428,7 +428,7 @@ func (a *Application) OnOpenURL(fn func(url string)) (off func()) {
 }
 
 // OnOpenFile is called when a file is opened with the application: one of
-// the types of fileAssociations in mygo.json opened from the file manager,
+// the types of fileAssociations in mygo.config.ts opened from the file manager,
 // a file dropped on the Dock icon (macOS), or one passed on the command
 // line. Register it before Run to receive the files the app was launched
 // with; on Windows and Linux, RequestSingleInstanceLock makes the first

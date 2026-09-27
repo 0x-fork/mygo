@@ -40,7 +40,7 @@ func main() {
 
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:           "{{.Name}}",
+			Title:           {{printf "%q" .Name}},
 			Width:           960,
 			Height:          640,
 			MinWidth:        480,

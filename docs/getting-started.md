@@ -34,7 +34,7 @@ mygo init my-app
 my-app/
 ├── main.go          the app: its windows and the Go code the page calls
 ├── go.mod
-├── mygo.json        the app's name, identifier and version, and how to build it
+├── mygo.config.ts   the app's name, identifier and version, and how to build it
 ├── package.json     the scripts, and the frontend's dependencies
 ├── index.html       the page
 ├── src/
@@ -48,9 +48,8 @@ my-app/
 ```
 
 Builds go to `dist/` (the frontend) and `build/` (the packaged apps), and
-the development app to `.mygo/`; `.gitignore` leaves them out. The
-configuration can also be TypeScript, `mygo.config.ts`, see
-[configuration](configuration.md#mygoconfigts).
+the development app to `.mygo/`; `.gitignore` leaves them out. See
+[configuration](configuration.md) for the fields of `mygo.config.ts`.
 
 ## Develop
 
@@ -65,7 +64,7 @@ and starts it:
 
 - Edit `src/main.ts` or `src/style.css` and Vite updates the page right
   away.
-- Edit a `.go` file, `mygo.json`, the icon or a resource and mygo dev
+- Edit a `.go` file, `mygo.config.ts`, the icon or a resource and mygo dev
   rebuilds the app, regenerates `src/mygo.ts` and restarts the app. A build
   that fails, or crashes on start, keeps the previous one running.
 
@@ -131,7 +130,7 @@ machine's platform in `build/<os>-<arch>/`:
 |---|---|
 | macOS | `My App.app`, and a disk image `My App 0.1.0.dmg` |
 | Windows | `My App.exe`, and an installer `My App Setup 0.1.0.exe` when [NSIS](https://nsis.sourceforge.io) is installed |
-| Linux | the executable `my-app` with its desktop entry and icon, and a `.deb` package when `linux.maintainer` is set in mygo.json |
+| Linux | the executable `my-app` with its desktop entry and icon, and a `.deb` package when `linux.maintainer` is set in mygo.config.ts |
 
 MyGo needs no cgo, so any machine builds for every platform:
 

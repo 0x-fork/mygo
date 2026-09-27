@@ -17,20 +17,20 @@ win.LoadURL("/settings")
 
 They resolve against:
 
-- during `mygo dev`, the dev server at `devUrl` in mygo.json, which
+- during `mygo dev`, the dev server at `devUrl` in mygo.config.ts, which
   `devCommand` starts, e.g. `http://localhost:5173/`, so the dev server's
   hot reload works in the app;
 - in builds, `mygo://localhost/`, which serves the files of `frontendDist`
   that `mygo build` embeds into the executable after running
   `buildCommand`.
 
-```json
-{
-  "devUrl": "http://localhost:5173",
-  "devCommand": "bun run dev:web",
-  "buildCommand": "bun run build:web",
-  "frontendDist": "dist"
-}
+```ts
+export default defineConfig({
+  devUrl: "http://localhost:5173",
+  devCommand: "bun run dev:web",
+  buildCommand: "bun run build:web",
+  frontendDist: "dist",
+});
 ```
 
 Without `devUrl`, `mygo dev` serves `frontendDist` from disk instead. Paths

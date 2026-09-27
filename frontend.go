@@ -13,7 +13,7 @@ import (
 // scheme, such as "/" or "/settings" (see WindowOptions.URL), which resolve
 // against:
 //
-//   - the dev server at devUrl (mygo.json) while `mygo dev` runs the app;
+//   - the dev server at devUrl (mygo.config.ts) while `mygo dev` runs the app;
 //   - otherwise mygo://localhost/, which serves the frontendDist files that
 //     `mygo build` embeds into the app (see SetFrontend).
 //
@@ -102,7 +102,7 @@ func noFrontend(w http.ResponseWriter, r *http.Request) {
 <title>No frontend</title>
 <style>body{font:15px/1.5 system-ui,sans-serif;margin:3em;color:#444}code{font-size:90%}</style>
 <h1>No frontend</h1>
-<p>Run the app with <code>mygo dev</code>, which loads <code>devUrl</code> from mygo.json,
+<p>Run the app with <code>mygo dev</code>, which loads <code>devUrl</code> from mygo.config.ts,
 or build it with <code>mygo build</code>, which embeds <code>frontendDist</code>.</p>
 `))
 }

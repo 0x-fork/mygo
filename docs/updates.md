@@ -21,35 +21,35 @@ manager and in the secrets of your CI: installed apps accept only updates
 signed with it, so losing it strands them, and anyone who has it can ship
 code to your users.
 
-Add the public key to mygo.json, with where releases are published:
+Add the public key to mygo.config.ts, with where releases are published:
 
-```json
-{
-  "version": "1.2.0",
-  "updates": {
-    "publicKey": "…the contents of mygo-update.pub…",
-    "github": "you/my-app"
-  }
-}
+```ts
+export default defineConfig({
+  version: "1.2.0",
+  updates: {
+    publicKey: "…the contents of mygo-update.pub…",
+    github: "you/my-app",
+  },
+});
 ```
 
 `github` is a public repository whose releases, tagged `v1.2.0` and so on
 (`tagPrefix` changes the `v`), hold the updates. For your own server, set
 `url` instead, an HTTPS URL of a directory:
 
-```json
-{
-  "updates": {
-    "publicKey": "…",
-    "url": "https://downloads.example.com/my-app"
-  }
-}
+```ts
+export default defineConfig({
+  updates: {
+    publicKey: "…",
+    url: "https://downloads.example.com/my-app",
+  },
+});
 ```
 
 ## Build and publish
 
 Give `mygo build` the secret key, in the `MYGO_UPDATER_PRIVATE_KEY`
-environment variable or as a file with `updates.privateKey` in mygo.json
+environment variable or as a file with `updates.privateKey` in mygo.config.ts
 (a path, which may start with `~/`):
 
 ```sh

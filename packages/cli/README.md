@@ -33,8 +33,7 @@ build of the CLI to use it instead.
 
 ## mygo.config.ts
 
-`defineConfig` types the configuration of a project in `mygo.config.ts`,
-which the CLI accepts in place of `mygo.json`:
+`defineConfig` types the configuration of a project, `mygo.config.ts`:
 
 ```ts
 import { defineConfig } from "mygo-cli";

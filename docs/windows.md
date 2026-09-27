@@ -294,17 +294,17 @@ win.SetPermissionHandler(func(req mygo.PermissionRequest) bool {
 The operating system may ask the user too. macOS does, once per app, for
 the camera and the microphone, and ends apps that use them without
 explaining why in `Info.plist`: add usage descriptions to `macos.infoPlist`
-in mygo.json:
+in mygo.config.ts:
 
-```json
-{
-  "macos": {
-    "infoPlist": {
-      "NSCameraUsageDescription": "Scan documents with the camera.",
-      "NSMicrophoneUsageDescription": "Record voice notes."
-    }
-  }
-}
+```ts
+export default defineConfig({
+  macos: {
+    infoPlist: {
+      NSCameraUsageDescription: "Scan documents with the camera.",
+      NSMicrophoneUsageDescription: "Record voice notes.",
+    },
+  },
+});
 ```
 
 ### The web inspector

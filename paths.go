@@ -29,7 +29,7 @@ const (
 	PathLogs PathName = "logs"
 	// PathResources is the directory of the files the app ships with: the
 	// contents of the project's resources directory and the resources
-	// listed in mygo.json, which `mygo dev` and `mygo build` copy there.
+	// listed in mygo.config.ts, which `mygo dev` and `mygo build` copy there.
 	// It is Contents/Resources in a macOS app bundle and the executable's
 	// directory elsewhere. Under `go run` and `go test`, whose executables
 	// are temporary, it is the resources directory in the working

@@ -103,13 +103,13 @@ func main() {
 ## Deep links
 
 Apps open URLs of their own schemes, such as `myapp://open?note=42`. List
-the schemes in mygo.json, which registers them with the system when the
+the schemes in mygo.config.ts, which registers them with the system when the
 app is installed:
 
-```json
-{
-  "urlSchemes": ["myapp"]
-}
+```ts
+export default defineConfig({
+  urlSchemes: ["myapp"],
+});
 ```
 
 and handle the URLs with `OnOpenURL`, registered before `Run` so it also
@@ -132,19 +132,23 @@ package `mygo build` makes, a portable executable for example, register
 their schemes at run time with `App.RegisterURLScheme("myapp")`, which is
 cheap to call at every launch; `UnregisterURLScheme` and
 `IsURLSchemeRegistered` go with it. On macOS schemes must be listed in
-mygo.json.
+the configuration.
 
 ## File associations
 
 Apps open files of their types from the file manager. Declare the types in
-mygo.json:
+mygo.config.ts:
 
-```json
-{
-  "fileAssociations": [
-    { "ext": ["md", "markdown"], "name": "Markdown Document", "mimeType": "text/markdown" }
-  ]
-}
+```ts
+export default defineConfig({
+  fileAssociations: [
+    {
+      ext: ["md", "markdown"],
+      name: "Markdown Document",
+      mimeType: "text/markdown",
+    },
+  ],
+});
 ```
 
 and open them with `OnOpenFile`, registered before `Run` so it also gets
@@ -202,8 +206,8 @@ db := filepath.Join(dir, "notes.db")
 
 ## Name and version
 
-A packaged app knows its name and version from mygo.json, which `mygo
-build` links into it: `App.Name()` and `App.Version()`. A program run with
+A packaged app knows its name and version from its configuration, which
+`mygo build` links into it: `App.Name()` and `App.Version()`. A program run with
 `go run` has the executable's name and no version, unless it calls
 `App.SetName` and `App.SetVersion`, before `Run`. The name sets the user
 data, cache and log directories and the single instance lock. Development

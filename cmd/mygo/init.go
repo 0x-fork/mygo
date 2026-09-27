@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"io/fs"
 	"math"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +33,8 @@ type templateData struct {
 	// CLI is the version of the mygo-cli npm package, which runs mygo in
 	// the scripts of package.json, and Mygo the command they run.
 	CLI, Mygo string
+	// ConfigImport is the module mygo.config.ts imports defineConfig from.
+	ConfigImport string
 }
 
 func runInit(args []string) error {
@@ -62,15 +66,20 @@ func runInit(args []string) error {
 		data.Module = data.Slug
 	}
 	data.Identifier = "com.example." + strings.ReplaceAll(data.Slug, "-", "")
-	data.Runtime, data.CLI, data.Mygo = "^"+version, "^"+version, "mygo"
+	data.Runtime, data.CLI, data.Mygo, data.ConfigImport = "^"+version, "^"+version, "mygo", "mygo-cli"
 	if *local != "" {
-		// The runtime package of the local checkout, like the Go module,
-		// and its CLI, which go run builds from the replaced module.
-		abs, err := filepath.Abs(filepath.Join(*local, "packages", "runtime"))
+		// The packages of the local checkout, like the Go module, and its
+		// CLI, which go run builds from the replaced module.
+		checkout, err := filepath.Abs(*local)
 		if err != nil {
 			return err
 		}
-		data.Runtime, data.CLI, data.Mygo = "file:"+abs, "", "go run github.com/egoist/mygo/cmd/mygo"
+		data.Runtime = "file:" + filepath.Join(checkout, "packages", "runtime")
+		data.CLI, data.Mygo = "", "go run github.com/egoist/mygo/cmd/mygo"
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		data.ConfigImport = moduleSpecifier(dir, filepath.Join(checkout, "packages", "cli", "index.js"))
 	}
 
 	logf("creating %s", dir)
@@ -109,14 +118,14 @@ func runInit(args []string) error {
 	} else if err := run(dir, "bun install"); err != nil {
 		return err
 	}
-	c, err := loadConfig(dir)
-	if err != nil {
-		return err
-	}
-	bin := tempBinary(c.executableName())
-	defer os.Remove(bin)
-	if err := buildBinary(c, bin, nil); err == nil {
-		_ = generateBindings(c, bin)
+	if c, err := loadConfig(dir); err != nil {
+		logf("%v; run mygo generate once it can be read", err)
+	} else {
+		bin := tempBinary(c.executableName())
+		defer os.Remove(bin)
+		if err := buildBinary(c, bin, nil); err == nil {
+			_ = generateBindings(c, bin)
+		}
 	}
 
 	rel := dir
@@ -127,6 +136,41 @@ func runInit(args []string) error {
 	}
 	fmt.Printf("\nCreated %s. Next steps:\n\n  cd %s\n  bun run dev      # develop with live reload\n  bun run build    # package the app\n\n", data.Name, rel)
 	return nil
+}
+
+// moduleSpecifier returns how a module in dir imports the file target: a
+// relative path between their real locations, which runtimes resolve
+// imports from, or a file URL where there is none, as between the drives
+// of Windows.
+func moduleSpecifier(dir, target string) string {
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
+	if real, err := filepath.EvalSymlinks(target); err == nil {
+		target = real
+	}
+	rel, err := filepath.Rel(dir, target)
+	if err != nil {
+		path := filepath.ToSlash(target)
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path // C:/…
+		}
+		return (&url.URL{Scheme: "file", Path: path}).String()
+	}
+	rel = filepath.ToSlash(rel)
+	if !strings.HasPrefix(rel, "../") {
+		rel = "./" + rel
+	}
+	return rel
+}
+
+// templateFuncs are the functions of the templates: json renders a value
+// as JSON, which is also a JavaScript literal.
+var templateFuncs = template.FuncMap{
+	"json": func(v any) (string, error) {
+		b, err := json.Marshal(v)
+		return string(b), err
+	},
 }
 
 func writeTemplate(dir string, data templateData) error {
@@ -145,7 +189,7 @@ func writeTemplate(dir string, data templateData) error {
 		}
 		if strings.HasSuffix(target, ".tmpl") {
 			target = strings.TrimSuffix(target, ".tmpl")
-			t, err := template.New(rel).Parse(string(content))
+			t, err := template.New(rel).Funcs(templateFuncs).Parse(string(content))
 			if err != nil {
 				return err
 			}

@@ -18,7 +18,7 @@ func (a appController) RegisterURLScheme(scheme, id, name string) error {
 	withPool(func() {
 		bundle := send(class("NSBundle"), "mainBundle")
 		if !declaresScheme(bundle, scheme) {
-			err = fmt.Errorf("mygo: the app does not declare the URL scheme %q: list it in urlSchemes in mygo.json", scheme)
+			err = fmt.Errorf("mygo: the app does not declare the URL scheme %q: list it in urlSchemes in mygo.config.ts", scheme)
 			return
 		}
 		if status := lsSetDefaultHandlerForURLScheme(nsString(scheme), send(bundle, "bundleIdentifier")); status != 0 {

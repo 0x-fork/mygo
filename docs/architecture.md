@@ -474,8 +474,8 @@ Apps load their web UI with URLs without a scheme (`WindowOptions.URL: "/"`,
 `LoadURL("/settings")`), which `resolveURL` resolves against the frontend,
 as in Tauri:
 
-- during `mygo dev`, the dev server: `MYGO_DEV_URL`, from `devUrl` in
-  mygo.json (only honored when `IsDev`);
+- during `mygo dev`, the dev server: `MYGO_DEV_URL`, from `devUrl` of the
+  configuration (only honored when `IsDev`);
 - otherwise `mygo://localhost/`. The `mygo` scheme is registered with every
   webview and, unless the app handles it with `Protocol.Handle`, serves the
   files given to `SetFrontend`. `mygo build` calls `SetFrontend` from a
@@ -514,7 +514,7 @@ as in Tauri:
   `SW_SHOWMAXIMIZED` on the first show on Windows, where `Maximize` on a
   hidden window also waits for it to be shown.
 - Deep links (`deeplink.go`). `mygo build` and `mygo dev` link the name,
-  version, identifier and `urlSchemes` of mygo.json into the binary
+  version, identifier and `urlSchemes` of the configuration into the binary
   (`-X …packageName=…`), which is how Linux builds know them (`IsPackaged`,
   `Name`, `Version`) and every platform knows which launch arguments are
   deep links. URLs of those schemes, and of ones registered with
@@ -543,7 +543,7 @@ as in Tauri:
   happens before it was ready.
 - Updates (`updater.go`, `internal/update`, `cmd/mygo/updates.go`), in pure
   Go on every platform. `mygo keygen` creates an Ed25519 key pair; with
-  `updates` in mygo.json (the public key, and a GitHub repository or a base
+  `updates` in the configuration (the public key, and a GitHub repository or a base
   URL) `mygo build` links the manifest URL of the target and the public key
   into the app, and when the private key is available
   (`MYGO_UPDATER_PRIVATE_KEY` or `updates.privateKey`) archives the app as
@@ -563,7 +563,7 @@ as in Tauri:
   uploads installers and update archives, then the manifests, and leaves
   publishing the draft (which makes the manifests "latest") to the
   developer once every platform is there.
-- File associations (`fileAssociations` in mygo.json) are declared by the
+- File associations (`fileAssociations` in the configuration) are declared by the
   packages (see the table below) and their extensions linked into the
   binary; like deep links, files of those extensions among the launch
   arguments and those a second instance forwards reach `OnOpenFile`
@@ -616,19 +616,22 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   JavaScript dependencies with Bun and generates the client. package.json
   runs the CLI from mygo-cli (`bun run dev`, `bun run build`), or with
   `go run github.com/egoist/mygo/cmd/mygo` for `-mygo <checkout>`, whose
-  go.mod replaces the module with the checkout. mygo.json sets `devUrl`,
-  `devCommand` and `buildCommand` (the `dev:web` and `build:web` scripts,
-  which run Vite and never mygo), `frontendDist` (Vite's `dist`) and `out`
-  (`build`, so the two do not meet); `vite.config.ts` pins the dev server to
-  the port of `devUrl` and does not watch the development app and builds.
-- The configuration is `mygo.json`, or `mygo.config.ts` (`config_ts.go`):
-  Bun, else Node.js 22.6 or later (with `--experimental-strip-types` before
-  22.18 and 23.6), runs a loader that imports it, awaits its default export
-  or calls it with `{ command }`, and writes JSON to a temporary file, which
-  then goes through the same checks as mygo.json. Errors name the file in
-  use. `defineConfig` and the types of the configuration come from
-  `packages/cli/index.d.ts`; `TestConfigTypes` keeps its interfaces in step
-  with the `Config` struct.
+  go.mod replaces the module with the checkout. mygo.config.ts imports
+  `defineConfig` from mygo-cli, or from the checkout's `packages/cli` by a
+  relative path between real locations, and sets `devUrl`, `devCommand` and
+  `buildCommand` (the `dev:web` and `build:web` scripts, which run Vite and
+  never mygo), `frontendDist` (Vite's `dist`) and `out` (`build`, so the two
+  do not meet); `vite.config.ts` pins the dev server to the port of `devUrl`
+  and does not watch the development app and builds. Names reach the
+  templates escaped for their language (`json`, `printf "%q"`, `html`).
+- The configuration is `mygo.config.ts`, or `mygo.json` (`config.go`,
+  `config_ts.go`). For the former, Bun, else Node.js 22.6 or later (with
+  `--experimental-strip-types` before 22.18 and 23.6), runs a loader that
+  imports it, awaits its default export or calls it with `{ command }`, and
+  writes JSON to a temporary file; either way the JSON goes through the same
+  checks. Errors name the file in use. `defineConfig` and the types of the
+  configuration come from `packages/cli/index.d.ts`; `TestConfigTypes`
+  keeps its interfaces in step with the `Config` struct.
 - `generate` builds the app for the host and runs it in generate mode
   (`MYGO_GENERATE`; `RequestSingleInstanceLock` then returns true at once).
 - `dev` (`dev.go`, `watch.go`) runs `devCommand` in the project directory,
@@ -654,7 +657,7 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   - *Watching.* Exactly what the build reads, from `go list -deps` after
     every build: the directories of the compiled packages outside GOROOT and
     the module cache (so local `replace` modules too), embedded files,
-    go.mod/go.sum, mygo.json, the icon and the resources. Frontend sources
+    go.mod/go.sum, the configuration, the icon and the resources. Frontend sources
     are the dev server's business and never rebuild the app. A build keeps
     the watcher's baseline unless it changed what is watched, so edits made
     during a build trigger another one.
@@ -675,7 +678,7 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   the web inspector by default.
 - *Resources* (`resources.go`), as in quickgui: the contents of the
   project's `resources/` directory, plus the files and directories listed
-  in `resources` in mygo.json under their base names, are copied into
+  in `resources` in the configuration under their base names, are copied into
   `Contents/Resources` of macOS bundles and next to the executable on
   Linux and Windows, by `build` and `dev` alike; apps find them with
   `App.Path(PathResources)` (under `go run`, `./resources`). Names starting
@@ -712,7 +715,8 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
 
 - `keygen` writes the update signing keys (see Updates above).
 
-Configuration lives in an optional `mygo.json` (`cmd/mygo/config.go`): app
+Configuration lives in an optional `mygo.config.ts` or `mygo.json`
+(`cmd/mygo/config.go`): app
 metadata (the icon defaults to `resources/icon.png`), extra `resources`,
 the frontend (`devUrl`, `devCommand`, `buildCommand`, `frontendDist`,
 `bindings`) and the `macos` section (minimum system version, signing
