@@ -369,6 +369,13 @@ type WindowHandler interface {
 	ClosedByPage()
 	RenderProcessGone(reason string)
 	SchemeRequest(req *SchemeRequest)
+	// DownloadStarted returns where to save a download, "" to cancel it;
+	// DownloadFinished reports how it ended.
+	DownloadStarted(url, suggestedName string) string
+	DownloadFinished(url, path string, err error)
+	// SchemeDownload downloads a URL of a custom scheme, which the engine
+	// cannot turn into a download, by serving it again.
+	SchemeDownload(url string)
 	// PermissionRequested asks whether the page at origin may use kinds:
 	// "camera", "microphone", "geolocation" or "notifications".
 	PermissionRequested(kinds []string, origin string) bool

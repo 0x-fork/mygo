@@ -13,6 +13,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -156,6 +158,10 @@ func (w *window) setUp(controller uintptr) {
 	})
 	add(wvAddNewWindowRequested, w.newWindowRequested)
 	add(wvAddPermissionRequested, w.permissionRequested)
+	if wv4 := queryInterface(w.webview, &iidICoreWebView2_4); wv4 != 0 {
+		withHandler(w.downloadStarting, func(h uintptr) uintptr { return comCall(wv4, wv4AddDownloadStarting, h, tok) })
+		release(wv4)
+	}
 	add(wvAddWindowCloseRequested, func(_, _ uintptr) { w.h.ClosedByPage() })
 	add(wvAddProcessFailed, func(_, args uintptr) {
 		var kind int32
@@ -253,6 +259,46 @@ func (w *window) navigationCompleted(_, args uintptr) {
 		return
 	}
 	w.h.LoadFailed(w.URL(), int(status), "navigation failed (COREWEBVIEW2_WEB_ERROR_STATUS "+strconv.Itoa(int(status))+")")
+}
+
+// downloadStarting asks where to save a download, instead of WebView2's own
+// download UI, and reports when it ended. What custom schemes serve comes
+// from the app itself, so it is downloaded from there.
+func (w *window) downloadStarting(_, args uintptr) {
+	var op uintptr
+	if failed(comCall(args, dlStartGetOperation, uintptr(unsafe.Pointer(&op)))) || op == 0 {
+		return
+	}
+	defer release(op)
+	var p uintptr
+	comCall(op, dlOpGetURI, uintptr(unsafe.Pointer(&p)))
+	uri := takeWstr(p)
+	if app := w.appURL(uri); app != uri {
+		comCall(args, dlStartPutCancel, 1)
+		w.h.SchemeDownload(app)
+		return
+	}
+	comCall(args, dlStartGetResultFilePath, uintptr(unsafe.Pointer(&p)))
+	path := w.h.DownloadStarted(uri, filepath.Base(takeWstr(p)))
+	comCall(args, dlStartPutHandled, 1) // no download UI of WebView2
+	if path == "" {
+		comCall(args, dlStartPutCancel, 1)
+		return
+	}
+	os.Remove(path) // a file there is replaced
+	comCall(args, dlStartPutResultFilePath, uintptr(unsafe.Pointer(u16(path))))
+	var tok int64
+	withHandler(func(sender, _ uintptr) {
+		var state, reason int32
+		comCall(sender, dlOpGetState, uintptr(unsafe.Pointer(&state)))
+		switch state {
+		case 1: // interrupted
+			comCall(sender, dlOpGetInterruptReason, uintptr(unsafe.Pointer(&reason)))
+			w.h.DownloadFinished(uri, path, fmt.Errorf("mygo: download interrupted (reason %d)", reason))
+		case 2: // completed
+			w.h.DownloadFinished(uri, path, nil)
+		}
+	}, func(h uintptr) uintptr { return comCall(op, dlOpAddStateChanged, h, uintptr(unsafe.Pointer(&tok))) })
 }
 
 // permissionRequested decides camera, microphone, location and notification

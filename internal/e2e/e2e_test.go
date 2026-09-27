@@ -88,6 +88,11 @@ func TestMain(m *testing.M) {
 		w.Header().Set("Content-Type", "text/html")
 		io.WriteString(w, page)
 	})
+	mux.HandleFunc("/report.bin", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", `attachment; filename="report.bin"`)
+		io.WriteString(w, "binary report")
+	})
 	mux.HandleFunc("POST /echo", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		fmt.Fprintf(w, "echo:%s", b)
@@ -795,6 +800,53 @@ func mustEval(t *testing.T, w *mygo.Window, js string) any {
 		t.Fatal(err)
 	}
 	return v
+}
+
+func TestDownloads(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Title: "Downloads", Width: 300, Height: 200})
+	if err := w.LoadURL("app://localhost/"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, w, `window.run`)
+	dir := t.TempDir()
+	started := make(chan *mygo.DownloadEvent, 2)
+	done := make(chan *mygo.Download, 2)
+	w.OnWillDownload(func(e *mygo.DownloadEvent) {
+		if e.Path == "" || filepath.Base(e.Path) != e.SuggestedName {
+			t.Errorf("default path %q for %q", e.Path, e.SuggestedName)
+		}
+		e.Path = filepath.Join(dir, e.SuggestedName)
+		started <- e
+	})
+	w.OnDownloadDone(func(d *mygo.Download) { done <- d })
+	check := func(what, name, content string) {
+		t.Helper()
+		select {
+		case e := <-started:
+			if e.SuggestedName != name {
+				t.Errorf("%s: suggested name %q, want %q", what, e.SuggestedName, name)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: OnWillDownload was not called", what)
+		}
+		select {
+		case d := <-done:
+			if d.Err != nil {
+				t.Fatalf("%s: %v", what, d.Err)
+			}
+			if b, err := os.ReadFile(d.Path); err != nil || string(b) != content {
+				t.Errorf("%s: saved %q, %v", what, b, err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: OnDownloadDone was not called", what)
+		}
+	}
+	// A link with the download attribute.
+	mustEval(t, w, `(() => { const a = document.createElement("a"); a.href = "data:text/csv,a%2Cb"; a.download = "report.csv"; document.body.append(a); a.click(); return true })()`)
+	check("download link", "report.csv", "a,b")
+	// A response sent as an attachment.
+	mustEval(t, w, `(location.href = "report.bin", true)`)
+	check("attachment", "report.bin", "binary report")
 }
 
 func TestCloseEvents(t *testing.T) {

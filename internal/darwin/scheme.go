@@ -110,12 +110,21 @@ func (st *schemeTask) release() {
 	release(st.task)
 }
 
+// schemeDispositions records the Content-Disposition of the latest custom
+// scheme responses by URL, which the navigation policy needs to recognize
+// attachments.
+var schemeDispositions = map[string]string{}
+
 func (st *schemeTask) Respond(status int, header http.Header) {
 	if st.stopped || st.done || st.responded {
 		return
 	}
 	st.responded = true
 	withPool(func() {
+		if len(schemeDispositions) > 64 {
+			clear(schemeDispositions)
+		}
+		schemeDispositions[goString(send(send(send(st.task, "request"), "URL"), "absoluteString"))] = header.Get("Content-Disposition")
 		fields := send(class("NSMutableDictionary"), "dictionary")
 		for k, vs := range header {
 			send(fields, "setObject:forKey:", uintptr(nsString(strings.Join(vs, ", "))), uintptr(nsString(k)))

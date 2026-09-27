@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -196,6 +197,7 @@ func (w *window) createWebView() {
 	connect(w.web, "drag-data-received", cbDragData, data)
 	connect(w.web, "drag-drop", cbDragDrop, data)
 	connect(w.web, "permission-request", cbPermission, data)
+	hookDownloads()
 }
 
 func (w *window) applyGeometry() {
@@ -498,6 +500,30 @@ func (w *window) CapturePage(cb func([]byte, error)) {
 	webkitWebViewGetSnapshot(w.web, 0, 0, 0, cbAsyncReady, id)
 }
 
+// decideResponse makes attachments, and what WebKit cannot show,
+// downloads. WebKit cannot download what a custom scheme serves, so the app
+// serves it again into a download.
+func (w *window) decideResponse(decision ptr) bool {
+	resp := webkitResponsePolicyDecisionGetResponse(decision)
+	uri := goStr(webkitURIResponseGetURI(resp))
+	disposition := ""
+	if h := webkitURIResponseGetHTTPHeaders(resp); h != 0 {
+		disposition = goStr(soupMessageHeadersGetOne(h, cs("Content-Disposition")))
+	}
+	attachment := strings.HasPrefix(strings.ToLower(strings.TrimSpace(disposition)), "attachment")
+	if !attachment && webkitResponsePolicyDecisionIsMIMETypeSupported(decision) {
+		return false
+	}
+	scheme, _, _ := strings.Cut(uri, ":")
+	if w.b.schemes[strings.ToLower(scheme)] {
+		webkitPolicyDecisionIgnore(decision)
+		w.h.SchemeDownload(uri)
+		return true
+	}
+	webkitPolicyDecisionDownload(decision)
+	return true
+}
+
 // printJobs holds the PrintToPDF operations running.
 var printJobs = map[ptr]*printJob{}
 
@@ -788,7 +814,13 @@ func initWindowCallbacks() {
 	})
 	cbDecidePolicy = purego.NewCallback(func(web, decision ptr, kind int32, data ptr) bool {
 		w := b().window(data)
-		if w == nil || kind != 0 { // only WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION
+		if w == nil {
+			return false
+		}
+		if kind == 2 { // WEBKIT_POLICY_DECISION_TYPE_RESPONSE
+			return w.decideResponse(decision)
+		}
+		if kind != 0 { // WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION
 			return false
 		}
 		action := webkitNavigationPolicyDecisionGetNavigationAction(decision)

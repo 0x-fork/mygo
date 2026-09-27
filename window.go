@@ -195,6 +195,8 @@ type Window struct {
 	onReadyToShow      listeners[func()]
 	onResize           listeners[func()]
 	onFileDrop         listeners[func(*FileDropEvent)]
+	onWillDownload     listeners[func(*DownloadEvent)]
+	onDownloadDone     listeners[func(*Download)]
 	onMove             listeners[func()]
 	onMaximize         listeners[func()]
 	onUnmaximize       listeners[func()]

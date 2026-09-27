@@ -172,6 +172,7 @@ func initCallbacks() {
 			return 0
 		})
 		initWindowCallbacks()
+		initDownloadCallbacks()
 		initMenuCallbacks()
 		initSystemCallbacks()
 	})

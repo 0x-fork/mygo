@@ -514,6 +514,14 @@ as in Tauri:
   binary; like deep links, files of those extensions among the launch
   arguments and those a second instance forwards reach `OnOpenFile`
   (paths relative to the working directory, and file URLs from `%U`).
+- Downloads (`downloads.go`): links with `download`, and responses a page
+  cannot show or that are attachments, become downloads. `OnWillDownload`
+  gets the URL, the suggested name and a default path in Downloads (a
+  unique name), which it may change or cancel; `OnDownloadDone` reports
+  the result. WebKit cannot turn what a custom scheme handler serves into a
+  download, and WebView2 would fetch it over the network, so those are
+  canceled and the core serves the URL again through the scheme's handler
+  into the file (`SchemeDownload`).
 - Permissions (`permissions.go`): the backends route camera, microphone,
   location and notification requests to `WindowHandler.PermissionRequested`;
   `SetPermissionHandler` decides them, and by default trusted pages (the
@@ -715,6 +723,7 @@ docker run --rm -v "$PWD:/work" -w /work -e MYGO_E2E=1 \
 | visible on all workspaces | `NSWindowCollectionBehaviorCanJoinAllSpaces` | `gtk_window_stick` | ignored |
 | window icon | ignored | `gtk_window_set_icon` | `WM_SETICON` at the window's DPI |
 | URL schemes | Info.plist (`urlSchemes`); `RegisterURLScheme` makes the app the default handler | desktop entry + `mimeapps.list` | `HKCU\Software\Classes` |
+| downloads | `shouldPerformDownload`, non-displayable or attachment responses → `WKDownload` delegate | `download-started` / `decide-destination` on the web context; response policy for attachments | `DownloadStarting` (`ICoreWebView2_4`), replacing WebView2's download UI |
 | permissions | `WKUIDelegate` media capture (camera, microphone) | `permission-request` (camera, microphone, geolocation, notifications) | `PermissionRequested` (the same four; WebView2 asks about others) |
 | file associations | `CFBundleDocumentTypes`; files arrive with `application:openURLs:` | desktop entry `MimeType` (`%U`), a shared-mime-info package in the .deb for types the app defines | ProgIDs and `OpenWithProgids` written by the installer |
 | Dock menu | `applicationDockMenu:` | ignored | ignored |

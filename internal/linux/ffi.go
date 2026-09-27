@@ -326,6 +326,16 @@ var (
 	webkitWebContextGetDefault                        func() ptr
 	webkitWebContextRegisterURIScheme                 func(ctx ptr, scheme *byte, cb ptr, data ptr, destroy ptr)
 	webkitWebContextGetSecurityManager                func(ctx ptr) ptr
+	webkitDownloadGetWebView                          func(d ptr) ptr
+	webkitDownloadGetRequest                          func(d ptr) ptr
+	webkitDownloadSetDestination                      func(d ptr, uri *byte)
+	webkitDownloadSetAllowOverwrite                   func(d ptr, v bool)
+	webkitDownloadCancel                              func(d ptr)
+	webkitResponsePolicyDecisionGetResponse           func(d ptr) ptr
+	webkitResponsePolicyDecisionIsMIMETypeSupported   func(d ptr) bool
+	webkitPolicyDecisionDownload                      func(d ptr)
+	webkitURIResponseGetURI                           func(r ptr) ptr
+	webkitURIResponseGetHTTPHeaders                   func(r ptr) ptr
 	webkitSecurityManagerRegisterSecure               func(m ptr, scheme *byte)
 	webkitSecurityManagerRegisterCORS                 func(m ptr, scheme *byte)
 	webkitUserContentManagerNew                       func() ptr
@@ -421,6 +431,7 @@ var (
 	soupMessageHeadersNew     func(typ int32) ptr
 	soupMessageHeadersAppend  func(h ptr, name, value *byte)
 	soupMessageHeadersForeach func(h ptr, fn ptr, data ptr)
+	soupMessageHeadersGetOne  func(h ptr, name *byte) ptr
 
 	cairoSurfaceWriteToPNGStream func(surface ptr, write ptr, closure ptr) int32
 	cairoSurfaceDestroy          func(s ptr)
@@ -686,6 +697,16 @@ func load() error {
 	mustBind(w, &webkitWebContextGetDefault, "webkit_web_context_get_default")
 	mustBind(w, &webkitWebContextRegisterURIScheme, "webkit_web_context_register_uri_scheme")
 	mustBind(w, &webkitWebContextGetSecurityManager, "webkit_web_context_get_security_manager")
+	mustBind(w, &webkitDownloadGetWebView, "webkit_download_get_web_view")
+	mustBind(w, &webkitDownloadGetRequest, "webkit_download_get_request")
+	mustBind(w, &webkitDownloadSetDestination, "webkit_download_set_destination")
+	mustBind(w, &webkitDownloadSetAllowOverwrite, "webkit_download_set_allow_overwrite")
+	mustBind(w, &webkitDownloadCancel, "webkit_download_cancel")
+	mustBind(w, &webkitResponsePolicyDecisionGetResponse, "webkit_response_policy_decision_get_response")
+	mustBind(w, &webkitResponsePolicyDecisionIsMIMETypeSupported, "webkit_response_policy_decision_is_mime_type_supported")
+	mustBind(w, &webkitPolicyDecisionDownload, "webkit_policy_decision_download")
+	mustBind(w, &webkitURIResponseGetURI, "webkit_uri_response_get_uri")
+	mustBind(w, &webkitURIResponseGetHTTPHeaders, "webkit_uri_response_get_http_headers")
 	mustBind(w, &webkitSecurityManagerRegisterSecure, "webkit_security_manager_register_uri_scheme_as_secure")
 	mustBind(w, &webkitSecurityManagerRegisterCORS, "webkit_security_manager_register_uri_scheme_as_cors_enabled")
 	mustBind(w, &webkitUserContentManagerNew, "webkit_user_content_manager_new")
@@ -778,6 +799,7 @@ func load() error {
 
 	mustBind(libJSC, &jscValueToString, "jsc_value_to_string")
 	mustBind(libSoup, &soupMessageHeadersNew, "soup_message_headers_new")
+	mustBind(libSoup, &soupMessageHeadersGetOne, "soup_message_headers_get_one")
 	mustBind(libSoup, &soupMessageHeadersAppend, "soup_message_headers_append")
 	mustBind(libSoup, &soupMessageHeadersForeach, "soup_message_headers_foreach")
 	mustBind(libCairo, &cairoSurfaceWriteToPNGStream, "cairo_surface_write_to_png_stream")

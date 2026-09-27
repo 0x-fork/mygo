@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/ebitengine/purego/objc"
 
@@ -48,8 +49,9 @@ type window struct {
 	parent   *window
 
 	lastMouseDown id
-	dropped       []string // DroppedFiles
-	attention     int      // the request of FlashFrame
+	dropped       []string         // DroppedFiles
+	downloads     map[id][2]string // WKDownload: URL and path
+	attention     int              // the request of FlashFrame
 	maximized     bool
 	programmatic  bool
 	closed        bool
@@ -58,7 +60,7 @@ type window struct {
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
-	w := &window{b: b, h: h, opts: o, trafficLights: o.TrafficLightPosition}
+	w := &window{b: b, h: h, opts: o, trafficLights: o.TrafficLightPosition, downloads: map[id][2]string{}}
 	if p, ok := o.Parent.(*window); ok && p != nil {
 		w.parent = p
 	}
@@ -901,7 +903,7 @@ func registerWindowClasses() {
 
 	b := func() *Backend { return theBackend }
 	classDef("MyGoWindowDelegate", "NSObject",
-		[]string{"NSWindowDelegate", "WKNavigationDelegate", "WKUIDelegate", "WKScriptMessageHandler"},
+		[]string{"NSWindowDelegate", "WKNavigationDelegate", "WKUIDelegate", "WKScriptMessageHandler", "WKDownloadDelegate"},
 		[]objc.MethodDef{
 			// NSWindowDelegate
 			method("windowShouldClose:", func(self id, _ objc.SEL, sender id) bool {
@@ -1017,6 +1019,11 @@ func registerWindowClasses() {
 
 			// WKNavigationDelegate
 			method("webView:decidePolicyForNavigationAction:decisionHandler:", func(self id, _ objc.SEL, web, action id, handler uintptr) {
+				// A link with the download attribute (macOS 11.3).
+				if respondsTo(action, "shouldPerformDownload") && sendBool(action, "shouldPerformDownload") {
+					callBlock(handler, 2) // WKNavigationActionPolicyDownload
+					return
+				}
 				allow := true
 				if w := b().windowFor(self); w != nil {
 					frame := send(action, "targetFrame")
@@ -1034,6 +1041,72 @@ func registerWindowClasses() {
 					allow = w.h.WillNavigate(nav)
 				}
 				callBlock(handler, boolArg(allow))
+			}),
+			// Responses the page cannot show, or sent as attachments, are
+			// downloads (macOS 11.3).
+			method("webView:decidePolicyForNavigationResponse:decisionHandler:", func(self id, _ objc.SEL, web, nav id, handler uintptr) {
+				const cancel, allow, download = 0, 1, 2 // WKNavigationResponsePolicy
+				resp := send(nav, "response")
+				url := goString(send(send(resp, "URL"), "absoluteString"))
+				disposition, custom := schemeDispositions[url]
+				if !custom && respondsTo(resp, "allHeaderFields") {
+					disposition = goString(send(send(resp, "allHeaderFields"), "objectForKey:", uintptr(nsString("Content-Disposition"))))
+				}
+				attachment := strings.HasPrefix(strings.ToLower(strings.TrimSpace(disposition)), "attachment")
+				switch {
+				case !attachment && sendBool(nav, "canShowMIMEType"):
+					callBlock(handler, allow)
+				case custom:
+					// WebKit cannot turn what a scheme handler serves into a
+					// download: serve it again into one.
+					callBlock(handler, cancel)
+					if w := b().windowFor(self); w != nil {
+						w.h.SchemeDownload(url)
+					}
+				case hasClass("WKDownload"):
+					callBlock(handler, download)
+				default:
+					callBlock(handler, cancel)
+				}
+			}),
+			method("webView:navigationAction:didBecomeDownload:", func(self id, _ objc.SEL, web, action, download id) {
+				send(download, "setDelegate:", uintptr(self))
+			}),
+			method("webView:navigationResponse:didBecomeDownload:", func(self id, _ objc.SEL, web, nav, download id) {
+				send(download, "setDelegate:", uintptr(self))
+			}),
+			// WKDownloadDelegate.
+			method("download:decideDestinationUsingResponse:suggestedFilename:completionHandler:", func(self id, _ objc.SEL, download, resp, suggested id, handler uintptr) {
+				w := b().windowFor(self)
+				if w == nil {
+					callBlock(handler, 0)
+					return
+				}
+				url := goString(send(send(send(download, "originalRequest"), "URL"), "absoluteString"))
+				path := w.h.DownloadStarted(url, goString(suggested))
+				if path == "" {
+					callBlock(handler, 0) // cancels the download
+					return
+				}
+				os.Remove(path) // WebKit refuses to replace a file
+				w.downloads[download] = [2]string{url, path}
+				withPool(func() { callBlock(handler, uintptr(send(class("NSURL"), "fileURLWithPath:", uintptr(nsString(path))))) })
+			}),
+			method("downloadDidFinish:", func(self id, _ objc.SEL, download id) {
+				if w := b().windowFor(self); w != nil {
+					if d, ok := w.downloads[download]; ok {
+						delete(w.downloads, download)
+						w.h.DownloadFinished(d[0], d[1], nil)
+					}
+				}
+			}),
+			method("download:didFailWithError:resumeData:", func(self id, _ objc.SEL, download, nserr, resume id) {
+				if w := b().windowFor(self); w != nil {
+					if d, ok := w.downloads[download]; ok {
+						delete(w.downloads, download)
+						w.h.DownloadFinished(d[0], d[1], errors.New(goString(send(nserr, "localizedDescription"))))
+					}
+				}
 			}),
 			method("webView:didStartProvisionalNavigation:", func(self id, _ objc.SEL, web, nav id) {
 				if w := b().windowFor(self); w != nil {
