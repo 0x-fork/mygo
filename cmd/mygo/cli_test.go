@@ -187,7 +187,7 @@ func TestTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.DevURL != "http://localhost:5173" || c.FrontendDist != "dist" || c.Out != "build" || c.Bindings != filepath.Join("src", "mygo.ts") {
+	if c.DevURL != "http://localhost:5173" || c.FrontendDist != "dist" || c.Out != "build" || c.Bindings != "src/mygo.ts" {
 		t.Errorf("template mygo.json: %+v", c)
 	}
 	// devCommand and buildCommand run scripts of package.json, which must
