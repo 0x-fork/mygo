@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"strconv"
 
 	"github.com/ebitengine/purego/objc"
 
@@ -722,6 +723,15 @@ func pngFromImage(img id) []byte {
 	return goBytes(data)
 }
 
+// securityOrigin renders a WKSecurityOrigin like a URL origin.
+func securityOrigin(o id) string {
+	origin := goString(send(o, "protocol")) + "://" + goString(send(o, "host"))
+	if port := sendInt(o, "port"); port != 0 {
+		origin += ":" + strconv.Itoa(port)
+	}
+	return origin
+}
+
 // printJobs holds the completions of print operations by their context.
 var printJobs = map[uintptr]func(success bool){}
 
@@ -899,6 +909,18 @@ func registerWindowClasses() {
 					return w.h.ShouldClose()
 				}
 				return true
+			}),
+			// WKUIDelegate (macOS 12): camera and microphone requests.
+			method("webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:", func(self id, _ objc.SEL, web, origin, frame id, typ int, handler uintptr) {
+				const grant, deny = 1, 2 // WKPermissionDecision
+				decision := deny
+				if w := b().windowFor(self); w != nil {
+					kinds := map[int][]string{0: {"camera"}, 1: {"microphone"}, 2: {"camera", "microphone"}}[typ]
+					if w.h.PermissionRequested(kinds, securityOrigin(origin)) {
+						decision = grant
+					}
+				}
+				callBlock(handler, uintptr(decision))
 			}),
 			// WebKit's print operations may finish on a background thread.
 			method("mygoPrintOperationDidRun:success:contextInfo:", func(self id, _ objc.SEL, op id, success bool, job uintptr) {

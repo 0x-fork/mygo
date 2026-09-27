@@ -514,6 +514,13 @@ as in Tauri:
   binary; like deep links, files of those extensions among the launch
   arguments and those a second instance forwards reach `OnOpenFile`
   (paths relative to the working directory, and file URLs from `%U`).
+- Permissions (`permissions.go`): the backends route camera, microphone,
+  location and notification requests to `WindowHandler.PermissionRequested`;
+  `SetPermissionHandler` decides them, and by default trusted pages (the
+  app's own, `TrustedOrigins`) are granted and others denied. Custom scheme
+  pages are secure contexts with a real origin on every platform, which
+  these APIs need. `macos.infoPlist` adds keys such as the camera and
+  microphone usage descriptions macOS requires.
 - `window.open()` and `target=_blank` go through `SetWindowOpenHandler`. By
   default http(s) URLs open in the default browser. Allowing one creates a
   window around the configuration or related view WebKit provides, with its
@@ -708,6 +715,7 @@ docker run --rm -v "$PWD:/work" -w /work -e MYGO_E2E=1 \
 | visible on all workspaces | `NSWindowCollectionBehaviorCanJoinAllSpaces` | `gtk_window_stick` | ignored |
 | window icon | ignored | `gtk_window_set_icon` | `WM_SETICON` at the window's DPI |
 | URL schemes | Info.plist (`urlSchemes`); `RegisterURLScheme` makes the app the default handler | desktop entry + `mimeapps.list` | `HKCU\Software\Classes` |
+| permissions | `WKUIDelegate` media capture (camera, microphone) | `permission-request` (camera, microphone, geolocation, notifications) | `PermissionRequested` (the same four; WebView2 asks about others) |
 | file associations | `CFBundleDocumentTypes`; files arrive with `application:openURLs:` | desktop entry `MimeType` (`%U`), a shared-mime-info package in the .deb for types the app defines | ProgIDs and `OpenWithProgids` written by the installer |
 | Dock menu | `applicationDockMenu:` | ignored | ignored |
 | PrintToPDF | `printOperationWithPrintInfo:` save job (`NSJobSavingURL`), fit to width | `WebKitPrintOperation` to GTK's "Print to File" | DevTools `Page.printToPDF` |

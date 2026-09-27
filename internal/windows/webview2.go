@@ -41,6 +41,7 @@ const (
 	wvNavigateToString                    = 6
 	wvAddNavigationStarting               = 7
 	wvAddContentLoading                   = 9
+	wvAddPermissionRequested              = 23
 	wvAddNavigationCompleted              = 15
 	wvAddProcessFailed                    = 25
 	wvAddScriptToExecuteOnDocumentCreated = 27
@@ -107,6 +108,9 @@ const (
 	iterMoveNext                  = 5
 	deferralComplete              = 3
 	procFailedGetKind             = 3
+	permGetURI                    = 3
+	permGetKind                   = 4
+	permPutState                  = 7
 	accelGetKeyEventKind          = 3
 	accelGetVirtualKey            = 4
 	accelPutHandled               = 8

@@ -195,6 +195,7 @@ func (w *window) createWebView() {
 	connect(w.web, "button-press-event", cbButtonPress, data)
 	connect(w.web, "drag-data-received", cbDragData, data)
 	connect(w.web, "drag-drop", cbDragDrop, data)
+	connect(w.web, "permission-request", cbPermission, data)
 }
 
 func (w *window) applyGeometry() {
@@ -616,7 +617,7 @@ var (
 	cbDeleteEvent, cbDestroy, cbFocusIn, cbFocusOut, cbConfigure, cbWindowState ptr
 	cbScriptMessage, cbLoadChanged, cbLoadFailed, cbTitle, cbDecidePolicy       ptr
 	cbCreate, cbClose, cbCrashed, cbButtonPress, cbAsyncReady, cbPNGWrite       ptr
-	cbDragData, cbDragDrop, cbPrintFinished, cbPrintFailed                      ptr
+	cbDragData, cbDragDrop, cbPrintFinished, cbPrintFailed, cbPermission        ptr
 )
 
 func field[T any](p ptr, offset uintptr) T {
@@ -841,6 +842,40 @@ func initWindowCallbacks() {
 		if fn := pending.take(data); fn != nil {
 			fn(source, res)
 		}
+	})
+	// Camera, microphone, location and notifications; other requests get
+	// WebKit's default answer.
+	cbPermission = purego.NewCallback(func(web, req, data ptr) bool {
+		w := b().window(data)
+		if w == nil {
+			return false
+		}
+		var kinds []string
+		switch {
+		case gTypeCheckInstanceIsA(req, webkitUserMediaPermissionRequestGetType()):
+			if webkitUserMediaPermissionIsForVideoDevice(req) {
+				kinds = append(kinds, "camera")
+			}
+			if webkitUserMediaPermissionIsForAudioDevice(req) {
+				kinds = append(kinds, "microphone")
+			}
+		case gTypeCheckInstanceIsA(req, webkitGeolocationPermissionRequestGetType()):
+			kinds = []string{"geolocation"}
+		case gTypeCheckInstanceIsA(req, webkitNotificationPermissionRequestGetType()):
+			kinds = []string{"notifications"}
+		default:
+			return false
+		}
+		origin := goStr(webkitWebViewGetURI(web))
+		if u, err := url.Parse(origin); err == nil {
+			origin = (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
+		}
+		if w.h.PermissionRequested(kinds, origin) {
+			webkitPermissionRequestAllow(req)
+		} else {
+			webkitPermissionRequestDeny(req)
+		}
+		return true
 	})
 	cbPrintFinished = purego.NewCallback(func(op, data ptr) {
 		if job := printJobs[op]; job != nil {

@@ -110,6 +110,11 @@ type MacOS struct {
 	SigningIdentity string `json:"signingIdentity"`
 	// Entitlements is a plist of entitlements to sign the app with.
 	Entitlements string `json:"entitlements"`
+	// InfoPlist holds extra keys for the Info.plist of the bundle, which
+	// replace MyGo's own, e.g. usage descriptions for apps whose pages use
+	// the camera or the microphone:
+	//   "NSCameraUsageDescription": "Scan documents with the camera."
+	InfoPlist map[string]any `json:"infoPlist"`
 	// DMGTitle is the volume name of the disk image (default: name).
 	DMGTitle string `json:"dmgTitle"`
 	// Notarize submits production disk images to Apple's notary service and

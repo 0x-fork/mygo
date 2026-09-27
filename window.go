@@ -172,10 +172,11 @@ type Window struct {
 	trusted        bool
 	trustedOrigins []string
 
-	mu          sync.Mutex
-	openHandler func(WindowOpenRequest) *WindowOptions
-	pageCtx     context.Context
-	pageCancel  context.CancelFunc
+	mu                sync.Mutex
+	openHandler       func(WindowOpenRequest) *WindowOptions
+	permissionHandler func(PermissionRequest) bool
+	pageCtx           context.Context
+	pageCancel        context.CancelFunc
 
 	outMu    sync.Mutex
 	outbox   [][]byte

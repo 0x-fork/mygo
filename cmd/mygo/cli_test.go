@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -282,6 +283,37 @@ func TestFileAssociations(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, "mygo.json"), []byte(`{"fileAssociations": `+bad+`}`), 0o644)
 		if _, err := loadConfig(dir); err == nil {
 			t.Errorf("accepted fileAssociations %s", bad)
+		}
+	}
+}
+
+func TestInfoPlistExtraKeys(t *testing.T) {
+	c := &Config{Name: "Cam", Identifier: "com.example.cam", Version: "1.0.0", MacOS: MacOS{
+		MinimumSystemVersion: "12.0",
+		InfoPlist: map[string]any{
+			"NSCameraUsageDescription":             "Scan <documents> & more.",
+			"LSUIElement":                          true,
+			"NSSupportsAutomaticGraphicsSwitching": false,
+			"MyNumbers":                            []any{float64(1), 2.5},
+			"MyDict":                               map[string]any{"a": "b"},
+		},
+	}}
+	plist := infoPlist(c, "Cam", "")
+	for _, want := range []string{
+		"<key>NSCameraUsageDescription</key>\n\t<string>Scan &lt;documents&gt; &amp; more.</string>",
+		"<key>LSUIElement</key>\n\t<true/>",
+		"<key>NSSupportsAutomaticGraphicsSwitching</key>\n\t<false/>",
+		"<integer>1</integer>", "<real>2.5</real>",
+	} {
+		if !strings.Contains(string(plist), want) {
+			t.Errorf("Info.plist lacks %q:\n%s", want, plist)
+		}
+	}
+	if _, err := exec.LookPath("plutil"); err == nil {
+		path := filepath.Join(t.TempDir(), "Info.plist")
+		os.WriteFile(path, plist, 0o644)
+		if out, err := exec.Command("plutil", "-lint", path).CombinedOutput(); err != nil {
+			t.Errorf("plutil: %v\n%s", err, out)
 		}
 	}
 }

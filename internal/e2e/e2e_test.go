@@ -747,6 +747,52 @@ func TestPrintToPDF(t *testing.T) {
 	}
 }
 
+func TestPermissions(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Title: "Permissions", Width: 300, Height: 200})
+	// A secure context: notifications are not for opaque origins.
+	if err := w.LoadURL("app://localhost/"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, w, `location.href === "app://localhost/" && document.readyState === "complete"`)
+	// The app's own pages are secure contexts with a real origin, which
+	// secure-context APIs (camera, Web Crypto) and storage need.
+	if got := mustEval(t, w, `[window.isSecureContext, location.origin, typeof crypto.subtle].join(" ")`); got != "true app://localhost object" {
+		t.Errorf("app://localhost/: %v", got)
+	}
+	if ok, _ := mygo.EvalAs[bool](w, `typeof Notification !== "undefined" && !!Notification.requestPermission`); !ok {
+		t.Skip("the engine has no Notification API")
+	}
+	asked := make(chan mygo.PermissionRequest, 4)
+	w.SetPermissionHandler(func(req mygo.PermissionRequest) bool {
+		asked <- req
+		return true
+	})
+	got, err := mygo.EvalAs[string](w, `Notification.requestPermission()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case req := <-asked:
+		if len(req.Permissions) != 1 || req.Permissions[0] != mygo.PermissionNotifications {
+			t.Errorf("request = %+v", req)
+		}
+		if got != "granted" {
+			t.Errorf("the page got %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Skipf("the engine decided alone (%q)", got)
+	}
+}
+
+func mustEval(t *testing.T, w *mygo.Window, js string) any {
+	t.Helper()
+	v, err := w.Eval(js)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
 func TestCloseEvents(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	var prevent atomic.Bool

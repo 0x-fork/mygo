@@ -155,6 +155,7 @@ func (w *window) setUp(controller uintptr) {
 		w.h.Message(takeWstr(p))
 	})
 	add(wvAddNewWindowRequested, w.newWindowRequested)
+	add(wvAddPermissionRequested, w.permissionRequested)
 	add(wvAddWindowCloseRequested, func(_, _ uintptr) { w.h.ClosedByPage() })
 	add(wvAddProcessFailed, func(_, args uintptr) {
 		var kind int32
@@ -252,6 +253,29 @@ func (w *window) navigationCompleted(_, args uintptr) {
 		return
 	}
 	w.h.LoadFailed(w.URL(), int(status), "navigation failed (COREWEBVIEW2_WEB_ERROR_STATUS "+strconv.Itoa(int(status))+")")
+}
+
+// permissionRequested decides camera, microphone, location and notification
+// requests; WebView2 asks the user about the others.
+func (w *window) permissionRequested(_, args uintptr) {
+	var kind int32
+	comCall(args, permGetKind, uintptr(unsafe.Pointer(&kind)))
+	name := map[int32]string{1: "microphone", 2: "camera", 3: "geolocation", 4: "notifications"}[kind]
+	if name == "" {
+		return
+	}
+	var p uintptr
+	comCall(args, permGetURI, uintptr(unsafe.Pointer(&p)))
+	origin := takeWstr(p)
+	if u, err := url.Parse(w.appURL(origin)); err == nil {
+		origin = (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
+	}
+	const allow, deny = 1, 2 // COREWEBVIEW2_PERMISSION_STATE
+	state := deny
+	if w.h.PermissionRequested([]string{name}, origin) {
+		state = allow
+	}
+	comCall(args, permPutState, uintptr(state))
 }
 
 // postedFiles returns the paths of the File objects a page posted with

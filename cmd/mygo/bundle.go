@@ -6,10 +6,12 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -73,74 +75,115 @@ func appIcon(c *Config) ([]byte, error) {
 }
 
 func infoPlist(c *Config, executable, icon string) []byte {
+	d := map[string]any{
+		"CFBundleName":                         c.Name,
+		"CFBundleDisplayName":                  c.Name,
+		"CFBundleIdentifier":                   c.Identifier,
+		"CFBundleVersion":                      c.Version,
+		"CFBundleShortVersionString":           c.Version,
+		"CFBundleExecutable":                   executable,
+		"CFBundlePackageType":                  "APPL",
+		"CFBundleInfoDictionaryVersion":        "6.0",
+		"LSMinimumSystemVersion":               c.MacOS.MinimumSystemVersion,
+		"NSPrincipalClass":                     "NSApplication",
+		"NSHighResolutionCapable":              true,
+		"NSSupportsAutomaticGraphicsSwitching": true,
+	}
+	if icon != "" {
+		d["CFBundleIconFile"] = icon
+	}
+	if c.Copyright != "" {
+		d["NSHumanReadableCopyright"] = c.Copyright
+	}
+	var docs []any
+	for _, fa := range c.FileAssociations {
+		role := fa.Role
+		if role == "" {
+			role = "Editor"
+		}
+		name := fa.Name
+		if name == "" {
+			name = strings.ToUpper(fa.Ext[0]) + " file"
+		}
+		var exts []any
+		for _, ext := range fa.Ext {
+			exts = append(exts, ext)
+		}
+		doc := map[string]any{"CFBundleTypeName": name, "CFBundleTypeRole": role, "LSHandlerRank": "Default", "CFBundleTypeExtensions": exts}
+		if fa.MimeType != "" {
+			doc["CFBundleTypeMIMETypes"] = []any{fa.MimeType}
+		}
+		docs = append(docs, doc)
+	}
+	if docs != nil {
+		d["CFBundleDocumentTypes"] = docs
+	}
+	if len(c.URLSchemes) > 0 {
+		var schemes []any
+		for _, s := range c.URLSchemes {
+			schemes = append(schemes, s)
+		}
+		d["CFBundleURLTypes"] = []any{map[string]any{"CFBundleURLName": c.Identifier, "CFBundleURLSchemes": schemes}}
+	}
+	for k, v := range c.MacOS.InfoPlist {
+		d[k] = v // the app's own keys win
+	}
 	var b bytes.Buffer
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+`)
+	writePlistValue(&b, d, "")
+	b.WriteString("</plist>\n")
+	return b.Bytes()
+}
+
+// writePlistValue writes a value decoded from JSON (or built like one) as
+// XML property list, indented by indent.
+func writePlistValue(b *bytes.Buffer, v any, indent string) {
 	esc := func(s string) string {
 		var e bytes.Buffer
 		_ = xml.EscapeText(&e, []byte(s))
 		return e.String()
 	}
-	kv := func(k, v string) { fmt.Fprintf(&b, "\t<key>%s</key>\n\t<string>%s</string>\n", k, esc(v)) }
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-`)
-	kv("CFBundleName", c.Name)
-	kv("CFBundleDisplayName", c.Name)
-	kv("CFBundleIdentifier", c.Identifier)
-	kv("CFBundleVersion", c.Version)
-	kv("CFBundleShortVersionString", c.Version)
-	kv("CFBundleExecutable", executable)
-	kv("CFBundlePackageType", "APPL")
-	kv("CFBundleInfoDictionaryVersion", "6.0")
-	kv("LSMinimumSystemVersion", c.MacOS.MinimumSystemVersion)
-	kv("NSPrincipalClass", "NSApplication")
-	if icon != "" {
-		kv("CFBundleIconFile", icon)
-	}
-	if c.Copyright != "" {
-		kv("NSHumanReadableCopyright", c.Copyright)
-	}
-	b.WriteString("\t<key>NSHighResolutionCapable</key>\n\t<true/>\n")
-	b.WriteString("\t<key>NSSupportsAutomaticGraphicsSwitching</key>\n\t<true/>\n")
-	if len(c.FileAssociations) > 0 {
-		b.WriteString("\t<key>CFBundleDocumentTypes</key>\n\t<array>\n")
-		for _, fa := range c.FileAssociations {
-			role := fa.Role
-			if role == "" {
-				role = "Editor"
-			}
-			name := fa.Name
-			if name == "" {
-				name = strings.ToUpper(fa.Ext[0]) + " file"
-			}
-			b.WriteString("\t\t<dict>\n")
-			fmt.Fprintf(&b, "\t\t\t<key>CFBundleTypeName</key>\n\t\t\t<string>%s</string>\n", esc(name))
-			fmt.Fprintf(&b, "\t\t\t<key>CFBundleTypeRole</key>\n\t\t\t<string>%s</string>\n", role)
-			b.WriteString("\t\t\t<key>LSHandlerRank</key>\n\t\t\t<string>Default</string>\n")
-			b.WriteString("\t\t\t<key>CFBundleTypeExtensions</key>\n\t\t\t<array>\n")
-			for _, ext := range fa.Ext {
-				fmt.Fprintf(&b, "\t\t\t\t<string>%s</string>\n", esc(ext))
-			}
-			b.WriteString("\t\t\t</array>\n")
-			if fa.MimeType != "" {
-				fmt.Fprintf(&b, "\t\t\t<key>CFBundleTypeMIMETypes</key>\n\t\t\t<array>\n\t\t\t\t<string>%s</string>\n\t\t\t</array>\n", esc(fa.MimeType))
-			}
-			b.WriteString("\t\t</dict>\n")
+	switch v := v.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
 		}
-		b.WriteString("\t</array>\n")
-	}
-	if len(c.URLSchemes) > 0 {
-		b.WriteString("\t<key>CFBundleURLTypes</key>\n\t<array>\n\t\t<dict>\n")
-		fmt.Fprintf(&b, "\t\t\t<key>CFBundleURLName</key>\n\t\t\t<string>%s</string>\n", esc(c.Identifier))
-		b.WriteString("\t\t\t<key>CFBundleURLSchemes</key>\n\t\t\t<array>\n")
-		for _, s := range c.URLSchemes {
-			fmt.Fprintf(&b, "\t\t\t\t<string>%s</string>\n", esc(s))
+		sort.Strings(keys)
+		b.WriteString(indent + "<dict>\n")
+		for _, k := range keys {
+			fmt.Fprintf(b, "%s\t<key>%s</key>\n", indent, esc(k))
+			writePlistValue(b, v[k], indent+"\t")
 		}
-		b.WriteString("\t\t\t</array>\n\t\t</dict>\n\t</array>\n")
+		b.WriteString(indent + "</dict>\n")
+	case []any:
+		b.WriteString(indent + "<array>\n")
+		for _, x := range v {
+			writePlistValue(b, x, indent+"\t")
+		}
+		b.WriteString(indent + "</array>\n")
+	case bool:
+		if v {
+			b.WriteString(indent + "<true/>\n")
+		} else {
+			b.WriteString(indent + "<false/>\n")
+		}
+	case float64:
+		if v == math.Trunc(v) && math.Abs(v) < 1<<53 {
+			fmt.Fprintf(b, "%s<integer>%d</integer>\n", indent, int64(v))
+		} else {
+			fmt.Fprintf(b, "%s<real>%v</real>\n", indent, v)
+		}
+	case string:
+		fmt.Fprintf(b, "%s<string>%s</string>\n", indent, esc(v))
+	case nil:
+		b.WriteString(indent + "<string></string>\n")
+	default:
+		fmt.Fprintf(b, "%s<string>%s</string>\n", indent, esc(fmt.Sprint(v)))
 	}
-	b.WriteString("</dict>\n</plist>\n")
-	return b.Bytes()
 }
 
 // codesignArgs returns the codesign arguments that sign path. Real

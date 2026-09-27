@@ -369,6 +369,9 @@ type WindowHandler interface {
 	ClosedByPage()
 	RenderProcessGone(reason string)
 	SchemeRequest(req *SchemeRequest)
+	// PermissionRequested asks whether the page at origin may use kinds:
+	// "camera", "microphone", "geolocation" or "notifications".
+	PermissionRequested(kinds []string, origin string) bool
 }
 
 // Navigation describes a pending navigation.

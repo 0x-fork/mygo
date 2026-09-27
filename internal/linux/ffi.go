@@ -375,6 +375,14 @@ var (
 	webkitPrintOperationPrint                         func(op ptr)
 	webkitSettingsGetPrintBackgrounds                 func(s ptr) bool
 	webkitSettingsSetPrintBackgrounds                 func(s ptr, v bool)
+	webkitUserMediaPermissionRequestGetType           func() uintptr
+	webkitGeolocationPermissionRequestGetType         func() uintptr
+	webkitNotificationPermissionRequestGetType        func() uintptr
+	webkitUserMediaPermissionIsForAudioDevice         func(req ptr) bool
+	webkitUserMediaPermissionIsForVideoDevice         func(req ptr) bool
+	webkitPermissionRequestAllow                      func(req ptr)
+	webkitPermissionRequestDeny                       func(req ptr)
+	gTypeCheckInstanceIsA                             func(instance ptr, typ uintptr) bool
 	gtkPrintSettingsNew                               func() ptr
 	gtkPrintSettingsSet                               func(s ptr, key, value *byte)
 	gtkPageSetupNew                                   func() ptr
@@ -727,6 +735,14 @@ func load() error {
 	mustBind(w, &webkitPrintOperationPrint, "webkit_print_operation_print")
 	mustBind(w, &webkitSettingsGetPrintBackgrounds, "webkit_settings_get_print_backgrounds")
 	mustBind(w, &webkitSettingsSetPrintBackgrounds, "webkit_settings_set_print_backgrounds")
+	mustBind(w, &webkitUserMediaPermissionRequestGetType, "webkit_user_media_permission_request_get_type")
+	mustBind(w, &webkitGeolocationPermissionRequestGetType, "webkit_geolocation_permission_request_get_type")
+	mustBind(w, &webkitNotificationPermissionRequestGetType, "webkit_notification_permission_request_get_type")
+	mustBind(w, &webkitUserMediaPermissionIsForAudioDevice, "webkit_user_media_permission_is_for_audio_device")
+	mustBind(w, &webkitUserMediaPermissionIsForVideoDevice, "webkit_user_media_permission_is_for_video_device")
+	mustBind(w, &webkitPermissionRequestAllow, "webkit_permission_request_allow")
+	mustBind(w, &webkitPermissionRequestDeny, "webkit_permission_request_deny")
+	mustBind(libGObject, &gTypeCheckInstanceIsA, "g_type_check_instance_is_a")
 	mustBind(t, &gtkPrintSettingsNew, "gtk_print_settings_new")
 	mustBind(t, &gtkPrintSettingsSet, "gtk_print_settings_set")
 	mustBind(t, &gtkPageSetupNew, "gtk_page_setup_new")
