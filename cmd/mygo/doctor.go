@@ -49,6 +49,36 @@ func runDoctor(args []string) error {
 	default:
 		check(runtime.GOOS, false, "no MyGo backend for this platform yet")
 	}
+
+	// Tools of optional mygo build features.
+	optional := func(name, feature string, found bool, detail string) {
+		if found {
+			fmt.Printf("\033[32m✓\033[0m %-10s %s\n", name, detail)
+		} else {
+			fmt.Printf("- %-10s not found (optional: %s)\n", name, feature)
+		}
+	}
+	tool := func(name string) string {
+		p, _ := exec.LookPath(name)
+		return p
+	}
+	nsis := makensis()
+	optional("makensis", "the Windows installer, https://nsis.sourceforge.io", nsis != "", nsis)
+	if runtime.GOOS == "windows" {
+		st := signtool()
+		optional("signtool", "signing Windows apps, from the Windows SDK", st != "", st)
+	} else {
+		ossl := tool("osslsigncode")
+		optional("osslsign", "signing Windows apps here (osslsigncode)", ossl != "", ossl)
+	}
+	gh := tool("gh")
+	optional("gh", "mygo build -upload to GitHub releases, https://cli.github.com", gh != "", gh)
+	if runtime.GOOS == "darwin" {
+		out, _ := exec.Command("security", "find-identity", "-v", "-p", "codesigning").Output()
+		ids := strings.Count(string(out), "Developer ID Application")
+		optional("codesign", "a Developer ID to sign apps for other Macs", ids > 0, fmt.Sprintf("%d Developer ID identities", ids))
+	}
+
 	if !ok {
 		return fmt.Errorf("some checks failed")
 	}
