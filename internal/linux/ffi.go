@@ -141,6 +141,8 @@ var (
 	gVariantTypeNew                func(s *byte) ptr
 	gVariantGetChildValue          func(v ptr, i uintptr) ptr
 	gVariantGetUint32              func(v ptr) uint32
+	gVariantGetUint64              func(v ptr) uint64
+	gVariantGetBoolean             func(v ptr) bool
 	gVariantGetString              func(v ptr, length *uintptr) ptr
 	gVariantUnref                  func(v ptr)
 	gVariantGetVariant             func(v ptr) ptr
@@ -469,6 +471,8 @@ func load() error {
 	mustBind(g, &gVariantTypeNew, "g_variant_type_new")
 	mustBind(g, &gVariantGetChildValue, "g_variant_get_child_value")
 	mustBind(g, &gVariantGetUint32, "g_variant_get_uint32")
+	mustBind(g, &gVariantGetUint64, "g_variant_get_uint64")
+	mustBind(g, &gVariantGetBoolean, "g_variant_get_boolean")
 	mustBind(g, &gVariantGetString, "g_variant_get_string")
 	mustBind(g, &gVariantUnref, "g_variant_unref")
 	mustBind(g, &gVariantGetVariant, "g_variant_get_variant")

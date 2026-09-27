@@ -43,7 +43,9 @@ type Backend struct {
 	taskbarList          uintptr
 	taskbarFailed        bool
 	taskbarButtonCreated uint32
-	notifications        map[string]*notification
+
+	watchingPower bool
+	notifications map[string]*notification
 
 	themeSource string
 	badge       string
@@ -269,6 +271,9 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 	case wmHotkey:
 		b.h.HotkeyPressed(int(wp))
 		return 0, true
+	case wmPowerBroadcast, wmWTSSessionChange:
+		b.powerMessage(m, wp)
+		return 1, false // TRUE for power broadcasts, and default handling
 	case wmSettingChange:
 		if lp != 0 && wstr(lp) == "ImmersiveColorSet" {
 			b.applyTheme()

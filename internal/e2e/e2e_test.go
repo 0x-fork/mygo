@@ -663,6 +663,28 @@ func TestOpenAtLogin(t *testing.T) {
 	}
 }
 
+func TestPower(t *testing.T) {
+	off := mygo.Power.OnSuspend(func() {})
+	defer off()
+	const reason = "MyGo e2e keeps the display on"
+	release := mygo.Power.KeepAwake(reason, true)
+	assertions := func() string {
+		out, _ := exec.Command("pmset", "-g", "assertions").Output()
+		return string(out)
+	}
+	if runtime.GOOS == "darwin" && !strings.Contains(assertions(), reason) {
+		t.Error("KeepAwake made no power assertion")
+	}
+	release()
+	if runtime.GOOS == "darwin" {
+		eventually(t, "the assertion to go", func() bool { return !strings.Contains(assertions(), reason) })
+	}
+	t.Logf("on battery: %v, idle: %v", mygo.Power.IsOnBattery(), mygo.Power.IdleTime())
+	if idle := mygo.Power.IdleTime(); idle < 0 || runtime.GOOS == "darwin" && idle == 0 {
+		t.Errorf("idle time = %v", idle)
+	}
+}
+
 func TestCloseEvents(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	var prevent atomic.Bool

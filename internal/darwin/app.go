@@ -193,6 +193,7 @@ func (b *Backend) Clipboard() platform.Clipboard { return clipboard{} }
 func (b *Backend) Shell() platform.Shell         { return shell{} }
 func (b *Backend) Screen() platform.Screen       { return screen{} }
 func (b *Backend) Theme() platform.Theme         { return theme{b} }
+func (b *Backend) Power() platform.Power         { return power{b} }
 
 var classesOnce bool
 
@@ -249,6 +250,12 @@ func registerAppDelegate() {
 				b.Quit()
 			}
 			return nsTerminateCancel
+		}),
+		// Power and session notifications (Backend.Power().Watch).
+		method("mygoPowerNotification:", func(self id, _ objc.SEL, n id) {
+			if event := powerEvents[goString(send(n, "name"))]; event != "" {
+				theBackend.h.PowerEvent(event)
+			}
 		}),
 		method("mygoHandleQuitEvent:withReplyEvent:", func(self id, _ objc.SEL, event, reply id) {
 			b := theBackend

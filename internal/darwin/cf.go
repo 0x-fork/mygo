@@ -21,6 +21,11 @@ var (
 	lsSetDefaultHandlerForURLScheme  func(scheme, bundleID id) int32
 	lsCopyDefaultHandlerForURLScheme func(scheme id) id
 
+	// Power.
+	iopsCopyPowerSourcesInfo          func() uintptr
+	iopsGetProvidingPowerSourceType   func(snapshot uintptr) id
+	cgEventSourceSecondsSinceLastType func(state int32, eventType uint32) float64
+
 	cgDisplayIsBuiltin func(display uint32) bool
 	cgDisplayRotation  func(display uint32) float64
 	nsBeep             func()
@@ -58,6 +63,12 @@ func loadCF() {
 
 	purego.RegisterLibFunc(&lsSetDefaultHandlerForURLScheme, libCoreServices, "LSSetDefaultHandlerForURLScheme")
 	purego.RegisterLibFunc(&lsCopyDefaultHandlerForURLScheme, libCoreServices, "LSCopyDefaultHandlerForURLScheme")
+
+	if iokit, err := purego.Dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", purego.RTLD_GLOBAL|purego.RTLD_NOW); err == nil {
+		purego.RegisterLibFunc(&iopsCopyPowerSourcesInfo, iokit, "IOPSCopyPowerSourcesInfo")
+		purego.RegisterLibFunc(&iopsGetProvidingPowerSourceType, iokit, "IOPSGetProvidingPowerSourceType")
+	}
+	purego.RegisterLibFunc(&cgEventSourceSecondsSinceLastType, libCG, "CGEventSourceSecondsSinceLastEventType")
 
 	purego.RegisterLibFunc(&cgDisplayIsBuiltin, libCG, "CGDisplayIsBuiltin")
 	purego.RegisterLibFunc(&cgDisplayRotation, libCG, "CGDisplayRotation")

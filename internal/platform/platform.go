@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 )
 
 // ErrUnsupported is returned by features the current backend cannot provide.
@@ -73,6 +74,7 @@ type Backend interface {
 	Shell() Shell
 	Screen() Screen
 	Theme() Theme
+	Power() Power
 
 	NewTray(h TrayHandler) (Tray, error)
 	RegisterHotkey(id int, accelerator string) error
@@ -113,6 +115,8 @@ type AppHandler interface {
 	MenuItemClicked(id int)
 	ThemeChanged()
 	DisplaysChanged()
+	// PowerEvent is "suspend", "resume", "lock-screen" or "unlock-screen".
+	PowerEvent(event string)
 	HotkeyPressed(id int)
 	NotificationClicked(id string)
 }
@@ -544,6 +548,17 @@ type Theme interface {
 	IsDark() bool
 	// SetSource is "system", "light" or "dark".
 	SetSource(source string)
+}
+
+// Power reports power and session events and keeps the computer awake.
+type Power interface {
+	// Watch starts reporting AppHandler.PowerEvent.
+	Watch()
+	// KeepAwake keeps the system, and with display the display, from
+	// sleeping while idle until release is called.
+	KeepAwake(display bool, reason string) (release func())
+	OnBattery() bool
+	IdleTime() time.Duration
 }
 
 // TrayHandler receives tray icon events.

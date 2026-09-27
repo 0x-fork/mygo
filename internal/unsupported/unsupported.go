@@ -5,6 +5,7 @@ package unsupported
 import (
 	"errors"
 	"runtime"
+	"time"
 
 	"github.com/egoist/mygo/internal/platform"
 )
@@ -37,6 +38,7 @@ func (*Backend) Clipboard() platform.Clipboard                              { re
 func (*Backend) Shell() platform.Shell                                      { return shell{} }
 func (*Backend) Screen() platform.Screen                                    { return screen{} }
 func (*Backend) Theme() platform.Theme                                      { return theme{} }
+func (*Backend) Power() platform.Power                                      { return power{} }
 func (*Backend) NewTray(platform.TrayHandler) (platform.Tray, error)        { return nil, errUnsupported }
 func (*Backend) RegisterHotkey(int, string) error                           { return errUnsupported }
 func (*Backend) UnregisterHotkey(int)                                       {}
@@ -106,3 +108,10 @@ type theme struct{}
 
 func (theme) IsDark() bool     { return false }
 func (theme) SetSource(string) {}
+
+type power struct{}
+
+func (power) Watch()                        {}
+func (power) KeepAwake(bool, string) func() { return func() {} }
+func (power) OnBattery() bool               { return false }
+func (power) IdleTime() time.Duration       { return 0 }

@@ -488,5 +488,6 @@ func (appHandler) OpenFiles(paths []string) {
 func (appHandler) MenuItemClicked(id int)        { menuItemClicked(id) }
 func (appHandler) ThemeChanged()                 { Theme.changed() }
 func (appHandler) DisplaysChanged()              { Screen.changed() }
+func (appHandler) PowerEvent(event string)        { Power.event(event) }
 func (appHandler) HotkeyPressed(id int)          { GlobalShortcut.pressed(id) }
 func (appHandler) NotificationClicked(id string) { notificationClicked(id) }

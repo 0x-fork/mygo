@@ -21,11 +21,22 @@ var (
 	cbThemeChanged    ptr
 	cbMonitorsChanged ptr
 	cbNotification    ptr
+	cbPowerSignal     ptr
 )
 
 func initSystemCallbacks() {
 	cbThemeChanged = purego.NewCallback(func(a, b, data ptr) { theBackend.h.ThemeChanged() })
 	cbMonitorsChanged = purego.NewCallback(func(display, monitor, data ptr) { theBackend.h.DisplaysChanged() })
+	cbPowerSignal = purego.NewCallback(func(conn, sender, path, iface, signal, params, data ptr) {
+		child := gVariantGetChildValue(params, 0)
+		on := gVariantGetBoolean(child)
+		gVariantUnref(child)
+		event := map[bool]string{true: "lock-screen", false: "unlock-screen"}[on]
+		if goStr(signal) == "PrepareForSleep" {
+			event = map[bool]string{true: "suspend", false: "resume"}[on]
+		}
+		theBackend.h.PowerEvent(event)
+	})
 	cbNotification = purego.NewCallback(func(conn, sender, path, iface, signal, params, data ptr) {
 		if goStr(signal) != "ActionInvoked" {
 			return

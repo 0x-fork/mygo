@@ -151,6 +151,7 @@ func (b *Backend) Clipboard() platform.Clipboard {
 func (b *Backend) Shell() platform.Shell   { return shell{} }
 func (b *Backend) Screen() platform.Screen { return screen{} }
 func (b *Backend) Theme() platform.Theme   { return theme{b} }
+func (b *Backend) Power() platform.Power   { return power{b} }
 
 // Callbacks are created once; purego callbacks are never freed.
 var (

@@ -33,6 +33,10 @@ type Backend struct {
 	hotkeys   map[int]string
 	clipboard string
 	theme     string
+	// Watching reports whether power events were asked for, Awake counts the
+	// KeepAwake calls not released yet.
+	Watching bool
+	Awake    int
 	// URLSchemes are the registered URL schemes, by scheme: "id name".
 	URLSchemes map[string]string
 	// LoginItem is the command that starts the app at login: "id name arg".
@@ -179,6 +183,7 @@ func (b *Backend) Clipboard() platform.Clipboard {
 func (b *Backend) Shell() platform.Shell   { return shell{} }
 func (b *Backend) Screen() platform.Screen { return screen{} }
 func (b *Backend) Theme() platform.Theme   { return theme{b} }
+func (b *Backend) Power() platform.Power   { return power{b} }
 
 func (b *Backend) NewTray(platform.TrayHandler) (platform.Tray, error) { return &tray{}, nil }
 
@@ -501,6 +506,21 @@ func (shell) OpenPath(string) error     { return nil }
 func (shell) ShowItemInFolder(string)   {}
 func (shell) TrashItem(string) error    { return nil }
 func (shell) Beep()                     {}
+
+type power struct{ b *Backend }
+
+func (p power) Watch() { p.b.mu.Lock(); p.b.Watching = true; p.b.mu.Unlock() }
+func (p power) KeepAwake(display bool, reason string) func() {
+	p.b.mu.Lock()
+	p.b.Awake++
+	p.b.mu.Unlock()
+	return func() { p.b.mu.Lock(); p.b.Awake--; p.b.mu.Unlock() }
+}
+func (power) OnBattery() bool         { return false }
+func (power) IdleTime() time.Duration { return 42 * time.Second }
+
+// EmitPower simulates a power or session event.
+func (b *Backend) EmitPower(event string) { b.h.PowerEvent(event) }
 
 type screen struct{}
 
