@@ -230,22 +230,38 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		artifacts = append(append(artifacts, exe), files...)
 	}
 
-	if c.Updates != nil {
-		// The app as installed: the bundle, else everything next to the
-		// executable.
-		var entries []string
-		if goos == "darwin" {
-			entries = []string{filepath.Base(artifacts[0])}
-		} else {
-			all, err := os.ReadDir(stage)
-			if err != nil {
-				return nil, err
-			}
-			for _, e := range all {
-				entries = append(entries, e.Name())
-			}
+	// The app as installed: the bundle, else everything next to the
+	// executable. Packages hold it, and updates replace it.
+	var installed []string
+	if goos == "darwin" {
+		installed = []string{filepath.Base(artifacts[0])}
+	} else {
+		all, err := os.ReadDir(stage)
+		if err != nil {
+			return nil, err
 		}
-		files, err := writeUpdate(c, stage, target, entries)
+		for _, e := range all {
+			installed = append(installed, e.Name())
+		}
+	}
+	if goos == "windows" {
+		setup, err := writeInstaller(c, stage, opts.work, name+".exe", installed)
+		if err != nil {
+			return nil, err
+		}
+		if setup != "" {
+			artifacts = append(artifacts, setup)
+		}
+	}
+	if goos == "linux" && c.Linux.Maintainer != "" {
+		deb, err := writeDeb(c, stage, slugify(name), goarch, installed)
+		if err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, deb)
+	}
+	if c.Updates != nil {
+		files, err := writeUpdate(c, stage, target, installed)
 		if err != nil {
 			return nil, err
 		}
@@ -352,19 +368,35 @@ func writeLinuxDesktop(c *Config, dir, name string) ([]string, error) {
 		}
 		files = append(files, path)
 	}
-	entry := fmt.Sprintf("[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nIcon=%s\nCategories=Utility;\nTerminal=false\n", c.Name, name, icon)
-	if len(c.URLSchemes) > 0 {
-		// Opens deep links, which reach mygo.App.OnOpenURL.
-		entry = strings.Replace(entry, "Exec="+name+"\n", "Exec="+name+" %u\n", 1)
-		entry += "MimeType="
-		for _, s := range c.URLSchemes {
-			entry += "x-scheme-handler/" + s + ";"
-		}
-		entry += "\n"
-	}
 	path := filepath.Join(dir, name+".desktop")
-	if err := os.WriteFile(path, []byte(entry), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(linuxDesktopEntry(c, name, icon)), 0o644); err != nil {
 		return nil, err
 	}
 	return append(files, path), nil
+}
+
+// linuxDesktopEntry renders the desktop entry of the app, which runs exec
+// and shows icon.
+func linuxDesktopEntry(c *Config, exec, icon string) string {
+	categories := c.Linux.Categories
+	if len(categories) == 0 {
+		categories = []string{"Utility"}
+	}
+	var b strings.Builder
+	b.WriteString("[Desktop Entry]\nType=Application\nName=" + c.Name + "\n")
+	if c.Linux.Comment != "" {
+		b.WriteString("Comment=" + c.Linux.Comment + "\n")
+	}
+	if len(c.URLSchemes) > 0 {
+		exec += " %u" // opens deep links, which reach mygo.App.OnOpenURL
+	}
+	b.WriteString("Exec=" + exec + "\nIcon=" + icon + "\nCategories=" + strings.Join(categories, ";") + ";\nTerminal=false\n")
+	if len(c.URLSchemes) > 0 {
+		b.WriteString("MimeType=")
+		for _, s := range c.URLSchemes {
+			b.WriteString("x-scheme-handler/" + s + ";")
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }

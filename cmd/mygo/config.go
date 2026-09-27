@@ -65,6 +65,7 @@ type Config struct {
 	// Updates configures signed updates, which mygo.Updater installs.
 	Updates *Updates `json:"updates"`
 	MacOS   MacOS    `json:"macos"`
+	Linux   Linux    `json:"linux"`
 
 	root string
 }

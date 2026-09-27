@@ -603,6 +603,18 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   output directory is assembled in a staging directory that replaces it
   whole, so removed resources do not linger; development builds on Linux
   and Windows remove what the previous build placed and this one lacks.
+- Packages for the other platforms. Windows gets "<name> Setup
+  <version>.exe" when NSIS (`makensis`) is installed (`nsis.go`): a
+  per-user install in `%LOCALAPPDATA%\Programs\<name>`, where the updater
+  can write, a Start menu shortcut and an uninstaller registered under
+  `HKCU\…\Uninstall\<identifier>`; `/S /D=<dir>` installs silently. Linux
+  gets a Debian package written in pure Go (`deb.go`) when
+  `linux.maintainer` is set: the app in `/opt/<name>`, a `/usr/bin` link,
+  the desktop entry (categories, comment, URL schemes) and hicolor icons,
+  depending on GTK 3 and WebKitGTK 4.1. Packages hold the same files as
+  the update archive; apps installed by a package manager do not update
+  themselves (`Updater.Enabled` checks that the app can write where it is
+  installed).
 - On a macOS host, macOS targets also get "<name> <version>.dmg"
   (`dmg.go`): `hdiutil` creates a writable HFS+ image from the app, the CLI
   adds the `/Applications` link, the volume icon and a `.DS_Store` written in

@@ -63,9 +63,23 @@ type Update struct {
 	key      string
 }
 
-// Enabled reports whether the app was built with updates.
+// Enabled reports whether the app can update itself: it was built with
+// updates and can write where it is installed. Apps installed by a package
+// manager, such as a .deb in /opt, are updated by it instead.
 func (u *UpdaterModule) Enabled() bool {
-	return packageUpdateFeed != "" && packageUpdateKey != "" && !IsDev()
+	if packageUpdateFeed == "" || packageUpdateKey == "" || IsDev() {
+		return false
+	}
+	target, err := installTarget()
+	if err != nil {
+		return false
+	}
+	probe, err := os.MkdirTemp(filepath.Dir(target), ".mygo-update-")
+	if err != nil {
+		return false
+	}
+	os.Remove(probe)
+	return true
 }
 
 // Check asks the update feed for a version newer than the running one and
