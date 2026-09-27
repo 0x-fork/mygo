@@ -39,3 +39,8 @@ func pressCtrlShiftK() bool {
 	mygo.RunOnMain(func() { win.TestPressKeys(0x11, 0x10, 'K') }) // VK_CONTROL, VK_SHIFT
 	return true
 }
+
+// Only Linux binds global shortcuts through a desktop portal.
+func usePortalShortcuts() (func(), bool) { return nil, false }
+
+func pressKeys(...string) bool { return false }

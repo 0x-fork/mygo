@@ -248,6 +248,12 @@ var GlobalShortcut = &GlobalShortcutModule{}
 
 // Register calls fn on the main thread whenever accelerator (e.g.
 // "CmdOrCtrl+Shift+Space") is pressed, even when the app is not focused.
+//
+// On Wayland the desktop binds the shortcut, through the XDG desktop
+// portal, shortly after Register returns: it may ask the user to confirm
+// it, lets them pick other keys, and needs the app installed with its
+// desktop entry. The window fn shows or focuses first gets the activation
+// token of the key press, which lets it take the focus.
 func (g *GlobalShortcutModule) Register(acc string, fn func()) error {
 	a, err := accelerator.Parse(acc, runtime.GOOS)
 	if err != nil {

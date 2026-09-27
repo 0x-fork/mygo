@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unsafe"
 )
 
 type power struct{ b *Backend }
@@ -39,15 +38,14 @@ func (p power) KeepAwake(display bool, reason string) func() {
 	if display {
 		flags |= inhibitIdle
 	}
-	opts := []ptr{gVariantNewDictEntry(gVariantNewString(cs("reason")), gVariantNewVariant(gVariantNewString(cs(reason))))}
-	params := tuple(gVariantNewString(cs("")), gVariantNewUint32(flags), gVariantNewArray(0, unsafe.Pointer(&opts[0]), uintptr(len(opts))))
-	if res, err := dbusCall("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", "org.freedesktop.portal.Inhibit", "Inhibit", params, "(o)"); err == nil {
+	params := tuple(gVariantNewString(cs("")), gVariantNewUint32(flags), vardict(vardictEntry("reason", gVariantNewString(cs(reason)))))
+	if res, err := portalCall(portalPath, "org.freedesktop.portal.Inhibit", "Inhibit", params, "(o)"); err == nil {
 		child := gVariantGetChildValue(res, 0)
 		handle := goStr(gVariantGetString(child, nil))
 		gVariantUnref(child)
 		gVariantUnref(res)
 		return func() {
-			if res, err := dbusCall("org.freedesktop.portal.Desktop", handle, "org.freedesktop.portal.Request", "Close", 0, ""); err == nil {
+			if res, err := portalCall(handle, "org.freedesktop.portal.Request", "Close", 0, ""); err == nil {
 				gVariantUnref(res)
 			}
 		}

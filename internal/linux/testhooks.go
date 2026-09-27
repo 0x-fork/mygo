@@ -108,3 +108,10 @@ func TestPressKeys(names ...string) bool {
 	x11.flush(dpy)
 	return true
 }
+
+// TestUsePortalShortcuts makes global shortcuts bind through the XDG desktop
+// portal, as on Wayland, and reports whether the desktop offers it.
+func TestUsePortalShortcuts(on bool) bool {
+	portalShortcutsOnly = on
+	return !on || portalVersion(shortcutsPortal) != 0
+}

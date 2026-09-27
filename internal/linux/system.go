@@ -27,6 +27,7 @@ var (
 func initSystemCallbacks() {
 	cbThemeChanged = purego.NewCallback(func(a, b, data ptr) { theBackend.h.ThemeChanged() })
 	cbMonitorsChanged = purego.NewCallback(func(display, monitor, data ptr) { theBackend.h.DisplaysChanged() })
+	cbPortalSignal = purego.NewCallback(portalSignal)
 	cbPowerSignal = purego.NewCallback(func(conn, sender, path, iface, signal, params, data ptr) {
 		child := gVariantGetChildValue(params, 0)
 		on := gVariantGetBoolean(child)
@@ -250,7 +251,7 @@ type theme struct{ b *Backend }
 // light, 0 = no preference) from the settings portal.
 func portalColorScheme() (uint32, bool) {
 	params := tuple(gVariantNewString(cs("org.freedesktop.appearance")), gVariantNewString(cs("color-scheme")))
-	res, err := dbusCall("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", "org.freedesktop.portal.Settings", "Read", params, "(v)")
+	res, err := portalCall(portalPath, "org.freedesktop.portal.Settings", "Read", params, "(v)")
 	if err != nil {
 		return 0, false
 	}

@@ -915,6 +915,55 @@ func TestGlobalShortcut(t *testing.T) {
 	}
 }
 
+// TestGlobalShortcutPortal has the desktop bind global shortcuts through
+// the XDG desktop portal, as on Wayland, where apps grab no keys.
+func TestGlobalShortcutPortal(t *testing.T) {
+	restore, ok := usePortalShortcuts()
+	if !ok {
+		t.Skip("no GlobalShortcuts portal")
+	}
+	defer restore()
+	pressed := make(chan string, 8)
+	register := func(acc string) {
+		t.Helper()
+		if err := mygo.GlobalShortcut.Register(acc, func() { pressed <- acc }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The desktop binds shortcuts after Register returns, in a new session
+	// whenever they change.
+	expect := func(acc string, keys ...string) {
+		t.Helper()
+		for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
+			pressKeys(keys...)
+			select {
+			case got := <-pressed:
+				if got != acc {
+					t.Fatalf("pressing %v reported %s", keys, got)
+				}
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+		t.Fatalf("%s was not reported", acc)
+	}
+	register("Ctrl+Shift+K")
+	defer mygo.GlobalShortcut.UnregisterAll()
+	expect("Ctrl+Shift+K", "Control_L", "Shift_L", "k")
+	register("Alt+Shift+J")
+	expect("Alt+Shift+J", "Alt_L", "Shift_L", "j")
+	expect("Ctrl+Shift+K", "Control_L", "Shift_L", "k")
+
+	mygo.GlobalShortcut.Unregister("Ctrl+Shift+K")
+	expect("Alt+Shift+J", "Alt_L", "Shift_L", "j")
+	pressKeys("Control_L", "Shift_L", "k")
+	select {
+	case got := <-pressed:
+		t.Fatalf("%s was reported after it was unregistered", got)
+	case <-time.After(time.Second):
+	}
+}
+
 func TestCloseEvents(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	var prevent atomic.Bool

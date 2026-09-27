@@ -50,3 +50,27 @@ func TestString(t *testing.T) {
 		t.Errorf("String() = %q", got)
 	}
 }
+
+func TestXDGTrigger(t *testing.T) {
+	for in, want := range map[string]string{
+		"Shift+CmdOrCtrl+K":  "CTRL+SHIFT+k",
+		"Super+Space":        "LOGO+space",
+		"Alt+Shift+Enter":    "ALT+SHIFT+Return",
+		"CmdOrCtrl+,":        "CTRL+comma",
+		"Ctrl+Plus":          "CTRL+plus",
+		"Ctrl+Alt+Super+F12": "CTRL+ALT+LOGO+F12",
+		"Ctrl+Num7":          "CTRL+KP_7",
+		"Ctrl+PageDown":      "CTRL+Page_Down",
+		"MediaPlayPause":     "XF86AudioPlay",
+		"Ctrl+1":             "CTRL+1",
+		"Ctrl+é":             "CTRL+U00E9",
+	} {
+		a, err := Parse(in, "linux")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := a.XDGTrigger(); got != want {
+			t.Errorf("XDGTrigger(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

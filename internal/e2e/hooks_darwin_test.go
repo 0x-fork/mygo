@@ -54,3 +54,8 @@ func dockMenu(click int) (titles []string, supported bool) {
 
 // Posting key events needs the accessibility permission on macOS.
 func pressCtrlShiftK() bool { return false }
+
+// Only Linux binds global shortcuts through a desktop portal.
+func usePortalShortcuts() (func(), bool) { return nil, false }
+
+func pressKeys(...string) bool { return false }

@@ -9,12 +9,11 @@ import (
 
 	"github.com/ebitengine/purego"
 	"github.com/egoist/mygo/internal/accelerator"
-	"github.com/egoist/mygo/internal/platform"
 )
 
-// Global shortcuts grab their keys on the root window of the X server, and
-// the key presses arrive through a GDK event filter. Wayland lets apps
-// grab no keys.
+// On X11, global shortcuts grab their keys on the root window, and the key
+// presses arrive through a GDK event filter. Elsewhere the desktop binds
+// them through the XDG desktop portal (hotkey_portal.go).
 
 var (
 	x11 struct {
@@ -108,16 +107,12 @@ func (b *Backend) RegisterHotkey(id int, acc string) error {
 	if err != nil {
 		return err
 	}
-	if !loadX11() {
-		return fmt.Errorf("mygo: global shortcuts need an X11 session: %w", platform.ErrUnsupported)
-	}
-	name, ok := keysymNames[a.Key]
-	if !ok {
-		name = a.Key // letters and digits
+	if portalShortcutsOnly || !loadX11() {
+		return b.bindShortcut(id, a)
 	}
 	display := gdkDisplayGetDefault()
 	dpy := x11.xdisplay(display)
-	keycode := x11.keysymToKeycode(dpy, x11.stringToKeysym(cs(name)))
+	keycode := x11.keysymToKeycode(dpy, x11.stringToKeysym(cs(a.Keysym())))
 	if keycode == 0 {
 		return fmt.Errorf("mygo: the keyboard has no key for %q", acc)
 	}
@@ -149,6 +144,7 @@ func (b *Backend) UnregisterHotkey(id int) {
 		delete(b.grabs, id)
 		b.ungrab(g)
 	}
+	b.unbindShortcut(id)
 }
 
 func (b *Backend) ungrab(g grab) {
@@ -161,22 +157,4 @@ func (b *Backend) ungrab(g grab) {
 	}
 	x11.flush(dpy)
 	x11.errorTrapPop(display)
-}
-
-// keysymNames maps keys of accelerators to X keysym names.
-var keysymNames = map[string]string{
-	",": "comma", ".": "period", "/": "slash", ";": "semicolon", "'": "apostrophe",
-	"[": "bracketleft", "]": "bracketright", `\`: "backslash", "-": "minus", "=": "equal",
-	"`": "grave", "+": "plus",
-	"Enter": "Return", "Tab": "Tab", "Space": "space", "Backspace": "BackSpace",
-	"Delete": "Delete", "Insert": "Insert", "Escape": "Escape",
-	"Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right",
-	"Home": "Home", "End": "End", "PageUp": "Prior", "PageDown": "Next",
-	"VolumeUp": "XF86AudioRaiseVolume", "VolumeDown": "XF86AudioLowerVolume", "VolumeMute": "XF86AudioMute",
-	"MediaNextTrack": "XF86AudioNext", "MediaPreviousTrack": "XF86AudioPrev",
-	"MediaStop": "XF86AudioStop", "MediaPlayPause": "XF86AudioPlay",
-	"PrintScreen": "Print", "CapsLock": "Caps_Lock", "NumLock": "Num_Lock", "ScrollLock": "Scroll_Lock",
-	"NumDec": "KP_Decimal", "NumAdd": "KP_Add", "NumSub": "KP_Subtract", "NumMult": "KP_Multiply", "NumDiv": "KP_Divide",
-	"Num0": "KP_0", "Num1": "KP_1", "Num2": "KP_2", "Num3": "KP_3", "Num4": "KP_4",
-	"Num5": "KP_5", "Num6": "KP_6", "Num7": "KP_7", "Num8": "KP_8", "Num9": "KP_9",
 }

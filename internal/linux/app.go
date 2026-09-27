@@ -34,7 +34,8 @@ type Backend struct {
 	modals     []modal
 	trays      map[int]*tray
 	nextTray   int
-	grabs      map[int]grab // global shortcuts
+	grabs      map[int]grab    // global shortcuts on X11
+	portal     portalShortcuts // global shortcuts elsewhere
 	themeHooks bool
 
 	// What the launcher entry shows (Window.SetProgressBar, badges).

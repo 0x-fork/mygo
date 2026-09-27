@@ -152,7 +152,10 @@ var (
 	gVariantNewVariant             func(v ptr) ptr
 	gVariantNewDouble              func(v float64) ptr
 	gVariantNewInt64               func(v int64) ptr
+	gVariantNewObjectPath          func(s *byte) ptr
+	gVariantLookupValue            func(dict ptr, key *byte, typ ptr) ptr
 	gDBusConnectionEmitSignal      func(conn ptr, dest, path, iface, signal *byte, params ptr, err *ptr) bool
+	gDBusConnectionGetUniqueName   func(conn ptr) ptr
 )
 
 // GDK and GdkPixbuf.
@@ -520,6 +523,8 @@ func load() error {
 	mustBind(g, &gVariantNewVariant, "g_variant_new_variant")
 	mustBind(g, &gVariantNewDouble, "g_variant_new_double")
 	mustBind(g, &gVariantNewInt64, "g_variant_new_int64")
+	mustBind(g, &gVariantNewObjectPath, "g_variant_new_object_path")
+	mustBind(g, &gVariantLookupValue, "g_variant_lookup_value")
 
 	o := libGObject
 	mustBind(o, &gSignalConnectData, "g_signal_connect_data")
@@ -543,6 +548,7 @@ func load() error {
 	mustBind(i, &gDBusConnectionEmitSignal, "g_dbus_connection_emit_signal")
 	mustBind(i, &gDBusConnectionCallSync, "g_dbus_connection_call_sync")
 	mustBind(i, &gDBusConnectionSignalSubscribe, "g_dbus_connection_signal_subscribe")
+	mustBind(i, &gDBusConnectionGetUniqueName, "g_dbus_connection_get_unique_name")
 
 	d := libGDK
 	mustBind(d, &gdkScreenGetRGBAVisual, "gdk_screen_get_rgba_visual")

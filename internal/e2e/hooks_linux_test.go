@@ -46,3 +46,16 @@ func pressCtrlShiftK() (ok bool) {
 	mygo.RunOnMain(func() { ok = linux.TestPressKeys("Control_L", "Shift_L", "k") })
 	return ok
 }
+
+// usePortalShortcuts makes global shortcuts bind through the XDG desktop
+// portal, as on Wayland, when the desktop offers it.
+func usePortalShortcuts() (restore func(), ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestUsePortalShortcuts(true) })
+	return func() { mygo.RunOnMain(func() { linux.TestUsePortalShortcuts(false) }) }, ok
+}
+
+// pressKeys presses keys, X keysym names such as "Control_L", together.
+func pressKeys(keys ...string) (ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestPressKeys(keys...) })
+	return ok
+}
