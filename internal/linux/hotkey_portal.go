@@ -88,8 +88,14 @@ func (b *Backend) syncShortcuts() error {
 	if len(p.shortcuts) == 0 {
 		return nil
 	}
-	token := vardictEntry("session_handle_token", gVariantNewString(cs(shortcutSessionToken())))
-	err := portalRequest(shortcutsPortal, "CreateSession", nil, []ptr{token}, func(code uint32, results ptr) {
+	_, list := p.list()
+	options := []ptr{
+		vardictEntry("session_handle_token", gVariantNewString(cs(shortcutSessionToken()))),
+		// KDE Plasma 5 binds the shortcuts given here, as drafts of the
+		// portal had it; portals before 1.17 pass them on.
+		vardictEntry("shortcuts", list),
+	}
+	err := portalRequest(shortcutsPortal, "CreateSession", nil, options, func(code uint32, results ptr) {
 		session := vardictString(results, "session_handle")
 		if code != 0 || session == "" {
 			p.busy = false
@@ -123,29 +129,14 @@ func (b *Backend) syncShortcuts() error {
 // bindShortcuts binds the shortcuts in the new session.
 func (b *Backend) bindShortcuts() error {
 	p := &b.portal
-	ids := make([]int, 0, len(p.shortcuts))
-	for id := range p.shortcuts {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
-	list := make([]ptr, len(ids))
-	for i, id := range ids {
-		a := p.shortcuts[id]
-		props := vardict(
-			vardictEntry("description", gVariantNewString(cs(a.String()))),
-			vardictEntry("preferred_trigger", gVariantNewString(cs(a.XDGTrigger()))),
-		)
-		list[i] = tuple(gVariantNewString(cs(a.String())), props)
-	}
-	args := []ptr{
-		gVariantNewObjectPath(cs(p.session)),
-		gVariantNewArray(0, unsafe.Pointer(&list[0]), uintptr(len(list))),
-		gVariantNewString(cs("")), // parent window
-	}
+	accs, list := p.list()
+	args := []ptr{gVariantNewObjectPath(cs(p.session)), list, gVariantNewString(cs(""))} // no parent window
 	return portalRequest(shortcutsPortal, "BindShortcuts", args, nil, func(code uint32, results ptr) {
 		p.busy = false
 		if code != 0 {
 			log.Printf("mygo: global shortcuts: the desktop did not bind them (response %d)", code)
+		} else {
+			reportUnbound(accs, results)
 		}
 		if p.stale {
 			if err := b.syncShortcuts(); err != nil {
@@ -153,6 +144,51 @@ func (b *Backend) bindShortcuts() error {
 			}
 		}
 	})
+}
+
+// list returns the shortcuts in the order they were registered, and the
+// a(sa{sv}) that describes them to the portal.
+func (p *portalShortcuts) list() ([]accelerator.Accelerator, ptr) {
+	ids := make([]int, 0, len(p.shortcuts))
+	for id := range p.shortcuts {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	accs := make([]accelerator.Accelerator, len(ids))
+	items := make([]ptr, len(ids))
+	for i, id := range ids {
+		a := p.shortcuts[id]
+		accs[i] = a
+		items[i] = tuple(gVariantNewString(cs(a.String())), vardict(
+			vardictEntry("description", gVariantNewString(cs(a.String()))),
+			vardictEntry("preferred_trigger", gVariantNewString(cs(a.XDGTrigger()))),
+		))
+	}
+	return accs, gVariantNewArray(0, unsafe.Pointer(&items[0]), uintptr(len(items)))
+}
+
+// reportUnbound logs the shortcuts the desktop bound to no keys: users may
+// decline them, and KDE Plasma 5 binds none with portals from 1.17 on.
+func reportUnbound(accs []accelerator.Accelerator, results ptr) {
+	keys := map[string]string{}
+	if list := gVariantLookupValue(results, cs("shortcuts"), 0); list != 0 {
+		if goStr(gVariantGetTypeString(list)) == "a(sa{sv})" {
+			for i := uintptr(0); i < gVariantNChildren(list); i++ {
+				item := gVariantGetChildValue(list, i)
+				id, props := gVariantGetChildValue(item, 0), gVariantGetChildValue(item, 1)
+				keys[goStr(gVariantGetString(id, nil))] = vardictString(props, "trigger_description")
+				gVariantUnref(id)
+				gVariantUnref(props)
+				gVariantUnref(item)
+			}
+		}
+		gVariantUnref(list)
+	}
+	for _, a := range accs {
+		if keys[a.String()] == "" {
+			log.Printf("mygo: global shortcuts: the desktop bound no keys to %s", a)
+		}
+	}
 }
 
 // shortcutActivated handles the portal's Activated signal: (session

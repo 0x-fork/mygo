@@ -154,6 +154,7 @@ var (
 	gVariantNewInt64               func(v int64) ptr
 	gVariantNewObjectPath          func(s *byte) ptr
 	gVariantLookupValue            func(dict ptr, key *byte, typ ptr) ptr
+	gVariantNChildren              func(v ptr) uintptr
 	gDBusConnectionEmitSignal      func(conn ptr, dest, path, iface, signal *byte, params ptr, err *ptr) bool
 	gDBusConnectionGetUniqueName   func(conn ptr) ptr
 )
@@ -525,6 +526,7 @@ func load() error {
 	mustBind(g, &gVariantNewInt64, "g_variant_new_int64")
 	mustBind(g, &gVariantNewObjectPath, "g_variant_new_object_path")
 	mustBind(g, &gVariantLookupValue, "g_variant_lookup_value")
+	mustBind(g, &gVariantNChildren, "g_variant_n_children")
 
 	o := libGObject
 	mustBind(o, &gSignalConnectData, "g_signal_connect_data")

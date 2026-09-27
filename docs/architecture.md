@@ -199,6 +199,19 @@ purego gives three primitives, used everywhere:
   desktop did not launch. Methods that may involve the user answer with a
   `Response` signal on a request object; `portalRequest` routes it to a
   callback by the object's path.
+- On Wayland, where apps grab no keys, global shortcuts go through the
+  `GlobalShortcuts` portal (`hotkey_portal.go`). A session binds its
+  shortcuts once, so every change closes the session and creates one that
+  binds them all; the ids are canonical accelerators and the session token
+  is named after the app, so desktops keep the keys the user picked. The
+  portal may ask the user to confirm new shortcuts and needs the app's ID
+  (portals from 1.21 refuse without it), so the app must be installed.
+  KDE Plasma 5 binds the shortcuts listed in `CreateSession`'s options, as
+  the portal's drafts had it: portals before 1.17 pass them on, later ones
+  drop them and Plasma 5 then binds nothing; MyGo logs the shortcuts the
+  desktop bound no keys to. The activation token of an `Activated` signal
+  becomes the display's startup notification id while the callback runs,
+  so the window it shows or focuses may take the focus.
 
 ### Windows (`internal/windows`)
 
@@ -703,11 +716,14 @@ docker run --rm -v "$PWD:/work" -w /work -e MYGO_E2E=1 \
 `TestGlobalShortcutPortal` binds global shortcuts through the desktop portal
 as on Wayland, and skips without one. KDE's portal works on X11, so an image
 that adds `xdg-desktop-portal`, `xdg-desktop-portal-kde` and `kglobalacceld`
-runs it for real: start `xvfb-run` outside `dbus-run-session` so the portals
+(Plasma 6; `libkf5globalaccel-bin` for Plasma 5, which D-Bus activates) runs
+it for real: start `xvfb-run` outside `dbus-run-session` so the portals
 D-Bus activates get `DISPLAY`, set `XDG_CURRENT_DESKTOP=KDE`, start
 `/usr/lib/*/libexec/kglobalacceld` before the tests, and install
 `$XDG_DATA_HOME/applications/e2e.test.desktop` so that the portal accepts
-the test binary's app ID.
+the test binary's app ID. It passes on Debian 13 (portal 1.20, Plasma 6.3)
+and Debian 12 (portal 1.16, Plasma 5.27); Ubuntu 24.04 (portal 1.18, Plasma
+5.27) binds no shortcuts for any app.
 
 ## Adding a feature
 
@@ -739,7 +755,7 @@ the test binary's app ID.
 |---|---|---|---|
 | menu bar | application menu bar, default menu installed | per-window GTK menu bar, none by default | per-window Win32 menu bar, none by default |
 | tray | NSStatusItem, click events | AppIndicator (menu only, no click events) | notification area icon, click events |
-| global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal binds them in a session, replaced on every change since a session binds once; the portal needs the app installed (its desktop entry gives the app ID), may ask the user to confirm new shortcuts and lets them pick other keys; its activation token lets a window shown from the callback take the focus | `RegisterHotKey` |
+| global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
 | notifications | UserNotifications, packaged apps only | org.freedesktop.Notifications over D-Bus | notification-area balloons (toasts) |
 | vibrancy | all materials | ignored | Windows 11 Mica, Acrylic, Tabbed |
 | traffic lights, Dock | yes | ignored | ignored |

@@ -935,7 +935,9 @@ func TestGlobalShortcutPortal(t *testing.T) {
 	expect := func(acc string, keys ...string) {
 		t.Helper()
 		for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
-			pressKeys(keys...)
+			if !pressKeys(keys...) {
+				t.Skip("no keyboard automation")
+			}
 			select {
 			case got := <-pressed:
 				if got != acc {
