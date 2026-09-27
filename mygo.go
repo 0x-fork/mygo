@@ -2,30 +2,34 @@
 // webview (WKWebView on macOS, WebKitGTK on Linux, WebView2 on Windows),
 // written in pure Go without cgo.
 //
-// The API mirrors Electron's main process modules so it feels familiar:
+// An app binds Go services, whose exported methods its web frontend calls
+// through a TypeScript client that `mygo generate` writes, and opens
+// windows once it is ready:
 //
-//	Electron                     MyGo
-//	app                          mygo.App
-//	new BrowserWindow(opts)      mygo.NewBrowserWindow(opts)
-//	win.webContents              win.WebContents
-//	ipcMain                      mygo.IPCMain
-//	Menu.buildFromTemplate(t)    mygo.NewMenu(t)
-//	dialog / shell / clipboard   mygo.Dialog / mygo.Shell / mygo.Clipboard
-//	screen / nativeTheme         mygo.Screen / mygo.NativeTheme
-//	protocol.handle(scheme, fn)  mygo.Protocol.Handle(scheme, http.Handler)
+//	type Greeter struct{}
 //
-// A minimal application:
+//	// Greet returns a greeting.
+//	func (Greeter) Greet(name string) string { return "Hello, " + name }
 //
 //	func main() {
-//		app := mygo.App
-//		app.WhenReady(func() {
-//			win := mygo.NewBrowserWindow(mygo.BrowserWindowOptions{Width: 800, Height: 600})
-//			win.LoadURL("https://example.com")
+//		mygo.Bind(Greeter{})
+//		mygo.App.WhenReady(func() {
+//			mygo.NewWindow(mygo.WindowOptions{Title: "Hello", URL: "/"})
 //		})
-//		if err := app.Run(); err != nil {
+//		if err := mygo.App.Run(); err != nil {
 //			log.Fatal(err)
 //		}
 //	}
+//
+// The frontend then calls `await Greeter.greet("Ada")`. Go reaches pages
+// with typed events declared with NewEvent.
+//
+// The rest of the package covers the desktop: App (the lifecycle, deep
+// links, file associations, the Dock), Window, NewMenu and NewTray, Dialog,
+// NewNotification, Clipboard, Shell, Screen, Theme, Power, GlobalShortcut,
+// Protocol (custom URL schemes served by an http.Handler) and Updater.
+// The guides in the repository's docs directory show how they fit
+// together.
 //
 // # Threading
 //
@@ -36,8 +40,8 @@
 // thread are forwarded to it and wait for the result.
 //
 // Event listeners (OnClose, OnFocus, ...) run on the main thread; keep them
-// short and move slow work to a goroutine. IPC handlers registered with
-// IPCMain run on their own goroutines, so they may block.
+// short and move slow work to a goroutine. Methods of bound services run on
+// goroutines of their own, one per call, so they may block.
 package mygo
 
 import (

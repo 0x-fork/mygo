@@ -63,7 +63,7 @@ before changing anything under `internal/`.
 │                       per-platform binary packages
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native
-└── docs/               this guide
+└── docs/               the user guides, and this architecture guide
 ```
 
 ## Layers
