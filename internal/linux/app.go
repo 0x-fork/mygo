@@ -223,6 +223,9 @@ func (a appController) CancelBounce(int) {
 	}
 }
 
+// SetDockMenu does nothing: there is no Dock.
+func (a appController) SetDockMenu(*platform.Menu) {}
+
 func (a appController) SetDockIcon(png []byte) error {
 	pix, err := pixbufFromPNG(png)
 	if err != nil {

@@ -38,3 +38,5 @@ func defaultURLHandler(scheme string) (id string, supported bool) {
 	mygo.RunOnMain(func() { id = linux.TestDefaultURLHandler(scheme) })
 	return id, true
 }
+
+func dockMenu(int) ([]string, bool) { return nil, false }

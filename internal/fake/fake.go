@@ -41,6 +41,8 @@ type Backend struct {
 	URLSchemes map[string]string
 	// LoginItem is the command that starts the app at login: "id name arg".
 	LoginItem string
+	// DockMenu is the menu of the Dock icon.
+	DockMenu *platform.Menu
 	// Dialog results returned by the next dialog.
 	OpenResult    []string
 	SaveResult    string
@@ -461,6 +463,8 @@ func (a app) OpenAtLogin(id, name, arg string) bool {
 }
 
 func (app) OpenedAtLogin() bool { return false }
+
+func (a app) SetDockMenu(m *platform.Menu) { a.b.mu.Lock(); a.b.DockMenu = m; a.b.mu.Unlock() }
 
 func (a app) IsURLSchemeRegistered(scheme, id, name string) bool {
 	a.b.mu.Lock()

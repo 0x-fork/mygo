@@ -110,3 +110,22 @@ func TestDockTileImage() []byte {
 	})
 	return data
 }
+
+// TestDockMenu returns the titles of the Dock menu the app delegate
+// returns, and clicks the item at click unless it is -1.
+func TestDockMenu(click int) []string {
+	var titles []string
+	withPool(func() {
+		menu := send(send(theBackend.app, "delegate"), "applicationDockMenu:", uintptr(theBackend.app))
+		if menu == 0 {
+			return
+		}
+		for _, it := range arrayItems(send(menu, "itemArray")) {
+			titles = append(titles, goString(send(it, "title")))
+		}
+		if click >= 0 {
+			send(menu, "performActionForItemAtIndex:", uintptr(click))
+		}
+	})
+	return titles
+}

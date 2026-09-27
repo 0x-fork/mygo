@@ -59,3 +59,36 @@ func join(s []string) string {
 	}
 	return out
 }
+
+func TestDockMenuAndRelaunch(t *testing.T) {
+	m := NewMenu([]*MenuItem{{Label: "New Window", ID: "new"}})
+	App.Dock.SetMenu(m)
+	if App.Dock.Menu() != m {
+		t.Error("Dock.Menu")
+	}
+	dm := onMainValue(func() any { return fb.DockMenu })
+	if dm == nil || len(fb.DockMenu.Items) != 1 || fb.DockMenu.Items[0].Label != "New Window" {
+		t.Errorf("dock menu = %+v", dm)
+	}
+	App.Dock.SetMenu(nil)
+	if onMainValue(func() bool { return fb.DockMenu != nil }) {
+		t.Error("SetMenu(nil) kept the menu")
+	}
+
+	// A relaunch whose quit is canceled does nothing.
+	canceled := make(chan struct{}, 1)
+	off := App.OnBeforeQuit(func(e *QuitEvent) {
+		e.PreventDefault()
+		canceled <- struct{}{}
+	})
+	defer off()
+	App.Relaunch()
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("Relaunch did not start quitting")
+	}
+	if onMainValue(func() bool { return App.relaunch }) {
+		t.Error("a canceled relaunch is still pending")
+	}
+}

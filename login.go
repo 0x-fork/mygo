@@ -2,6 +2,8 @@ package mygo
 
 import (
 	"os"
+	"os/exec"
+	"runtime"
 	"slices"
 )
 
@@ -58,4 +60,47 @@ func appID() string {
 		return info.Identifier
 	}
 	return App.Name()
+}
+
+// devRelaunchCode is the exit code with which a development build asks
+// `mygo dev` to start it again (Relaunch).
+const devRelaunchCode = 75
+
+// startDir is the working directory the app started in.
+var startDir, _ = os.Getwd()
+
+// Relaunch quits the app like Quit, then starts it again with the same
+// arguments, e.g. after changing a setting that needs a restart. Nothing
+// happens when OnBeforeQuit, OnWillQuit or a window cancels the quit.
+// Under `mygo dev` the build exits once it has quit and mygo dev starts it
+// again.
+func (a *Application) Relaunch() {
+	postMain(func() {
+		a.relaunch = true
+		if a.prepareQuit() {
+			backend().Quit()
+		} else {
+			a.relaunch = false
+		}
+	})
+}
+
+// relaunchNow starts the app again; it runs after the quit sequence.
+func relaunchNow() {
+	if launchedByDev() {
+		os.Exit(devRelaunchCode)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(exe, os.Args[1:]...)
+	cmd.Dir = startDir
+	if runtime.GOOS != "windows" {
+		// GUI executables on Windows have no standard streams to pass on.
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	}
+	if cmd.Start() == nil {
+		_ = cmd.Process.Release()
+	}
 }

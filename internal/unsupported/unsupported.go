@@ -67,6 +67,7 @@ func (app) IsURLSchemeRegistered(string, string, string) bool { return false }
 func (app) SetOpenAtLogin(bool, string, string, string) error { return errUnsupported }
 func (app) OpenAtLogin(string, string, string) bool           { return false }
 func (app) OpenedAtLogin() bool                               { return false }
+func (app) SetDockMenu(*platform.Menu)                        {}
 
 type dialogs struct{}
 

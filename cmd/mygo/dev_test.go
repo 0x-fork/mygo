@@ -17,7 +17,17 @@ import (
 // TestMain lets the test binary play a development build of an app for
 // the launch tests.
 func TestMain(m *testing.M) {
-	switch os.Getenv("MYGO_FAKE_APP") {
+	mode := os.Getenv("MYGO_FAKE_APP")
+	if mode == "relaunch" {
+		// mygo.App.Relaunch the first time, then like "ready".
+		marker := os.Getenv("MYGO_FAKE_MARKER")
+		if _, err := os.Stat(marker); err != nil {
+			_ = os.WriteFile(marker, nil, 0o644)
+			os.Exit(devRelaunchCode)
+		}
+		mode = "ready"
+	}
+	switch mode {
 	case "":
 		os.Exit(m.Run())
 	case "ready":
@@ -34,6 +44,7 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	case "exit":
 		os.Exit(3)
+
 	case "hang":
 		signal.Ignore(syscall.SIGTERM)
 		time.Sleep(time.Hour)
@@ -58,6 +69,15 @@ func TestDevLaunch(t *testing.T) {
 	if p.err != nil {
 		t.Errorf("a stopped build should quit cleanly: %v", p.err)
 	}
+
+	// A build that relaunches itself before it is ready starts again.
+	t.Setenv("MYGO_FAKE_APP", "relaunch")
+	t.Setenv("MYGO_FAKE_MARKER", filepath.Join(t.TempDir(), "launched"))
+	p, err = s.launch(ctx, os.Args[0])
+	if err != nil {
+		t.Fatalf("relaunch: %v", err)
+	}
+	p.stop()
 
 	t.Setenv("MYGO_FAKE_APP", "exit")
 	if _, err := s.launch(ctx, os.Args[0]); err == nil || !strings.Contains(err.Error(), "exited before it was ready: exit status 3") {

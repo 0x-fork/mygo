@@ -131,6 +131,10 @@ type devSession struct {
 
 var errUnchanged = errors.New("unchanged")
 
+// devRelaunchCode is the exit code of a build that mygo.App.Relaunch asks
+// to start again (see login.go in package mygo).
+const devRelaunchCode = 75
+
 // run launches the app and rebuilds it on changes until the app quits or
 // ctx is done.
 func (s *devSession) run(ctx context.Context, c *Config) error {
@@ -188,8 +192,21 @@ func (s *devSession) run(ctx context.Context, c *Config) error {
 		case <-ctx.Done():
 			return nil
 		case <-exited:
-			err := s.app.err
-			s.app, s.sum = nil, [32]byte{}
+			err, exe := s.app.err, s.app.exe
+			s.app = nil
+			var exit *exec.ExitError
+			if errors.As(err, &exit) && exit.ExitCode() == devRelaunchCode {
+				// mygo.App.Relaunch: start the same build again.
+				logf("relaunching")
+				if p, err := s.launch(ctx, exe); err != nil {
+					logf("%v; waiting for changes", err)
+					s.sum = [32]byte{}
+				} else {
+					s.app = p
+				}
+				continue
+			}
+			s.sum = [32]byte{}
 			if err == nil {
 				logf("the app quit")
 				return nil
@@ -404,8 +421,20 @@ func (s *devSession) icon(c *Config) ([]byte, error) {
 
 // launch starts a build and waits until it reports ready: the app connects
 // to the Unix socket passed in MYGO_READY_SOCKET once its first window is
-// ready to show.
+// ready to show. A build that relaunches itself first is started again.
 func (s *devSession) launch(ctx context.Context, exe string) (*devProcess, error) {
+	for range 10 {
+		p, err := s.launchOnce(ctx, exe)
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != devRelaunchCode {
+			return p, err
+		}
+		logf("relaunching") // mygo.App.Relaunch before the app was ready
+	}
+	return nil, errors.New("the app relaunched itself 10 times without getting ready")
+}
+
+func (s *devSession) launchOnce(ctx context.Context, exe string) (*devProcess, error) {
 	s.launches++
 	sock := readySocketPath(s.launches)
 	_ = os.Remove(sock)
@@ -430,7 +459,7 @@ func (s *devSession) launch(ctx context.Context, exe string) (*devProcess, error
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	p := &devProcess{cmd: cmd, done: make(chan struct{})}
+	p := &devProcess{exe: exe, cmd: cmd, done: make(chan struct{})}
 	go func() {
 		p.err = cmd.Wait()
 		close(p.done)
@@ -449,7 +478,7 @@ func (s *devSession) launch(ctx context.Context, exe string) (*devProcess, error
 		if p.err == nil {
 			return nil, errors.New("the app exited before it was ready")
 		}
-		return nil, fmt.Errorf("the app exited before it was ready: %v", p.err)
+		return nil, fmt.Errorf("the app exited before it was ready: %w", p.err)
 	case <-timeout.C:
 		p.stop()
 		return nil, fmt.Errorf("the app did not get ready within %v", wait)
@@ -472,6 +501,7 @@ func readySocketPath(n int) string {
 
 // devProcess is a running development build.
 type devProcess struct {
+	exe  string
 	cmd  *exec.Cmd
 	done chan struct{} // closed when the process exited
 	err  error         // how it exited, set before done is closed

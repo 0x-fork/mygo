@@ -44,6 +44,9 @@ type Backend struct {
 	// openedAtLogin records whether the system started the app as a login
 	// item (WasOpenedAtLogin).
 	openedAtLogin bool
+	// dockMenu is returned by applicationDockMenu: (retained).
+	dockMenu      id
+	dockMenuOwner int
 }
 
 // New creates the macOS backend.
@@ -272,6 +275,9 @@ func registerAppDelegate() {
 		method("applicationWillTerminate:", func(self id, _ objc.SEL, n id) {
 			theBackend.h.Terminating()
 		}),
+		method("applicationDockMenu:", func(self id, _ objc.SEL, app id) id {
+			return theBackend.dockMenu
+		}),
 		method("applicationShouldHandleReopen:hasVisibleWindows:", func(self id, _ objc.SEL, app id, visible bool) bool {
 			theBackend.h.Activated(visible)
 			return true
@@ -348,6 +354,21 @@ func (a appController) Bounce(critical bool) int {
 
 func (a appController) CancelBounce(requestID int) {
 	send(a.b.app, "cancelUserAttentionRequest:", uintptr(requestID))
+}
+
+func (a appController) SetDockMenu(m *platform.Menu) {
+	b := a.b
+	if b.dockMenuOwner == 0 {
+		b.dockMenuOwner = newOwner()
+	}
+	withPool(func() {
+		dropOwner(b.dockMenuOwner)
+		release(b.dockMenu)
+		b.dockMenu = 0
+		if m != nil {
+			b.dockMenu = retain(b.buildMenu(m, "", b.dockMenuOwner))
+		}
+	})
 }
 
 func (a appController) SetDockIcon(png []byte) error {

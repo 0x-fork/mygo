@@ -44,6 +44,7 @@ type Application struct {
 
 	// quitting is only touched on the main thread.
 	quitting bool
+	relaunch bool // Relaunch: start again once quit (main thread)
 
 	// Dock controls the Dock icon on macOS.
 	Dock *Dock
@@ -180,6 +181,9 @@ func (a *Application) finish() {
 	a.finished.Do(func() {
 		saveWindowStates()
 		fire(&a.onQuit)
+		if a.relaunch {
+			relaunchNow() // after OnQuit, which releases the single instance lock
+		}
 		loop.shutdown()
 	})
 }
@@ -435,7 +439,27 @@ func (a *Application) OnWindowCreated(fn func(w *Window)) (off func()) {
 
 // Dock controls the application's Dock icon (macOS). Its methods do
 // nothing on other platforms.
-type Dock struct{}
+type Dock struct {
+	mu   sync.Mutex
+	menu *Menu
+}
+
+// SetMenu sets the menu the Dock icon shows above the standard items, e.g.
+// to open a new window; nil removes it.
+func (d *Dock) SetMenu(m *Menu) {
+	d.mu.Lock()
+	d.menu = m // its items must stay reachable for clicks
+	d.mu.Unlock()
+	snap := m.snapshot()
+	onMain(func() { backend().App().SetDockMenu(snap) })
+}
+
+// Menu returns the menu set with SetMenu.
+func (d *Dock) Menu() *Menu {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.menu
+}
 
 // SetBadge shows text on the Dock icon; "" clears it.
 func (d *Dock) SetBadge(text string) { onMain(func() { backend().App().SetBadge(text) }) }
@@ -488,6 +512,6 @@ func (appHandler) OpenFiles(paths []string) {
 func (appHandler) MenuItemClicked(id int)        { menuItemClicked(id) }
 func (appHandler) ThemeChanged()                 { Theme.changed() }
 func (appHandler) DisplaysChanged()              { Screen.changed() }
-func (appHandler) PowerEvent(event string)        { Power.event(event) }
+func (appHandler) PowerEvent(event string)       { Power.event(event) }
 func (appHandler) HotkeyPressed(id int)          { GlobalShortcut.pressed(id) }
 func (appHandler) NotificationClicked(id string) { notificationClicked(id) }

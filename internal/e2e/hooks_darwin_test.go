@@ -46,3 +46,8 @@ func dockTileImage() (png []byte, supported bool) {
 }
 
 func defaultURLHandler(string) (string, bool) { return "", false }
+
+func dockMenu(click int) (titles []string, supported bool) {
+	mygo.RunOnMain(func() { titles = darwin.TestDockMenu(click) })
+	return titles, true
+}

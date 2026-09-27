@@ -685,6 +685,32 @@ func TestPower(t *testing.T) {
 	}
 }
 
+func TestDockMenu(t *testing.T) {
+	clicked := make(chan struct{}, 1)
+	mygo.App.Dock.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
+		{Label: "New Window", Click: func(*mygo.MenuItem, *mygo.Window) { clicked <- struct{}{} }},
+		mygo.Separator(),
+		{Label: "Settings"},
+	}))
+	defer mygo.App.Dock.SetMenu(nil)
+	titles, ok := dockMenu(0)
+	if !ok {
+		t.Skip("no Dock on this platform")
+	}
+	if len(titles) != 3 || titles[0] != "New Window" || titles[2] != "Settings" {
+		t.Errorf("Dock menu = %q", titles)
+	}
+	select {
+	case <-clicked:
+	case <-time.After(3 * time.Second):
+		t.Error("clicking the Dock menu item did not reach its handler")
+	}
+	mygo.App.Dock.SetMenu(nil)
+	if titles, _ := dockMenu(-1); titles != nil {
+		t.Errorf("Dock menu after SetMenu(nil) = %q", titles)
+	}
+}
+
 func TestCloseEvents(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	var prevent atomic.Bool

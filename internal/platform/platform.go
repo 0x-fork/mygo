@@ -134,6 +134,8 @@ type AppController interface {
 	Bounce(critical bool) int
 	CancelBounce(id int)
 	SetDockIcon(png []byte) error
+	// SetDockMenu sets the menu of the Dock icon (macOS); nil removes it.
+	SetDockMenu(m *Menu)
 	ShowAboutPanel(opts AboutPanelOptions)
 	Locale() string
 	// RegisterURLScheme makes the app, identified by id (its identifier)

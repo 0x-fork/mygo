@@ -32,3 +32,5 @@ func setDroppedFiles(w *mygo.Window, paths []string) bool {
 func dockTileImage() ([]byte, bool) { return nil, false }
 
 func defaultURLHandler(string) (string, bool) { return "", false }
+
+func dockMenu(int) ([]string, bool) { return nil, false }
