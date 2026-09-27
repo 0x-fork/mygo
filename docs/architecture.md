@@ -274,6 +274,12 @@ document start into the main frame. It installs:
   as the `mygo:file-drop` event, to trusted pages only. Event names starting
   with `mygo:` are reserved.
 
+- Find in page (`find.ts`, `Window.FindInPage`): the bridge walks the
+  visible text nodes, marks matches with the CSS Custom Highlight API (a
+  constructed style sheet, which a Content Security Policy allows) and
+  scrolls to the active one; engines without the API get the active match
+  selected instead. Being JavaScript, it works the same in every engine.
+
 The transport is `window.webkit.messageHandlers.mygo.postMessage` on both
 WebKit platforms and `window.chrome.webview.postMessage` on WebView2.
 

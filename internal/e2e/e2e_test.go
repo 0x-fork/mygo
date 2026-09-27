@@ -866,6 +866,39 @@ func TestClearBrowsingData(t *testing.T) {
 	}
 }
 
+func TestFindInPage(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Title: "Find", Width: 400, Height: 300})
+	w.LoadHTML(`<p>MyGo is a framework. mygo apps are small.</p><p style="display:none">mygo hidden</p><p>Say mygo</p>`, "")
+	waitFor(t, w, `document.readyState === "complete" && document.querySelectorAll("p").length === 3`)
+	find := func(text string, opts mygo.FindOptions) mygo.FindResult {
+		t.Helper()
+		res, err := w.FindInPage(text, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	if res := find("mygo", mygo.FindOptions{}); res != (mygo.FindResult{Matches: 3, Active: 1}) {
+		t.Errorf("find = %+v, want 3 visible matches", res)
+	}
+	if res := find("mygo", mygo.FindOptions{FindNext: true}); res.Active != 2 {
+		t.Errorf("next = %+v", res)
+	}
+	if res := find("mygo", mygo.FindOptions{FindNext: true, Backward: true}); res.Active != 1 {
+		t.Errorf("previous = %+v", res)
+	}
+	if res := find("mygo", mygo.FindOptions{FindNext: true, Backward: true}); res.Active != 3 {
+		t.Errorf("previous wraps around: %+v", res)
+	}
+	if res := find("MyGo", mygo.FindOptions{MatchCase: true}); res.Matches != 1 {
+		t.Errorf("match case = %+v", res)
+	}
+	if res := find("nothing", mygo.FindOptions{}); res != (mygo.FindResult{}) {
+		t.Errorf("no match = %+v", res)
+	}
+	w.StopFindInPage()
+}
+
 func TestCloseEvents(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	var prevent atomic.Bool

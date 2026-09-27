@@ -1,5 +1,6 @@
 // Entry point of the script MyGo injects at document start into every page.
 // The Go side wraps the bundle in a function that defines __MYGO_CONFIG__.
+import { find, stopFind } from "./find";
 import { createRuntime } from "./runtime";
 import type { BridgeConfig } from "./types";
 
@@ -21,7 +22,7 @@ const INTERACTIVE =
 
   const { runtime, internal } = createRuntime(__MYGO_CONFIG__, post);
   Object.defineProperty(w, "mygo", { value: runtime, enumerable: true });
-  Object.defineProperty(w, "__mygo", { value: internal });
+  Object.defineProperty(w, "__mygo", { value: Object.freeze({ ...internal, find, stopFind }) });
 
   const notify = (t: "dom-ready" | "drag" | "dblclick") => {
     try {
