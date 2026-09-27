@@ -274,6 +274,16 @@ func autorelease(obj id) id {
 	return send(obj, "autorelease")
 }
 
+// appKitString returns an NSString constant that AppKit exports, such as
+// NSPrintJobSavingURL, whose value may differ from its name.
+func appKitString(name string) id {
+	p, err := purego.Dlsym(libAppKit, name)
+	if err != nil {
+		return nsString(name)
+	}
+	return **(**id)(unsafe.Pointer(&p))
+}
+
 // alloc creates an owned (+1) instance of a class with init.
 func alloc(className string) id {
 	return send(send(class(className), "alloc"), "init")

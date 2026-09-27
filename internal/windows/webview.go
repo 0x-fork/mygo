@@ -5,8 +5,10 @@ package windows
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -597,6 +599,36 @@ func hglobalBytes(stream uintptr) []byte {
 }
 
 func (w *window) Print() { w.Eval("window.print()") }
+
+// PrintToPDF uses the DevTools protocol, like Chromium's headless mode.
+func (w *window) PrintToPDF(o platform.PDFOptions, cb func([]byte, error)) {
+	params, _ := json.Marshal(map[string]any{
+		"landscape":         o.Landscape,
+		"printBackground":   o.Background,
+		"paperWidth":        o.PageWidth,
+		"paperHeight":       o.PageHeight,
+		"marginTop":         o.MarginTop,
+		"marginRight":       o.MarginRight,
+		"marginBottom":      o.MarginBottom,
+		"marginLeft":        o.MarginLeft,
+		"preferCSSPageSize": false,
+	})
+	w.devtools("Page.printToPDF", string(params), func(res string, err error) {
+		if err != nil {
+			cb(nil, fmt.Errorf("mygo: printing to PDF: %w", err))
+			return
+		}
+		var r struct {
+			Data string `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(res), &r); err != nil {
+			cb(nil, err)
+			return
+		}
+		pdf, err := base64.StdEncoding.DecodeString(r.Data)
+		cb(pdf, err)
+	})
+}
 
 // Custom scheme requests.
 

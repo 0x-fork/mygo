@@ -370,6 +370,22 @@ var (
 	webkitWebViewExecuteEditingCommand                func(wv ptr, cmd *byte)
 	webkitPrintOperationNew                           func(wv ptr) ptr
 	webkitPrintOperationRunDialog                     func(op, parent ptr) int32
+	webkitPrintOperationSetPrintSettings              func(op, settings ptr)
+	webkitPrintOperationSetPageSetup                  func(op, setup ptr)
+	webkitPrintOperationPrint                         func(op ptr)
+	webkitSettingsGetPrintBackgrounds                 func(s ptr) bool
+	webkitSettingsSetPrintBackgrounds                 func(s ptr, v bool)
+	gtkPrintSettingsNew                               func() ptr
+	gtkPrintSettingsSet                               func(s ptr, key, value *byte)
+	gtkPageSetupNew                                   func() ptr
+	gtkPageSetupSetPaperSize                          func(setup, size ptr)
+	gtkPageSetupSetOrientation                        func(setup ptr, orientation int32)
+	gtkPageSetupSetTopMargin                          func(setup ptr, margin float64, unit int32)
+	gtkPageSetupSetBottomMargin                       func(setup ptr, margin float64, unit int32)
+	gtkPageSetupSetLeftMargin                         func(setup ptr, margin float64, unit int32)
+	gtkPageSetupSetRightMargin                        func(setup ptr, margin float64, unit int32)
+	gtkPaperSizeNewCustom                             func(name, displayName *byte, width, height float64, unit int32) ptr
+	gtkPaperSizeFree                                  func(size ptr)
 	webkitJavascriptResultGetJSValue                  func(r ptr) ptr
 	webkitNavigationPolicyDecisionGetNavigationAction func(d ptr) ptr
 	webkitNavigationPolicyDecisionGetFrameName        func(d ptr) ptr
@@ -706,6 +722,22 @@ func load() error {
 	mustBind(w, &webkitWebViewExecuteEditingCommand, "webkit_web_view_execute_editing_command")
 	mustBind(w, &webkitPrintOperationNew, "webkit_print_operation_new")
 	mustBind(w, &webkitPrintOperationRunDialog, "webkit_print_operation_run_dialog")
+	mustBind(w, &webkitPrintOperationSetPrintSettings, "webkit_print_operation_set_print_settings")
+	mustBind(w, &webkitPrintOperationSetPageSetup, "webkit_print_operation_set_page_setup")
+	mustBind(w, &webkitPrintOperationPrint, "webkit_print_operation_print")
+	mustBind(w, &webkitSettingsGetPrintBackgrounds, "webkit_settings_get_print_backgrounds")
+	mustBind(w, &webkitSettingsSetPrintBackgrounds, "webkit_settings_set_print_backgrounds")
+	mustBind(t, &gtkPrintSettingsNew, "gtk_print_settings_new")
+	mustBind(t, &gtkPrintSettingsSet, "gtk_print_settings_set")
+	mustBind(t, &gtkPageSetupNew, "gtk_page_setup_new")
+	mustBind(t, &gtkPageSetupSetPaperSize, "gtk_page_setup_set_paper_size")
+	mustBind(t, &gtkPageSetupSetOrientation, "gtk_page_setup_set_orientation")
+	mustBind(t, &gtkPageSetupSetTopMargin, "gtk_page_setup_set_top_margin")
+	mustBind(t, &gtkPageSetupSetBottomMargin, "gtk_page_setup_set_bottom_margin")
+	mustBind(t, &gtkPageSetupSetLeftMargin, "gtk_page_setup_set_left_margin")
+	mustBind(t, &gtkPageSetupSetRightMargin, "gtk_page_setup_set_right_margin")
+	mustBind(t, &gtkPaperSizeNewCustom, "gtk_paper_size_new_custom")
+	mustBind(t, &gtkPaperSizeFree, "gtk_paper_size_free")
 	mustBind(w, &webkitJavascriptResultGetJSValue, "webkit_javascript_result_get_js_value")
 	mustBind(w, &webkitNavigationPolicyDecisionGetNavigationAction, "webkit_navigation_policy_decision_get_navigation_action")
 	bind(w, &webkitNavigationPolicyDecisionGetFrameName, "webkit_navigation_policy_decision_get_frame_name")

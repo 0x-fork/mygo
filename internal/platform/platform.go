@@ -327,6 +327,8 @@ type Window interface {
 	IsDevToolsOpened() bool
 	// CapturePage takes a PNG snapshot of the visible page.
 	CapturePage(cb func(png []byte, err error))
+	// PrintToPDF renders the page as a PDF document.
+	PrintToPDF(opts PDFOptions, cb func(pdf []byte, err error))
 	// DroppedFiles returns the paths of the files of the latest drop on
 	// the page and forgets them. The page reports the drop itself (a
 	// "drop" message); backends record the paths before the page sees it.
@@ -550,6 +552,14 @@ type Theme interface {
 	IsDark() bool
 	// SetSource is "system", "light" or "dark".
 	SetSource(source string)
+}
+
+// PDFOptions configures Window.PrintToPDF; lengths are in inches.
+type PDFOptions struct {
+	Landscape                                        bool
+	PageWidth, PageHeight                            float64
+	MarginTop, MarginRight, MarginBottom, MarginLeft float64
+	Background                                       bool
 }
 
 // Power reports power and session events and keeps the computer awake.

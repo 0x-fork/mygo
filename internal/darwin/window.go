@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"math"
+	"os"
 
 	"github.com/ebitengine/purego/objc"
 
@@ -721,13 +722,84 @@ func pngFromImage(img id) []byte {
 	return goBytes(data)
 }
 
+// printJobs holds the completions of print operations by their context.
+var printJobs = map[uintptr]func(success bool){}
+
+func (w *window) PrintToPDF(o platform.PDFOptions, cb func([]byte, error)) {
+	if !respondsTo(w.web, "printOperationWithPrintInfo:") {
+		cb(nil, errors.New("mygo: printing to PDF needs macOS 11 or later"))
+		return
+	}
+	f, err := os.CreateTemp("", "mygo-*.pdf")
+	if err != nil {
+		cb(nil, err)
+		return
+	}
+	path := f.Name()
+	f.Close()
+	withPool(func() {
+		info := autorelease(send(send(class("NSPrintInfo"), "sharedPrintInfo"), "copy"))
+		send(info, "setJobDisposition:", uintptr(appKitString("NSPrintSaveJob")))
+		url := send(class("NSURL"), "fileURLWithPath:", uintptr(nsString(path)))
+		send(send(info, "dictionary"), "setObject:forKey:", uintptr(url), uintptr(appKitString("NSPrintJobSavingURL")))
+		const points = 72
+		width, height := o.PageWidth, o.PageHeight
+		orientation := 0 // NSPaperOrientationPortrait
+		if o.Landscape {
+			width, height, orientation = height, width, 1
+		}
+		msgSetSize(info, sel("setPaperSize:"), NSSize{width * points, height * points})
+		send(info, "setOrientation:", uintptr(orientation))
+		msgSetFloat(info, sel("setTopMargin:"), o.MarginTop*points)
+		msgSetFloat(info, sel("setRightMargin:"), o.MarginRight*points)
+		msgSetFloat(info, sel("setBottomMargin:"), o.MarginBottom*points)
+		msgSetFloat(info, sel("setLeftMargin:"), o.MarginLeft*points)
+		send(info, "setHorizontalPagination:", 1) // fit the width, like browsers
+		send(info, "setVerticalPagination:", 0)   // as many pages as it takes
+		send(info, "setHorizontallyCentered:", 0)
+		send(info, "setVerticallyCentered:", 0)
+		// The preferences are shared with the configuration's copy.
+		prefs := func() id { return send(send(w.web, "configuration"), "preferences") }
+		backgrounds := respondsTo(prefs(), "setShouldPrintBackgrounds:") // macOS 13.3
+		printedBackgrounds := false
+		if backgrounds {
+			printedBackgrounds = sendBool(prefs(), "shouldPrintBackgrounds")
+			send(prefs(), "setShouldPrintBackgrounds:", boolArg(o.Background))
+		}
+		// Kept until it ran: nothing else holds on to it.
+		op := retain(send(w.web, "printOperationWithPrintInfo:", uintptr(info)))
+		send(op, "setShowsPrintPanel:", 0)
+		send(op, "setShowsProgressPanel:", 0)
+		msgSetRect(send(op, "view"), sel("setFrame:"), msgRect(w.web, sel("bounds")))
+		job := uintptr(len(printJobs) + 1)
+		for printJobs[job] != nil {
+			job++
+		}
+		printJobs[job] = func(success bool) {
+			release(op)
+			if backgrounds {
+				withPool(func() { send(prefs(), "setShouldPrintBackgrounds:", boolArg(printedBackgrounds)) })
+			}
+			data, err := os.ReadFile(path)
+			os.Remove(path)
+			if err == nil && (!success || len(data) == 0) {
+				err = errors.New("mygo: printing to PDF failed")
+			}
+			cb(data, err)
+		}
+		send(op, "runOperationModalForWindow:delegate:didRunSelector:contextInfo:", uintptr(w.win), uintptr(w.delegate),
+			uintptr(sel("mygoPrintOperationDidRun:success:contextInfo:")), job)
+	})
+}
+
 func (w *window) Print() {
 	if !respondsTo(w.web, "printOperationWithPrintInfo:") {
 		return
 	}
 	withPool(func() {
 		info := send(class("NSPrintInfo"), "sharedPrintInfo")
-		op := send(w.web, "printOperationWithPrintInfo:", uintptr(info))
+		// Kept until it ran: nothing else holds on to it.
+		op := retain(send(w.web, "printOperationWithPrintInfo:", uintptr(info)))
 		view := send(op, "view")
 		msgSetRect(view, sel("setFrame:"), msgRect(w.web, sel("bounds")))
 		send(op, "runOperationModalForWindow:delegate:didRunSelector:contextInfo:", uintptr(w.win), 0, 0, 0)
@@ -827,6 +899,15 @@ func registerWindowClasses() {
 					return w.h.ShouldClose()
 				}
 				return true
+			}),
+			// WebKit's print operations may finish on a background thread.
+			method("mygoPrintOperationDidRun:success:contextInfo:", func(self id, _ objc.SEL, op id, success bool, job uintptr) {
+				theBackend.runOnMain(func() {
+					if done := printJobs[job]; done != nil {
+						delete(printJobs, job)
+						done(success)
+					}
+				})
 			}),
 			method("windowWillClose:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {

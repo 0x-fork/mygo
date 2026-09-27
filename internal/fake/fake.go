@@ -242,6 +242,8 @@ type Window struct {
 	devtools  bool
 	// Dropped is what DroppedFiles returns, once.
 	Dropped []string
+	// PDF holds the options of the last PrintToPDF.
+	PDF platform.PDFOptions
 	// What the window extras were last set to.
 	Progress        string
 	ProgressValue   float64
@@ -279,6 +281,13 @@ func (w *Window) SetIcon(png []byte) error {
 	w.Icon = png
 	w.mu.Unlock()
 	return nil
+}
+
+func (w *Window) PrintToPDF(o platform.PDFOptions, cb func([]byte, error)) {
+	w.mu.Lock()
+	w.PDF = o
+	w.mu.Unlock()
+	cb([]byte("%PDF-1.4 fake"), nil)
 }
 
 func (w *Window) DroppedFiles() []string {

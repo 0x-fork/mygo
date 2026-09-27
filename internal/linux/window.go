@@ -5,6 +5,9 @@ package linux
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"net/url"
+	"os"
 	"sync"
 	"unsafe"
 
@@ -494,6 +497,72 @@ func (w *window) CapturePage(cb func([]byte, error)) {
 	webkitWebViewGetSnapshot(w.web, 0, 0, 0, cbAsyncReady, id)
 }
 
+// printJobs holds the PrintToPDF operations running.
+var printJobs = map[ptr]*printJob{}
+
+type printJob struct {
+	err  error // from "failed", which "finished" follows
+	done func(err error)
+}
+
+// PrintToPDF prints to the "Print to File" printer of GTK, which writes
+// the PDF to a temporary file.
+func (w *window) PrintToPDF(o platform.PDFOptions, cb func([]byte, error)) {
+	f, err := os.CreateTemp("", "mygo-*.pdf")
+	if err != nil {
+		cb(nil, err)
+		return
+	}
+	path := f.Name()
+	f.Close()
+	settings := gtkPrintSettingsNew()
+	for k, v := range map[string]string{
+		"printer":            "Print to File",
+		"output-file-format": "pdf",
+		"output-uri":         (&url.URL{Scheme: "file", Path: path}).String(),
+	} {
+		gtkPrintSettingsSet(settings, cs(k), cs(v))
+	}
+	setup := gtkPageSetupNew()
+	const unitInch = 2 // GTK_UNIT_INCH
+	paper := gtkPaperSizeNewCustom(cs("mygo"), cs("MyGo"), o.PageWidth, o.PageHeight, unitInch)
+	gtkPageSetupSetPaperSize(setup, paper)
+	gtkPaperSizeFree(paper)
+	if o.Landscape {
+		gtkPageSetupSetOrientation(setup, 1) // GTK_PAGE_ORIENTATION_LANDSCAPE
+	}
+	gtkPageSetupSetTopMargin(setup, o.MarginTop, unitInch)
+	gtkPageSetupSetRightMargin(setup, o.MarginRight, unitInch)
+	gtkPageSetupSetBottomMargin(setup, o.MarginBottom, unitInch)
+	gtkPageSetupSetLeftMargin(setup, o.MarginLeft, unitInch)
+
+	web := webkitWebViewGetSettings(w.web)
+	backgrounds := webkitSettingsGetPrintBackgrounds(web)
+	webkitSettingsSetPrintBackgrounds(web, o.Background)
+	op := webkitPrintOperationNew(w.web)
+	webkitPrintOperationSetPrintSettings(op, settings)
+	webkitPrintOperationSetPageSetup(op, setup)
+	gObjectUnref(settings)
+	gObjectUnref(setup)
+	printJobs[op] = &printJob{done: func(err error) {
+		delete(printJobs, op)
+		webkitSettingsSetPrintBackgrounds(web, backgrounds)
+		gObjectUnref(op)
+		data, rerr := os.ReadFile(path)
+		os.Remove(path)
+		if err == nil && (rerr != nil || len(data) == 0) {
+			err = errors.New("mygo: printing to PDF produced no file")
+		}
+		if err != nil {
+			data = nil
+		}
+		cb(data, err)
+	}}
+	connect(op, "finished", cbPrintFinished, 0)
+	connect(op, "failed", cbPrintFailed, 0)
+	webkitPrintOperationPrint(op)
+}
+
 func (w *window) Print() {
 	op := webkitPrintOperationNew(w.web)
 	webkitPrintOperationRunDialog(op, w.win)
@@ -547,7 +616,7 @@ var (
 	cbDeleteEvent, cbDestroy, cbFocusIn, cbFocusOut, cbConfigure, cbWindowState ptr
 	cbScriptMessage, cbLoadChanged, cbLoadFailed, cbTitle, cbDecidePolicy       ptr
 	cbCreate, cbClose, cbCrashed, cbButtonPress, cbAsyncReady, cbPNGWrite       ptr
-	cbDragData, cbDragDrop                                                      ptr
+	cbDragData, cbDragDrop, cbPrintFinished, cbPrintFailed                      ptr
 )
 
 func field[T any](p ptr, offset uintptr) T {
@@ -771,6 +840,17 @@ func initWindowCallbacks() {
 	cbAsyncReady = purego.NewCallback(func(source, res, data ptr) {
 		if fn := pending.take(data); fn != nil {
 			fn(source, res)
+		}
+	})
+	cbPrintFinished = purego.NewCallback(func(op, data ptr) {
+		if job := printJobs[op]; job != nil {
+			job.done(job.err)
+		}
+	})
+	cbPrintFailed = purego.NewCallback(func(op, gerr, data ptr) {
+		if job := printJobs[op]; job != nil {
+			// GError: domain, code, then the message.
+			job.err = fmt.Errorf("mygo: printing to PDF: %s", goStr(*(*ptr)(unsafe.Add(*(*unsafe.Pointer)(unsafe.Pointer(&gerr)), 8))))
 		}
 	})
 	cbPNGWrite = purego.NewCallback(func(closure, data ptr, length uint32) int32 {

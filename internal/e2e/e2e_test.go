@@ -15,11 +15,14 @@ import (
 	"image/draw"
 	"image/png"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -708,6 +711,39 @@ func TestDockMenu(t *testing.T) {
 	mygo.App.Dock.SetMenu(nil)
 	if titles, _ := dockMenu(-1); titles != nil {
 		t.Errorf("Dock menu after SetMenu(nil) = %q", titles)
+	}
+}
+
+func TestPrintToPDF(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Title: "PDF", Width: 400, Height: 300})
+	w.LoadHTML(`<style>p + p { page-break-before: always }</style><p>one</p><p>two</p><p>three</p>`, "")
+	waitFor(t, w, `document.readyState === "complete" && document.querySelectorAll("p").length === 3`)
+	pages := regexp.MustCompile(`/Type\s*/Page[^s]`)
+	mediaBox := regexp.MustCompile(`/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)`)
+	for _, landscape := range []bool{false, true} {
+		pdf, err := w.PrintToPDF(mygo.PDFOptions{PageSize: mygo.PageA4, Landscape: landscape})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.HasPrefix(pdf, []byte("%PDF-")) {
+			t.Fatalf("not a PDF: %.20q", pdf)
+		}
+		if n := len(pages.FindAll(pdf, -1)); n != 3 {
+			t.Errorf("landscape=%v: %d pages, want 3", landscape, n)
+		}
+		m := mediaBox.FindSubmatch(pdf)
+		if m == nil {
+			t.Fatal("no page size in the PDF")
+		}
+		width, _ := strconv.ParseFloat(string(m[1]), 64)
+		height, _ := strconv.ParseFloat(string(m[2]), 64)
+		want := [2]float64{595, 842} // A4 in points
+		if landscape {
+			want = [2]float64{842, 595}
+		}
+		if math.Abs(width-want[0]) > 2 || math.Abs(height-want[1]) > 2 {
+			t.Errorf("landscape=%v: page size %vx%v, want %v", landscape, width, height, want)
+		}
 	}
 }
 
