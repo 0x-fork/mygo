@@ -21,6 +21,11 @@ func click(*mygo.Window, float64, float64) bool { return false }
 
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
+// WebView2 opens DevTools in a window of its own.
+func dockDevTools(*mygo.Window) bool { return false }
+
+func dockedDevToolsPlace(*mygo.Window) string { return "" }
+
 func dismissPopups() (int, bool) { return 0, false }
 
 func setDroppedFiles(w *mygo.Window, paths []string) bool {

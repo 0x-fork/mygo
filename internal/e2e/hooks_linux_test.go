@@ -21,6 +21,11 @@ func click(*mygo.Window, float64, float64) bool { return false }
 
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
+// WebKitGTK docks the inspector inside the web view.
+func dockDevTools(*mygo.Window) bool { return false }
+
+func dockedDevToolsPlace(*mygo.Window) string { return "" }
+
 func dismissPopups() (n int, supported bool) {
 	mygo.RunOnMain(func() { n = linux.TestDismissPopups() })
 	return n, true

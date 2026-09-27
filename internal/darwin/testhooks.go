@@ -86,6 +86,53 @@ func TestWebViewAttached(handle uintptr) bool {
 	return w != nil && send(w.web, "window") == w.win
 }
 
+// TestDockInspector opens the web inspector of a window docked to it, and
+// reports whether the window has one.
+func TestDockInspector(handle uintptr) bool {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil {
+		return false
+	}
+	in := w.inspector()
+	if in == 0 {
+		return false
+	}
+	send(in, "show")
+	send(in, "attach")
+	return true
+}
+
+// TestInspectorPlace reports where the docked inspector of a window is:
+// "content" in its content view, "frame" elsewhere in the window, "" when
+// the window has none.
+func TestInspectorPlace(handle uintptr) string {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil {
+		return ""
+	}
+	var find func(view id) id
+	find = func(view id) id {
+		if view != w.web && sendBool(view, "isKindOfClass:", uintptr(class("WKWebView"))) {
+			return view
+		}
+		for _, sub := range arrayItems(send(view, "subviews")) {
+			if found := find(sub); found != 0 {
+				return found
+			}
+		}
+		return 0
+	}
+	content := send(w.win, "contentView")
+	switch in := find(send(content, "superview")); {
+	case in == 0:
+		return ""
+	case sendBool(in, "isDescendantOf:", uintptr(content)):
+		return "content"
+	default:
+		return "frame"
+	}
+}
+
 // TestSetDroppedFiles makes paths the files of the next drop on a window's
 // page, as if they had been dragged there.
 func TestSetDroppedFiles(handle uintptr, paths []string) {

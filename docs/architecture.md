@@ -159,6 +159,11 @@ purego gives three primitives, used everywhere:
   scheme handler, menu and tray targets. Only protocols that exist at run
   time are adopted (`WKScriptMessageHandler` is not registered, and WebKit
   does not need it).
+- **The web view is not the content view.** A plain `NSView` is, holding the
+  web view and, with vibrancy, an `NSVisualEffectView` behind it. WebKit
+  docks the inspector next to the web view in its superview; were that the
+  window's frame view, AppKit would draw a broken legacy title bar from then
+  on.
 - **Memory is managed by hand.** Objects created with `alloc`/`init` are owned
   (+1) and must be released; convenience constructors return autoreleased
   objects. Code that creates temporary objects runs inside `withPool`.

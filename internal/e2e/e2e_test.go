@@ -330,6 +330,21 @@ func TestVibrancy(t *testing.T) {
 	}
 }
 
+func TestDockedDevTools(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Title: "DevTools", Width: 800, Height: 600, DevTools: mygo.DevToolsEnabled})
+	w.LoadHTML("<p>inspect me</p>", "")
+	waitFor(t, w, "document.readyState === 'complete'")
+	if !dockDevTools(w) {
+		t.Skip("docking the inspector is not automated here")
+	}
+	defer w.CloseDevTools()
+	eventually(t, "the inspector to open", w.IsDevToolsOpened)
+	// Docked anywhere else in the window, it breaks the title bar.
+	if place := dockedDevToolsPlace(w); place != "content" {
+		t.Errorf("docked inspector place = %q, want %q", place, "content")
+	}
+}
+
 func TestWindowGeometryAndState(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 500, Height: 400, X: 100, Y: 120})
 	b := w.Bounds()

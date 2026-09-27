@@ -19,6 +19,10 @@ func click(*mygo.Window, float64, float64) bool { return false }
 
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
+func dockDevTools(*mygo.Window) bool { return false }
+
+func dockedDevToolsPlace(*mygo.Window) string { return "" }
+
 func dismissPopups() (int, bool) { return 0, false }
 
 func setDroppedFiles(*mygo.Window, []string) bool { return false }

@@ -32,6 +32,16 @@ func webViewAttached(w *mygo.Window) (attached bool, supported bool) {
 	return attached, true
 }
 
+func dockDevTools(w *mygo.Window) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestDockInspector(w.NativeHandle()) })
+	return ok
+}
+
+func dockedDevToolsPlace(w *mygo.Window) (place string) {
+	mygo.RunOnMain(func() { place = darwin.TestInspectorPlace(w.NativeHandle()) })
+	return place
+}
+
 // Context menus track the mouse in a modal loop; not automated.
 func dismissPopups() (int, bool) { return 0, false }
 

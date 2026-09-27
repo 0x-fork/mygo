@@ -42,6 +42,7 @@ type window struct {
 	h        platform.WindowHandler
 	opts     *platform.WindowOptions
 	win      id
+	view     id // the content view: holds the web view and a docked inspector
 	web      id
 	delegate id
 	ucc      id
@@ -143,7 +144,12 @@ func (w *window) create() {
 	}
 
 	w.createWebView(content)
-	send(w.win, "setContentView:", uintptr(w.web))
+	// WebKit docks the inspector next to the web view, in its superview.
+	// That must not be the window's frame view: AppKit would draw a broken
+	// legacy title bar from then on.
+	w.view = msgInitRect(send(class("NSView"), "alloc"), sel("initWithFrame:"), NSRect{Size: content.Size})
+	send(w.view, "addSubview:", uintptr(w.web))
+	send(w.win, "setContentView:", uintptr(w.view))
 	if o.Vibrancy != "" {
 		w.SetVibrancy(o.Vibrancy)
 	}
@@ -260,6 +266,7 @@ func (w *window) cleanup() {
 	release(w.ucc)
 	release(w.effect)
 	release(w.web)
+	release(w.view)
 	// AppKit is still closing the window; let the pool release it.
 	autorelease(w.delegate)
 	autorelease(w.win)
@@ -488,23 +495,19 @@ func (w *window) SetVibrancy(material string) {
 				log.Printf("mygo: unknown vibrancy %q", material)
 			}
 			if w.effect != 0 {
-				send(w.web, "removeFromSuperview")
-				send(w.win, "setContentView:", uintptr(w.web))
+				send(w.effect, "removeFromSuperview")
 				release(w.effect)
 				w.effect = 0
 			}
 			return
 		}
 		if w.effect == 0 {
-			frame := msgRect(send(w.win, "contentView"), sel("frame"))
-			w.effect = msgInitRect(send(class("NSVisualEffectView"), "alloc"), sel("initWithFrame:"), frame)
+			w.effect = msgInitRect(send(class("NSVisualEffectView"), "alloc"), sel("initWithFrame:"), msgRect(w.view, sel("bounds")))
 			send(w.effect, "setBlendingMode:", 0) // NSVisualEffectBlendingModeBehindWindow
 			send(w.effect, "setState:", 1)        // NSVisualEffectStateActive
 			send(w.effect, "setAutoresizingMask:", nsViewWidthHeightSizable)
-			send(w.web, "removeFromSuperview")
-			send(w.win, "setContentView:", uintptr(w.effect))
-			msgSetRect(w.web, sel("setFrame:"), msgRect(w.effect, sel("bounds")))
-			send(w.effect, "addSubview:", uintptr(w.web))
+			// Behind the page and a docked inspector.
+			send(w.view, "addSubview:positioned:relativeTo:", uintptr(w.effect), ^uintptr(0), 0) // NSWindowBelow
 			send(w.web, "setValue:forKey:", uintptr(nsBool(false)), uintptr(nsString("drawsBackground")))
 		}
 		send(w.effect, "setMaterial:", m)
