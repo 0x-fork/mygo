@@ -41,11 +41,21 @@ func goStr(p ptr) string {
 		return ""
 	}
 	base := *(*unsafe.Pointer)(unsafe.Pointer(&p))
-	n := 0
-	for *(*byte)(unsafe.Add(base, n)) != 0 {
-		n++
+	return string(unsafe.Slice((*byte)(base), cStrlen(base)))
+}
+
+// strlenFn is libc's strlen, which measures long strings, such as the
+// messages of pages, much faster than a loop.
+var strlenFn, _ = purego.Dlsym(purego.RTLD_DEFAULT, "strlen")
+
+func cStrlen(s unsafe.Pointer) int {
+	for n := 0; n < 64 || strlenFn == 0; n++ {
+		if *(*byte)(unsafe.Add(s, n)) == 0 {
+			return n
+		}
 	}
-	return string(unsafe.Slice((*byte)(base), n))
+	n, _, _ := purego.SyscallN(strlenFn, uintptr(s))
+	return int(n)
 }
 
 // takeStr copies and frees a C string allocated by GLib.

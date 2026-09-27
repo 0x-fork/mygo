@@ -5,10 +5,10 @@ package linux
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
-	"sync"
 	"syscall"
 	"unsafe"
 
@@ -47,7 +47,7 @@ func (b *Backend) registerScheme(scheme string) {
 func (b *Backend) serveScheme(req ptr) {
 	gObjectRef(req)
 	ctx, cancel := context.WithCancel(context.Background())
-	t := &schemeTask{req: req, cancel: cancel}
+	t := &schemeTask{req: req, cancel: cancel, fd: -1}
 	w := b.byWebView[webkitURISchemeRequestGetWebView(req)]
 	if w == nil || w.closed {
 		t.Fail(context.Canceled)
@@ -99,31 +99,32 @@ func readStream(stream ptr) []byte {
 	}
 }
 
-// schemeTask streams a response to WebKit through a pipe. Its methods run
-// on the main thread; a goroutine feeds the pipe so the main loop, which is
-// where WebKit reads it, never blocks.
+// schemeTask streams a response to WebKit through a pipe, which WebKit
+// reads on the main loop. The goroutine serving the request writes the
+// body into it (WriteBody), waiting while it is full, so the main loop
+// never blocks and a response WebKit reads slowly does not pile up in
+// memory. The other methods run on the main thread.
 type schemeTask struct {
 	req       ptr
 	cancel    context.CancelFunc
 	responded bool
 	done      bool
-
-	mu     sync.Mutex
-	cond   *sync.Cond
-	queue  [][]byte
-	closed bool
+	// fd is the write end of the pipe, -1 before Respond and once closed.
+	fd int
 }
+
+var errNoResponse = errors.New("mygo: the response was not started")
 
 func (t *schemeTask) Respond(status int, header http.Header) {
 	if t.done || t.responded {
 		return
 	}
-	t.responded = true
 	var fds [2]int
 	if err := syscall.Pipe2(fds[:], syscall.O_CLOEXEC); err != nil {
 		t.Fail(err)
 		return
 	}
+	t.responded = true
 	stream := gUnixInputStreamNew(int32(fds[0]), true)
 	length := int64(-1)
 	if cl, err := strconv.ParseInt(header.Get("Content-Length"), 10, 64); err == nil {
@@ -150,61 +151,31 @@ func (t *schemeTask) Respond(status int, header http.Header) {
 	}
 	gObjectUnref(stream)
 	t.release()
-
-	t.cond = sync.NewCond(&t.mu)
-	go t.pump(fds[1])
+	t.fd = fds[1]
 }
 
-func (t *schemeTask) pump(fd int) {
-	defer syscall.Close(fd)
-	for {
-		t.mu.Lock()
-		for len(t.queue) == 0 && !t.closed {
-			t.cond.Wait()
-		}
-		if len(t.queue) == 0 {
-			t.mu.Unlock()
-			return
-		}
-		chunk := t.queue[0]
-		t.queue[0] = nil
-		t.queue = t.queue[1:]
-		t.mu.Unlock()
-		for len(chunk) > 0 {
-			n, err := syscall.Write(fd, chunk)
-			if err != nil {
-				if err == syscall.EINTR {
-					continue
-				}
-				// The page no longer wants the response.
-				t.cancel()
-				t.mu.Lock()
-				t.queue, t.closed = nil, true
-				t.mu.Unlock()
-				return
-			}
-			chunk = chunk[n:]
-		}
+// WriteBody writes to the pipe, blocking while it is full.
+func (t *schemeTask) WriteBody(p []byte) error {
+	if t.fd < 0 {
+		return errNoResponse
 	}
+	for len(p) > 0 {
+		n, err := syscall.Write(t.fd, p)
+		if err == syscall.EINTR {
+			continue
+		}
+		if err != nil {
+			// The page no longer wants the response.
+			t.cancel()
+			return err
+		}
+		p = p[n:]
+	}
+	return nil
 }
 
-func (t *schemeTask) Write(p []byte) {
-	if t.done {
-		return
-	}
-	if !t.responded {
-		t.Respond(http.StatusOK, http.Header{})
-	}
-	if t.cond == nil {
-		return
-	}
-	t.mu.Lock()
-	if !t.closed {
-		t.queue = append(t.queue, p)
-	}
-	t.mu.Unlock()
-	t.cond.Signal()
-}
+// Write is not used: the body goes through WriteBody.
+func (t *schemeTask) Write([]byte) {}
 
 func (t *schemeTask) Finish() {
 	if t.done {
@@ -214,11 +185,9 @@ func (t *schemeTask) Finish() {
 		t.Respond(http.StatusOK, http.Header{})
 	}
 	t.done = true
-	if t.cond != nil {
-		t.mu.Lock()
-		t.closed = true
-		t.mu.Unlock()
-		t.cond.Signal()
+	if t.fd >= 0 {
+		syscall.Close(t.fd) // the end of the body
+		t.fd = -1
 	}
 }
 

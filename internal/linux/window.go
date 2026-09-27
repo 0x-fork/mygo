@@ -437,7 +437,8 @@ func (w *window) IsLoading() bool    { return webkitWebViewIsLoading(w.web) }
 
 func (w *window) Eval(js string) {
 	if webkitWebViewEvaluateJavascript != nil {
-		webkitWebViewEvaluateJavascript(w.web, cs(js), -1, nil, nil, 0, 0, 0)
+		// With its length, the script needs no NUL terminated copy.
+		webkitWebViewEvaluateJavascript(w.web, unsafe.StringData(js), len(js), nil, nil, 0, 0, 0)
 	} else if webkitWebViewRunJavascript != nil {
 		webkitWebViewRunJavascript(w.web, cs(js), 0, 0, 0)
 	}
@@ -459,7 +460,7 @@ func (w *window) CallAsyncFunction(body string, cb func(string, error)) {
 		gObjectUnref(v)
 		cb(s, nil)
 	})
-	webkitWebViewCallAsyncJavascriptFunction(w.web, cs(body), -1, 0, nil, nil, 0, cbAsyncReady, id)
+	webkitWebViewCallAsyncJavascriptFunction(w.web, unsafe.StringData(body), len(body), 0, nil, nil, 0, cbAsyncReady, id)
 }
 
 func (w *window) SetZoom(f float64) { webkitWebViewSetZoomLevel(w.web, f) }

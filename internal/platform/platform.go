@@ -427,6 +427,17 @@ type SchemeResponder interface {
 	Fail(err error)
 }
 
+// SchemeBodyWriter is implemented by SchemeResponders that take the body
+// from the goroutine serving the request instead of through Write,
+// blocking while the webview has not read enough of it: a large response
+// then takes little memory however slowly the webview reads it.
+type SchemeBodyWriter interface {
+	// WriteBody writes p once Respond has run. It is called off the main
+	// thread, never at the same time as the other methods, and fails
+	// once the webview no longer reads the response.
+	WriteBody(p []byte) error
+}
+
 // MenuItemType is the kind of a menu item.
 type MenuItemType int
 

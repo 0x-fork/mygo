@@ -76,9 +76,10 @@ func main() {
 
 `mygo.Protocol.Handle` serves a URL scheme from an `http.Handler`, for
 content your app produces or reads at run time: pages, images, files of
-the user. Handlers run on their own goroutines and stream their responses,
-and pages load such URLs like web URLs, with `fetch`, `<img>`, ES modules
-and relative URLs:
+the user. Handlers run on their own goroutines and stream their responses:
+writes wait while the webview is behind, so a large file is never held in
+memory whole. Pages load such URLs like web URLs, with `fetch`, `<img>`,
+ES modules and relative URLs:
 
 ```go
 // Thumbnails generated into the cache directory.

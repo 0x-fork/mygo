@@ -53,12 +53,21 @@ var (
 	msgMouseEvent    func(cls id, sel objc.SEL, typ uint, loc NSPoint, flags uint, ts float64, wn int, ctx id, eventNumber int, clickCount int, pressure float32) id
 	msgKeyEvent      func(cls id, sel objc.SEL, typ uint, loc NSPoint, flags uint, ts float64, wn int, ctx id, chars, charsIgnoring id, repeat bool, keyCode uint16) id
 
-	objcAutoreleasePoolPush func() uintptr
-	objcAutoreleasePoolPop  func(pool uintptr)
-	blockCopy               func(block uintptr) uintptr
-	blockRelease            func(block uintptr)
-	pthreadMainNP           func() int32
+	blockCopy    func(block uintptr) uintptr
+	blockRelease func(block uintptr)
+
+	// Functions on hot paths, called by address: RegisterFunc's wrappers
+	// use reflection and allocate on every call.
+	poolPushFn, poolPopFn, mainNPFn uintptr
 )
+
+func mustDlsym(lib uintptr, name string) uintptr {
+	p, err := purego.Dlsym(lib, name)
+	if err != nil {
+		panic(fmt.Sprintf("mygo: %v", err))
+	}
+	return p
+}
 
 func mustDlopen(path string) uintptr {
 	h, err := purego.Dlopen(path, purego.RTLD_GLOBAL|purego.RTLD_NOW)
@@ -132,11 +141,11 @@ func load() {
 		purego.RegisterFunc(&msgKeyEvent, msgSendAddr)
 		purego.RegisterFunc(&msgMouseEvent, msgSendAddr)
 
-		purego.RegisterLibFunc(&objcAutoreleasePoolPush, libObjC, "objc_autoreleasePoolPush")
-		purego.RegisterLibFunc(&objcAutoreleasePoolPop, libObjC, "objc_autoreleasePoolPop")
+		poolPushFn = mustDlsym(libObjC, "objc_autoreleasePoolPush")
+		poolPopFn = mustDlsym(libObjC, "objc_autoreleasePoolPop")
 		purego.RegisterLibFunc(&blockCopy, libObjC, "_Block_copy")
 		purego.RegisterLibFunc(&blockRelease, libObjC, "_Block_release")
-		purego.RegisterLibFunc(&pthreadMainNP, purego.RTLD_DEFAULT, "pthread_main_np")
+		mainNPFn = mustDlsym(purego.RTLD_DEFAULT, "pthread_main_np")
 		loadCF()
 	})
 }
@@ -291,8 +300,8 @@ func alloc(className string) id {
 
 // withPool runs fn inside an autorelease pool.
 func withPool(fn func()) {
-	pool := objcAutoreleasePoolPush()
-	defer objcAutoreleasePoolPop(pool)
+	pool, _, _ := purego.SyscallN(poolPushFn)
+	defer purego.SyscallN(poolPopFn, pool)
 	fn()
 }
 

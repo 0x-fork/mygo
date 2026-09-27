@@ -2,7 +2,6 @@ package mygo
 
 import (
 	"fmt"
-	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -154,18 +153,33 @@ func serveScheme(win *Window, h http.Handler, req *platform.SchemeRequest) {
 }
 
 // schemeWriter is the http.ResponseWriter for custom scheme requests. Body
-// bytes are buffered and handed to the main thread in chunks.
+// bytes are buffered and handed to the main thread in chunks, or written
+// to backends that take them on this goroutine.
 type schemeWriter struct {
 	req         *platform.SchemeRequest
 	header      http.Header
 	status      int
 	wroteHeader bool
 	buf         []byte
-	sentHeader  bool
-	finished    bool
+	// chunked is set once the body filled a chunk: the next ones are
+	// allocated whole.
+	chunked    bool
+	sentHeader bool
+	finished   bool
+	// body takes the body from this goroutine, if the backend can
+	// (platform.SchemeBodyWriter); err is its first error.
+	body platform.SchemeBodyWriter
+	err  error
+	// queued holds a token per chunk waiting for the main thread.
+	queued chan struct{}
 }
 
-const schemeChunk = 256 << 10
+const (
+	schemeChunk = 256 << 10
+	// A handler faster than the main thread waits once this many chunks
+	// wait for it, so a large body does not pile up in memory.
+	schemeQueued = 4
+)
 
 func (w *schemeWriter) Header() http.Header { return w.header }
 
@@ -178,17 +192,36 @@ func (w *schemeWriter) WriteHeader(status int) {
 }
 
 func (w *schemeWriter) Write(p []byte) (int, error) {
-	if w.req.Context.Err() != nil {
-		return 0, w.req.Context.Err()
+	if err := w.writeErr(); err != nil {
+		return 0, err
 	}
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
 	}
-	w.buf = append(w.buf, p...)
-	if len(w.buf) >= schemeChunk {
-		w.Flush()
+	for n := 0; n < len(p); {
+		if w.buf == nil && w.chunked {
+			w.buf = make([]byte, 0, schemeChunk)
+		}
+		k := min(len(p)-n, schemeChunk-len(w.buf))
+		w.buf = append(w.buf, p[n:n+k]...)
+		n += k
+		if len(w.buf) == schemeChunk {
+			w.chunked = true
+			w.Flush()
+			if err := w.writeErr(); err != nil {
+				return n, err
+			}
+		}
 	}
 	return len(p), nil
+}
+
+// writeErr reports why the body can no longer be written.
+func (w *schemeWriter) writeErr() error {
+	if w.err != nil {
+		return w.err
+	}
+	return w.req.Context.Err()
 }
 
 // Flush implements http.Flusher, sending buffered data to the page.
@@ -202,12 +235,31 @@ func (w *schemeWriter) Flush() {
 			w.header.Set("Content-Type", http.DetectContentType(w.buf))
 		}
 		status, header, resp := w.status, w.header.Clone(), w.req.Responder
-		postMain(func() { resp.Respond(status, header) })
+		if body, ok := resp.(platform.SchemeBodyWriter); ok {
+			// The body goes to the backend from here, once it responded.
+			onMain(func() { resp.Respond(status, header) })
+			w.body = body
+		} else {
+			postMain(func() { resp.Respond(status, header) })
+		}
 	}
-	if len(w.buf) > 0 {
+	switch {
+	case len(w.buf) == 0:
+	case w.body != nil:
+		if w.err == nil {
+			w.err = w.body.WriteBody(w.buf)
+		}
+		w.buf = w.buf[:0] // written: the buffer is free again
+	default:
 		chunk, resp := w.buf, w.req.Responder
 		w.buf = nil
-		postMain(func() { resp.Write(chunk) })
+		if w.queued == nil {
+			w.queued = make(chan struct{}, schemeQueued)
+		}
+		w.queued <- struct{}{}
+		if !postMain(func() { resp.Write(chunk); <-w.queued }) {
+			<-w.queued
+		}
 	}
 }
 
@@ -238,7 +290,7 @@ func FileServer(fsys fs.FS) http.Handler {
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = io.Copy(w, strings.NewReader(string(index)))
+			_, _ = w.Write(index)
 			return
 		}
 		files.ServeHTTP(w, r)

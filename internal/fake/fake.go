@@ -259,6 +259,9 @@ type Window struct {
 	// AsyncCallback, when set, receives CallAsyncFunction calls to answer
 	// through reply whenever it wants, on the main thread.
 	AsyncCallback func(body string, reply func(string, error))
+	// OnEval, when set, receives the scripts passed to Eval instead of
+	// recording them.
+	OnEval func(js string)
 }
 
 // Scripts returns the scripts passed to Eval.
@@ -389,6 +392,10 @@ func (w *Window) CapturePage(cb func([]byte, error)) { cb([]byte("png"), nil) }
 func (w *Window) Print()                             {}
 
 func (w *Window) Eval(js string) {
+	if w.OnEval != nil {
+		w.OnEval(js)
+		return
+	}
 	w.mu.Lock()
 	w.scripts = append(w.scripts, js)
 	w.mu.Unlock()

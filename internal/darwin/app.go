@@ -66,7 +66,10 @@ var theBackend *Backend
 
 func (b *Backend) Name() string { return "darwin/wkwebview" }
 
-func (b *Backend) IsMainThread() bool { return pthreadMainNP() != 0 }
+func (b *Backend) IsMainThread() bool {
+	r, _, _ := purego.SyscallN(mainNPFn)
+	return int32(r) != 0
+}
 
 const (
 	nsApplicationActivationPolicyRegular    = 0
@@ -143,8 +146,8 @@ func (b *Backend) Quit() {
 
 func (b *Backend) Signal() {
 	if b.source != 0 {
-		cfRunLoopSourceSignal(b.source)
-		cfRunLoopWakeUp(b.mainLoop)
+		purego.SyscallN(cfRunLoopSourceSignalFn, b.source)
+		purego.SyscallN(cfRunLoopWakeUpFn, b.mainLoop)
 	}
 }
 

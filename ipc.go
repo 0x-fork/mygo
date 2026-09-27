@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/egoist/mygo/internal/tsgen"
 )
@@ -207,7 +208,7 @@ func lookupMethod(name string) *method {
 	return ipc.methods[name]
 }
 
-func (m *method) call(ctx context.Context, args []jsontext.Value) (result any, err error) {
+func (m *method) call(ctx context.Context, args []rawValue) (result any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
@@ -252,7 +253,7 @@ func (m *method) call(ctx context.Context, args []jsontext.Value) (result any, e
 	return nil, nil
 }
 
-func decodeArg(raw jsontext.Value, t reflect.Type, i int) (reflect.Value, error) {
+func decodeArg(raw rawValue, t reflect.Type, i int) (reflect.Value, error) {
 	v := reflect.New(t)
 	if err := json.Unmarshal(raw, v.Interface(), jsonOptions); err != nil {
 		return reflect.Value{}, fmt.Errorf("invalid argument %d: %w", i+1, err)
@@ -260,17 +261,34 @@ func decodeArg(raw jsontext.Value, t reflect.Type, i int) (reflect.Value, error)
 	return v.Elem(), nil
 }
 
+// rawValue is a JSON value that shares the bytes it was decoded from,
+// which must outlive it unchanged: arguments, which can be large, go from
+// the message to their parameters without being copied.
+type rawValue []byte
+
+// UnmarshalJSONFrom keeps the value in place. json.Unmarshal decodes from
+// the slice it is given, which it never modifies.
+func (v *rawValue) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	raw, err := dec.ReadValue()
+	*v = rawValue(raw)
+	return err
+}
+
+// stringBytes returns the bytes of s without copying them. They must not
+// be modified.
+func stringBytes(s string) []byte { return unsafe.Slice(unsafe.StringData(s), len(s)) }
+
 // handleCall decodes and runs a call from the page on the current
 // goroutine, then queues the reply. Calls from untrusted pages are
 // rejected.
 func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 	var m struct {
-		ID int64            `json:"id"`
-		K  string           `json:"k"`
-		M  string           `json:"m"`
-		A  []jsontext.Value `json:"a"`
+		ID int64      `json:"id"`
+		K  string     `json:"k"`
+		M  string     `json:"m"`
+		A  []rawValue `json:"a"` // shares raw
 	}
-	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+	if err := json.Unmarshal(stringBytes(raw), &m); err != nil {
 		log.Printf("mygo: malformed call from window %d: %v", w.id, err)
 		return
 	}
@@ -286,7 +304,22 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 	w.enqueue(encodeReply(m.ID, m.K, result, err), false)
 }
 
-func encodeReply(id int64, token string, result any, err error) []byte {
+// message is a message for the page: a JSON object, in parts that are
+// joined when it is sent, so that an encoded value, which can be large, is
+// not copied into it.
+type message struct {
+	head, value, tail []byte
+}
+
+func (m message) len() int { return len(m.head) + len(m.value) + len(m.tail) }
+
+func (m message) appendTo(b []byte) []byte {
+	return append(append(append(b, m.head...), m.value...), m.tail...)
+}
+
+var closeBrace = []byte("}")
+
+func encodeReply(id int64, token string, result any, err error) message {
 	b := make([]byte, 0, 96)
 	b = append(b, `{"t":"reply","id":`...)
 	b = strconv.AppendInt(b, id, 10)
@@ -295,15 +328,13 @@ func encodeReply(id int64, token string, result any, err error) []byte {
 	if err == nil {
 		v, merr := json.Marshal(result, jsonOptions)
 		if merr == nil {
-			b = append(b, `,"ok":true,"v":`...)
-			b = append(b, v...)
-			return append(b, '}')
+			return message{append(b, `,"ok":true,"v":`...), v, closeBrace}
 		}
 		err = fmt.Errorf("cannot encode result: %w", merr)
 	}
 	b = append(b, `,"ok":false,"e":`...)
 	b, _ = jsontext.AppendQuote(b, err.Error())
-	return append(b, '}')
+	return message{head: append(b, '}')}
 }
 
 type callerKey struct{}
@@ -379,17 +410,16 @@ func (e *Event[T]) Broadcast(payload T) error {
 	return nil
 }
 
-func encodeEvent(name string, payload any) ([]byte, error) {
+func encodeEvent(name string, payload any) (message, error) {
 	p, err := json.Marshal(payload, jsonOptions)
 	if err != nil {
-		return nil, fmt.Errorf("mygo: cannot encode event %q: %w", name, err)
+		return message{}, fmt.Errorf("mygo: cannot encode event %q: %w", name, err)
 	}
-	b := make([]byte, 0, len(p)+len(name)+32)
+	b := make([]byte, 0, len(name)+32)
 	b = append(b, `{"t":"event","n":`...)
 	b, _ = jsontext.AppendQuote(b, name)
 	b = append(b, `,"p":`...)
-	b = append(b, p...)
-	return append(b, '}'), nil
+	return message{b, p, closeBrace}, nil
 }
 
 // windowControls backs window.mygo.window in the page.

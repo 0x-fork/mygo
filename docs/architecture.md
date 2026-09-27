@@ -355,8 +355,10 @@ Trust):
 | `{"t":"dom-ready"}` | DOMContentLoaded fired |
 | `{"t":"drag"}` / `{"t":"dblclick"}` | mousedown / double click on a drag region |
 
-Go → page, batched into one `window.__mygo&&__mygo.receive([...])`
-evaluation per main-loop turn:
+Go → page, batched into one `__mygo.receive([...])` evaluation per
+main-loop turn. JavaScriptCore runs a script of that shape, `a.b(JSON)`,
+with its JSON parser instead of compiling it, which is several times
+faster, unless the inspector is enabled (development builds):
 
 | message | meaning |
 |---|---|
@@ -377,7 +379,10 @@ navigated away can never resolve a promise of the new page.
 2. `handleCall` decodes the envelope with `encoding/json/v2`, looks up the
    method, decodes each argument into the parameter type, calls it and
    encodes the result. Panics are recovered, logged with a stack trace and
-   returned as errors.
+   returned as errors. Large values are copied as little as possible: the
+   arguments are raw values that share the message (`rawValue`), decoded
+   from it in place, and the result is encoded into a part of the reply
+   (`message`), which the flush copies into the script once.
 3. The reply is queued with `Window.enqueue(msg, false)` and flushed on the
    main thread.
 
@@ -458,16 +463,20 @@ content changes, so dev servers don't reload needlessly.
 like a web origin (fetch, ES modules, relative URLs). `Protocol.serve` runs the
 handler on a goroutine with a `schemeWriter`: headers and body are buffered
 and handed to the main thread in 256 KiB chunks (and on `Flush`), the content
-type is sniffed when missing, panics become 500 responses. Backends turn
-responses into native ones:
+type is sniffed when missing, panics become 500 responses. Backends that
+implement `platform.SchemeBodyWriter` take the body on the handler's
+goroutine instead, where they may block it, and the chunk buffer is reused.
+Backends turn responses into native ones:
 
 - macOS: `WKURLSchemeHandler`; `didReceiveResponse:`/`didReceiveData:`/
   `didFinish`. A task stopped by WebKit cancels the request context and later
   writes are ignored (touching a stopped task raises an Objective-C exception).
 - Linux: WebKitGTK wants a `GInputStream`, so the response body is streamed
-  through a pipe (`g_unix_input_stream_new`). A goroutine feeds the pipe from
-  an unbounded queue, because WebKit reads it on the main thread, which must
-  never block. Custom schemes are registered as secure and CORS-enabled.
+  through a pipe (`g_unix_input_stream_new`), which WebKit reads on the main
+  loop, 8 KiB at a time. The handler's goroutine writes the body into the
+  pipe (`WriteBody`), waiting while it is full, so the main loop never
+  blocks and a response WebKit reads slowly does not pile up in memory.
+  Custom schemes are registered as secure and CORS-enabled.
 
 Schemes are registered per webview at creation time, so call
 `Protocol.Handle` before creating windows. `FileServer(fsys)` serves an
@@ -731,7 +740,7 @@ identity, entitlements, DMG title, notarization profile).
 
 | suite | command | covers |
 |---|---|---|
-| core | `go test .` | lifecycle, quit, IPC, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance and its dev handover, dev ready signal (fake backend) |
+| core | `go test .` | lifecycle, quit, IPC, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance and its dev handover, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
 | CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, resources (staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime and `mygo-runtime` |

@@ -96,7 +96,7 @@ func received(t *testing.T, fw *fake.Window, pred func(m map[string]any) bool) m
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		for _, s := range fw.Scripts() {
-			const prefix = "window.__mygo&&__mygo.receive("
+			const prefix = "__mygo.receive("
 			if !strings.HasPrefix(s, prefix) {
 				continue
 			}
@@ -776,6 +776,70 @@ func TestProtocol(t *testing.T) {
 	}
 }
 
+// bodyRecorder takes the body from the goroutine serving the request, as
+// the Linux backend does.
+type bodyRecorder struct {
+	recorder
+	writes int
+	err    error // returned by WriteBody
+}
+
+func (r *bodyRecorder) Write([]byte) { panic("Write called on a SchemeBodyWriter") }
+
+func (r *bodyRecorder) WriteBody(p []byte) error {
+	if isMainThread() || r.status == 0 {
+		panic("WriteBody on the main thread or before Respond")
+	}
+	r.writes++
+	r.body.Write(p)
+	return r.err
+}
+
+func TestProtocolBodyWriter(t *testing.T) {
+	const size = 640 << 10 // two and a half chunks
+	var written int
+	var writeErr error
+	if err := Protocol.HandleFunc("body", func(w http.ResponseWriter, r *http.Request) {
+		chunk := []byte(strings.Repeat("0123456789abcdef", 2048)) // 32 KiB
+		for written = 0; written < size; written += len(chunk) {
+			if _, writeErr = w.Write(chunk); writeErr != nil {
+				return
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer Protocol.Unhandle("body")
+	_, fw := testWindow(t, WindowOptions{})
+	serve := func(rec *bodyRecorder) {
+		t.Helper()
+		rec.finished = make(chan struct{})
+		req := &platform.SchemeRequest{Context: context.Background(), Method: "GET", URL: "body://localhost/", Header: http.Header{}, Responder: rec}
+		onMain(func() { fw.H.SchemeRequest(req) })
+		select {
+		case <-rec.finished:
+		case <-time.After(3 * time.Second):
+			t.Fatal("request did not finish")
+		}
+	}
+
+	rec := &bodyRecorder{}
+	serve(rec)
+	if rec.status != 200 || rec.body.Len() != size || rec.writes != 3 {
+		t.Errorf("status %d, %d bytes in %d writes", rec.status, rec.body.Len(), rec.writes)
+	}
+	if writeErr != nil {
+		t.Errorf("Write: %v", writeErr)
+	}
+
+	// Once the webview stops reading, the handler learns it from Write.
+	rec = &bodyRecorder{err: errors.New("gone")}
+	serve(rec)
+	if writeErr == nil || writeErr.Error() != "gone" || written >= size {
+		t.Errorf("after WriteBody failed: Write = %v, %d bytes written", writeErr, written)
+	}
+}
+
 func TestWindowAllClosedOnce(t *testing.T) {
 	if n := len(Windows()); n != 0 {
 		t.Skipf("%d windows are open", n)
@@ -1145,7 +1209,7 @@ func TestParseBackground(t *testing.T) {
 }
 
 func TestEncodeReply(t *testing.T) {
-	b := encodeReply(7, "k\"1", map[string]any{"line": "a b"}, nil)
+	b := encodeReply(7, "k\"1", map[string]any{"line": "a b"}, nil).appendTo(nil)
 	var m map[string]jsontext.Value
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatalf("%s: %v", b, err)
@@ -1153,7 +1217,7 @@ func TestEncodeReply(t *testing.T) {
 	if strings.Contains(string(b), " ") {
 		t.Error("U+2028 must be escaped for JavaScript")
 	}
-	b = encodeReply(8, "k", make(chan int), nil)
+	b = encodeReply(8, "k", make(chan int), nil).appendTo(nil)
 	if !strings.Contains(string(b), `"ok":false`) {
 		t.Errorf("unencodable result should be an error: %s", b)
 	}

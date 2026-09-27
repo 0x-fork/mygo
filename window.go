@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/egoist/mygo/internal/bridge"
 	"github.com/egoist/mygo/internal/platform"
@@ -183,11 +184,11 @@ type Window struct {
 	pageCancel        context.CancelFunc
 
 	outMu    sync.Mutex
-	outbox   [][]byte
+	outbox   []message
 	flushing bool
 	// held keeps events until the page's DOM is ready, so events sent right
 	// after creating a window or during a navigation are not lost.
-	held     [][]byte
+	held     []message
 	domReady bool
 
 	onClose            listeners[func(*CloseEvent)]
@@ -1092,6 +1093,8 @@ const (
 	evalBody = "try{return JSON.stringify({ok:true,v:await(async()=>{\n%s\n})()})}catch(e){return JSON.stringify({ok:false,e:String(e&&e.message||e)})}"
 )
 
+// eval returns the JSON result of code, which shares the memory of the
+// page's answer.
 func (w *Window) eval(ctx context.Context, code string) (jsontext.Value, error) {
 	type result struct {
 		raw string
@@ -1139,17 +1142,17 @@ func (w *Window) eval(ctx context.Context, code string) (jsontext.Value, error) 
 		return nil, r.err
 	}
 	var out struct {
-		OK bool           `json:"ok"`
-		V  jsontext.Value `json:"v"`
-		E  string         `json:"e"`
+		OK bool     `json:"ok"`
+		V  rawValue `json:"v"`
+		E  string   `json:"e"`
 	}
-	if err := json.Unmarshal([]byte(r.raw), &out); err != nil {
+	if err := json.Unmarshal(stringBytes(r.raw), &out); err != nil {
 		return nil, fmt.Errorf("mygo: unexpected eval result %q: %w", r.raw, err)
 	}
 	if !out.OK {
 		return nil, &EvalError{Message: out.E}
 	}
-	return out.V, nil
+	return jsontext.Value(out.V), nil
 }
 
 // SetWindowOpenHandler decides what happens on window.open() and clicks on
@@ -1194,7 +1197,7 @@ const maxHeldEvents = 1024
 // single script evaluation per main loop iteration. Events are held until
 // the DOM of the page is ready; replies to calls are sent right away since
 // the page is waiting for them.
-func (w *Window) enqueue(msg []byte, event bool) {
+func (w *Window) enqueue(msg message, event bool) {
 	w.outMu.Lock()
 	if event && !w.domReady {
 		if len(w.held) == maxHeldEvents {
@@ -1224,18 +1227,22 @@ func (w *Window) flush() {
 	}
 	size := 64
 	for _, m := range msgs {
-		size += len(m) + 1
+		size += m.len() + 1
 	}
 	js := make([]byte, 0, size)
-	js = append(js, "window.__mygo&&__mygo.receive(["...)
+	// A script shaped like a.b(JSON) runs without being compiled: WebKit's
+	// JavaScriptCore parses the value as JSON unless the inspector is on,
+	// several times faster. Pages without the runtime only throw.
+	js = append(js, "__mygo.receive(["...)
 	for i, m := range msgs {
 		if i > 0 {
 			js = append(js, ',')
 		}
-		js = append(js, m...)
+		js = m.appendTo(js)
 	}
 	js = append(js, "])"...)
-	w.native.Eval(string(js))
+	// js is not used again, so the script can share its memory.
+	w.native.Eval(unsafe.String(unsafe.SliceData(js), len(js)))
 }
 
 // OnClose is called when the window is about to close. Call
@@ -1532,7 +1539,7 @@ func (w *Window) handleMessage(msg string) {
 		X float64 `json:"x"` // drop
 		Y float64 `json:"y"`
 	}
-	if err := json.Unmarshal([]byte(msg), &m); err != nil {
+	if err := json.Unmarshal(stringBytes(msg), &m); err != nil {
 		return
 	}
 	switch m.T {

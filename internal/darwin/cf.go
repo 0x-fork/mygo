@@ -12,8 +12,6 @@ var (
 	cfRunLoopGetMain      func() uintptr
 	cfRunLoopSourceCreate func(alloc uintptr, order int, ctx unsafe.Pointer) uintptr
 	cfRunLoopAddSource    func(rl, src, mode uintptr)
-	cfRunLoopSourceSignal func(src uintptr)
-	cfRunLoopWakeUp       func(rl uintptr)
 	cfRelease             func(obj uintptr)
 	kCFRunLoopCommonModes uintptr
 
@@ -38,6 +36,9 @@ var (
 	getEventParameter         func(event uintptr, name, typ uint32, outType uintptr, size uintptr, outSize uintptr, data unsafe.Pointer) int32
 )
 
+// Called by address on every Signal, like the hot functions of objc.go.
+var cfRunLoopSourceSignalFn, cfRunLoopWakeUpFn uintptr
+
 type eventHotKeyID struct {
 	Signature uint32
 	ID        uint32
@@ -52,8 +53,8 @@ func loadCF() {
 	purego.RegisterLibFunc(&cfRunLoopGetMain, libCF, "CFRunLoopGetMain")
 	purego.RegisterLibFunc(&cfRunLoopSourceCreate, libCF, "CFRunLoopSourceCreate")
 	purego.RegisterLibFunc(&cfRunLoopAddSource, libCF, "CFRunLoopAddSource")
-	purego.RegisterLibFunc(&cfRunLoopSourceSignal, libCF, "CFRunLoopSourceSignal")
-	purego.RegisterLibFunc(&cfRunLoopWakeUp, libCF, "CFRunLoopWakeUp")
+	cfRunLoopSourceSignalFn = mustDlsym(libCF, "CFRunLoopSourceSignal")
+	cfRunLoopWakeUpFn = mustDlsym(libCF, "CFRunLoopWakeUp")
 	purego.RegisterLibFunc(&cfRelease, libCF, "CFRelease")
 	p, err := purego.Dlsym(libCF, "kCFRunLoopCommonModes")
 	if err != nil {
