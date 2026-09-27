@@ -58,8 +58,14 @@ func (c *Config) resources(reserved ...string) ([]resource, error) {
 	}
 
 	dir := c.path(resourcesDir)
-	entries, err := os.ReadDir(dir)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	var entries []os.DirEntry
+	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a directory", dir)
+	} else if err == nil {
+		if entries, err = os.ReadDir(dir); err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	for _, e := range entries {

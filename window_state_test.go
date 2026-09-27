@@ -1,0 +1,106 @@
+package mygo
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo/internal/platform"
+)
+
+func TestWindowState(t *testing.T) {
+	dir := t.TempDir()
+	App.SetPath(PathUserData, dir)
+	defer App.SetPath(PathUserData, "")
+	defer func(d, s time.Duration) { windowStateDelay, windowStateSaveDelay = d, s }(windowStateDelay, windowStateSaveDelay)
+	windowStateDelay, windowStateSaveDelay = 20*time.Millisecond, 20*time.Millisecond
+	// A new process: the file is read again.
+	relaunch := func() {
+		onMain(func() {
+			saveWindowStates()
+			windowStates.loaded, windowStates.byKey = false, nil
+		})
+	}
+	relaunch()
+	file := filepath.Join(dir, windowStateFile)
+	saved := func() map[string]savedWindow {
+		t.Helper()
+		var m map[string]savedWindow
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	waitSaved := func(key string, want savedWindow) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			if data, err := os.ReadFile(file); err == nil {
+				var m map[string]savedWindow
+				if json.Unmarshal(data, &m) == nil && m[key] == want {
+					return
+				}
+			}
+			if time.Now().After(deadline) {
+				data, _ := os.ReadFile(file)
+				t.Fatalf("%s never saved as %+v: %s", key, want, data)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	// Nothing saved: the options apply, and the window is remembered once
+	// it settled.
+	w, fw := testWindow(t, WindowOptions{StateKey: "main", X: 100, Y: 120, Width: 700, Height: 500})
+	if o := fw.Opts; o.X != 100 || o.Y != 120 || o.Width != 700 || o.Maximized {
+		t.Errorf("first window options = %+v", o)
+	}
+	waitSaved("main", savedWindow{X: 100, Y: 120, Width: 700, Height: 500})
+	onMain(func() { fw.SetBounds(platform.Rect{X: 200, Y: 150, Width: 800, Height: 600}) })
+	waitSaved("main", savedWindow{X: 200, Y: 150, Width: 800, Height: 600})
+	// Maximized, it keeps its normal bounds.
+	onMain(func() {
+		fw.Maximize()
+		fw.SetBounds(platform.Rect{Y: 25, Width: 1440, Height: 875})
+	})
+	w.Destroy()
+	relaunch()
+	if got, want := saved()["main"], (savedWindow{X: 200, Y: 150, Width: 800, Height: 600, Maximized: true}); got != want {
+		t.Errorf("saved %+v, want %+v", got, want)
+	}
+
+	// The next launch gets it back.
+	_, fw = testWindow(t, WindowOptions{StateKey: "main", Width: 400, Height: 300, UseContentSize: true})
+	if o := fw.Opts; o.X != 200 || o.Y != 150 || o.Width != 800 || o.Height != 600 || !o.Maximized || o.Center || o.UseContentSize {
+		t.Errorf("restored options = %+v", o)
+	}
+
+	// Off every display: centered, with its size as far as it fits.
+	onMain(func() { windowStates.byKey["gone"] = savedWindow{X: 5000, Y: 100, Width: 2000, Height: 700} })
+	_, fw = testWindow(t, WindowOptions{StateKey: "gone"})
+	if o := fw.Opts; !o.Center || o.Width != 1440 || o.Height != 700 {
+		t.Errorf("off screen options = %+v", o)
+	}
+
+	// Created maximized, the requested bounds are its normal ones.
+	testWindow(t, WindowOptions{StateKey: "max", Maximized: true, Width: 1000, Height: 700})
+	if got, want := onMainValue(func() savedWindow { return windowStates.byKey["max"] }), (savedWindow{X: 220, Y: 112, Width: 1000, Height: 700, Maximized: true}); got != want {
+		t.Errorf("maximized at creation: %+v, want %+v", got, want)
+	}
+
+	// A damaged file is ignored.
+	relaunch()
+	if err := os.WriteFile(file, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, fw = testWindow(t, WindowOptions{StateKey: "main", X: 10, Y: 30})
+	if o := fw.Opts; o.X != 10 || o.Y != 30 || o.Maximized {
+		t.Errorf("options with a damaged file = %+v", o)
+	}
+}

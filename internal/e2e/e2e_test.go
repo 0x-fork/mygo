@@ -360,6 +360,52 @@ func TestWindowGeometryAndState(t *testing.T) {
 	}
 }
 
+// eventually waits for cond, which polls the window system.
+func eventually(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestWindowState(t *testing.T) {
+	mygo.App.SetPath(mygo.PathUserData, t.TempDir())
+	defer mygo.App.SetPath(mygo.PathUserData, "")
+	closeWindow := func(w *mygo.Window) {
+		closed := make(chan struct{})
+		w.OnClosed(func() { close(closed) })
+		w.Close()
+		<-closed
+	}
+
+	w := mygo.NewWindow(mygo.WindowOptions{StateKey: "e2e", X: 140, Y: 160, Width: 480, Height: 360})
+	want := mygo.Rectangle{X: 170, Y: 180, Width: 520, Height: 380}
+	w.SetBounds(want)
+	closeWindow(w)
+	w = newWindow(t, mygo.WindowOptions{StateKey: "e2e", Width: 300, Height: 200})
+	if b := w.Bounds(); b != want {
+		t.Errorf("restored bounds = %+v, want %+v", b, want)
+	}
+
+	if runtime.GOOS == "linux" {
+		t.Skip("maximizing needs a window manager, which Xvfb lacks")
+	}
+	w = mygo.NewWindow(mygo.WindowOptions{StateKey: "e2e-max", Maximized: true, Width: 500, Height: 400})
+	eventually(t, "a maximized window", w.IsMaximized)
+	closeWindow(w)
+	w = newWindow(t, mygo.WindowOptions{StateKey: "e2e-max"})
+	eventually(t, "a restored maximized window", w.IsMaximized)
+	w.Unmaximize()
+	eventually(t, "the normal size", func() bool {
+		b := w.Bounds()
+		return b.Width == 500 && b.Height == 400
+	})
+}
+
 func TestCloseEvents(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	var prevent atomic.Bool

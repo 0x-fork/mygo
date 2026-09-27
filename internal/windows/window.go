@@ -32,6 +32,7 @@ type window struct {
 	movable, closable      bool
 	frameless              bool
 	fullScreen             bool
+	showMaximized          bool // on the first show (WindowOptions.Maximized)
 	saved                  struct {
 		style, exStyle uintptr
 		placement      windowPlacement
@@ -109,6 +110,8 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 	if o.FullScreen {
 		w.SetFullScreen(true)
+	} else if o.Maximized {
+		w.showMaximized = true
 	}
 	b.whenEnvironment(w.createWebView)
 	return w, nil
@@ -493,11 +496,24 @@ func (w *window) SetAlwaysOnTop(v bool) {
 func (w *window) IsAlwaysOnTop() bool { return windowLong(w.hwnd, gwlExStyle)&wsExTopmost != 0 }
 
 func (w *window) Show() {
-	procShowWindow.Call(w.hwnd, swShow)
+	if w.showMaximized {
+		w.showMaximized = false
+		procShowWindow.Call(w.hwnd, swShowMaximized)
+	} else {
+		procShowWindow.Call(w.hwnd, swShow)
+	}
 	procSetForegroundWindow.Call(w.hwnd)
 }
 
-func (w *window) ShowInactive() { procShowWindow.Call(w.hwnd, swShowNoActivate) }
+func (w *window) ShowInactive() {
+	if w.showMaximized {
+		// Maximizing activates the window; there is no inactive variant.
+		w.showMaximized = false
+		procShowWindow.Call(w.hwnd, swShowMaximized)
+		return
+	}
+	procShowWindow.Call(w.hwnd, swShowNoActivate)
+}
 func (w *window) Hide()         { procShowWindow.Call(w.hwnd, swHide) }
 
 func (w *window) IsVisible() bool {
@@ -533,15 +549,28 @@ func (w *window) IsMinimized() bool {
 	return r != 0
 }
 
-func (w *window) Maximize() { procShowWindow.Call(w.hwnd, swShowMaximized) }
+func (w *window) Maximize() {
+	if !w.IsVisible() {
+		w.showMaximized = true // maximizing would show it
+		return
+	}
+	procShowWindow.Call(w.hwnd, swShowMaximized)
+}
 
 func (w *window) Unmaximize() {
+	if w.showMaximized {
+		w.showMaximized = false
+		return
+	}
 	if w.IsMaximized() {
 		procShowWindow.Call(w.hwnd, swRestore)
 	}
 }
 
 func (w *window) IsMaximized() bool {
+	if w.showMaximized {
+		return true
+	}
 	r, _, _ := procIsZoomed.Call(w.hwnd)
 	return r != 0
 }

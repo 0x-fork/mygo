@@ -132,6 +132,8 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	gtkWidgetShowAll(w.box)
 	if o.FullScreen {
 		gtkWindowFullscreen(w.win)
+	} else if o.Maximized {
+		gtkWindowMaximize(w.win)
 	}
 	return w, nil
 }

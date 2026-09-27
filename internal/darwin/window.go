@@ -160,6 +160,8 @@ func (w *window) create() {
 
 	if o.FullScreen {
 		send(w.win, "toggleFullScreen:", 0)
+	} else if o.Maximized {
+		send(w.win, "zoom:", 0)
 	}
 }
 

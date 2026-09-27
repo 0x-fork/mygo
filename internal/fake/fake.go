@@ -129,7 +129,7 @@ func (b *Backend) Windows() []*Window {
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
-	w := &Window{b: b, H: h, Opts: o, title: o.Title, zoom: o.Zoom, bounds: platform.Rect{X: o.X, Y: o.Y, Width: o.Width, Height: o.Height}}
+	w := &Window{b: b, H: h, Opts: o, title: o.Title, zoom: o.Zoom, bounds: platform.Rect{X: o.X, Y: o.Y, Width: o.Width, Height: o.Height}, maximized: o.Maximized, full: o.FullScreen}
 	b.mu.Lock()
 	b.windows = append(b.windows, w)
 	b.mu.Unlock()

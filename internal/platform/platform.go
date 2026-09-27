@@ -173,6 +173,7 @@ type WindowOptions struct {
 	Fullscreenable bool
 	AlwaysOnTop    bool
 	FullScreen     bool
+	Maximized      bool
 	SkipTaskbar    bool
 	HasShadow      bool
 	Frameless      bool

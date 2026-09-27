@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo/internal/bridge"
 	"github.com/egoist/mygo/internal/platform"
@@ -100,6 +101,8 @@ type WindowOptions struct {
 	DisableShadow     bool
 	AlwaysOnTop       bool
 	FullScreen        bool
+	// Maximized creates the window maximized.
+	Maximized bool
 	// SkipTaskbar hides the window from the taskbar (Linux, Windows).
 	SkipTaskbar bool
 	// Transparent makes the window background transparent, so a page with a
@@ -134,6 +137,13 @@ type WindowOptions struct {
 	ZoomFactor float64
 	// UserAgent overrides the user agent string.
 	UserAgent string
+	// StateKey remembers the window's position, size, and maximized and
+	// full screen state under this key, in window-state.json in
+	// PathUserData. A window created with the same key, for example at the
+	// next launch, gets them back as long as it would show on a connected
+	// display: they override X, Y, Width, Height, UseContentSize,
+	// Maximized and FullScreen.
+	StateKey string
 }
 
 // Window is a native window hosting a web page. Create windows with
@@ -152,6 +162,10 @@ type Window struct {
 	shown     bool
 	readyShow bool
 	menu      *Menu
+	// stateKey is WindowOptions.StateKey; stateTimer captures the state
+	// once it settled. Main thread only.
+	stateKey   string
+	stateTimer *time.Timer
 
 	// trusted reports whether the current page may call bound methods.
 	// Main thread only.
@@ -264,16 +278,22 @@ func newWindow(opts WindowOptions, bg *platform.Color, native uintptr) *Window {
 	id := windows.nextID
 	windows.Unlock()
 
-	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.TrustedOrigins, secret: rand.Text()}
+	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.TrustedOrigins, secret: rand.Text(), stateKey: opts.StateKey}
 	w.resetPage()
 	popts := w.platformOptions(&opts)
 	popts.BackgroundColor = bg
 	popts.Native = native
+	if w.stateKey != "" {
+		restoreWindowState(w.stateKey, popts)
+	}
 	nw, err := backend().NewWindow(popts, &windowHandler{w})
 	if err != nil {
 		panic(fmt.Sprintf("mygo: cannot create window: %v", err))
 	}
 	w.native = nw
+	if w.stateKey != "" {
+		w.initState(popts)
+	}
 
 	windows.Lock()
 	windows.list = append(windows.list, w)
@@ -309,6 +329,7 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		Fullscreenable: !o.DisableFullScreen,
 		AlwaysOnTop:    o.AlwaysOnTop,
 		FullScreen:     o.FullScreen,
+		Maximized:      o.Maximized,
 		SkipTaskbar:    o.SkipTaskbar,
 		HasShadow:      !o.DisableShadow,
 		Frameless:      o.Frameless,
@@ -449,6 +470,7 @@ func (w *Window) Destroy() { onMain(w.destroy) }
 
 func (w *Window) destroy() {
 	if n := w.native; n != nil {
+		w.closeState()
 		n.Close()
 		// Backends report Closed synchronously, but be defensive.
 		(&windowHandler{w}).Closed()
@@ -1210,6 +1232,9 @@ type windowHandler struct{ w *Window }
 func (h *windowHandler) ShouldClose() bool {
 	e := &CloseEvent{Window: h.w}
 	fire1(&h.w.onClose, e)
+	if !e.prevented {
+		h.w.closeState()
+	}
 	return !e.prevented
 }
 
@@ -1277,14 +1302,14 @@ func (h *windowHandler) Blurred() {
 	fire(&h.w.onBlur)
 }
 
-func (h *windowHandler) Resized()           { fire(&h.w.onResize) }
-func (h *windowHandler) Moved()             { fire(&h.w.onMove) }
-func (h *windowHandler) Minimized()         { fire(&h.w.onMinimize) }
-func (h *windowHandler) Restored()          { fire(&h.w.onRestore) }
-func (h *windowHandler) Maximized()         { fire(&h.w.onMaximize) }
-func (h *windowHandler) Unmaximized()       { fire(&h.w.onUnmaximize) }
-func (h *windowHandler) EnteredFullScreen() { fire(&h.w.onEnterFullScreen) }
-func (h *windowHandler) LeftFullScreen()    { fire(&h.w.onLeaveFullScreen) }
+func (h *windowHandler) Resized()           { h.w.stateChanged(); fire(&h.w.onResize) }
+func (h *windowHandler) Moved()             { h.w.stateChanged(); fire(&h.w.onMove) }
+func (h *windowHandler) Minimized()         { h.w.stateChanged(); fire(&h.w.onMinimize) }
+func (h *windowHandler) Restored()          { h.w.stateChanged(); fire(&h.w.onRestore) }
+func (h *windowHandler) Maximized()         { h.w.stateChanged(); fire(&h.w.onMaximize) }
+func (h *windowHandler) Unmaximized()       { h.w.stateChanged(); fire(&h.w.onUnmaximize) }
+func (h *windowHandler) EnteredFullScreen() { h.w.stateChanged(); fire(&h.w.onEnterFullScreen) }
+func (h *windowHandler) LeftFullScreen()    { h.w.stateChanged(); fire(&h.w.onLeaveFullScreen) }
 
 func (h *windowHandler) Message(msg string) { h.w.handleMessage(msg) }
 

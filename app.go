@@ -143,6 +143,7 @@ func (a *Application) Exit(code int) {
 		for _, w := range Windows() {
 			w.destroy()
 		}
+		saveWindowStates()
 	})
 	os.Exit(code)
 }
@@ -177,6 +178,7 @@ func (a *Application) prepareQuit() bool {
 // finish runs once after the event loop has stopped.
 func (a *Application) finish() {
 	a.finished.Do(func() {
+		saveWindowStates()
 		fire(&a.onQuit)
 		loop.shutdown()
 	})

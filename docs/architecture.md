@@ -434,6 +434,17 @@ as in Tauri:
   `App.Run` returns → `OnQuit`. It is used for `App.Quit`, Cmd+Q, quit
   Apple Events, and SIGINT/SIGTERM alike (`signal_unix.go`; a second signal
   exits immediately).
+- `WindowOptions.StateKey` (`window_state.go`) remembers a window's normal
+  bounds and maximized/full screen state in `window-state.json` in
+  `PathUserData`, like Tauri's window-state plugin. The state is captured
+  300 ms after the last move/resize/state event (transitions resize the
+  window on the way, and the normal bounds only change in the normal
+  state) and when the window closes; it is written a second later and on
+  quit. A saved window that would not show on any display keeps its size
+  and is centered. `WindowOptions.Maximized` starts a window maximized:
+  `zoom:` on macOS, `gtk_window_maximize` before mapping on Linux,
+  `SW_SHOWMAXIMIZED` on the first show on Windows, where `Maximize` on a
+  hidden window also waits for it to be shown.
 - `window.open()` and `target=_blank` go through `SetWindowOpenHandler`. By
   default http(s) URLs open in the default browser. Allowing one creates a
   window around the configuration or related view WebKit provides, with its
