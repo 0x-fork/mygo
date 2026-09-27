@@ -776,9 +776,13 @@ git commit -am "Release 0.2.0" && git tag v0.2.0 && git push origin main v0.2.0
 The tag starts `.github/workflows/release.yml`, which checks that the tag
 matches the versions (`bun scripts/version.ts --check`) and runs
 `bun scripts/publish.ts --provenance`: it builds the CLI's binaries and
-publishes mygo-runtime, the platform packages and mygo-cli, skipping
-versions already on npm, prereleases under the `next` dist-tag. It then
-asks the Go module proxy for the tag and creates the GitHub release.
+publishes mygo-runtime and the platform packages, then mygo-cli once npm
+serves them to package managers, skipping versions already on npm,
+prereleases under the `next` dist-tag. npm can take minutes to serve new
+packages, and a package manager installs mygo-cli without a platform
+package it cannot fetch; bun then keeps that package out while its lockfile
+lacks it, even with `--force`. The workflow then asks the Go module proxy
+for the tag and creates the GitHub release.
 
 It does not run the tests again: `ci.yml` runs them on every push to main,
 for every platform, GUI tests included, so tag a commit whose CI passed.

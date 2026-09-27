@@ -6,7 +6,7 @@
 import { execFileSync } from "node:child_process";
 import { accessSync, chmodSync, constants, existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
@@ -53,7 +53,7 @@ export function binaryPath() {
   } catch {
     throw new Error(
       `mygo-cli: ${pkg}, the package with the mygo binary of this platform, is not installed. ` +
-        `Reinstall mygo-cli without omitting optional dependencies, or install the CLI with Go: ${goInstall}`,
+        `${reinstallHint(pkg)} Or install the CLI with Go: ${goInstall}`,
     );
   }
   const bin = join(dir, "bin", exe);
@@ -74,6 +74,31 @@ export function binaryPath() {
  */
 export function defineConfig(config) {
   return config;
+}
+
+/**
+ * Says how to install pkg, the missing package of the mygo binary. Package
+ * managers skip an optional dependency they fail to fetch, as when npm does
+ * not serve it yet, and bun keeps skipping it while bun.lock lacks it, even
+ * with --force.
+ */
+function reinstallHint(pkg) {
+  // The directory whose node_modules holds mygo-cli, at any depth.
+  const i = here.indexOf(`${sep}node_modules${sep}`);
+  const root = i < 0 ? here : here.slice(0, i);
+  const runner = basename(root).startsWith("bunx-") ? "bunx" : basename(dirname(root)) === "_npx" ? "npx" : "";
+  if (runner) {
+    return `${runner} installed mygo-cli without it in ${root}: remove that directory, then run ${runner} again.`;
+  }
+  const lockfile = join(root, "bun.lock");
+  let lock = "";
+  try {
+    lock = readFileSync(lockfile, "utf8");
+  } catch {}
+  if (lock && !lock.includes(`"${pkg}": [`)) {
+    return `bun installed mygo-cli without it, and does so again while ${lockfile} lacks it, even with --force: remove that file, then install again.`;
+  }
+  return "Reinstall mygo-cli without omitting optional dependencies.";
 }
 
 /** Reports whether dir is a checkout of the MyGo repository. */
