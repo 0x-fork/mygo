@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"debug/pe"
 	"encoding/binary"
 	"encoding/json"
 	"go/parser"
@@ -308,6 +309,123 @@ func TestWindowsSignCommand(t *testing.T) {
 	}
 	c.Windows.SignCommand = "false %1"
 	if err := signWindows(c, file); err == nil {
+		t.Error("a failing sign command succeeded")
+	}
+}
+
+// peHeaders returns the headers of a PE image, PE32+ or PE32, whose
+// certificate table has the given size.
+func peHeaders(plus bool, certificates uint32) []byte {
+	const pe = 0x40
+	opt, dirs, size, magic := pe+24, 96, 224, 0x10b
+	if plus {
+		dirs, size, magic = 112, 240, 0x20b
+	}
+	b := make([]byte, opt+size)
+	le := binary.LittleEndian
+	copy(b, "MZ")
+	le.PutUint32(b[0x3c:], pe)
+	copy(b[pe:], "PE\x00\x00")
+	le.PutUint16(b[pe+20:], uint16(size))
+	le.PutUint16(b[opt:], uint16(magic))
+	le.PutUint32(b[opt+dirs-4:], 16)
+	if certificates != 0 {
+		le.PutUint32(b[opt+dirs+4*8:], uint32(len(b)))
+		le.PutUint32(b[opt+dirs+4*8+4:], certificates)
+	}
+	return b
+}
+
+func TestPEImage(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string][]byte{
+		"app.exe":    peHeaders(true, 0),
+		"signed.exe": peHeaders(true, 0x2a8),
+		"x86.dll":    peHeaders(false, 0),
+		"signed.dll": peHeaders(false, 0x1f0),
+		"dos.exe":    []byte("MZ" + strings.Repeat("\x00", 62)),
+		"notes.txt":  []byte("MZ is not enough"),
+	}
+	for name, b := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, want := range map[string][2]bool{
+		"app.exe": {true, false}, "signed.exe": {true, true}, "x86.dll": {true, false}, "signed.dll": {true, true},
+		"dos.exe": {false, false}, "notes.txt": {false, false}, "missing.exe": {false, false},
+	} {
+		path := filepath.Join(dir, name)
+		image, signed := peImage(path)
+		if image != want[0] || signed != want[1] {
+			t.Errorf("peImage(%s) = %v, %v, want %v", name, image, signed, want)
+		}
+		if !want[0] {
+			continue
+		}
+		// debug/pe finds the same certificate table.
+		f, err := pe.Open(path)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		var cert pe.DataDirectory
+		switch h := f.OptionalHeader.(type) {
+		case *pe.OptionalHeader32:
+			cert = h.DataDirectory[pe.IMAGE_DIRECTORY_ENTRY_SECURITY]
+		case *pe.OptionalHeader64:
+			cert = h.DataDirectory[pe.IMAGE_DIRECTORY_ENTRY_SECURITY]
+		}
+		f.Close()
+		if (cert.Size != 0) != signed {
+			t.Errorf("%s: debug/pe finds a certificate table of %d bytes", name, cert.Size)
+		}
+	}
+}
+
+// TestSignWindowsResources signs the executables and libraries among the
+// resources that carry no signature, with the sign command.
+func TestSignWindowsResources(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	src, dir := t.TempDir(), t.TempDir()
+	files := map[string][]byte{
+		"bin/tool.exe":      peHeaders(true, 0),
+		"bin/vendor.exe":    peHeaders(true, 0x2a8),
+		"bin/plugins/x.dll": peHeaders(false, 0),
+		"bin/.hidden.dll":   peHeaders(true, 0),
+		"data/seed.db":      []byte("MZ, but data"),
+		"helper.exe":        peHeaders(true, 0),
+	}
+	for name, b := range files {
+		path := filepath.Join(src, filepath.FromSlash(name))
+		os.MkdirAll(filepath.Dir(path), 0o755)
+		if err := os.WriteFile(path, b, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res := []resource{{"bin", filepath.Join(src, "bin")}, {"data", filepath.Join(src, "data")}, {"helper.exe", filepath.Join(src, "helper.exe")}}
+	if err := copyResources(res, dir); err != nil {
+		t.Fatal(err)
+	}
+	c := &Config{root: dir, Windows: Windows{SignCommand: `printf signed >> %1`}}
+	if err := signWindowsResources(c, dir, res); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]bool{"bin/tool.exe": true, "bin/plugins/x.dll": true, "helper.exe": true, "bin/vendor.exe": false, "data/seed.db": false} {
+		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := bytes.HasSuffix(b, []byte("signed")); got != want {
+			t.Errorf("%s signed: %v, want %v", name, got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bin", ".hidden.dll")); err == nil {
+		t.Error("a hidden file was copied")
+	}
+	c.Windows.SignCommand = "false %1"
+	if err := signWindowsResources(c, dir, res); err == nil {
 		t.Error("a failing sign command succeeded")
 	}
 }

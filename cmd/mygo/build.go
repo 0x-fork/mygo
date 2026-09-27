@@ -25,9 +25,9 @@ at mygo://localhost/. macOS gets a signed .app bundle and a
 "<name> <version>.dmg" disk image whose window invites dragging the app to
 Applications; other platforms get an executable. The contents of the
 resources directory and the resources listed in mygo.json are copied into
-the bundle's Contents/Resources, or next to the executable. MyGo needs no
-cgo, so any platform can be compiled from any machine; signing and disk
-images need macOS.
+the bundle's Contents/Resources, or next to the executable, and the programs
+among them are signed with the app. MyGo needs no cgo, so any platform can
+be compiled from any machine; signing and disk images need macOS.
 
 Set macos.signingIdentity in mygo.json (or -sign) to a Developer ID to ship
 outside the Mac App Store, and macos.notarize to notarize the disk image.
@@ -220,13 +220,16 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		if err := compile(goarch, exe); err != nil {
 			return nil, err
 		}
+		if err := copyResources(res, stage); err != nil {
+			return nil, err
+		}
 		if c.Windows.signs() {
 			if err := signWindows(c, exe); err != nil {
 				return nil, err
 			}
-		}
-		if err := copyResources(res, stage); err != nil {
-			return nil, err
+			if err := signWindowsResources(c, stage, res); err != nil {
+				return nil, err
+			}
 		}
 		artifacts = append(artifacts, exe)
 	default:

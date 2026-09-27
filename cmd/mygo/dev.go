@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -329,6 +331,9 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 		}
 		h.Write(icns)
 		h.Write(infoPlist(dc, name, iconFile))
+		if err := hashEntitlements(h, dc); err != nil {
+			return nil, sum, err
+		}
 	}
 	copy(sum[:], h.Sum(nil))
 	if sum == running {
@@ -367,6 +372,24 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 	}
 	logf("%s (built in %.1fs, ready in %.1fs)", verb, built.Seconds(), (time.Since(started) - built).Seconds())
 	return p, sum, nil
+}
+
+// hashEntitlements writes the entitlements that sign the app and code among
+// its resources to w, to tell whether they changed.
+func hashEntitlements(w io.Writer, c *Config) error {
+	files := map[string]string{"": c.MacOS.Entitlements} // "": the app
+	maps.Copy(files, c.MacOS.HelperEntitlements)
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		if files[name] == "" {
+			continue
+		}
+		b, err := os.ReadFile(c.path(files[name]))
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\x00%d\x00%s", name, len(b), b)
+	}
+	return nil
 }
 
 // placeBuild moves the executable in stage and the resources res next to

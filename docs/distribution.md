@@ -93,8 +93,60 @@ seed := filepath.Join(dir, "seed.db")
 ```
 
 `mygo dev` copies them into the development app too, and rebuilds it when
-they change. Hidden files are left out. Executables among them are signed
-with the app on macOS.
+they change. Hidden files are left out.
+
+### Helper executables
+
+Programs the app runs, such as a server written in another language or a
+tool like `ffmpeg`, are resources too: put them in the `resources`
+directory and run them from there.
+
+```go
+dir, _ := mygo.App.Path(mygo.PathResources)
+cmd := exec.Command(filepath.Join(dir, "bin", "server"))
+```
+
+`mygo build` signs them with the app, so that Gatekeeper and SmartScreen
+accept them and notarization passes:
+
+- On macOS, every Mach-O executable and library among the resources, and
+  every app, framework or plug-in bundle holding some, is signed from the
+  inside out with `signingIdentity`, with the hardened runtime and a
+  timestamp for a Developer ID. Signed ad hoc, the default, only code
+  without a signature is signed: Apple silicon runs no unsigned code.
+- On Windows, with `certificate` or `signCommand`, every executable and
+  DLL among the resources that has no signature is signed. Those signed by
+  their publishers keep their signatures.
+
+Under the hardened runtime, some programs need entitlements, such as
+`com.apple.security.cs.allow-jit` for a JavaScript runtime that compiles
+code as it runs. Code keeps the entitlements it was signed with, so the
+official builds of such runtimes work as they are, and
+`macos.helperEntitlements` gives code entitlements of its own, by its path
+among the resources:
+
+```ts
+export default defineConfig({
+  macos: {
+    signingIdentity: "Developer ID Application: Jane Doe (TEAMID)",
+    helperEntitlements: { "bin/server": "server.entitlements.plist" },
+  },
+});
+```
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+</dict>
+</plist>
+```
+
+Resources are the same for every platform, so give the programs of each
+platform names of their own, such as `bin/server` and `bin/server.exe`.
 
 ## macOS
 
@@ -149,7 +201,8 @@ export default defineConfig({
 });
 ```
 
-`entitlements` signs the app with a property list of entitlements.
+`entitlements` signs the app with a property list of entitlements, and
+`helperEntitlements` [helper executables](#helper-executables).
 `minimumSystemVersion` is the oldest macOS the app runs on, 12.0 by
 default.
 
@@ -171,8 +224,9 @@ file associations.
 
 ### Code signing
 
-Unsigned apps make SmartScreen warn users. Sign the executable and the
-installer with a certificate:
+Unsigned apps make SmartScreen warn users. Sign the executable, the
+[helper executables](#helper-executables) and the installer with a
+certificate:
 
 ```ts
 export default defineConfig({

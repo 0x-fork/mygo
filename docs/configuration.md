@@ -98,6 +98,7 @@ Signed [auto-updates](updates.md). `publicKey` and one of `github` and
 | `minimumSystemVersion` | `12.0` | the oldest macOS the app runs on |
 | `signingIdentity` | `-`, ad hoc | the identity that signs the app and its disk image, e.g. `Developer ID Application: Jane Doe (TEAMID)` |
 | `entitlements` | | a property list of entitlements to sign the app with |
+| `helperEntitlements` | | property lists of entitlements for code among the resources, by its path there, e.g. `{ "bin/server": "server.entitlements.plist" }`; other code keeps the entitlements it is signed with. See [helper executables](distribution.md#helper-executables) |
 | `infoPlist` | | keys added to the app's `Info.plist`, replacing MyGo's, e.g. `NSCameraUsageDescription` |
 | `dmgTitle` | `name` | the volume name of the disk image |
 | `notarize` | | notarizes production disk images: `keychainProfile`, the profile of `xcrun notarytool store-credentials`, and optionally `keychain`, the keychain holding it |
@@ -108,7 +109,7 @@ See [macOS](distribution.md#macos).
 
 | Field | Default | |
 |---|---|---|
-| `certificate` | | a code signing certificate (`.pfx`) for the executable and the installer; its password comes from `MYGO_WINDOWS_CERTIFICATE_PASSWORD` |
+| `certificate` | | a code signing certificate (`.pfx`) for the executable, the unsigned executables and libraries among the resources, and the installer; its password comes from `MYGO_WINDOWS_CERTIFICATE_PASSWORD` |
 | `signCommand` | | instead of `certificate`, a command that signs a file, with `%1` for its path |
 | `timestampUrl` | `http://timestamp.digicert.com` | the time stamping server of `certificate` |
 

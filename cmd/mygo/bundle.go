@@ -210,7 +210,7 @@ func codesign(c *Config, path, identity string, production bool) error {
 		}
 		return nil
 	}
-	if err := signNestedCode(path, identity, production); err != nil {
+	if err := signNestedCode(c, path, identity, production); err != nil {
 		return err
 	}
 	entitlements := ""

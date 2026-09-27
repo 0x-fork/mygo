@@ -140,6 +140,13 @@ export interface MacOSConfig {
   signingIdentity?: string;
   /** A property list of entitlements to sign the app with. */
   entitlements?: string;
+  /**
+   * Property lists of entitlements for code among the resources, by its path
+   * there, e.g. `{ "bin/server": "server.entitlements.plist" }` for a helper
+   * that needs `com.apple.security.cs.allow-jit` under the hardened runtime.
+   * Other code keeps the entitlements it is signed with.
+   */
+  helperEntitlements?: Record<string, string>;
   /** Keys added to the app's Info.plist, replacing MyGo's, e.g. `NSCameraUsageDescription`. */
   infoPlist?: Record<string, unknown>;
   /** The volume name of the disk image (default: the name). */

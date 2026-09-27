@@ -722,13 +722,21 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   with a dot are skipped; listed paths are followed when they are links,
   links inside them are copied as links, permissions are kept. Destination
   names must be unique ignoring case and must not replace the packaging's
-  own files (`AppIcon.icns`, the executable, the `.desktop` entry). Signing
-  with a real identity signs Mach-O files among the resources first, since
+  own files (`AppIcon.icns`, the executable, the `.desktop` entry). Code
+  among them is signed before the app (`signNestedCode`), since
   `codesign --deep` only covers code directories and notarization rejects
-  unsigned code. `resources/icon.png` is the default icon. Each platform's
-  output directory is assembled in a staging directory that replaces it
-  whole, so removed resources do not linger; development builds on Linux
-  and Windows remove what the previous build placed and this one lacks.
+  unsigned code: Mach-O files, then the bundles holding them, deepest
+  first, as a bundle's signature seals what it holds (and signing its main
+  executable signs the whole bundle). A real identity signs all of it,
+  keeping the entitlements of each (`--preserve-metadata`) unless
+  `macos.helperEntitlements` names others; ad hoc signing only signs code
+  without an `LC_CODE_SIGNATURE`, and the bundles around it, so vendors'
+  signatures stay. Windows builds sign the PE images among the resources
+  that have no certificate table, with the app's certificate or command.
+  `resources/icon.png` is the default icon. Each platform's output
+  directory is assembled in a staging directory that replaces it whole, so
+  removed resources do not linger; development builds on Linux and Windows
+  remove what the previous build placed and this one lacks.
 - Packages for the other platforms. Windows gets "<name> Setup
   <version>.exe" when NSIS (`makensis`) is installed (`nsis.go`): a
   per-user install in `%LOCALAPPDATA%\Programs\<name>`, where the updater
@@ -757,7 +765,8 @@ Configuration lives in an optional `mygo.config.ts` or `mygo.json`
 metadata (the icon defaults to `resources/icon.png`), extra `resources`,
 the frontend (`devUrl`, `devCommand`, `buildCommand`, `frontendDist`,
 `bindings`) and the `macos` section (minimum system version, signing
-identity, entitlements, DMG title, notarization profile).
+identity, entitlements of the app and of helpers, DMG title, notarization
+profile).
 
 ## Testing
 

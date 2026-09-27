@@ -125,6 +125,12 @@ type MacOS struct {
 	SigningIdentity string `json:"signingIdentity"`
 	// Entitlements is a plist of entitlements to sign the app with.
 	Entitlements string `json:"entitlements"`
+	// HelperEntitlements gives code among the resources entitlements of its
+	// own, by its path there: executables, libraries and bundles, e.g.
+	//   "bin/server": "server.entitlements.plist"
+	// for a helper that needs com.apple.security.cs.allow-jit under the
+	// hardened runtime. Other code keeps the entitlements it is signed with.
+	HelperEntitlements map[string]string `json:"helperEntitlements"`
 	// InfoPlist holds extra keys for the Info.plist of the bundle, which
 	// replace MyGo's own, e.g. usage descriptions for apps whose pages use
 	// the camera or the microphone:
@@ -205,6 +211,11 @@ func (c *Config) validate() error {
 		}
 		if fa.Role != "" && fa.Role != "Editor" && fa.Role != "Viewer" {
 			return fmt.Errorf("fileAssociations[%d].role is Editor or Viewer", i)
+		}
+	}
+	for name, file := range c.MacOS.HelperEntitlements {
+		if name == "" || file == "" {
+			return fmt.Errorf("macos.helperEntitlements maps the path of code among the resources to a property list of entitlements, not %q to %q", name, file)
 		}
 	}
 	if c.Windows.Certificate != "" && c.Windows.SignCommand != "" {

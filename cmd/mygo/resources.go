@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -211,56 +212,209 @@ func within(path, dir string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// signNestedCode signs the Mach-O executables and libraries among the
-// resources of a bundle, which codesign --deep leaves alone: it only signs
-// the bundle's code directories, and notarization rejects unsigned code
-// anywhere. Ad hoc signing leaves the copies with their own signatures.
-func signNestedCode(app, identity string, production bool) error {
-	if identity == "-" {
-		return nil
+// signNestedCode signs the code among the resources of a bundle, which
+// codesign --deep leaves alone: it only signs the bundle's code
+// directories, and notarization rejects unsigned code anywhere. Code is
+// signed from the inside out: Mach-O files, then the bundles holding them
+// (apps, frameworks, plug-ins), whose signatures seal what they contain. A
+// real identity signs all of it. Ad hoc signing only signs what has no
+// valid signature, so that copies keep their own: Mach-O files without
+// one, which Apple silicon does not run, bundles that are not sealed, and
+// the bundles around what it signed. Code keeps the entitlements it is
+// signed with, unless macos.helperEntitlements gives it others.
+func signNestedCode(c *Config, app, identity string, production bool) error {
+	dir := filepath.Join(app, "Contents", "Resources")
+	type nested struct {
+		path, name string // name: the path in dir, with slashes
+		bundle     bool
+		signed     bool // a Mach-O file with a signature
 	}
-	var code []string
-	err := walkResource(filepath.Join(app, "Contents", "Resources"), func(path string, info fs.FileInfo) error {
-		if info.Mode().IsRegular() && isMachO(path) {
-			code = append(code, path)
+	var files, bundles []nested
+	err := walkResource(dir, func(path string, info fs.FileInfo) error {
+		rel, _ := filepath.Rel(dir, path)
+		n := nested{path: path, name: filepath.ToSlash(rel), bundle: info.IsDir()}
+		switch {
+		case info.Mode().IsRegular():
+			var ok bool
+			if ok, n.signed = machO(path); ok {
+				files = append(files, n)
+			}
+		case info.IsDir() && isBundle(path):
+			bundles = append(bundles, n)
 		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	for _, path := range code {
-		args := []string{"--force", "--sign", identity}
-		if production {
-			args = append(args, "--options", "runtime", "--timestamp")
+	inside := func(bundle string, list []nested) bool {
+		return slices.ContainsFunc(list, func(n nested) bool { return strings.HasPrefix(n.name, bundle+"/") })
+	}
+	list := slices.Clone(files)
+	for _, b := range bundles {
+		// Bundles without code, such as localizations, are resources.
+		if inside(b.name, files) {
+			list = append(list, b)
 		}
-		if out, err := exec.Command("codesign", append(args, path)...).CombinedOutput(); err != nil {
-			rel, _ := filepath.Rel(app, path)
-			return fmt.Errorf("codesign %s: %v\n%s", rel, err, out)
+	}
+	// What is deeper comes first, so a bundle comes after its contents.
+	slices.SortStableFunc(list, func(a, b nested) int {
+		return strings.Count(b.name, "/") - strings.Count(a.name, "/")
+	})
+
+	entitlements := map[string]string{}
+	var unknown []string
+	for name, file := range c.MacOS.HelperEntitlements {
+		name = filepath.ToSlash(filepath.Clean(name))
+		entitlements[name] = c.path(file)
+		if !slices.ContainsFunc(list, func(n nested) bool { return n.name == name }) {
+			unknown = append(unknown, name)
 		}
+	}
+	if len(unknown) > 0 {
+		slices.Sort(unknown)
+		return fmt.Errorf("%s: macos.helperEntitlements: the resources hold no executable, library or bundle at %s", c.configName(), strings.Join(unknown, ", "))
+	}
+
+	var signed []nested
+	for _, n := range list {
+		ent := entitlements[n.name]
+		if identity == "-" && ent == "" {
+			switch {
+			case !n.bundle && n.signed:
+				continue
+			case n.bundle && !inside(n.name, signed):
+				if exec.Command("codesign", "--verify", n.path).Run() == nil {
+					continue
+				}
+			}
+		}
+		args := nestedCodesignArgs(identity, ent, production)
+		if out, err := exec.Command("codesign", append(args, n.path)...).CombinedOutput(); err != nil {
+			return fmt.Errorf("codesign %s: %v\n%s", n.name, err, out)
+		}
+		signed = append(signed, n)
 	}
 	return nil
 }
 
-// isMachO reports whether the file at path is a Mach-O file or a universal
-// binary.
-func isMachO(path string) bool {
+// nestedCodesignArgs returns the codesign arguments, before the path, that
+// sign code among the resources like the app: with the hardened runtime and
+// a secure timestamp for real identities in production. The code keeps the
+// entitlements it is signed with, such as the JIT of a JavaScript runtime,
+// unless entitlements names a property list of others.
+func nestedCodesignArgs(identity, entitlements string, production bool) []string {
+	args := []string{"--force", "--sign", identity}
+	if production && identity != "-" {
+		args = append(args, "--options", "runtime", "--timestamp")
+	}
+	if entitlements != "" {
+		return append(args, "--entitlements", entitlements)
+	}
+	return append(args, "--preserve-metadata=entitlements")
+}
+
+// isBundle reports whether dir is a bundle that can hold code: an app, a
+// framework or a plug-in, with an Info.plist where codesign looks for it.
+func isBundle(dir string) bool {
+	switch strings.ToLower(filepath.Ext(dir)) {
+	case ".app", ".appex", ".bundle", ".framework", ".plugin", ".xpc":
+	default:
+		return false
+	}
+	for _, plist := range []string{"Contents/Info.plist", "Resources/Info.plist", "Info.plist"} {
+		if fileExists(filepath.Join(dir, filepath.FromSlash(plist))) {
+			return true
+		}
+	}
+	return false
+}
+
+// machO reports whether the file at path is a Mach-O file or a universal
+// binary, and whether every architecture in it has a code signature.
+func machO(path string) (ok, signed bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return false
+		return false, false
 	}
 	defer f.Close()
 	var head [8]byte
 	if _, err := io.ReadFull(f, head[:]); err != nil {
-		return false
+		return false, false
 	}
-	switch binary.BigEndian.Uint32(head[:]) {
-	case 0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabf:
-		return true
-	case 0xcafebabe:
+	magic := binary.BigEndian.Uint32(head[:])
+	switch magic {
+	case 0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe:
+		return true, machOSigned(f, 0)
+	case 0xcafebabe, 0xcafebabf:
+	default:
+		return false, false
+	}
+	n := binary.BigEndian.Uint32(head[4:])
+	if magic == 0xcafebabe && n >= 20 {
 		// Java class files share the magic; their version follows it, a
 		// much larger number than the architectures of a universal binary.
-		return binary.BigEndian.Uint32(head[4:]) < 20
+		return false, false
+	}
+	size := int64(20) // fat_arch
+	if magic == 0xcafebabf {
+		size = 32 // fat_arch_64
+	}
+	signed = n > 0
+	for i := range int64(n) {
+		var arch [32]byte
+		if _, err := f.ReadAt(arch[:size], 8+i*size); err != nil {
+			return true, false
+		}
+		offset := int64(binary.BigEndian.Uint32(arch[8:]))
+		if magic == 0xcafebabf {
+			offset = int64(binary.BigEndian.Uint64(arch[8:]))
+		}
+		signed = signed && machOSigned(f, offset)
+	}
+	return true, signed
+}
+
+// machOSigned reports whether the Mach-O file at offset in r has a code
+// signature, an LC_CODE_SIGNATURE load command.
+func machOSigned(r io.ReaderAt, offset int64) bool {
+	var h [28]byte // mach_header; mach_header_64 adds a reserved field
+	if _, err := r.ReadAt(h[:], offset); err != nil {
+		return false
+	}
+	var order binary.ByteOrder = binary.LittleEndian
+	magic := order.Uint32(h[:])
+	if magic == 0xcefaedfe || magic == 0xcffaedfe {
+		order, magic = binary.BigEndian, binary.BigEndian.Uint32(h[:])
+	}
+	size := int64(28)
+	switch magic {
+	case 0xfeedface:
+	case 0xfeedfacf:
+		size = 32
+	default:
+		return false
+	}
+	ncmds, sizeofcmds := order.Uint32(h[16:]), order.Uint32(h[20:])
+	if sizeofcmds > 1<<24 {
+		return false
+	}
+	cmds := make([]byte, sizeofcmds)
+	if _, err := r.ReadAt(cmds, offset+size); err != nil {
+		return false
+	}
+	for range ncmds {
+		if len(cmds) < 8 {
+			break
+		}
+		cmd, cmdsize := order.Uint32(cmds), order.Uint32(cmds[4:])
+		if cmd == 0x1d { // LC_CODE_SIGNATURE
+			return true
+		}
+		if cmdsize < 8 || uint64(cmdsize) > uint64(len(cmds)) {
+			break
+		}
+		cmds = cmds[cmdsize:]
 	}
 	return false
 }

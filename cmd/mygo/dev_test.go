@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -163,7 +165,8 @@ func TestWatcher(t *testing.T) {
 // TestListBuildInputs lists the inputs of the mygo command itself.
 func TestListBuildInputs(t *testing.T) {
 	root, _ := filepath.Abs("../..")
-	c := &Config{root: root, Main: "./cmd/mygo", Icon: "icon.png", Resources: []string{"notes"}}
+	c := &Config{root: root, Main: "./cmd/mygo", Icon: "icon.png", Resources: []string{"notes"},
+		MacOS: MacOS{Entitlements: "app.plist", HelperEntitlements: map[string]string{"bin/tool": "tool.plist"}}}
 	in, err := listBuildInputs(c)
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +179,8 @@ func TestListBuildInputs(t *testing.T) {
 			t.Errorf("sourceDirs has %s, which never changes", d)
 		}
 	}
-	for _, f := range []string{filepath.Join(root, "go.mod"), filepath.Join(root, "mygo.json"), filepath.Join(root, "icon.png")} {
+	for _, f := range []string{filepath.Join(root, "go.mod"), filepath.Join(root, "mygo.json"), filepath.Join(root, "icon.png"),
+		filepath.Join(root, "app.plist"), filepath.Join(root, "tool.plist")} {
 		if !slices.Contains(in.files, f) {
 			t.Errorf("files lacks %s: %q", f, in.files)
 		}
@@ -187,6 +191,44 @@ func TestListBuildInputs(t *testing.T) {
 	// The CLI embeds its project template.
 	if !slices.Contains(in.fileDirs, filepath.Join(root, "cmd", "mygo", "template")) {
 		t.Errorf("fileDirs lacks the embedded template: %q", in.fileDirs)
+	}
+}
+
+// TestHashEntitlements tells changes to the entitlements of development
+// apps apart, which relaunch them.
+func TestHashEntitlements(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"app.plist": "app", "tool.plist": "tool"})
+	c := &Config{root: dir}
+	hash := func() string {
+		t.Helper()
+		var b bytes.Buffer
+		if err := hashEntitlements(&b, c); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	seen := map[string]string{}
+	for _, step := range []struct {
+		name string
+		edit func()
+	}{
+		{"none", func() {}},
+		{"app", func() { c.MacOS.Entitlements = "app.plist" }},
+		{"helper", func() { c.MacOS.HelperEntitlements = map[string]string{"bin/tool": "tool.plist"} }},
+		{"edited", func() { writeFiles(t, dir, map[string]string{"tool.plist": "tool, edited"}) }},
+		{"renamed", func() { c.MacOS.HelperEntitlements = map[string]string{"bin/other": "tool.plist"} }},
+	} {
+		step.edit()
+		h := hash()
+		if prev, ok := seen[h]; ok {
+			t.Errorf("%s: same hash as %s", step.name, prev)
+		}
+		seen[h] = step.name
+	}
+	c.MacOS.Entitlements = "missing.plist"
+	if err := hashEntitlements(io.Discard, c); err == nil {
+		t.Error("missing entitlements hashed")
 	}
 }
 

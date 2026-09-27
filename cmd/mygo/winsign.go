@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -76,6 +79,69 @@ func signWindows(c *Config, file string) error {
 		return fmt.Errorf("osslsigncode: %v\n%s", err, out)
 	}
 	return os.Rename(signed, file)
+}
+
+// signWindowsResources signs the executables and libraries among the
+// resources copied into dir, such as helper programs, that carry no
+// signature: those signed by their publishers keep their signatures.
+func signWindowsResources(c *Config, dir string, res []resource) error {
+	for _, r := range res {
+		err := walkResource(filepath.Join(dir, r.name), func(path string, info fs.FileInfo) error {
+			if !info.Mode().IsRegular() {
+				return nil
+			}
+			if image, signed := peImage(path); image && !signed {
+				return signWindows(c, path)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// peImage reports whether the file at path is a PE image, an executable or
+// a DLL, and whether it carries an Authenticode signature.
+func peImage(path string) (image, signed bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, false
+	}
+	defer f.Close()
+	var dos [64]byte
+	if _, err := io.ReadFull(f, dos[:]); err != nil || string(dos[:2]) != "MZ" {
+		return false, false
+	}
+	// The PE signature, the file header, then the optional header.
+	pe := int64(binary.LittleEndian.Uint32(dos[0x3c:]))
+	var h [26]byte
+	if _, err := f.ReadAt(h[:], pe); err != nil || string(h[:4]) != "PE\x00\x00" {
+		return false, false
+	}
+	optionalSize := int64(binary.LittleEndian.Uint16(h[20:]))
+	var dirs int64 // where the data directories start in the optional header
+	switch binary.LittleEndian.Uint16(h[24:]) {
+	case 0x10b: // PE32
+		dirs = 96
+	case 0x20b: // PE32+
+		dirs = 112
+	default:
+		return false, false
+	}
+	// NumberOfRvaAndSizes, then the directories: the certificate table is
+	// the fifth, and its size follows its offset.
+	const security = 4
+	if optionalSize < dirs+(security+1)*8 {
+		return true, false
+	}
+	var d [4 + (security+1)*8]byte
+	if _, err := f.ReadAt(d[:], pe+24+dirs-4); err != nil {
+		return true, false
+	}
+	count := binary.LittleEndian.Uint32(d[:])
+	return true, count > security && binary.LittleEndian.Uint32(d[4+security*8+4:]) != 0
 }
 
 // signtool finds signtool.exe of the newest Windows SDK.

@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -193,22 +195,180 @@ func TestPlaceBuild(t *testing.T) {
 	}
 }
 
-func TestIsMachO(t *testing.T) {
+// thinMachO returns a Mach-O header followed by load commands of the given
+// types: 64-bit little-endian, or 32-bit big-endian as on PowerPC.
+func thinMachO(order binary.ByteOrder, cmds ...uint32) []byte {
+	var b bytes.Buffer
+	if order == binary.BigEndian {
+		binary.Write(&b, order, [7]uint32{0xfeedface, 18, 0, 2, uint32(len(cmds)), uint32(len(cmds)) * 16, 0})
+	} else {
+		binary.Write(&b, order, [8]uint32{0xfeedfacf, 0x0100000c, 0, 2, uint32(len(cmds)), uint32(len(cmds)) * 16, 0, 0})
+	}
+	for _, cmd := range cmds {
+		binary.Write(&b, order, [4]uint32{cmd, 16, 0, 0})
+	}
+	return b.Bytes()
+}
+
+func TestMachO(t *testing.T) {
+	const segment, signature = 0x19, 0x1d
+	le := binary.LittleEndian
 	dir := t.TempDir()
 	for name, head := range map[string][]byte{
-		"thin":  {0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 0x01},
-		"fat":   {0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 2},
-		"class": {0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 61},
-		"text":  []byte("#!/bin/sh\necho"),
-		"short": {0xcf},
+		"thin":      thinMachO(le, segment),
+		"signed":    thinMachO(le, segment, signature),
+		"ppc":       thinMachO(binary.BigEndian, signature),
+		"truncated": thinMachO(le, segment, signature)[:40],
+		"header":    {0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 0x01},
+		"class":     {0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 61},
+		"text":      []byte("#!/bin/sh\necho"),
+		"short":     {0xcf},
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), head, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for name, want := range map[string]bool{"thin": true, "fat": true, "class": false, "text": false, "short": false} {
-		if got := isMachO(filepath.Join(dir, name)); got != want {
-			t.Errorf("isMachO(%s) = %v", name, got)
+	for name, archs := range map[string][]string{"fat": {"signed", "signed"}, "mixed": {"signed", "thin"}} {
+		for i := range archs {
+			archs[i] = filepath.Join(dir, archs[i])
+		}
+		if err := writeUniversal(filepath.Join(dir, name), archs...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, want := range map[string][2]bool{
+		"thin": {true, false}, "signed": {true, true}, "ppc": {true, true}, "truncated": {true, false},
+		"header": {true, false}, "fat": {true, true}, "mixed": {true, false},
+		"class": {false, false}, "text": {false, false}, "short": {false, false},
+	} {
+		if ok, signed := machO(filepath.Join(dir, name)); ok != want[0] || signed != want[1] {
+			t.Errorf("machO(%s) = %v, %v, want %v", name, ok, signed, want)
+		}
+	}
+	if ok, signed := machO(filepath.Join(dir, "missing")); ok || signed {
+		t.Error("a missing file is Mach-O")
+	}
+}
+
+// TestSignNestedCode signs the code among the resources of an app ad hoc,
+// from the inside out: code without a signature, code that
+// macos.helperEntitlements lists, the bundles holding them, and bundles
+// that are not sealed.
+func TestSignNestedCode(t *testing.T) {
+	if _, err := exec.LookPath("codesign"); err != nil || runtime.GOOS != "darwin" {
+		t.Skip("needs codesign")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	app := filepath.Join(dir, "A.app")
+	res := filepath.Join(app, "Contents", "Resources")
+	sign := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("codesign", args...).CombinedOutput(); err != nil {
+			t.Fatalf("codesign %q: %v\n%s", args, err, out)
+		}
+	}
+	for _, name := range []string{"MacOS/A", "Resources/bin/signed", "Resources/bin/unsigned", "Resources/bin/jit",
+		"Resources/Helper.app/Contents/MacOS/Helper", "Resources/Helper.app/Contents/Resources/tool"} {
+		path := filepath.Join(app, "Contents", filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := copyFile(exe, path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plist := func(key string) string {
+		return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>` + key + `</key><true/></dict></plist>
+`
+	}
+	writeFiles(t, dir, map[string]string{
+		"A.app/Contents/Info.plist":                                          string(infoPlist(&Config{Name: "A", Identifier: "com.example.a"}, "A", "")),
+		"A.app/Contents/Resources/Helper.app/Contents/Info.plist":            string(infoPlist(&Config{Name: "Helper", Identifier: "com.example.helper"}, "Helper", "")),
+		"A.app/Contents/Resources/Docs.bundle/Contents/Info.plist":           string(infoPlist(&Config{Name: "Docs", Identifier: "com.example.docs"}, "Docs", "")),
+		"A.app/Contents/Resources/Docs.bundle/Contents/Resources/index.html": "<h1>Docs</h1>",
+		"A.app/Contents/Resources/data.txt":                                  "data",
+		"jit.plist":                                                          plist("com.apple.security.cs.allow-jit"),
+		"helper.plist":                                                       plist("com.apple.security.cs.disable-library-validation"),
+	})
+	// A framework built without sealing it: its library is signed alone.
+	framework := filepath.Join(res, "Foo.framework")
+	writeFiles(t, framework, map[string]string{
+		"Versions/A/Resources/Info.plist": string(infoPlist(&Config{Name: "Foo", Identifier: "com.example.foo"}, "Foo", "")),
+	})
+	library := filepath.Join(dir, "Foo")
+	if err := copyFile(exe, library, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sign("--force", "--sign", "-", library)
+	if err := os.Rename(library, filepath.Join(framework, "Versions", "A", "Foo")); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{"Versions/Current": "A", "Foo": "Versions/Current/Foo", "Resources": "Versions/Current/Resources"} {
+		if err := os.Symlink(target, filepath.Join(framework, filepath.FromSlash(link))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	helper := filepath.Join(res, "Helper.app")
+	sign("--remove-signature", filepath.Join(res, "bin", "unsigned"))
+	sign("--remove-signature", filepath.Join(helper, "Contents", "Resources", "tool"))
+	sign("--force", "--sign", "-", "--identifier", "com.example.kept", filepath.Join(res, "bin", "signed"))
+	sign("--force", "--sign", "-", "--entitlements", filepath.Join(dir, "helper.plist"), helper)
+
+	c := &Config{root: dir, MacOS: MacOS{HelperEntitlements: map[string]string{"./bin/jit": "jit.plist"}}}
+	if err := codesign(c, app, "-", false); err != nil {
+		t.Fatal(err)
+	}
+	details := func(path string, args ...string) string {
+		out, err := exec.Command("codesign", append(append([]string{"--display"}, args...), path)...).CombinedOutput()
+		if err != nil {
+			t.Errorf("codesign --display %s: %v\n%s", path, err, out)
+		}
+		return string(out)
+	}
+	for _, path := range []string{app, helper, framework, filepath.Join(res, "bin", "unsigned"), filepath.Join(helper, "Contents", "Resources", "tool")} {
+		if out, err := exec.Command("codesign", "--verify", "--deep", "--strict", path).CombinedOutput(); err != nil {
+			rel, _ := filepath.Rel(dir, path)
+			t.Errorf("%s does not verify: %v\n%s", rel, err, out)
+		}
+	}
+	if out := details(filepath.Join(res, "bin", "signed"), "--verbose"); !strings.Contains(out, "Identifier=com.example.kept") {
+		t.Errorf("code with a signature was signed again:\n%s", out)
+	}
+	if out := details(filepath.Join(res, "bin", "jit"), "--entitlements", "-", "--xml"); !strings.Contains(out, "allow-jit") {
+		t.Errorf("bin/jit lacks the entitlements of macos.helperEntitlements:\n%s", out)
+	}
+	if out := details(helper, "--entitlements", "-", "--xml"); !strings.Contains(out, "disable-library-validation") {
+		t.Errorf("the helper app lost its entitlements:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(res, "Docs.bundle", "Contents", "_CodeSignature")); err == nil {
+		t.Error("a bundle without code was signed")
+	}
+
+	c.MacOS.HelperEntitlements = map[string]string{"bin/missing": "jit.plist", "data.txt": "jit.plist"}
+	if err := codesign(c, app, "-", false); err == nil || !strings.Contains(err.Error(), "no executable, library or bundle at bin/missing, data.txt") {
+		t.Errorf("unknown helpers: %v", err)
+	}
+}
+
+func TestNestedCodesignArgs(t *testing.T) {
+	for _, tc := range []struct {
+		identity, entitlements string
+		production             bool
+		want                   []string
+	}{
+		{"-", "", true, []string{"--force", "--sign", "-", "--preserve-metadata=entitlements"}},
+		{"Developer ID Application: X", "", true, []string{"--force", "--sign", "Developer ID Application: X", "--options", "runtime", "--timestamp", "--preserve-metadata=entitlements"}},
+		{"Developer ID Application: X", "e.plist", true, []string{"--force", "--sign", "Developer ID Application: X", "--options", "runtime", "--timestamp", "--entitlements", "e.plist"}},
+		{"Apple Development: X", "", false, []string{"--force", "--sign", "Apple Development: X", "--preserve-metadata=entitlements"}},
+	} {
+		if got := nestedCodesignArgs(tc.identity, tc.entitlements, tc.production); !slices.Equal(got, tc.want) {
+			t.Errorf("nestedCodesignArgs(%q, %q, %v) = %q", tc.identity, tc.entitlements, tc.production, got)
 		}
 	}
 }
@@ -251,6 +411,11 @@ func TestBuildResources(t *testing.T) {
 		if tc.goos == "darwin" {
 			if _, err := os.Stat(filepath.Join(res, "AppIcon.icns")); err != nil {
 				t.Errorf("darwin: no icon: %v", err)
+			}
+		}
+		if tc.goos == "windows" {
+			if image, signed := peImage(filepath.Join(res, "Res App.exe")); !image || signed {
+				t.Errorf("windows: peImage = %v, %v for the unsigned executable", image, signed)
 			}
 		}
 		if info, err := os.Stat(filepath.Join(dir, "dist", tc.goos+"-"+tc.goarch)); err != nil {
