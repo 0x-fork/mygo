@@ -136,6 +136,9 @@ type AppController interface {
 	SetDockIcon(png []byte) error
 	// SetDockMenu sets the menu of the Dock icon (macOS); nil removes it.
 	SetDockMenu(m *Menu)
+	// ClearBrowsingData deletes the data pages stored; done runs on the
+	// main thread.
+	ClearBrowsingData(done func(error))
 	ShowAboutPanel(opts AboutPanelOptions)
 	Locale() string
 	// RegisterURLScheme makes the app, identified by id (its identifier)

@@ -262,3 +262,14 @@ func (a appController) Locale() string {
 }
 
 func (a appController) Package() (platform.PackageInfo, bool) { return platform.PackageInfo{}, false }
+
+func (a appController) ClearBrowsingData(done func(error)) {
+	const all = 1<<14 - 1 // WEBKIT_WEBSITE_DATA_ALL
+	manager := webkitWebContextGetWebsiteDataManager(webkitWebContextGetDefault())
+	id := pending.add(func(source, res ptr) {
+		var gerr ptr
+		webkitWebsiteDataManagerClearFinish(source, res, &gerr)
+		done(gErr(gerr))
+	})
+	webkitWebsiteDataManagerClear(manager, all, 0, 0, cbAsyncReady, id)
+}

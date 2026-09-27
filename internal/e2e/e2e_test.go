@@ -849,6 +849,23 @@ func TestDownloads(t *testing.T) {
 	check("attachment", "report.bin", "binary report")
 }
 
+func TestClearBrowsingData(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Title: "Data", Width: 300, Height: 200})
+	if err := w.LoadURL("app://localhost/"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, w, `window.run`)
+	mustEval(t, w, `(localStorage.setItem("token", "secret"), window.oldPage = true)`)
+	if err := mygo.App.ClearBrowsingData(); err != nil {
+		t.Fatal(err)
+	}
+	w.Reload()
+	waitFor(t, w, `window.run && !window.oldPage`)
+	if got := mustEval(t, w, `localStorage.getItem("token")`); got != nil {
+		t.Errorf("after ClearBrowsingData the token is %v", got)
+	}
+}
+
 func TestCloseEvents(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	var prevent atomic.Bool

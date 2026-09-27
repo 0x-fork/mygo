@@ -326,6 +326,9 @@ var (
 	webkitWebContextGetDefault                        func() ptr
 	webkitWebContextRegisterURIScheme                 func(ctx ptr, scheme *byte, cb ptr, data ptr, destroy ptr)
 	webkitWebContextGetSecurityManager                func(ctx ptr) ptr
+	webkitWebContextGetWebsiteDataManager             func(ctx ptr) ptr
+	webkitWebsiteDataManagerClear                     func(m ptr, types uint32, timespan int64, cancellable ptr, cb ptr, data ptr)
+	webkitWebsiteDataManagerClearFinish               func(m, res ptr, err *ptr) bool
 	webkitDownloadGetWebView                          func(d ptr) ptr
 	webkitDownloadGetRequest                          func(d ptr) ptr
 	webkitDownloadSetDestination                      func(d ptr, uri *byte)
@@ -697,6 +700,9 @@ func load() error {
 	mustBind(w, &webkitWebContextGetDefault, "webkit_web_context_get_default")
 	mustBind(w, &webkitWebContextRegisterURIScheme, "webkit_web_context_register_uri_scheme")
 	mustBind(w, &webkitWebContextGetSecurityManager, "webkit_web_context_get_security_manager")
+	mustBind(w, &webkitWebContextGetWebsiteDataManager, "webkit_web_context_get_website_data_manager")
+	mustBind(w, &webkitWebsiteDataManagerClear, "webkit_website_data_manager_clear")
+	mustBind(w, &webkitWebsiteDataManagerClearFinish, "webkit_website_data_manager_clear_finish")
 	mustBind(w, &webkitDownloadGetWebView, "webkit_download_get_web_view")
 	mustBind(w, &webkitDownloadGetRequest, "webkit_download_get_request")
 	mustBind(w, &webkitDownloadSetDestination, "webkit_download_set_destination")

@@ -109,7 +109,9 @@ const (
 	iterMoveNext                  = 5
 	deferralComplete              = 3
 	procFailedGetKind             = 3
-	wv4AddDownloadStarting        = 75 // ICoreWebView2_4
+	wv4AddDownloadStarting        = 75  // ICoreWebView2_4
+	wv13GetProfile                = 105 // ICoreWebView2_13
+	profile2ClearBrowsingDataAll  = 12  // ICoreWebView2Profile2
 	dlStartGetOperation           = 3
 	dlStartPutCancel              = 5
 	dlStartGetResultFilePath      = 6
@@ -133,6 +135,8 @@ var (
 	iidICoreWebView2WebMessageReceivedEventArgs2 = guid("06fc7ab7-c90c-4297-9389-33ca01cf6d5e")
 	iidICoreWebView2File                         = guid("f2c19559-6bc1-4583-a757-90021be9afec")
 	iidICoreWebView2_4                           = guid("20d02d59-6df2-42dc-bd06-f98a694b1302")
+	iidICoreWebView2_13                          = guid("f75f09a8-667e-4983-88d6-c8773f315e84")
+	iidICoreWebView2Profile2                     = guid("fa740d4b-5eae-4344-a8ad-74be31925397")
 )
 
 // The WebView2 Runtime channels, most stable first.

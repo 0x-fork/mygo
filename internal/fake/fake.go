@@ -43,6 +43,8 @@ type Backend struct {
 	LoginItem string
 	// DockMenu is the menu of the Dock icon.
 	DockMenu *platform.Menu
+	// Cleared counts ClearBrowsingData calls.
+	Cleared int
 	// Dialog results returned by the next dialog.
 	OpenResult    []string
 	SaveResult    string
@@ -474,6 +476,13 @@ func (a app) OpenAtLogin(id, name, arg string) bool {
 func (app) OpenedAtLogin() bool { return false }
 
 func (a app) SetDockMenu(m *platform.Menu) { a.b.mu.Lock(); a.b.DockMenu = m; a.b.mu.Unlock() }
+
+func (a app) ClearBrowsingData(done func(error)) {
+	a.b.mu.Lock()
+	a.b.Cleared++
+	a.b.mu.Unlock()
+	done(nil)
+}
 
 func (a app) IsURLSchemeRegistered(scheme, id, name string) bool {
 	a.b.mu.Lock()

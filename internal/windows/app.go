@@ -3,6 +3,7 @@
 package windows
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -472,4 +473,44 @@ func (a appController) Package() (platform.PackageInfo, bool) {
 		return platform.PackageInfo{}, false // not built by mygo build
 	}
 	return info, true
+}
+
+// ClearBrowsingData clears the profile the app's web views share.
+func (a appController) ClearBrowsingData(done func(error)) {
+	var web uintptr
+	for _, w := range a.b.windows {
+		if w.webview != 0 {
+			web = w.webview
+			break
+		}
+	}
+	if web == 0 {
+		done(errors.New("mygo: clearing browsing data needs an open window"))
+		return
+	}
+	wv13 := queryInterface(web, &iidICoreWebView2_13)
+	if wv13 == 0 {
+		done(errors.New("mygo: clearing browsing data needs a newer WebView2 Runtime"))
+		return
+	}
+	var profile uintptr
+	comCall(wv13, wv13GetProfile, uintptr(unsafe.Pointer(&profile)))
+	release(wv13)
+	p2 := queryInterface(profile, &iidICoreWebView2Profile2)
+	release(profile)
+	if p2 == 0 {
+		done(errors.New("mygo: clearing browsing data needs a newer WebView2 Runtime"))
+		return
+	}
+	defer release(p2)
+	hr := withHandler(func(result, _ uintptr) {
+		if failed(result) {
+			done(hresultError("clearing browsing data", result))
+			return
+		}
+		done(nil)
+	}, func(h uintptr) uintptr { return comCall(p2, profile2ClearBrowsingDataAll, h) })
+	if failed(hr) {
+		done(hresultError("clearing browsing data", hr))
+	}
 }

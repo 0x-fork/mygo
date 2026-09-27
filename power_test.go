@@ -118,3 +118,13 @@ func TestPermissionHandler(t *testing.T) {
 		t.Error("SetPermissionHandler(nil) did not restore the default")
 	}
 }
+
+func TestClearBrowsingDataFake(t *testing.T) {
+	before := onMainValue(func() int { return fb.Cleared })
+	if err := App.ClearBrowsingData(); err != nil {
+		t.Fatal(err)
+	}
+	if onMainValue(func() int { return fb.Cleared }) != before+1 {
+		t.Error("the backend did not clear")
+	}
+}
