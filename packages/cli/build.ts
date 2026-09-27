@@ -32,6 +32,14 @@ export async function version(): Promise<string> {
   return match[1];
 }
 
+/**
+ * Returns the name of a platform package. Its scope keeps npm from taking
+ * names such as mygo-cli-win32-x64 for spam.
+ */
+export function platformName(platform: string): string {
+  return `@egoist/mygo-cli-${platform}`;
+}
+
 /** Returns the directory of a platform package. */
 export function platformDir(platform: string): string {
   return join(dir, "npm", platform);
@@ -41,11 +49,11 @@ export function platformDir(platform: string): string {
 export async function writeManifests(v: string): Promise<void> {
   const main = JSON.parse(await readFile(join(dir, "package.json"), "utf8"));
   main.version = v;
-  main.optionalDependencies = Object.fromEntries(platforms.map((p) => [`mygo-cli-${p}`, v]));
+  main.optionalDependencies = Object.fromEntries(platforms.map((p) => [platformName(p), v]));
   await writeJSON(join(dir, "package.json"), main);
   for (const platform of platforms) {
     const [os, cpu] = platform.split("-") as [string, string];
-    const name = `mygo-cli-${platform}`;
+    const name = platformName(platform);
     const description = `The ${osNames[os]} ${cpu} binary of mygo-cli`;
     await mkdir(platformDir(platform), { recursive: true });
     await writeJSON(join(platformDir(platform), "package.json"), {

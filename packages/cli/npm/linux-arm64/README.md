@@ -1,4 +1,4 @@
-# mygo-cli-linux-arm64
+# @egoist/mygo-cli-linux-arm64
 
 The Linux arm64 binary of mygo-cli, the command line tool of MyGo. Install
 [mygo-cli](https://www.npmjs.com/package/mygo-cli) instead: package managers

@@ -26,7 +26,7 @@ Outside such a project, run `bunx mygo-cli` or `npx mygo-cli` rather than
 ## How it works
 
 Each platform's binary is in a package of its own, such as
-`mygo-cli-darwin-arm64`, which mygo-cli lists as an optional dependency:
+`@egoist/mygo-cli-darwin-arm64`, which mygo-cli lists as an optional dependency:
 package managers install only the one that matches the machine. The `mygo`
 command then runs that binary. Set `MYGO_CLI_BINARY` to the path of another
 build of the CLI to use it instead.

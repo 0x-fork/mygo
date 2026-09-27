@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { build, dir, goTargets, platformDir, version } from "./build.ts";
+import { build, dir, goTargets, platformDir, platformName, version } from "./build.ts";
 import { defineConfig, platformPackage, platforms } from "./index.js";
 
 const host = `${process.platform}-${process.arch}`;
@@ -10,8 +10,9 @@ const exe = process.platform === "win32" ? "mygo.exe" : "mygo";
 const readJSON = (path: string) => JSON.parse(readFileSync(path, "utf8"));
 
 test("platformPackage names the package of each platform", () => {
-  expect(platformPackage("darwin", "arm64")).toBe("mygo-cli-darwin-arm64");
-  expect(platformPackage("win32", "x64")).toBe("mygo-cli-win32-x64");
+  expect(platformPackage("darwin", "arm64")).toBe("@egoist/mygo-cli-darwin-arm64");
+  expect(platformPackage("win32", "x64")).toBe("@egoist/mygo-cli-win32-x64");
+  expect(platformName("linux-x64")).toBe(platformPackage("linux", "x64"));
   expect(() => platformPackage("freebsd", "x64")).toThrow(/go install github.com\/egoist\/mygo\/cmd\/mygo@v/);
   expect(Object.keys(goTargets).sort()).toEqual([...platforms].sort());
 });
@@ -20,11 +21,11 @@ test("the packages have the version of the Go module", async () => {
   const v = await version();
   const main = readJSON(join(dir, "package.json"));
   expect(main.version).toBe(v);
-  expect(main.optionalDependencies).toEqual(Object.fromEntries(platforms.map((p) => [`mygo-cli-${p}`, v])));
+  expect(main.optionalDependencies).toEqual(Object.fromEntries(platforms.map((p) => [platformName(p), v])));
   for (const platform of platforms) {
     const pkg = readJSON(join(platformDir(platform), "package.json"));
     const [os, cpu] = platform.split("-");
-    expect(pkg).toMatchObject({ name: `mygo-cli-${platform}`, version: v, os: [os], cpu: [cpu], license: "MIT" });
+    expect(pkg).toMatchObject({ name: platformName(platform), version: v, os: [os], cpu: [cpu], license: "MIT" });
   }
 });
 
@@ -43,7 +44,7 @@ function install(root: string, withPlatform: boolean) {
   mkdirSync(join(cli, "bin"), { recursive: true });
   for (const file of ["package.json", "index.js", "bin/mygo.js"]) cpSync(join(dir, file), join(cli, file));
   if (withPlatform) {
-    const pkg = join(root, "node_modules", `mygo-cli-${host}`);
+    const pkg = join(root, "node_modules", platformName(host));
     cpSync(platformDir(host), pkg, { recursive: true });
     return join(pkg, "bin", exe);
   }
@@ -85,7 +86,7 @@ test("mygo explains a missing platform package", () => {
     for (const runtime of runtimes) {
       const r = run(runtime, root, ["version"]);
       expect(r.code).toBe(1);
-      expect(r.err).toContain(`mygo-cli-${host}, the package with the mygo binary of this platform, is not installed`);
+      expect(r.err).toContain(`${platformName(host)}, the package with the mygo binary of this platform, is not installed`);
       // MYGO_CLI_BINARY points at a binary of one's own instead.
       const own = run(runtime, root, ["--version"], { MYGO_CLI_BINARY: process.execPath });
       expect(own.code).toBe(0);

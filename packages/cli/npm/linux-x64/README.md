@@ -1,4 +1,4 @@
-# mygo-cli-linux-x64
+# @egoist/mygo-cli-linux-x64
 
 The Linux x64 binary of mygo-cli, the command line tool of MyGo. Install
 [mygo-cli](https://www.npmjs.com/package/mygo-cli) instead: package managers

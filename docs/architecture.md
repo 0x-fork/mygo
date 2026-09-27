@@ -322,7 +322,8 @@ module.
 
 The CLI is also published to npm, so that projects pin it in package.json
 and run it from their scripts. Like esbuild, each platform's binary is a
-package of its own, `mygo-cli-<os>-<cpu>` in `packages/cli/npm`, with `os`
+package of its own, `@egoist/mygo-cli-<os>-<cpu>` in `packages/cli/npm` (npm
+takes unscoped names such as `mygo-cli-win32-x64` for spam), with `os`
 and `cpu` fields; `mygo-cli` lists them all as optional dependencies, so
 package managers install only the matching one, and its `bin/mygo.js`
 resolves that package and replaces itself with the binary

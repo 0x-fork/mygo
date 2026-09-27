@@ -1,5 +1,6 @@
 // mygo-cli ships the mygo command line tool of MyGo as a prebuilt binary
-// per platform. Each binary is in a package of its own, mygo-cli-<os>-<cpu>,
+// per platform. Each binary is in a package of its own,
+// @egoist/mygo-cli-<os>-<cpu>,
 // which mygo-cli lists as optional dependencies: package managers install
 // the one matching the machine's os and cpu fields.
 import { execFileSync } from "node:child_process";
@@ -26,7 +27,7 @@ export function platformPackage(platform = process.platform, arch = process.arch
   if (!platforms.includes(target)) {
     throw new Error(`mygo-cli: there is no prebuilt mygo binary for ${target}; install the CLI with Go instead: ${goInstall}`);
   }
-  return `mygo-cli-${target}`;
+  return `@egoist/mygo-cli-${target}`;
 }
 
 /**
@@ -42,7 +43,7 @@ export function binaryPath() {
   if (isCheckout(checkout)) {
     // The platform packages hold no binary until they are released: build
     // the CLI from source, which Go's build cache makes quick.
-    const bin = join(here, "npm", pkg.slice("mygo-cli-".length), "bin", exe);
+    const bin = join(here, "npm", `${process.platform}-${process.arch}`, "bin", exe);
     execFileSync("go", ["build", "-o", bin, "./cmd/mygo"], { cwd: checkout, stdio: "inherit" });
     return bin;
   }
