@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/md5"
+	"encoding/xml"
 	"fmt"
 	"image/png"
 	"io/fs"
@@ -101,6 +102,14 @@ func writeDeb(c *Config, stage, name, goarch string, app []string) (string, erro
 		}
 	}
 	data.link("usr/bin/"+name, "../../"+opt+"/"+name)
+	if xml := mimePackage(c); xml != "" {
+		// Types the app defines; the shared-mime-info trigger registers them.
+		for _, d := range []string{"usr/share/mime", "usr/share/mime/packages"} {
+			data.dir(d)
+		}
+		data.file("usr/share/mime/packages/"+name+".xml", []byte(xml), 0o644)
+		fmt.Fprintf(md5sums, "%x  usr/share/mime/packages/%s.xml\n", md5.Sum([]byte(xml)), name)
+	}
 	desktop := []byte(linuxDesktopEntry(c, name, name))
 	data.file("usr/share/applications/"+name+".desktop", desktop, 0o644)
 	fmt.Fprintf(md5sums, "%x  usr/share/applications/%s.desktop\n", md5.Sum(desktop), name)
@@ -160,6 +169,36 @@ func writeDeb(c *Config, stage, name, goarch string, app []string) (string, erro
 	}
 	out := filepath.Join(stage, fmt.Sprintf("%s_%s_%s.deb", name, debVersion(c.Version), arch))
 	return out, os.WriteFile(out, deb.Bytes(), 0o644)
+}
+
+// mimePackage returns the shared-mime-info package defining the MIME types
+// of the file associations, or "" when they all have one.
+func mimePackage(c *Config) string {
+	var b strings.Builder
+	for _, fa := range c.FileAssociations {
+		t, defined := c.mimeType(fa)
+		if !defined {
+			continue
+		}
+		fmt.Fprintf(&b, "  <mime-type type=\"%s\">\n", t)
+		if fa.Name != "" {
+			fmt.Fprintf(&b, "    <comment>%s</comment>\n", xmlEscape(fa.Name))
+		}
+		for _, ext := range fa.Ext {
+			fmt.Fprintf(&b, "    <glob pattern=\"*.%s\"/>\n", ext)
+		}
+		b.WriteString("  </mime-type>\n")
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n" + b.String() + "</mime-info>\n"
+}
+
+func xmlEscape(s string) string {
+	var b bytes.Buffer
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
 }
 
 // tarGz builds a gzip compressed tar archive in memory, with entries under

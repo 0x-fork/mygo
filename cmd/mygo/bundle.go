@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // writeBundle assembles <dir>/<executable>.app around the executable bin,
@@ -102,6 +103,33 @@ func infoPlist(c *Config, executable, icon string) []byte {
 	}
 	b.WriteString("\t<key>NSHighResolutionCapable</key>\n\t<true/>\n")
 	b.WriteString("\t<key>NSSupportsAutomaticGraphicsSwitching</key>\n\t<true/>\n")
+	if len(c.FileAssociations) > 0 {
+		b.WriteString("\t<key>CFBundleDocumentTypes</key>\n\t<array>\n")
+		for _, fa := range c.FileAssociations {
+			role := fa.Role
+			if role == "" {
+				role = "Editor"
+			}
+			name := fa.Name
+			if name == "" {
+				name = strings.ToUpper(fa.Ext[0]) + " file"
+			}
+			b.WriteString("\t\t<dict>\n")
+			fmt.Fprintf(&b, "\t\t\t<key>CFBundleTypeName</key>\n\t\t\t<string>%s</string>\n", esc(name))
+			fmt.Fprintf(&b, "\t\t\t<key>CFBundleTypeRole</key>\n\t\t\t<string>%s</string>\n", role)
+			b.WriteString("\t\t\t<key>LSHandlerRank</key>\n\t\t\t<string>Default</string>\n")
+			b.WriteString("\t\t\t<key>CFBundleTypeExtensions</key>\n\t\t\t<array>\n")
+			for _, ext := range fa.Ext {
+				fmt.Fprintf(&b, "\t\t\t\t<string>%s</string>\n", esc(ext))
+			}
+			b.WriteString("\t\t\t</array>\n")
+			if fa.MimeType != "" {
+				fmt.Fprintf(&b, "\t\t\t<key>CFBundleTypeMIMETypes</key>\n\t\t\t<array>\n\t\t\t\t<string>%s</string>\n\t\t\t</array>\n", esc(fa.MimeType))
+			}
+			b.WriteString("\t\t</dict>\n")
+		}
+		b.WriteString("\t</array>\n")
+	}
 	if len(c.URLSchemes) > 0 {
 		b.WriteString("\t<key>CFBundleURLTypes</key>\n\t<array>\n\t\t<dict>\n")
 		fmt.Fprintf(&b, "\t\t\t<key>CFBundleURLName</key>\n\t\t\t<string>%s</string>\n", esc(c.Identifier))

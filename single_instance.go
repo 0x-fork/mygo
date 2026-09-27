@@ -123,7 +123,7 @@ func acceptSecondInstances(ln net.Listener) {
 				for _, fn := range singleInstance.handlers.snapshot() {
 					fn(msg.Args, msg.WorkingDir)
 				}
-				deliverURLArgs(msg.Args)
+				deliverArgs(msg.Args, msg.WorkingDir)
 			})
 		}()
 	}

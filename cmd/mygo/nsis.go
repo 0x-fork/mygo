@@ -65,6 +65,7 @@ func writeInstaller(c *Config, stage, work, exe string, installed []string) (str
 		icon = "!define MUI_ICON " + nsisString(path) + "\n!define MUI_UNICON " + nsisString(path) + "\n"
 	}
 	uninstallKey := `Software\Microsoft\Windows\CurrentVersion\Uninstall\` + c.Identifier
+	register, unregister := nsisAssociations(c, exe)
 	script := `Unicode true
 ManifestDPIAware true
 SetCompressor /SOLID lzma
@@ -94,13 +95,13 @@ Section
   WriteRegStr HKCU ` + nsisString(uninstallKey) + ` "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegDWORD HKCU ` + nsisString(uninstallKey) + ` "NoModify" 1
   WriteRegDWORD HKCU ` + nsisString(uninstallKey) + ` "NoRepair" 1
-SectionEnd
+` + register + `SectionEnd
 
 Section "Uninstall"
   Delete "$SMPROGRAMS\` + nsisEscape(fsName(c.Name)) + `.lnk"
   RMDir /r "$INSTDIR"
   DeleteRegKey HKCU ` + nsisString(uninstallKey) + `
-SectionEnd
+` + unregister + `SectionEnd
 `
 	nsi := filepath.Join(work, "installer.nsi")
 	if err := os.WriteFile(nsi, []byte(script), 0o644); err != nil {
@@ -111,6 +112,46 @@ SectionEnd
 		return "", fmt.Errorf("makensis: %v\n%s", err, out)
 	}
 	return out, nil
+}
+
+// nsisAssociations returns the installer commands that register, and
+// unregister, the file associations and URL schemes of the app for the
+// user, opening them with exe.
+func nsisAssociations(c *Config, exe string) (register, unregister string) {
+	var r, u strings.Builder
+	open := `'"$INSTDIR\` + nsisEscape(exe) + `" "%1"'`
+	prefix := strings.Map(func(r rune) rune {
+		if r < 0x80 && (r == '.' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
+			return r
+		}
+		return -1
+	}, c.Identifier)
+	for _, fa := range c.FileAssociations {
+		for _, ext := range fa.Ext {
+			progID := prefix + "." + strings.ToLower(ext)
+			class := `Software\Classes\` + progID
+			fmt.Fprintf(&r, "  WriteRegStr HKCU %s \"\" %s\n", nsisString(class), nsisString(fa.Name))
+			fmt.Fprintf(&r, "  WriteRegStr HKCU %s \"\" \"$INSTDIR\\%s,0\"\n", nsisString(class+`\DefaultIcon`), nsisEscape(exe))
+			fmt.Fprintf(&r, "  WriteRegStr HKCU %s \"\" %s\n", nsisString(class+`\shell\open\command`), open)
+			fmt.Fprintf(&r, "  WriteRegStr HKCU %s %s \"\"\n", nsisString(`Software\Classes\.`+ext+`\OpenWithProgids`), nsisString(progID))
+			fmt.Fprintf(&u, "  DeleteRegKey HKCU %s\n", nsisString(class))
+			fmt.Fprintf(&u, "  DeleteRegValue HKCU %s %s\n", nsisString(`Software\Classes\.`+ext+`\OpenWithProgids`), nsisString(progID))
+		}
+	}
+	for _, scheme := range c.URLSchemes {
+		key := `Software\Classes\` + scheme
+		fmt.Fprintf(&r, "  WriteRegStr HKCU %s \"\" %s\n", nsisString(key), nsisString("URL:"+c.Name))
+		fmt.Fprintf(&r, "  WriteRegStr HKCU %s \"URL Protocol\" \"\"\n", nsisString(key))
+		fmt.Fprintf(&r, "  WriteRegStr HKCU %s \"\" %s\n", nsisString(key+`\shell\open\command`), open)
+		fmt.Fprintf(&u, "  DeleteRegKey HKCU %s\n", nsisString(key))
+	}
+	if r.Len() > 0 {
+		// Tell Explorer the associations changed.
+		notify := "  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'\n"
+		r.WriteString(notify)
+		u.WriteString(notify)
+	}
+	return r.String(), u.String()
 }
 
 // nsisEscape escapes text for an NSIS string in double quotes.

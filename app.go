@@ -229,7 +229,7 @@ func (a *Application) handleReady() {
 		fn()
 	}
 	// After the windows the app opens when ready, which URLs may target.
-	postMain(launchURLs)
+	postMain(launchArgs)
 	devReadyAfterLaunch()
 }
 
@@ -427,8 +427,12 @@ func (a *Application) OnOpenURL(fn func(url string)) (off func()) {
 	return a.onOpenURL.add(fn, false)
 }
 
-// OnOpenFile is called when a file is opened with the application, e.g. by
-// dropping it on the Dock icon (macOS).
+// OnOpenFile is called when a file is opened with the application: one of
+// the types of fileAssociations in mygo.json opened from the file manager,
+// a file dropped on the Dock icon (macOS), or one passed on the command
+// line. Register it before Run to receive the files the app was launched
+// with; on Windows and Linux, RequestSingleInstanceLock makes the first
+// instance get those of later ones.
 func (a *Application) OnOpenFile(fn func(path string)) (off func()) {
 	return a.onOpenFile.add(fn, false)
 }

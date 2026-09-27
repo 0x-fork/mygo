@@ -246,3 +246,42 @@ func TestWindowsSignCommand(t *testing.T) {
 		t.Error("a failing sign command succeeded")
 	}
 }
+
+func TestFileAssociations(t *testing.T) {
+	c := &Config{Name: "Notes", Identifier: "com.example.notes", Version: "1.0.0", URLSchemes: []string{"notes"},
+		FileAssociations: []FileAssociation{
+			{Ext: []string{"md", "markdown"}, Name: "Markdown Document", MimeType: "text/markdown"},
+			{Ext: []string{"note"}, Name: "Note", Role: "Viewer"},
+		}}
+	plist := string(infoPlist(c, "Notes", ""))
+	for _, want := range []string{"<key>CFBundleDocumentTypes</key>", "<string>Markdown Document</string>", "<string>markdown</string>", "<string>Viewer</string>", "<string>text/markdown</string>"} {
+		if !strings.Contains(plist, want) {
+			t.Errorf("Info.plist lacks %q", want)
+		}
+	}
+	entry := linuxDesktopEntry(c, "notes", "notes")
+	if !strings.Contains(entry, "Exec=notes %U\n") || !strings.Contains(entry, "MimeType=text/markdown;application/x-notes-note;x-scheme-handler/notes;\n") {
+		t.Errorf("desktop entry:\n%s", entry)
+	}
+	xml := mimePackage(c)
+	if !strings.Contains(xml, `<mime-type type="application/x-notes-note">`) || !strings.Contains(xml, `<glob pattern="*.note"/>`) || strings.Contains(xml, "text/markdown") {
+		t.Errorf("MIME package:\n%s", xml)
+	}
+	reg, unreg := nsisAssociations(c, "Notes.exe")
+	for _, want := range []string{`"Software\Classes\.md\OpenWithProgids" "com.example.notes.md"`, `"Software\Classes\com.example.notes.note\shell\open\command" "" '"$INSTDIR\Notes.exe" "%1"'`, `"Software\Classes\com.example.notes.md\DefaultIcon" "" "$INSTDIR\Notes.exe,0"`, `"Software\Classes\notes" "URL Protocol"`, "SHChangeNotify"} {
+		if !strings.Contains(reg, want) {
+			t.Errorf("installer registration lacks %s:\n%s", want, reg)
+		}
+	}
+	if !strings.Contains(unreg, `DeleteRegKey HKCU "Software\Classes\com.example.notes.md"`) || !strings.Contains(unreg, `DeleteRegKey HKCU "Software\Classes\notes"`) {
+		t.Errorf("installer unregistration:\n%s", unreg)
+	}
+
+	dir := t.TempDir()
+	for _, bad := range []string{`[{"ext": []}]`, `[{"ext": [".md"]}]`, `[{"ext": ["md"], "role": "Owner"}]`} {
+		os.WriteFile(filepath.Join(dir, "mygo.json"), []byte(`{"fileAssociations": `+bad+`}`), 0o644)
+		if _, err := loadConfig(dir); err == nil {
+			t.Errorf("accepted fileAssociations %s", bad)
+		}
+	}
+}

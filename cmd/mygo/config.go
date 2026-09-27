@@ -63,6 +63,9 @@ type Config struct {
 	// `mygo build` writes; apps register them at run time with
 	// mygo.App.RegisterURLScheme where there is no installer.
 	URLSchemes []string `json:"urlSchemes"`
+	// FileAssociations are the types of files the app opens, which reach
+	// mygo.App.OnOpenFile.
+	FileAssociations []FileAssociation `json:"fileAssociations"`
 	// Updates configures signed updates, which mygo.Updater installs.
 	Updates *Updates `json:"updates"`
 	MacOS   MacOS    `json:"macos"`
@@ -70,6 +73,29 @@ type Config struct {
 	Linux   Linux    `json:"linux"`
 
 	root string
+}
+
+// FileAssociation is a type of file the app opens: the system lists the app
+// to open them, and opening one starts the app with it.
+type FileAssociation struct {
+	// Ext lists the file name extensions, without dots, e.g. ["md"].
+	Ext []string `json:"ext"`
+	// Name describes the files, e.g. "Markdown Document".
+	Name string `json:"name"`
+	// MimeType of the files. Linux identifies files by it; without one
+	// the app defines application/x-<name>-<first extension>.
+	MimeType string `json:"mimeType"`
+	// Role is "Editor" (default) or "Viewer" (macOS).
+	Role string `json:"role"`
+}
+
+// mimeType returns the MIME type of an association, and whether the app
+// defines it.
+func (c *Config) mimeType(fa FileAssociation) (string, bool) {
+	if fa.MimeType != "" {
+		return fa.MimeType, false
+	}
+	return "application/x-" + slugify(c.executableName()) + "-" + strings.ToLower(fa.Ext[0]), true
 }
 
 // MacOS configures macOS packaging.
@@ -119,6 +145,19 @@ func loadConfig(root string) (*Config, error) {
 	if n := c.MacOS.Notarize; n != nil && n.KeychainProfile == "" {
 		return nil, fmt.Errorf("mygo.json: macos.notarize needs a keychainProfile (see xcrun notarytool store-credentials)")
 	}
+	for i, fa := range c.FileAssociations {
+		if len(fa.Ext) == 0 {
+			return nil, fmt.Errorf("mygo.json: fileAssociations[%d] has no ext", i)
+		}
+		for _, ext := range fa.Ext {
+			if !extRe.MatchString(ext) {
+				return nil, fmt.Errorf("mygo.json: fileAssociations[%d]: %q is not a file name extension (without the dot)", i, ext)
+			}
+		}
+		if fa.Role != "" && fa.Role != "Editor" && fa.Role != "Viewer" {
+			return nil, fmt.Errorf("mygo.json: fileAssociations[%d].role is Editor or Viewer", i)
+		}
+	}
 	if c.Windows.Certificate != "" && c.Windows.SignCommand != "" {
 		return nil, errors.New("mygo.json: windows.certificate and windows.signCommand exclude each other")
 	}
@@ -148,6 +187,7 @@ func loadConfig(root string) (*Config, error) {
 var (
 	nonIdent = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 	schemeRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*$`)
+	extRe    = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_+-]*$`)
 )
 
 func (c *Config) applyDefaults() {

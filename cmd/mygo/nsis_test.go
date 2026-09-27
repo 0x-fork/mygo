@@ -21,7 +21,7 @@ func TestWindowsInstaller(t *testing.T) {
 	}
 	dir := testModule(t, map[string]string{
 		"main.go":              "package main\n\nfunc main() {}\n",
-		"mygo.json":            `{"name": "Setup Test", "identifier": "com.example.setuptest", "version": "2.0.0"}`,
+		"mygo.json":            `{"name": "Setup Test", "identifier": "com.example.setuptest", "version": "2.0.0", "urlSchemes": ["setuptest"], "fileAssociations": [{"ext": ["setuptest"], "name": "Setup Test File"}]}`,
 		"resources/data/a.txt": "a",
 		"resources/icon.png":   string(defaultIcon()),
 	})
@@ -54,6 +54,21 @@ func TestWindowsInstaller(t *testing.T) {
 			t.Errorf("not installed: %s", f)
 		}
 	}
+	registered := func(key string) bool {
+		return exec.Command("reg", "query", `HKCU\Software\Classes\`+key).Run() == nil
+	}
+	for _, key := range []string{`.setuptest\OpenWithProgids`, `com.example.setuptest.setuptest\shell\open\command`, `setuptest\shell\open\command`} {
+		if !registered(key) {
+			t.Errorf("the installer did not register %s", key)
+		}
+	}
+	defer func() {
+		for _, key := range []string{`com.example.setuptest.setuptest`, `setuptest`} {
+			if registered(key) {
+				t.Errorf("the uninstaller left %s", key)
+			}
+		}
+	}()
 	if out, err := exec.Command(filepath.Join(install, "Uninstall.exe"), "/S").CombinedOutput(); err != nil {
 		t.Fatalf("uninstalling: %v\n%s", err, out)
 	}

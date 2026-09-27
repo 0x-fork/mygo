@@ -1,6 +1,10 @@
 package mygo
 
 import (
+	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 )
@@ -31,7 +35,7 @@ func TestURLSchemes(t *testing.T) {
 	}
 	var opened []string
 	off := App.OnOpenURL(func(u string) { opened = append(opened, u) })
-	onMain(func() { deliverURLArgs(args) })
+	onMain(func() { deliverArgs(args, "") })
 	off()
 	if len(opened) != 3 {
 		t.Errorf("OnOpenURL got %q", opened)
@@ -79,5 +83,32 @@ func TestOpenAtLogin(t *testing.T) {
 	}
 	if _, ok := takeLoginArg([]string{"app", "file.txt"}); ok {
 		t.Error("takeLoginArg found the argument in a plain command line")
+	}
+}
+
+func TestFileArgs(t *testing.T) {
+	defer func(s string) { packageFileExtensions = s }(packageFileExtensions)
+	packageFileExtensions = "md,txt"
+	dir := t.TempDir()
+	for _, f := range []string{"a.md", "b.TXT", "c.png"} {
+		if err := os.WriteFile(filepath.Join(dir, f), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fileURL := (&url.URL{Scheme: "file", Path: filepath.ToSlash(filepath.Join(dir, "b.TXT"))}).String()
+	if runtime.GOOS == "windows" {
+		fileURL = "file:///" + filepath.ToSlash(filepath.Join(dir, "b.TXT"))
+	}
+	got := fileArgs([]string{"--flag", "a.md", fileURL, "c.png", "missing.md", dir}, dir)
+	want := []string{filepath.Join(dir, "a.md"), filepath.Join(dir, "b.TXT")}
+	if !slices.Equal(got, want) {
+		t.Errorf("fileArgs = %q, want %q", got, want)
+	}
+	var opened []string
+	off := App.OnOpenFile(func(p string) { opened = append(opened, p) })
+	onMain(func() { deliverArgs([]string{"a.md"}, dir) })
+	off()
+	if len(opened) != 1 {
+		t.Errorf("OnOpenFile got %q", opened)
 	}
 }

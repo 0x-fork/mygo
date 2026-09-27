@@ -2,8 +2,12 @@ package mygo
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -18,6 +22,8 @@ var (
 	packageVersion    string
 	packageIdentifier string
 	packageURLSchemes string // comma separated
+	// packageFileExtensions are those of the file associations.
+	packageFileExtensions string // comma separated, lower case
 )
 
 // packageInfo describes the app as packaged by `mygo build` or `mygo dev`.
@@ -71,10 +77,44 @@ func urlArgs(args []string) []string {
 	return urls
 }
 
-// deliverURLArgs passes the URLs among args to OnOpenURL.
-func deliverURLArgs(args []string) {
+// fileArgs returns the command line arguments that are files the app
+// opens, of the extensions of its file associations, as absolute paths;
+// relative ones are relative to wd. Linux launchers may pass file URLs.
+func fileArgs(args []string, wd string) []string {
+	if packageFileExtensions == "" {
+		return nil
+	}
+	exts := strings.Split(packageFileExtensions, ",")
+	var files []string
+	for _, a := range args {
+		p := a
+		if u, err := url.Parse(a); err == nil && u.Scheme == "file" {
+			p = filepath.FromSlash(u.Path)
+			if runtime.GOOS == "windows" {
+				p = strings.TrimPrefix(p, `\`) // file:///C:/x
+			}
+		}
+		if !slices.Contains(exts, strings.TrimPrefix(strings.ToLower(filepath.Ext(p)), ".")) {
+			continue
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(wd, p)
+		}
+		if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
+			files = append(files, p)
+		}
+	}
+	return files
+}
+
+// deliverArgs passes the URLs among args to OnOpenURL and the files to
+// OnOpenFile.
+func deliverArgs(args []string, wd string) {
 	for _, u := range urlArgs(args) {
 		fire1(&App.onOpenURL, u)
+	}
+	for _, f := range fileArgs(args, wd) {
+		fire1(&App.onOpenFile, f)
 	}
 }
 
@@ -129,5 +169,6 @@ func (a *Application) IsURLSchemeRegistered(scheme string) bool {
 	return onMainValue(func() bool { return backend().App().IsURLSchemeRegistered(scheme, id, name) })
 }
 
-// launchURLs delivers the URLs the app was started with, once it is ready.
-func launchURLs() { deliverURLArgs(os.Args[1:]) }
+// launchArgs delivers the URLs and files the app was started with, once it
+// is ready.
+func launchArgs() { deliverArgs(os.Args[1:], startDir) }

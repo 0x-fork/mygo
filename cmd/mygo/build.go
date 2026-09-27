@@ -301,12 +301,24 @@ func packageFlags(c *Config) string {
 		{"packageVersion", c.Version},
 		{"packageIdentifier", c.Identifier},
 		{"packageURLSchemes", strings.Join(c.URLSchemes, ",")},
+		{"packageFileExtensions", strings.Join(c.fileExtensions(), ",")},
 	} {
 		if v[1] != "" {
 			b.WriteString(" -X " + ldflagsQuote("github.com/egoist/mygo."+v[0]+"="+v[1]))
 		}
 	}
 	return b.String()
+}
+
+// fileExtensions lists the extensions of all file associations.
+func (c *Config) fileExtensions() []string {
+	var exts []string
+	for _, fa := range c.FileAssociations {
+		for _, ext := range fa.Ext {
+			exts = append(exts, strings.ToLower(ext))
+		}
+	}
+	return exts
 }
 
 // ldflagsQuote quotes an argument in -ldflags, which go build splits at
@@ -397,16 +409,22 @@ func linuxDesktopEntry(c *Config, exec, icon string) string {
 	if c.Linux.Comment != "" {
 		b.WriteString("Comment=" + c.Linux.Comment + "\n")
 	}
-	if len(c.URLSchemes) > 0 {
-		exec += " %u" // opens deep links, which reach mygo.App.OnOpenURL
+	var mime []string
+	for _, fa := range c.FileAssociations {
+		t, _ := c.mimeType(fa)
+		mime = append(mime, t)
+	}
+	for _, s := range c.URLSchemes {
+		mime = append(mime, "x-scheme-handler/"+s)
+	}
+	if len(mime) > 0 {
+		// Files and deep links, which reach mygo.App.OnOpenFile and
+		// OnOpenURL.
+		exec += " %U"
 	}
 	b.WriteString("Exec=" + exec + "\nIcon=" + icon + "\nCategories=" + strings.Join(categories, ";") + ";\nTerminal=false\n")
-	if len(c.URLSchemes) > 0 {
-		b.WriteString("MimeType=")
-		for _, s := range c.URLSchemes {
-			b.WriteString("x-scheme-handler/" + s + ";")
-		}
-		b.WriteString("\n")
+	if len(mime) > 0 {
+		b.WriteString("MimeType=" + strings.Join(mime, ";") + ";\n")
 	}
 	return b.String()
 }
