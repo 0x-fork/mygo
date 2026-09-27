@@ -5,10 +5,15 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
 	"io"
 	"net/http"
 	"os"
@@ -496,6 +501,60 @@ window.drag = (target, type, x, y) => {
 	expectDrop(false, "in-page drag")
 	eval(`item.dispatchEvent(new DragEvent("dragend", { bubbles: true }))`)
 	setDroppedFiles(w, nil)
+}
+
+// TestWindowExtras runs the taskbar and Dock features on the real backends.
+func TestWindowExtras(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Title: "Extras", Width: 300, Height: 200, SkipTaskbar: true})
+	for _, p := range []mygo.ProgressBar{{Value: 0.3}, {State: mygo.ProgressIndeterminate}, {State: mygo.ProgressError, Value: 0.8}, {}} {
+		w.SetProgressBar(p)
+	}
+	if _, ok := dockTileImage(); ok {
+		// The Dock draws the tile offscreen: the bar must show there.
+		w.SetProgressBar(mygo.ProgressBar{Value: 0.5})
+		data, _ := dockTileImage()
+		img, err := png.Decode(bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("Dock tile: %v", err)
+		}
+		b := img.Bounds()
+		blue := func(x, y int) bool {
+			r, g, bl, _ := img.At(x, y).RGBA()
+			return bl>>8 > 200 && r>>8 < 120 && g>>8 > 100 && g>>8 < 200
+		}
+		y := b.Max.Y - b.Dy()*13/128 // the middle of the bar
+		if !blue(b.Min.X+b.Dx()/5, y) || blue(b.Max.X-b.Dx()/5, y) {
+			t.Errorf("the Dock tile does not show half a progress bar")
+		}
+		w.SetProgressBar(mygo.ProgressBar{})
+		if data, _ := dockTileImage(); data != nil {
+			t.Error("the Dock tile still shows progress")
+		}
+	}
+	w.FlashFrame(true)
+	w.FlashFrame(false)
+	w.SetSkipTaskbar(false)
+	w.SetSkipTaskbar(true)
+	w.SetVisibleOnAllWorkspaces(true)
+	w.SetVisibleOnAllWorkspaces(false)
+	var icon bytes.Buffer
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	draw.Draw(img, img.Bounds(), &image.Uniform{color.RGBA{200, 40, 40, 255}}, image.Point{}, draw.Src)
+	if err := png.Encode(&icon, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.SetIcon(icon.Bytes()); err != nil {
+		t.Errorf("SetIcon: %v", err)
+	}
+	if err := w.SetIcon(nil); err != nil {
+		t.Errorf("SetIcon(nil): %v", err)
+	}
+	if err := w.SetIcon([]byte("not a png")); err == nil && runtime.GOOS != "darwin" {
+		t.Error("SetIcon accepted a bad image")
+	}
+	if w.Title() != "Extras" {
+		t.Error("the window broke")
+	}
 }
 
 func TestCloseEvents(t *testing.T) {

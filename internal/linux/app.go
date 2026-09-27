@@ -35,6 +35,13 @@ type Backend struct {
 	trays      map[int]*tray
 	nextTray   int
 	themeHooks bool
+
+	// What the launcher entry shows (Window.SetProgressBar, badges).
+	launcher struct {
+		badge    string
+		progress float64
+		showing  bool // progress
+	}
 }
 
 var theBackend *Backend
@@ -194,9 +201,13 @@ func (a appController) Unhide() {
 	}
 }
 
-func (a appController) IsHidden() bool  { return false }
-func (a appController) SetBadge(string) {}
-func (a appController) Badge() string   { return "" }
+func (a appController) IsHidden() bool { return false }
+func (a appController) SetBadge(label string) {
+	a.b.launcher.badge = label
+	a.b.updateLauncherEntry()
+}
+
+func (a appController) Badge() string { return a.b.launcher.badge }
 
 func (a appController) Bounce(critical bool) int {
 	for _, w := range a.b.windows {

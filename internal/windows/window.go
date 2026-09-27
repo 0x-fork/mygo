@@ -34,7 +34,13 @@ type window struct {
 	fullScreen             bool
 	showMaximized          bool     // on the first show (WindowOptions.Maximized)
 	dropped                []string // DroppedFiles
-	saved                  struct {
+	skipTaskbar            bool
+	progress               struct {
+		state string
+		value float64
+	}
+	icons [2]uintptr // small and big, from SetIcon
+	saved struct {
 		style, exStyle uintptr
 		placement      windowPlacement
 	}
@@ -114,6 +120,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	} else if o.Maximized {
 		w.showMaximized = true
 	}
+	w.skipTaskbar = o.SkipTaskbar // applied once the taskbar button exists
 	b.whenEnvironment(w.createWebView)
 	return w, nil
 }
@@ -129,9 +136,6 @@ func (w *window) styles() (style, ex uint32) {
 	}
 	if !o.Maximizable {
 		style &^= wsMaximizeBox
-	}
-	if o.SkipTaskbar {
-		ex |= wsExToolWindow
 	}
 	if !o.Focusable {
 		ex |= wsExNoActivate
@@ -209,6 +213,10 @@ func (w *window) monitor() uintptr {
 
 // message handles a window message; ok false lets DefWindowProc run.
 func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
+	if m == w.b.taskbarButtonCreated && m != 0 {
+		w.applyTaskbar()
+		return 0, true
+	}
 	switch m {
 	case wmClose:
 		if w.h.ShouldClose() {
@@ -360,6 +368,7 @@ func (w *window) cleanup() {
 		procDeleteObject.Call(w.bgBrush)
 		w.bgBrush = 0
 	}
+	w.freeIcons()
 	delete(w.b.windows, w.hwnd)
 }
 

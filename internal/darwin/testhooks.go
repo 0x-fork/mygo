@@ -93,3 +93,20 @@ func TestSetDroppedFiles(handle uintptr, paths []string) {
 		w.dropped = paths
 	}
 }
+
+// TestDockTileImage renders the content of the Dock tile offscreen, as the
+// Dock does, to PNG; nil when the tile shows the plain application icon.
+func TestDockTileImage() []byte {
+	var data []byte
+	withPool(func() {
+		view := send(send(theBackend.app, "dockTile"), "contentView")
+		if view == 0 {
+			return
+		}
+		bounds := msgRect(view, sel("bounds"))
+		rep := msgInitRect(view, sel("bitmapImageRepForCachingDisplayInRect:"), bounds)
+		msgInitRectID(view, sel("cacheDisplayInRect:toBitmapImageRep:"), bounds, rep)
+		data = goBytes(send(rep, "representationUsingType:properties:", 4, uintptr(send(class("NSDictionary"), "dictionary"))))
+	})
+	return data
+}

@@ -263,6 +263,16 @@ type Window interface {
 	SetIgnoreMouseEvents(v bool)
 	SetContentProtection(v bool)
 	SetVibrancy(material string)
+	// SetProgressBar shows progress on the taskbar button, Dock icon or
+	// launcher entry: state is "" (none), "normal", "indeterminate",
+	// "paused" or "error", value between 0 and 1.
+	SetProgressBar(state string, value float64)
+	FlashFrame(flash bool)
+	SetSkipTaskbar(v bool)
+	SetVisibleOnAllWorkspaces(v bool)
+	// SetIcon sets the window icon from a PNG image; nil restores the
+	// application's.
+	SetIcon(png []byte) error
 	// SetMenu sets a per-window menu bar (Linux/Windows). No-op on macOS.
 	SetMenu(m *Menu)
 	// StartDrag moves the window with the mouse (frameless drag regions).

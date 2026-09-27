@@ -39,6 +39,8 @@ type Backend struct {
 
 	stepping       int
 	quitAfterModal bool
+
+	dockProgress dockProgress
 }
 
 // New creates the macOS backend.

@@ -22,3 +22,6 @@ func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 func dismissPopups() (int, bool) { return 0, false }
 
 func setDroppedFiles(*mygo.Window, []string) bool { return false }
+
+// The progress bar is shown by the shell, out of the app's reach.
+func dockTileImage() ([]byte, bool) { return nil, false }

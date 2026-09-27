@@ -450,6 +450,9 @@ as in Tauri:
   `App.Run` returns → `OnQuit`. It is used for `App.Quit`, Cmd+Q, quit
   Apple Events, and SIGINT/SIGTERM alike (`signal_unix.go`; a second signal
   exits immediately).
+- Taskbar state on Windows (`taskbar.go`) lives on the window and is
+  applied when Explorer sends `TaskbarButtonCreated` (first show, Explorer
+  restarts), so progress and a hidden button set before showing stick.
 - `WindowOptions.StateKey` (`window_state.go`) remembers a window's normal
   bounds and maximized/full screen state in `window-state.json` in
   `PathUserData`, like Tauri's window-state plugin. The state is captured
@@ -628,6 +631,12 @@ docker run --rm -v "$PWD:/work" -w /work -e MYGO_E2E=1 <image with libwebkit2gtk
 | notifications | UserNotifications, packaged apps only | org.freedesktop.Notifications over D-Bus | notification-area balloons (toasts) |
 | vibrancy | all materials | ignored | Windows 11 Mica, Acrylic, Tabbed |
 | traffic lights, Dock | yes | ignored | ignored |
+| progress bar | Dock tile content view (NSBoxes: NSProgressIndicator does not draw there), app-wide | Unity launcher API over D-Bus (`com.canonical.Unity.LauncherEntry`), app-wide | `ITaskbarList3`, per window |
+| badge count | Dock tile label | Unity launcher API count | not shown |
+| skip taskbar | ignored | skip-taskbar hint | `ITaskbarList::DeleteTab` (the window style is untouched) |
+| FlashFrame | informational Dock bounce | urgency hint | `FlashWindowEx` until focused |
+| visible on all workspaces | `NSWindowCollectionBehaviorCanJoinAllSpaces` | `gtk_window_stick` | ignored |
+| window icon | ignored | `gtk_window_set_icon` | `WM_SETICON` at the window's DPI |
 | window position | honored | ignored by Wayland compositors | honored |
 | content protection, click-through | yes | ignored | yes |
 | custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `https://<scheme>.localhost` (the page's `location`) |

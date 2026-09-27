@@ -146,6 +146,9 @@ var (
 	gVariantNewBoolean             func(v bool) ptr
 	gVariantNewDictEntry           func(key, value ptr) ptr
 	gVariantNewVariant             func(v ptr) ptr
+	gVariantNewDouble              func(v float64) ptr
+	gVariantNewInt64               func(v int64) ptr
+	gDBusConnectionEmitSignal      func(conn ptr, dest, path, iface, signal *byte, params ptr, err *ptr) bool
 )
 
 // GDK and GdkPixbuf.
@@ -227,6 +230,9 @@ var (
 	gtkWindowAddAccelGroup              func(w, group ptr)
 	gtkWindowRemoveAccelGroup           func(w, group ptr)
 	gtkWindowSetUrgencyHint             func(w ptr, v bool)
+	gtkWindowStick                      func(w ptr)
+	gtkWindowUnstick                    func(w ptr)
+	gtkWindowSetIcon                    func(w, pixbuf ptr)
 	gtkWindowSetDefaultIcon             func(pixbuf ptr)
 	gtkWidgetShowAll                    func(w ptr)
 	gtkWidgetShow                       func(w ptr)
@@ -468,6 +474,8 @@ func load() error {
 	mustBind(g, &gVariantNewBoolean, "g_variant_new_boolean")
 	mustBind(g, &gVariantNewDictEntry, "g_variant_new_dict_entry")
 	mustBind(g, &gVariantNewVariant, "g_variant_new_variant")
+	mustBind(g, &gVariantNewDouble, "g_variant_new_double")
+	mustBind(g, &gVariantNewInt64, "g_variant_new_int64")
 
 	o := libGObject
 	mustBind(o, &gSignalConnectData, "g_signal_connect_data")
@@ -486,6 +494,7 @@ func load() error {
 	mustBind(i, &gFileGetURI, "g_file_get_uri")
 	mustBind(i, &gFileTrash, "g_file_trash")
 	mustBind(i, &gBusGetSync, "g_bus_get_sync")
+	mustBind(i, &gDBusConnectionEmitSignal, "g_dbus_connection_emit_signal")
 	mustBind(i, &gDBusConnectionCallSync, "g_dbus_connection_call_sync")
 	mustBind(i, &gDBusConnectionSignalSubscribe, "g_dbus_connection_signal_subscribe")
 
@@ -555,6 +564,9 @@ func load() error {
 	mustBind(t, &gtkWindowAddAccelGroup, "gtk_window_add_accel_group")
 	mustBind(t, &gtkWindowRemoveAccelGroup, "gtk_window_remove_accel_group")
 	mustBind(t, &gtkWindowSetUrgencyHint, "gtk_window_set_urgency_hint")
+	mustBind(t, &gtkWindowStick, "gtk_window_stick")
+	mustBind(t, &gtkWindowUnstick, "gtk_window_unstick")
+	mustBind(t, &gtkWindowSetIcon, "gtk_window_set_icon")
 	mustBind(t, &gtkWindowSetDefaultIcon, "gtk_window_set_default_icon")
 	mustBind(t, &gtkWidgetShowAll, "gtk_widget_show_all")
 	mustBind(t, &gtkWidgetShow, "gtk_widget_show")

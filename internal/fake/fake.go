@@ -231,6 +231,13 @@ type Window struct {
 	devtools  bool
 	// Dropped is what DroppedFiles returns, once.
 	Dropped []string
+	// What the window extras were last set to.
+	Progress        string
+	ProgressValue   float64
+	Flashing        bool
+	SkipsTaskbar    bool
+	OnAllWorkspaces bool
+	Icon            []byte
 	// AsyncFunction answers CallAsyncFunction.
 	AsyncFunction func(body string) (string, error)
 	// AsyncCallback, when set, receives CallAsyncFunction calls to answer
@@ -243,6 +250,24 @@ func (w *Window) Scripts() []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return append([]string(nil), w.scripts...)
+}
+
+func (w *Window) SetProgressBar(state string, value float64) {
+	w.mu.Lock()
+	w.Progress, w.ProgressValue = state, value
+	w.mu.Unlock()
+}
+func (w *Window) FlashFrame(v bool)                { w.mu.Lock(); w.Flashing = v; w.mu.Unlock() }
+func (w *Window) SetSkipTaskbar(v bool)            { w.mu.Lock(); w.SkipsTaskbar = v; w.mu.Unlock() }
+func (w *Window) SetVisibleOnAllWorkspaces(v bool) { w.mu.Lock(); w.OnAllWorkspaces = v; w.mu.Unlock() }
+func (w *Window) SetIcon(png []byte) error {
+	if png != nil && !bytes.HasPrefix(png, []byte("\x89PNG")) {
+		return errors.New("fake: not a PNG image")
+	}
+	w.mu.Lock()
+	w.Icon = png
+	w.mu.Unlock()
+	return nil
 }
 
 func (w *Window) DroppedFiles() []string {

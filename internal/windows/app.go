@@ -37,7 +37,13 @@ type Backend struct {
 	trays          map[uint32]*tray
 	nextTray       uint32
 	taskbarCreated uint32
-	notifications  map[string]*notification
+
+	// ITaskbarList3 (taskbar.go) and the message telling a window its
+	// taskbar button exists.
+	taskbarList          uintptr
+	taskbarFailed        bool
+	taskbarButtonCreated uint32
+	notifications        map[string]*notification
 
 	themeSource string
 	badge       string
@@ -82,6 +88,7 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 		return fmt.Errorf("mygo: cannot create the application window")
 	}
 	b.taskbarCreated = registerWindowMessage("TaskbarCreated")
+	b.taskbarButtonCreated = registerWindowMessage("TaskbarButtonCreated")
 
 	dir := os.Getenv("LOCALAPPDATA")
 	if dir == "" {

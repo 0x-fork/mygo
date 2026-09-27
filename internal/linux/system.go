@@ -5,7 +5,10 @@ package linux
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unsafe"
 
@@ -316,6 +319,50 @@ func dbusCall(name, path, iface, method string, params ptr, replyType string) (p
 		return 0, gErr(gerr)
 	}
 	return res, nil
+}
+
+// updateLauncherEntry shows the progress and badge count on the app's
+// launcher entry with the Unity launcher API, which the docks of KDE Plasma
+// and Ubuntu, Dash to Dock and Plank implement. They find the app by its
+// desktop entry.
+func (b *Backend) updateLauncherEntry() {
+	conn, err := bus()
+	if err != nil {
+		return
+	}
+	l := &b.launcher
+	count, _ := strconv.Atoi(l.badge)
+	entry := func(key string, v ptr) ptr {
+		return gVariantNewDictEntry(gVariantNewString(cs(key)), gVariantNewVariant(v))
+	}
+	props := []ptr{
+		entry("progress", gVariantNewDouble(l.progress)),
+		entry("progress-visible", gVariantNewBoolean(l.showing)),
+		entry("count", gVariantNewInt64(int64(count))),
+		entry("count-visible", gVariantNewBoolean(count > 0)),
+	}
+	id := desktopEntryID()
+	params := tuple(gVariantNewString(cs("application://"+id)), gVariantNewArray(0, unsafe.Pointer(&props[0]), uintptr(len(props))))
+	h := fnv.New32a()
+	h.Write([]byte(id))
+	path := fmt.Sprintf("/com/canonical/unity/launcherentry/%d", h.Sum32())
+	var gerr ptr
+	if !gDBusConnectionEmitSignal(conn, nil, cs(path), cs("com.canonical.Unity.LauncherEntry"), cs("Update"), params, &gerr) {
+		_ = gErr(gerr)
+	}
+}
+
+// desktopEntryID is the file name of the app's desktop entry: the one it
+// was launched from, else the one `mygo build` writes, named after the
+// executable.
+func desktopEntryID() string {
+	for _, env := range []string{"GIO_LAUNCHED_DESKTOP_FILE", "BAMF_DESKTOP_FILE_HINT"} {
+		if p := os.Getenv(env); p != "" {
+			return filepath.Base(p)
+		}
+	}
+	exe, _ := os.Executable()
+	return filepath.Base(exe) + ".desktop"
 }
 
 // Notifications (org.freedesktop.Notifications).

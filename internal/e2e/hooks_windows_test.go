@@ -27,3 +27,6 @@ func setDroppedFiles(w *mygo.Window, paths []string) bool {
 	mygo.RunOnMain(func() { win.TestSetDroppedFiles(w.NativeHandle(), paths) })
 	return true
 }
+
+// The progress bar is shown by the shell, out of the app's reach.
+func dockTileImage() ([]byte, bool) { return nil, false }

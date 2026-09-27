@@ -311,6 +311,41 @@ func (w *window) SetFullScreen(v bool) {
 
 func (w *window) IsFullScreen() bool { return w.state&stateFullscreen != 0 }
 
+func (w *window) SetProgressBar(state string, value float64) {
+	l := &w.b.launcher
+	l.showing = state != ""
+	l.progress = value
+	if state == "indeterminate" {
+		l.progress = 1
+	}
+	w.b.updateLauncherEntry()
+}
+
+func (w *window) FlashFrame(flash bool) { gtkWindowSetUrgencyHint(w.win, flash) }
+func (w *window) SetSkipTaskbar(v bool) { gtkWindowSetSkipTaskbarHint(w.win, v) }
+
+func (w *window) SetVisibleOnAllWorkspaces(v bool) {
+	if v {
+		gtkWindowStick(w.win)
+	} else {
+		gtkWindowUnstick(w.win)
+	}
+}
+
+func (w *window) SetIcon(png []byte) error {
+	if png == nil {
+		gtkWindowSetIcon(w.win, 0) // back to the default icon
+		return nil
+	}
+	pix, err := pixbufFromPNG(png)
+	if err != nil {
+		return err
+	}
+	defer gObjectUnref(pix)
+	gtkWindowSetIcon(w.win, pix)
+	return nil
+}
+
 func (w *window) DroppedFiles() []string {
 	paths := w.dropped
 	w.dropped = nil

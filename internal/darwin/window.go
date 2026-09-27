@@ -47,6 +47,7 @@ type window struct {
 
 	lastMouseDown id
 	dropped       []string // DroppedFiles
+	attention     int      // the request of FlashFrame
 	maximized     bool
 	programmatic  bool
 	closed        bool
@@ -423,7 +424,36 @@ func (w *window) SetBackgroundColor(c platform.Color) {
 	})
 }
 
-func (w *window) SetOpacity(v float64)        { msgSetFloat(w.win, sel("setAlphaValue:"), v) }
+func (w *window) SetOpacity(v float64) { msgSetFloat(w.win, sel("setAlphaValue:"), v) }
+
+func (w *window) SetProgressBar(state string, value float64) { w.b.setDockProgress(state, value) }
+
+func (w *window) FlashFrame(flash bool) {
+	if w.attention != 0 {
+		send(w.b.app, "cancelUserAttentionRequest:", uintptr(w.attention))
+		w.attention = 0
+	}
+	if flash {
+		w.attention = sendInt(w.b.app, "requestUserAttention:", 10) // NSInformationalRequest
+	}
+}
+
+// SetSkipTaskbar does nothing: the Dock shows applications, not windows.
+func (w *window) SetSkipTaskbar(bool) {}
+
+func (w *window) SetVisibleOnAllWorkspaces(v bool) {
+	const canJoinAllSpaces = 1 << 0
+	behavior := uint(sendInt(w.win, "collectionBehavior"))
+	if v {
+		behavior |= canJoinAllSpaces
+	} else {
+		behavior &^= canJoinAllSpaces
+	}
+	send(w.win, "setCollectionBehavior:", uintptr(behavior))
+}
+
+// SetIcon does nothing: macOS windows show no icon of their own.
+func (w *window) SetIcon([]byte) error        { return nil }
 func (w *window) Opacity() float64            { return msgFloat(w.win, sel("alphaValue")) }
 func (w *window) SetHasShadow(v bool)         { send(w.win, "setHasShadow:", boolArg(v)) }
 func (w *window) HasShadow() bool             { return sendBool(w.win, "hasShadow") }

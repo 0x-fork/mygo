@@ -141,3 +141,36 @@ func TestFileDrop(t *testing.T) {
 	}()
 	NewEvent[int]("mygo:file-drop")
 }
+
+func TestWindowExtras(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{SkipTaskbar: true})
+	if !fw.Opts.SkipTaskbar {
+		t.Error("SkipTaskbar option not passed")
+	}
+	for _, c := range []struct {
+		p     ProgressBar
+		state string
+		value float64
+	}{
+		{ProgressBar{Value: 0.25}, "normal", 0.25},
+		{ProgressBar{State: ProgressNormal}, "normal", 0},
+		{ProgressBar{State: ProgressError, Value: 2}, "error", 1},
+		{ProgressBar{State: ProgressIndeterminate}, "indeterminate", 0},
+		{ProgressBar{Value: -1}, "", 0},
+		{ProgressBar{}, "", 0},
+	} {
+		w.SetProgressBar(c.p)
+		if st, v := onMainValue(func() string { return fw.Progress }), onMainValue(func() float64 { return fw.ProgressValue }); st != c.state || v != c.value {
+			t.Errorf("SetProgressBar(%+v) = %q %v, want %q %v", c.p, st, v, c.state, c.value)
+		}
+	}
+	w.FlashFrame(true)
+	w.SetSkipTaskbar(false)
+	w.SetVisibleOnAllWorkspaces(true)
+	if !onMainValue(func() bool { return fw.Flashing && !fw.SkipsTaskbar && fw.OnAllWorkspaces }) {
+		t.Error("window extras not applied")
+	}
+	if err := w.SetIcon([]byte("not a png")); err == nil {
+		t.Error("SetIcon accepted a bad image")
+	}
+}

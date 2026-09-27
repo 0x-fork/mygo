@@ -39,3 +39,8 @@ func setDroppedFiles(w *mygo.Window, paths []string) bool {
 	mygo.RunOnMain(func() { darwin.TestSetDroppedFiles(w.NativeHandle(), paths) })
 	return true
 }
+
+func dockTileImage() (png []byte, supported bool) {
+	mygo.RunOnMain(func() { png = darwin.TestDockTileImage() })
+	return png, true
+}

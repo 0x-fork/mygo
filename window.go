@@ -739,6 +739,76 @@ func (w *Window) SetVibrancy(v Vibrancy) {
 	w.do(func(n platform.Window) { n.SetVibrancy(string(v)) })
 }
 
+// ProgressState is the state of a progress bar; see ProgressBar.
+type ProgressState string
+
+// Progress states.
+const (
+	ProgressNone          ProgressState = ""
+	ProgressNormal        ProgressState = "normal"
+	ProgressIndeterminate ProgressState = "indeterminate"
+	// ProgressPaused and ProgressError color the bar yellow and red on
+	// Windows, and show it like ProgressNormal elsewhere.
+	ProgressPaused ProgressState = "paused"
+	ProgressError  ProgressState = "error"
+)
+
+// ProgressBar is the progress of a task, shown on the window's taskbar
+// button (Windows), on the application's Dock icon (macOS) or on its
+// launcher entry (Linux docks that implement the Unity launcher API, such
+// as KDE Plasma's and Ubuntu's). The zero value shows no progress.
+type ProgressBar struct {
+	// State defaults to ProgressNormal when Value is above 0, else to
+	// ProgressNone.
+	State ProgressState
+	// Value is the fraction done, between 0 and 1.
+	Value float64
+}
+
+// SetProgressBar shows the progress of a task:
+//
+//	win.SetProgressBar(mygo.ProgressBar{Value: done / total})
+//	win.SetProgressBar(mygo.ProgressBar{}) // done: remove it
+//
+// On macOS and Linux the progress belongs to the application: the window
+// that set it last wins.
+func (w *Window) SetProgressBar(p ProgressBar) {
+	state, value := p.State, min(max(p.Value, 0), 1)
+	if state == ProgressNone && p.Value > 0 {
+		state = ProgressNormal
+	}
+	w.do(func(n platform.Window) { n.SetProgressBar(string(state), value) })
+}
+
+// FlashFrame draws the user's attention to the window, or stops doing so:
+// its taskbar button flashes until it is focused (Windows), it is marked
+// urgent (Linux), or the Dock icon bounces (macOS, while the app is not
+// active).
+func (w *Window) FlashFrame(flash bool) {
+	w.do(func(n platform.Window) { n.FlashFrame(flash) })
+}
+
+// SetSkipTaskbar hides the window from the taskbar, or shows it there again
+// (Linux, Windows). See WindowOptions.SkipTaskbar.
+func (w *Window) SetSkipTaskbar(v bool) {
+	w.do(func(n platform.Window) { n.SetSkipTaskbar(v) })
+}
+
+// SetVisibleOnAllWorkspaces shows the window on every workspace (macOS
+// Spaces, Linux virtual desktops), or on the current one only.
+func (w *Window) SetVisibleOnAllWorkspaces(v bool) {
+	w.do(func(n platform.Window) { n.SetVisibleOnAllWorkspaces(v) })
+}
+
+// SetIcon sets the icon of the window, shown in its title bar and taskbar
+// button (Linux, Windows), from a PNG image; nil restores the application
+// icon. macOS windows show no icon of their own.
+func (w *Window) SetIcon(png []byte) error {
+	var err error
+	w.do(func(n platform.Window) { err = n.SetIcon(png) })
+	return err
+}
+
 // SetMenu sets the menu bar of this window (Linux, Windows). On macOS the
 // menu bar belongs to the application; see Application.SetMenu.
 func (w *Window) SetMenu(m *Menu) {
