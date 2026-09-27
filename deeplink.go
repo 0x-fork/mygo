@@ -78,14 +78,6 @@ func deliverURLArgs(args []string) {
 	}
 }
 
-// urlHandlerID identifies the app to the system as the handler of URLs.
-func urlHandlerID() string {
-	if info, ok := packageInfo(); ok && info.Identifier != "" {
-		return info.Identifier
-	}
-	return App.Name()
-}
-
 // RegisterURLScheme makes the app the handler of the URLs of scheme for the
 // current user, e.g. myapp://open?item=1 for "myapp": they reach OnOpenURL,
 // including the one the app is started with. Call it before Run, typically
@@ -108,7 +100,7 @@ func (a *Application) RegisterURLScheme(scheme string) error {
 	}
 	registeredSchemes.set[scheme] = true
 	registeredSchemes.Unlock()
-	id, name := urlHandlerID(), a.Name()
+	id, name := appID(), a.Name()
 	return onMainValue(func() error { return backend().App().RegisterURLScheme(scheme, id, name) })
 }
 
@@ -122,7 +114,7 @@ func (a *Application) UnregisterURLScheme(scheme string) error {
 	registeredSchemes.Lock()
 	delete(registeredSchemes.set, scheme)
 	registeredSchemes.Unlock()
-	id, name := urlHandlerID(), a.Name()
+	id, name := appID(), a.Name()
 	return onMainValue(func() error { return backend().App().UnregisterURLScheme(scheme, id, name) })
 }
 
@@ -133,7 +125,7 @@ func (a *Application) IsURLSchemeRegistered(scheme string) bool {
 		return false
 	}
 	scheme = strings.ToLower(scheme)
-	id, name := urlHandlerID(), a.Name()
+	id, name := appID(), a.Name()
 	return onMainValue(func() bool { return backend().App().IsURLSchemeRegistered(scheme, id, name) })
 }
 

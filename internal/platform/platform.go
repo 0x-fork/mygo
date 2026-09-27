@@ -137,6 +137,12 @@ type AppController interface {
 	RegisterURLScheme(scheme, id, name string) error
 	UnregisterURLScheme(scheme, id, name string) error
 	IsURLSchemeRegistered(scheme, id, name string) bool
+	// SetOpenAtLogin makes the app start at login, passing arg where the
+	// start command takes arguments; OpenedAtLogin reports whether the
+	// system started it so without one (macOS login items).
+	SetOpenAtLogin(open bool, id, name, arg string) error
+	OpenAtLogin(id, name, arg string) bool
+	OpenedAtLogin() bool
 	// Package describes the application bundle the process runs from; ok
 	// is false for a plain executable (e.g. `go run`).
 	Package() (info PackageInfo, ok bool)

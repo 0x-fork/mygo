@@ -17,7 +17,7 @@ func TestURLSchemes(t *testing.T) {
 			t.Errorf("RegisterURLScheme(%q) succeeded", bad)
 		}
 	}
-	id := urlHandlerID()
+	id := appID()
 	if got := fb.URLSchemes["run.time+x"]; got != id+" "+App.Name() {
 		t.Errorf("registered %q", got)
 	}
@@ -54,7 +54,30 @@ func TestPackageInfo(t *testing.T) {
 	if info, ok := packageInfo(); !ok || info.Name != "My App" || info.Version != "1.2.3" || !App.IsPackaged() {
 		t.Errorf("linked package info = %+v %v", info, ok)
 	}
-	if urlHandlerID() != "com.example.app" {
-		t.Errorf("handler id = %q", urlHandlerID())
+	if appID() != "com.example.app" {
+		t.Errorf("handler id = %q", appID())
+	}
+}
+
+func TestOpenAtLogin(t *testing.T) {
+	if App.OpenAtLogin() || App.WasOpenedAtLogin() {
+		t.Fatal("the test binary does not start at login")
+	}
+	if err := App.SetOpenAtLogin(true); err != nil {
+		t.Fatal(err)
+	}
+	if !App.OpenAtLogin() || fb.LoginItem != appID()+" "+App.Name()+" "+loginArg {
+		t.Errorf("login item = %q", fb.LoginItem)
+	}
+	if err := App.SetOpenAtLogin(false); err != nil || App.OpenAtLogin() {
+		t.Errorf("SetOpenAtLogin(false): %v", err)
+	}
+
+	args, ok := takeLoginArg([]string{"app", "-v", loginArg, "file.txt"})
+	if !ok || !slices.Equal(args, []string{"app", "-v", "file.txt"}) {
+		t.Errorf("takeLoginArg = %q, %v", args, ok)
+	}
+	if _, ok := takeLoginArg([]string{"app", "file.txt"}); ok {
+		t.Error("takeLoginArg found the argument in a plain command line")
 	}
 }

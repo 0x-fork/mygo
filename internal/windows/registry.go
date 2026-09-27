@@ -17,22 +17,35 @@ const (
 
 // regGet reads a string value, reporting whether it exists.
 func regGet(root uintptr, path, name string) (string, bool) {
-	var key uintptr
-	if r, _, _ := procRegOpenKeyExW.Call(root, uintptr(unsafe.Pointer(u16(path))), 0, keyQueryValue, uintptr(unsafe.Pointer(&key))); r != 0 {
+	data, ok := regGetBytes(root, path, name)
+	if !ok {
 		return "", false
 	}
-	defer procRegCloseKey.Call(key)
-	var typ, size uint32
-	if r, _, _ := procRegQueryValueExW.Call(key, uintptr(unsafe.Pointer(u16(name))), 0, uintptr(unsafe.Pointer(&typ)), 0, uintptr(unsafe.Pointer(&size))); r != 0 {
-		return "", false
-	}
-	buf := make([]uint16, size/2+1)
-	if size > 0 {
-		if r, _, _ := procRegQueryValueExW.Call(key, uintptr(unsafe.Pointer(u16(name))), 0, uintptr(unsafe.Pointer(&typ)), uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size))); r != 0 {
-			return "", false
-		}
+	buf := make([]uint16, len(data)/2)
+	for i := range buf {
+		buf[i] = uint16(data[2*i]) | uint16(data[2*i+1])<<8
 	}
 	return syscall.UTF16ToString(buf), true
+}
+
+// regGetBytes reads a value as it is stored, reporting whether it exists.
+func regGetBytes(root uintptr, path, name string) ([]byte, bool) {
+	var key uintptr
+	if r, _, _ := procRegOpenKeyExW.Call(root, uintptr(unsafe.Pointer(u16(path))), 0, keyQueryValue, uintptr(unsafe.Pointer(&key))); r != 0 {
+		return nil, false
+	}
+	defer procRegCloseKey.Call(key)
+	var size uint32
+	if r, _, _ := procRegQueryValueExW.Call(key, uintptr(unsafe.Pointer(u16(name))), 0, 0, 0, uintptr(unsafe.Pointer(&size))); r != 0 {
+		return nil, false
+	}
+	data := make([]byte, size)
+	if size > 0 {
+		if r, _, _ := procRegQueryValueExW.Call(key, uintptr(unsafe.Pointer(u16(name))), 0, 0, uintptr(unsafe.Pointer(&data[0])), uintptr(unsafe.Pointer(&size))); r != 0 {
+			return nil, false
+		}
+	}
+	return data[:size], true
 }
 
 // regSet writes a string value, creating the key.

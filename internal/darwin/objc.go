@@ -88,6 +88,7 @@ func load() {
 		// Optional frameworks, loaded so their classes are registered.
 		_, _ = purego.Dlopen("/System/Library/Frameworks/UniformTypeIdentifiers.framework/UniformTypeIdentifiers", purego.RTLD_GLOBAL|purego.RTLD_NOW)
 		_, _ = purego.Dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", purego.RTLD_GLOBAL|purego.RTLD_NOW)
+		_, _ = purego.Dlopen("/System/Library/Frameworks/ServiceManagement.framework/ServiceManagement", purego.RTLD_GLOBAL|purego.RTLD_NOW)
 
 		var err error
 		msgSendAddr, err = purego.Dlsym(libObjC, "objc_msgSend")

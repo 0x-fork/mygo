@@ -73,13 +73,17 @@ func xdgDir(env, fallback string) string {
 // handlerEntry returns where the desktop entry of the app's URL handler
 // goes, named after the app's identifier.
 func handlerEntry(id string) (dir, file string) {
-	name := strings.Map(func(r rune) rune {
+	return filepath.Join(xdgDir("XDG_DATA_HOME", ".local/share"), "applications"), desktopName(id) + ".url-handler.desktop"
+}
+
+// desktopName makes an application id usable in a desktop file name.
+func desktopName(id string) string {
+	return strings.Map(func(r rune) rune {
 		if r < 0x80 && (r == '.' || r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
 			return r
 		}
 		return '-'
 	}, id)
-	return filepath.Join(xdgDir("XDG_DATA_HOME", ".local/share"), "applications"), name + ".url-handler.desktop"
 }
 
 // executable is the file to run for a URL: the AppImage rather than the
@@ -103,14 +107,18 @@ func handlerDesktopEntry(name, exe string, schemes []string) string {
 	for _, s := range schemes {
 		mime.WriteString("x-scheme-handler/" + s + ";")
 	}
-	name = strings.Map(func(r rune) rune {
+	return "[Desktop Entry]\nType=Application\nName=" + entryString(name) + "\nExec=" + execArg(exe) +
+		" %u\nTerminal=false\nNoDisplay=true\nMimeType=" + mime.String() + "\n"
+}
+
+// entryString drops what a desktop entry string value cannot hold.
+func entryString(s string) string {
+	return strings.Map(func(r rune) rune {
 		if r < ' ' {
 			return -1
 		}
 		return r
-	}, name)
-	return "[Desktop Entry]\nType=Application\nName=" + name + "\nExec=" + execArg(exe) +
-		" %u\nTerminal=false\nNoDisplay=true\nMimeType=" + mime.String() + "\n"
+	}, s)
 }
 
 // execArg quotes an argument of the Exec key of a desktop entry: quoting

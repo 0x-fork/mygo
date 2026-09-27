@@ -611,6 +611,58 @@ func TestURLScheme(t *testing.T) {
 	}
 }
 
+func TestOpenAtLogin(t *testing.T) {
+	if mygo.App.WasOpenedAtLogin() {
+		t.Error("the tests were not opened at login")
+	}
+	if runtime.GOOS == "darwin" {
+		// Only app bundles can be login items: nothing is registered.
+		if err := mygo.App.SetOpenAtLogin(true); err == nil || !strings.Contains(err.Error(), "bundle") {
+			t.Errorf("SetOpenAtLogin without a bundle: %v", err)
+		}
+		if mygo.App.OpenAtLogin() {
+			t.Error("the test binary opens at login")
+		}
+		return
+	}
+	if runtime.GOOS == "linux" {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	}
+	if mygo.App.OpenAtLogin() {
+		t.Fatal("opens at login before SetOpenAtLogin")
+	}
+	if err := mygo.App.SetOpenAtLogin(true); err != nil {
+		t.Fatal(err)
+	}
+	defer mygo.App.SetOpenAtLogin(false)
+	if !mygo.App.OpenAtLogin() {
+		t.Error("does not open at login after SetOpenAtLogin")
+	}
+	if runtime.GOOS == "linux" {
+		entries, _ := filepath.Glob(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "autostart", "*.desktop"))
+		if len(entries) != 1 {
+			t.Fatalf("autostart entries: %q", entries)
+		}
+		entry, _ := os.ReadFile(entries[0])
+		if !strings.Contains(string(entry), `" --mygo-opened-at-login`) {
+			t.Errorf("autostart entry:\n%s", entry)
+		}
+		// Turned off in the desktop's settings.
+		if err := os.WriteFile(entries[0], append(entry, "Hidden=true\n"...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if mygo.App.OpenAtLogin() {
+			t.Error("a hidden autostart entry opens the app")
+		}
+	}
+	if err := mygo.App.SetOpenAtLogin(false); err != nil {
+		t.Fatal(err)
+	}
+	if mygo.App.OpenAtLogin() {
+		t.Error("still opens at login after SetOpenAtLogin(false)")
+	}
+}
+
 func TestCloseEvents(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	var prevent atomic.Bool

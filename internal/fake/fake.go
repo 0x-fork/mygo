@@ -35,6 +35,8 @@ type Backend struct {
 	theme     string
 	// URLSchemes are the registered URL schemes, by scheme: "id name".
 	URLSchemes map[string]string
+	// LoginItem is the command that starts the app at login: "id name arg".
+	LoginItem string
 	// Dialog results returned by the next dialog.
 	OpenResult    []string
 	SaveResult    string
@@ -436,6 +438,24 @@ func (a app) UnregisterURLScheme(scheme, id, name string) error {
 	delete(a.b.URLSchemes, scheme)
 	return nil
 }
+
+func (a app) SetOpenAtLogin(open bool, id, name, arg string) error {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	a.b.LoginItem = ""
+	if open {
+		a.b.LoginItem = id + " " + name + " " + arg
+	}
+	return nil
+}
+
+func (a app) OpenAtLogin(id, name, arg string) bool {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	return a.b.LoginItem == id+" "+name+" "+arg
+}
+
+func (app) OpenedAtLogin() bool { return false }
 
 func (a app) IsURLSchemeRegistered(scheme, id, name string) bool {
 	a.b.mu.Lock()

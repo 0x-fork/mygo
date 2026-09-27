@@ -41,6 +41,9 @@ type Backend struct {
 	quitAfterModal bool
 
 	dockProgress dockProgress
+	// openedAtLogin records whether the system started the app as a login
+	// item (WasOpenedAtLogin).
+	openedAtLogin bool
 }
 
 // New creates the macOS backend.
@@ -226,6 +229,7 @@ func registerAppDelegate() {
 			aem := send(class("NSAppleEventManager"), "sharedAppleEventManager")
 			send(aem, "setEventHandler:andSelector:forEventClass:andEventID:", uintptr(self),
 				uintptr(sel("mygoHandleQuitEvent:withReplyEvent:")), kCoreEventClass, kAEQuitApplication)
+			theBackend.openedAtLogin = launchedAsLoginItem()
 		}),
 		method("applicationDidFinishLaunching:", func(self id, _ objc.SEL, n id) {
 			b := theBackend

@@ -62,6 +62,9 @@ func (app) Package() (platform.PackageInfo, bool)             { return platform.
 func (app) RegisterURLScheme(string, string, string) error    { return errUnsupported }
 func (app) UnregisterURLScheme(string, string, string) error  { return errUnsupported }
 func (app) IsURLSchemeRegistered(string, string, string) bool { return false }
+func (app) SetOpenAtLogin(bool, string, string, string) error { return errUnsupported }
+func (app) OpenAtLogin(string, string, string) bool           { return false }
+func (app) OpenedAtLogin() bool                               { return false }
 
 type dialogs struct{}
 

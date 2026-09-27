@@ -478,6 +478,15 @@ as in Tauri:
   does); on macOS it calls `LSSetDefaultHandlerForURLScheme` for a scheme
   the Info.plist declares. The Linux `.desktop` of `mygo build` also
   declares the schemes (`Exec=… %u`, `MimeType=x-scheme-handler/…`).
+- Starting at login (`login.go`): `SetOpenAtLogin` registers the bundle
+  with `SMAppService.mainAppService` on macOS 13+ (a launch agent running
+  `open -a` on macOS 12; both need a bundle), writes an XDG autostart entry
+  on Linux, and a value of `HKCU\…\CurrentVersion\Run` on Windows, where
+  `OpenAtLogin` also honors Task Manager's `StartupApproved` (odd first byte:
+  disabled). The Linux, Windows and launch agent commands pass
+  `--mygo-opened-at-login`, which the package removes from `os.Args` at
+  init and `WasOpenedAtLogin` reports; macOS login items are recognized by
+  `keyAELaunchedAsLogInItem` in the launch Apple Event instead.
 - `window.open()` and `target=_blank` go through `SetWindowOpenHandler`. By
   default http(s) URLs open in the default browser. Allowing one creates a
   window around the configuration or related view WebKit provides, with its
