@@ -723,7 +723,7 @@ docker run --rm -v "$PWD:/work" -w /work -e MYGO_E2E=1 \
 |---|---|---|---|
 | menu bar | application menu bar, default menu installed | per-window GTK menu bar, none by default | per-window Win32 menu bar, none by default |
 | tray | NSStatusItem, click events | AppIndicator (menu only, no click events) | notification area icon, click events |
-| global shortcuts | Carbon hot keys | not available | `RegisterHotKey` |
+| global shortcuts | Carbon hot keys | `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter; X11 only, Wayland lets apps grab no keys | `RegisterHotKey` |
 | notifications | UserNotifications, packaged apps only | org.freedesktop.Notifications over D-Bus | notification-area balloons (toasts) |
 | vibrancy | all materials | ignored | Windows 11 Mica, Acrylic, Tabbed |
 | traffic lights, Dock | yes | ignored | ignored |

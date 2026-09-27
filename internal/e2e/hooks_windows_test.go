@@ -34,3 +34,8 @@ func dockTileImage() ([]byte, bool) { return nil, false }
 func defaultURLHandler(string) (string, bool) { return "", false }
 
 func dockMenu(int) ([]string, bool) { return nil, false }
+
+func pressCtrlShiftK() bool {
+	mygo.RunOnMain(func() { win.TestPressKeys(0x11, 0x10, 'K') }) // VK_CONTROL, VK_SHIFT
+	return true
+}

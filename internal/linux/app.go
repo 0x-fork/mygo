@@ -34,6 +34,7 @@ type Backend struct {
 	modals     []modal
 	trays      map[int]*tray
 	nextTray   int
+	grabs      map[int]grab // global shortcuts
 	themeHooks bool
 
 	// What the launcher entry shows (Window.SetProgressBar, badges).

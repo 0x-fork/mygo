@@ -370,9 +370,3 @@ func (t *tray) Destroy() {
 		_ = os.RemoveAll(t.iconDir)
 	}
 }
-
-func (b *Backend) RegisterHotkey(int, string) error {
-	return fmt.Errorf("mygo: global shortcuts are not available on Linux yet: %w", platform.ErrUnsupported)
-}
-
-func (b *Backend) UnregisterHotkey(int) {}

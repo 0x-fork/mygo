@@ -29,3 +29,6 @@ func dockTileImage() ([]byte, bool) { return nil, false }
 func defaultURLHandler(string) (string, bool) { return "", false }
 
 func dockMenu(int) ([]string, bool) { return nil, false }
+
+// Posting key events needs the accessibility permission on macOS.
+func pressCtrlShiftK() bool { return false }

@@ -40,3 +40,9 @@ func defaultURLHandler(scheme string) (id string, supported bool) {
 }
 
 func dockMenu(int) ([]string, bool) { return nil, false }
+
+// pressCtrlShiftK presses Ctrl+Shift+K like a keyboard.
+func pressCtrlShiftK() (ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestPressKeys("Control_L", "Shift_L", "k") })
+	return ok
+}

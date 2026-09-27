@@ -51,3 +51,6 @@ func dockMenu(click int) (titles []string, supported bool) {
 	mygo.RunOnMain(func() { titles = darwin.TestDockMenu(click) })
 	return titles, true
 }
+
+// Posting key events needs the accessibility permission on macOS.
+func pressCtrlShiftK() bool { return false }

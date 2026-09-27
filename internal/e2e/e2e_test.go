@@ -899,6 +899,22 @@ func TestFindInPage(t *testing.T) {
 	w.StopFindInPage()
 }
 
+func TestGlobalShortcut(t *testing.T) {
+	pressed := make(chan struct{}, 1)
+	if err := mygo.GlobalShortcut.Register("Ctrl+Shift+K", func() { pressed <- struct{}{} }); err != nil {
+		t.Fatal(err)
+	}
+	defer mygo.GlobalShortcut.Unregister("Ctrl+Shift+K")
+	if !pressCtrlShiftK() {
+		t.Skip("no keyboard automation on this platform")
+	}
+	select {
+	case <-pressed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the global shortcut was not reported")
+	}
+}
+
 func TestCloseEvents(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	var prevent atomic.Bool

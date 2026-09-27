@@ -78,3 +78,33 @@ func TestDefaultURLHandler(scheme string) string {
 	defer gObjectUnref(info)
 	return goStr(gAppInfoGetID(info))
 }
+
+// TestPressKeys presses keys, X keysym names such as "Control_L", together
+// and releases them, through the XTEST extension like a keyboard would. It
+// reports false without an X server.
+func TestPressKeys(names ...string) bool {
+	if !loadX11() {
+		return false
+	}
+	lib, err := open("libXtst.so.6")
+	if err != nil {
+		return false
+	}
+	var fake func(dpy ptr, keycode uint32, press bool, delay uint64) int32
+	if !bind(lib, &fake, "XTestFakeKeyEvent") {
+		return false
+	}
+	dpy := x11.xdisplay(gdkDisplayGetDefault())
+	var codes []uint32
+	for _, n := range names {
+		codes = append(codes, uint32(x11.keysymToKeycode(dpy, x11.stringToKeysym(cs(n)))))
+	}
+	for _, c := range codes {
+		fake(dpy, c, true, 0)
+	}
+	for i := len(codes) - 1; i >= 0; i-- {
+		fake(dpy, codes[i], false, 0)
+	}
+	x11.flush(dpy)
+	return true
+}

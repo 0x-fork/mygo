@@ -51,3 +51,16 @@ func TestSetDroppedFiles(hwnd uintptr, paths []string) {
 		w.dropped = paths
 	}
 }
+
+// TestPressKeys presses virtual keys together and releases them, like a
+// keyboard would.
+func TestPressKeys(keys ...byte) {
+	proc := user32.NewProc("keybd_event")
+	const keyUp = 0x2
+	for _, k := range keys {
+		proc.Call(uintptr(k), 0, 0, 0)
+	}
+	for i := len(keys) - 1; i >= 0; i-- {
+		proc.Call(uintptr(keys[i]), 0, keyUp, 0)
+	}
+}
