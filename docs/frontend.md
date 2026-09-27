@@ -38,8 +38,8 @@ without a file extension that match no file serve `index.html`, so
 client-side routers work.
 
 The frontend is a secure context, and its origin is `mygo://localhost` on
-macOS and Linux and `https://mygo.localhost` on Windows, where WebView2
-serves custom schemes under `https://<scheme>.localhost`. Storage such as
+macOS and Linux and `http://mygo.localhost` on Windows, where WebView2
+serves custom schemes under `http://<scheme>.localhost`. Storage such as
 `localStorage` and IndexedDB belongs to an origin, so data a page stores
 under `mygo dev` (the dev server's origin) is not what the built app sees.
 Keep data you care about in Go, for example in a file in

@@ -22,9 +22,11 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
-// Custom schemes are served from https://<scheme>.localhost/, which
-// WebView2 lets the app answer (WebResourceRequested) and treats as a
-// secure origin. The rest of MyGo sees <scheme>://localhost/ URLs.
+// Custom schemes are served from http://<scheme>.localhost/, which
+// WebView2 lets the app answer (WebResourceRequested). Chromium treats
+// *.localhost as a secure origin, and unlike https, http blocks no mixed
+// content, so pages reach ws:// and http:// URLs as on macOS and Linux.
+// The rest of MyGo sees <scheme>://localhost/ URLs.
 
 // webURL maps a custom scheme URL of the window to the URL the webview
 // loads.
@@ -34,14 +36,14 @@ func (w *window) webURL(raw string) string {
 		return raw
 	}
 	u.Host = u.Scheme + ".localhost"
-	u.Scheme = "https"
+	u.Scheme = "http"
 	return u.String()
 }
 
 // appURL maps a URL loaded by the webview back to its custom scheme URL.
 func (w *window) appURL(raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" {
+	if err != nil || u.Scheme != "http" {
 		return raw
 	}
 	scheme, ok := strings.CutSuffix(u.Host, ".localhost")
@@ -177,7 +179,7 @@ func (w *window) setUp(controller uintptr) {
 	})
 	add(wvAddWebResourceRequested, w.resourceRequested)
 	for _, scheme := range o.Schemes {
-		w.addFilter("https://" + scheme + ".localhost/*")
+		w.addFilter("http://" + scheme + ".localhost/*")
 	}
 	withHandler(w.acceleratorKeyPressed, func(h uintptr) uintptr {
 		return comCall(controller, ctlAddAcceleratorKeyPressed, h, tok)
@@ -435,7 +437,7 @@ func (w *window) LoadHTML(html, baseURL string) {
 		// and custom schemes work as in the other backends.
 		target := w.webURL(baseURL)
 		w.htmlFor[target] = html
-		if !strings.HasSuffix(strings.SplitN(strings.TrimPrefix(target, "https://"), "/", 2)[0], ".localhost") {
+		if w.appURL(target) == target { // not covered by the filters of the schemes
 			w.addFilter(target)
 		}
 		comCall(w.webview, wvNavigate, uintptr(unsafe.Pointer(u16(target))))

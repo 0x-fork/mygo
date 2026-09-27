@@ -856,7 +856,7 @@ func TestPermissions(t *testing.T) {
 	}
 	origin := "app://localhost"
 	if runtime.GOOS == "windows" {
-		origin = "https://app.localhost" // how WebView2 serves custom schemes
+		origin = "http://app.localhost" // how WebView2 serves custom schemes
 	}
 	waitFor(t, w, `location.origin === "`+origin+`" && document.readyState === "complete"`)
 	// The app's own pages are secure contexts with a real origin, which

@@ -243,9 +243,12 @@ purego gives three primitives, used everywhere:
   the executable wins. The environment and each controller are created
   asynchronously: window methods that need the webview wait in `pending`.
   User data lives in `%LOCALAPPDATA%\<name>\WebView2`.
-- **Custom schemes** load from `https://<scheme>.localhost/` (a secure origin
-  WebView2 lets the app answer through `WebResourceRequested`); the backend
-  maps URLs both ways, so the core only sees `<scheme>://localhost/`.
+- **Custom schemes** load from `http://<scheme>.localhost/`, which WebView2
+  lets the app answer through `WebResourceRequested`. Chromium treats
+  `*.localhost` as a secure origin, and unlike `https`, `http` blocks no
+  mixed content, so pages reach `ws://` and `http://` URLs as with the
+  custom schemes of the other backends. The backend maps URLs both ways, so
+  the core only sees `<scheme>://localhost/`.
   Responses are buffered: WebView2 takes a whole stream. `LoadHTML` with a
   base URL serves the document from that URL the same way.
 - **Eval** goes through the DevTools protocol (`Runtime.evaluate` with
@@ -903,5 +906,5 @@ which npm allows only for packages that exist: the first release uses an
 | IsOnBattery, IdleTime | IOKit power sources, `CGEventSourceSecondsSinceLastEventType` | `/sys/class/power_supply`; Mutter idle monitor or `GetSessionIdleTime` | `GetSystemPowerStatus`, `GetLastInputInfo` |
 | window position | honored | ignored by Wayland compositors | honored |
 | content protection, click-through | yes | ignored | yes |
-| custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `https://<scheme>.localhost` (the page's `location`) |
+| custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `http://<scheme>.localhost` (the page's `location`) |
 | window.open | keeps the opener | independent window | independent window |
