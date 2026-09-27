@@ -3,3 +3,5 @@ node_modules
 .mygo/
 examples/*/dist/
 examples/*/build/
+/mygo
+/cmd/mygo/mygo
