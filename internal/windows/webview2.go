@@ -98,6 +98,7 @@ const (
 	resReqGetRequest              = 3
 	resReqPutResponse             = 5
 	resReqGetDeferral             = 6
+	resReqGetResourceContext      = 7
 	reqGetURI                     = 3
 	reqGetMethod                  = 5
 	reqGetContent                 = 7

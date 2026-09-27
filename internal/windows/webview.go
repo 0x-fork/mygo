@@ -735,7 +735,10 @@ func (w *window) resourceRequested(_, args uintptr) {
 	addRef(args)
 	ctx, cancel := context.WithCancel(context.Background())
 	sreq.Context = ctx
-	sreq.Responder = &schemeResponse{w: w, args: args, deferral: deferral, cancel: cancel}
+	var resource int32
+	comCall(args, resReqGetResourceContext, uintptr(unsafe.Pointer(&resource)))
+	const document = 1 // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT
+	sreq.Responder = &schemeResponse{w: w, args: args, deferral: deferral, cancel: cancel, url: target, document: resource == document}
 	w.h.SchemeRequest(sreq)
 }
 
@@ -796,6 +799,8 @@ type schemeResponse struct {
 	args     uintptr
 	deferral uintptr
 	cancel   context.CancelFunc
+	url      string
+	document bool // a page loads, rather than a resource of one
 	status   int
 	header   http.Header
 	body     bytes.Buffer
@@ -808,6 +813,13 @@ func (r *schemeResponse) Respond(status int, header http.Header) {
 
 func (r *schemeResponse) Write(p []byte) { r.body.Write(p) }
 
+// isDownload reports whether a page response is a file to save: an
+// attachment, or plain bytes.
+func isDownload(h http.Header) bool {
+	disposition := strings.ToLower(strings.TrimSpace(h.Get("Content-Disposition")))
+	return strings.HasPrefix(disposition, "attachment") || strings.HasPrefix(h.Get("Content-Type"), "application/octet-stream")
+}
+
 func (r *schemeResponse) Finish() {
 	if r.done {
 		return
@@ -815,6 +827,14 @@ func (r *schemeResponse) Finish() {
 	r.done = true
 	if r.status == 0 {
 		r.status = http.StatusOK
+	}
+	if r.document && r.status < 300 && isDownload(r.header) && !r.w.closed {
+		// WebView2 does not download what it gets from here: the page
+		// stays, and the app serves the URL again into a download.
+		r.w.respond(r.args, r.deferral, http.StatusNoContent, nil, nil)
+		r.w.h.SchemeDownload(r.url)
+		r.release()
+		return
 	}
 	if !r.w.closed {
 		r.w.respond(r.args, r.deferral, r.status, r.header, r.body.Bytes())
