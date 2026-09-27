@@ -140,7 +140,8 @@ type WindowOptions struct {
 	UserAgent string
 	// StateKey remembers the window's position, size, and maximized and
 	// full screen state under this key, in window-state.json in
-	// PathUserData. A window created with the same key, for example at the
+	// PathUserData, which is written when the window closes and when the
+	// app quits. A window created with the same key, for example at the
 	// next launch, gets them back as long as it would show on a connected
 	// display: they override X, Y, Width, Height, UseContentSize,
 	// Maximized and FullScreen.

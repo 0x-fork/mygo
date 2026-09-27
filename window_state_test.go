@@ -12,19 +12,21 @@ import (
 
 func TestWindowState(t *testing.T) {
 	dir := t.TempDir()
-	App.SetPath(PathUserData, dir)
-	defer App.SetPath(PathUserData, "")
-	defer func(d, s time.Duration) { windowStateDelay, windowStateSaveDelay = d, s }(windowStateDelay, windowStateSaveDelay)
-	windowStateDelay, windowStateSaveDelay = 20*time.Millisecond, 20*time.Millisecond
-	// A new process: the file is read again.
-	relaunch := func() {
-		onMain(func() {
-			saveWindowStates()
-			windowStates.loaded, windowStates.byKey = false, nil
-		})
-	}
-	relaunch()
 	file := filepath.Join(dir, windowStateFile)
+	App.SetPath(PathUserData, dir)
+	delay := windowStateDelay
+	windowStateDelay = 20 * time.Millisecond
+	forget := func() { windowStates.loaded, windowStates.byKey, windowStates.dirty = false, nil, false }
+	onMain(forget)
+	// A new process: the states are written as when the app quits, and read
+	// again.
+	relaunch := func() { onMain(func() { saveWindowStates(); forget() }) }
+	// Runs once the test's windows closed and wrote their states in dir.
+	t.Cleanup(func() {
+		onMain(forget)
+		App.SetPath(PathUserData, "")
+		windowStateDelay = delay
+	})
 	saved := func() map[string]savedWindow {
 		t.Helper()
 		var m map[string]savedWindow
@@ -37,45 +39,42 @@ func TestWindowState(t *testing.T) {
 		}
 		return m
 	}
-	waitSaved := func(key string, want savedWindow) {
+	captured := func(key string, want savedWindow) {
 		t.Helper()
-		deadline := time.Now().Add(2 * time.Second)
-		for {
-			if data, err := os.ReadFile(file); err == nil {
-				var m map[string]savedWindow
-				if json.Unmarshal(data, &m) == nil && m[key] == want {
-					return
-				}
+		for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+			got := onMainValue(func() savedWindow { return windowStates.byKey[key] })
+			if got == want {
+				return
 			}
 			if time.Now().After(deadline) {
-				data, _ := os.ReadFile(file)
-				t.Fatalf("%s never saved as %+v: %s", key, want, data)
+				t.Fatalf("%s captured as %+v, want %+v", key, got, want)
 			}
-			time.Sleep(10 * time.Millisecond)
 		}
 	}
 
-	// Nothing saved: the options apply, and the window is remembered once
-	// it settled.
+	// Nothing saved: the options apply. The window is remembered once it
+	// settled, and written when it closes.
 	w, fw := testWindow(t, WindowOptions{StateKey: "main", X: 100, Y: 120, Width: 700, Height: 500})
 	if o := fw.Opts; o.X != 100 || o.Y != 120 || o.Width != 700 || o.Maximized {
 		t.Errorf("first window options = %+v", o)
 	}
-	waitSaved("main", savedWindow{X: 100, Y: 120, Width: 700, Height: 500})
 	onMain(func() { fw.SetBounds(platform.Rect{X: 200, Y: 150, Width: 800, Height: 600}) })
-	waitSaved("main", savedWindow{X: 200, Y: 150, Width: 800, Height: 600})
+	captured("main", savedWindow{X: 200, Y: 150, Width: 800, Height: 600})
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Errorf("states written before a window closed: %v", err)
+	}
 	// Maximized, it keeps its normal bounds.
 	onMain(func() {
 		fw.Maximize()
 		fw.SetBounds(platform.Rect{Y: 25, Width: 1440, Height: 875})
 	})
 	w.Destroy()
-	relaunch()
 	if got, want := saved()["main"], (savedWindow{X: 200, Y: 150, Width: 800, Height: 600, Maximized: true}); got != want {
 		t.Errorf("saved %+v, want %+v", got, want)
 	}
 
 	// The next launch gets it back.
+	relaunch()
 	_, fw = testWindow(t, WindowOptions{StateKey: "main", Width: 400, Height: 300, UseContentSize: true})
 	if o := fw.Opts; o.X != 200 || o.Y != 150 || o.Width != 800 || o.Height != 600 || !o.Maximized || o.Center || o.UseContentSize {
 		t.Errorf("restored options = %+v", o)
@@ -102,6 +101,29 @@ func TestWindowState(t *testing.T) {
 	_, fw = testWindow(t, WindowOptions{StateKey: "main", X: 10, Y: 30})
 	if o := fw.Opts; o.X != 10 || o.Y != 30 || o.Maximized {
 		t.Errorf("options with a damaged file = %+v", o)
+	}
+
+	// A save that fails, as when Windows cannot replace a file that another
+	// program has open, keeps the states for the next one.
+	if err := os.Mkdir(file+".tmp", 0o755); err != nil { // no temporary file can be written
+		t.Fatal(err)
+	}
+	want := savedWindow{X: 1, Y: 2, Width: 300, Height: 200}
+	kept := onMainValue(func() bool {
+		windowStates.byKey["failed"] = want
+		windowStates.dirty = true
+		saveWindowStates()
+		return windowStates.dirty
+	})
+	if !kept {
+		t.Error("a failed save drops the states")
+	}
+	if err := os.Remove(file + ".tmp"); err != nil {
+		t.Fatal(err)
+	}
+	onMain(saveWindowStates)
+	if got := saved()["failed"]; got != want {
+		t.Errorf("saved %+v after a failed save, want %+v", got, want)
 	}
 }
 

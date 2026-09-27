@@ -13,16 +13,12 @@ import (
 // in window-state.json in PathUserData. It is captured shortly after the
 // window moves, resizes or changes state, when it settled (maximizing and
 // full screen transitions resize the window on the way), and when it
-// closes; it is written shortly after, and when the app quits.
+// closes; it is written when a window closes and when the app quits.
 
 const windowStateFile = "window-state.json"
 
-// How long a window's state must stay unchanged to be captured, and how
-// long captured states wait to be written.
-var (
-	windowStateDelay     = 300 * time.Millisecond
-	windowStateSaveDelay = time.Second
-)
+// How long a window's state must stay unchanged to be captured.
+var windowStateDelay = 300 * time.Millisecond
 
 // savedWindow is the state of a window: its normal bounds, which it gets
 // back when it leaves the maximized or full screen state, and that state.
@@ -40,7 +36,6 @@ var windowStates struct {
 	loaded bool
 	byKey  map[string]savedWindow
 	dirty  bool
-	save   *time.Timer
 }
 
 func loadWindowStates() {
@@ -60,14 +55,9 @@ func loadWindowStates() {
 
 // saveWindowStates writes the state file if it changed.
 func saveWindowStates() {
-	if windowStates.save != nil {
-		windowStates.save.Stop()
-		windowStates.save = nil
-	}
 	if !windowStates.dirty {
 		return
 	}
-	windowStates.dirty = false
 	dir, err := App.Path(PathUserData)
 	if err != nil {
 		return
@@ -77,9 +67,14 @@ func saveWindowStates() {
 		return
 	}
 	path := filepath.Join(dir, windowStateFile)
-	if os.WriteFile(path+".tmp", data, 0o644) == nil {
-		_ = os.Rename(path+".tmp", path)
+	err = os.WriteFile(path+".tmp", data, 0o644)
+	if err == nil {
+		err = os.Rename(path+".tmp", path)
 	}
+	// Windows cannot replace a file that another program has open, such as
+	// antivirus software scanning it: the next save tries again, at the
+	// latest when the app quits.
+	windowStates.dirty = err != nil
 }
 
 // restoreWindowState applies the state saved under key to p, if the
@@ -138,7 +133,6 @@ func (w *Window) initState(p *platform.WindowOptions) {
 		}
 		windowStates.byKey[w.stateKey] = st
 		windowStates.dirty = true
-		scheduleWindowStateSave()
 		return
 	}
 	w.captureState()
@@ -176,21 +170,16 @@ func (w *Window) captureState() {
 	if prev, ok := windowStates.byKey[w.stateKey]; !ok || prev != st {
 		windowStates.byKey[w.stateKey] = st
 		windowStates.dirty = true
-		scheduleWindowStateSave()
 	}
 }
 
-// closeState captures the state of a closing window for the last time.
+// closeState captures the state of a closing window for the last time,
+// and writes the states.
 func (w *Window) closeState() {
 	if w.stateTimer != nil {
 		w.stateTimer.Stop()
 		w.stateTimer = nil
 	}
 	w.captureState()
-}
-
-func scheduleWindowStateSave() {
-	if windowStates.save == nil {
-		windowStates.save = time.AfterFunc(windowStateSaveDelay, func() { postMain(saveWindowStates) })
-	}
+	saveWindowStates()
 }

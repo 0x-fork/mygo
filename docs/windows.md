@@ -66,12 +66,13 @@ win.OnReadyToShow(win.Show)
 ## Remember where windows were
 
 With a `StateKey`, a window remembers its position, size, and maximized and
-full screen state in `window-state.json` in the user data directory. The
-next window created with the same key, at the next launch for example, gets
-them back, as long as it would show on a connected display. They override
-`X`, `Y`, `Width`, `Height`, `UseContentSize`, `Maximized` and
-`FullScreen`, which stay the defaults of the first launch. Give each kind
-of window its own key: `"main"`, `"preferences"`.
+full screen state in `window-state.json` in the user data directory, which
+is written when the window closes and when the app quits. The next window
+created with the same key, at the next launch for example, gets them back,
+as long as it would show on a connected display. They override `X`, `Y`,
+`Width`, `Height`, `UseContentSize`, `Maximized` and `FullScreen`, which
+stay the defaults of the first launch. Give each kind of window its own key:
+`"main"`, `"preferences"`.
 
 ## Size, position and state
 
