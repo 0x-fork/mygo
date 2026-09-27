@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -105,6 +106,7 @@ func TestConfigTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	src = bytes.ReplaceAll(src, []byte("\r\n"), []byte("\n")) // a Windows checkout
 	property := regexp.MustCompile(`(?m)^  (\w+)\??:`)
 	for name, typ := range map[string]reflect.Type{
 		"Config":          reflect.TypeFor[Config](),
