@@ -1404,8 +1404,10 @@ func TestSingleInstance(t *testing.T) {
 	defer off()
 	urls := make(chan string, 1)
 	defer App.OnOpenURL(func(u string) { urls <- u })()
-	defer func(s string) { packageURLSchemes = s }(packageURLSchemes)
-	packageURLSchemes = "mygo-test"
+	// The main thread reads the schemes when it delivers forwarded arguments.
+	schemes := packageURLSchemes
+	onMain(func() { packageURLSchemes = "mygo-test" })
+	defer onMain(func() { packageURLSchemes = schemes })
 	cmd := exec.Command(os.Args[0], "-test.run=^$", "--from-second", "instance", "mygo-test://open?x=1")
 	cmd.Env = append(os.Environ(), "MYGO_TEST_SECOND_INSTANCE=1")
 	out, err := cmd.Output()
