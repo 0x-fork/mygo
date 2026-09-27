@@ -11,11 +11,7 @@ concurrency:
   group: release-${{ github.ref }}
 
 jobs:
-  test:
-    uses: ./.github/workflows/ci.yml
-
   publish:
-    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

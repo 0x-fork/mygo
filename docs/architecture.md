@@ -772,13 +772,15 @@ bun scripts/version.ts 0.2.0   # mygo.Version, the CLI and every package.json
 git commit -am "Release 0.2.0" && git tag v0.2.0 && git push origin main v0.2.0
 ```
 
-The tag starts `.github/workflows/release.yml`, which runs CI
-(`ci.yml`: the tests of every platform, GUI tests included), checks that
-the tag matches the versions (`bun scripts/version.ts --check`), and runs
+The tag starts `.github/workflows/release.yml`, which checks that the tag
+matches the versions (`bun scripts/version.ts --check`) and runs
 `bun scripts/publish.ts --provenance`: it builds the CLI's binaries and
 publishes mygo-runtime, the platform packages and mygo-cli, skipping
 versions already on npm, prereleases under the `next` dist-tag. It then
 asks the Go module proxy for the tag and creates the GitHub release.
+
+It does not run the tests again: `ci.yml` runs them on every push to main,
+for every platform, GUI tests included, so tag a commit whose CI passed.
 
 npm authenticates the workflow as a trusted publisher of each package
 (`release.yml` of this repository, set in the package's settings on npm),
