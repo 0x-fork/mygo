@@ -131,16 +131,23 @@ func setFinderFlags(path string, flags uint16) error {
 	return command("xattr", "-wx", "com.apple.FinderInfo", hex.EncodeToString(info[:]), path)
 }
 
-// detach unmounts a disk image, retrying while macOS services (Spotlight)
-// still hold the volume.
+// detach unmounts a disk image, retrying while macOS services such as
+// Spotlight still hold the volume, which on busy machines like CI runners
+// can outlast a forced detach: after a few polite attempts it forces, for
+// up to half a minute in all.
 func detach(mnt string) error {
-	for i := range 4 {
-		if exec.Command("hdiutil", "detach", "-quiet", mnt).Run() == nil {
+	var err error
+	for i := range 10 {
+		args := []string{"detach", "-quiet", mnt}
+		if i >= 4 {
+			args = []string{"detach", "-quiet", "-force", mnt}
+		}
+		if err = command("hdiutil", args...); err == nil {
 			return nil
 		}
 		time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
 	}
-	return command("hdiutil", "detach", "-quiet", "-force", mnt)
+	return err
 }
 
 // notarize submits a disk image to Apple's notary service, waits for the
