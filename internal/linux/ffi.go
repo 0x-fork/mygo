@@ -184,6 +184,10 @@ var (
 	gdkSeatGetPointer           func(s ptr) ptr
 	gdkDeviceGetPosition        func(dev ptr, screen *ptr, x, y *int32)
 	gdkWindowGetDevicePosition  func(w, dev ptr, x, y *int32, mask *uint32) ptr
+	gdkWindowGetDisplay         func(w ptr) ptr
+	gdkWindowGetCursor          func(w ptr) ptr
+	gdkWindowSetCursor          func(w, cursor ptr)
+	gdkCursorNewFromName        func(d ptr, name *byte) ptr
 	gdkDisplayBeep              func(d ptr)
 	gdkEventCopy                func(e ptr) ptr
 	gdkEventFree                func(e ptr)
@@ -245,6 +249,7 @@ var (
 	gtkWindowIsActive                   func(w ptr) bool
 	gtkWindowIsMaximized                func(w ptr) bool
 	gtkWindowBeginMoveDrag              func(w ptr, button int32, rootX, rootY int32, timestamp uint32)
+	gtkWindowBeginResizeDrag            func(w ptr, edge, button int32, rootX, rootY int32, timestamp uint32)
 	gtkWindowAddAccelGroup              func(w, group ptr)
 	gtkWindowRemoveAccelGroup           func(w, group ptr)
 	gtkWindowSetUrgencyHint             func(w ptr, v bool)
@@ -291,6 +296,7 @@ var (
 	gtkMenuPopupAtRect                  func(menu, window ptr, rect *gdkRectangle, rectAnchor, menuAnchor int32, event ptr)
 	gtkMenuShellDeactivate              func(menu ptr)
 	gtkWidgetGetWindow                  func(w ptr) ptr
+	gtkWidgetGetAllocation              func(w ptr, a *gdkRectangle)
 	gtkAccelGroupNew                    func() ptr
 	gtkFileChooserNativeNew             func(title *byte, parent ptr, action int32, accept, cancel *byte) ptr
 	gtkNativeDialogRun                  func(d ptr) int32
@@ -576,6 +582,10 @@ func load() error {
 	mustBind(d, &gdkSeatGetPointer, "gdk_seat_get_pointer")
 	mustBind(d, &gdkDeviceGetPosition, "gdk_device_get_position")
 	mustBind(d, &gdkWindowGetDevicePosition, "gdk_window_get_device_position")
+	mustBind(d, &gdkWindowGetDisplay, "gdk_window_get_display")
+	mustBind(d, &gdkWindowGetCursor, "gdk_window_get_cursor")
+	mustBind(d, &gdkWindowSetCursor, "gdk_window_set_cursor")
+	mustBind(d, &gdkCursorNewFromName, "gdk_cursor_new_from_name")
 	mustBind(d, &gdkDisplayBeep, "gdk_display_beep")
 	mustBind(d, &gdkEventCopy, "gdk_event_copy")
 	mustBind(d, &gdkEventFree, "gdk_event_free")
@@ -625,6 +635,7 @@ func load() error {
 	mustBind(t, &gtkWindowIsActive, "gtk_window_is_active")
 	mustBind(t, &gtkWindowIsMaximized, "gtk_window_is_maximized")
 	mustBind(t, &gtkWindowBeginMoveDrag, "gtk_window_begin_move_drag")
+	mustBind(t, &gtkWindowBeginResizeDrag, "gtk_window_begin_resize_drag")
 	mustBind(t, &gtkWindowAddAccelGroup, "gtk_window_add_accel_group")
 	mustBind(t, &gtkWindowRemoveAccelGroup, "gtk_window_remove_accel_group")
 	mustBind(t, &gtkWindowSetUrgencyHint, "gtk_window_set_urgency_hint")
@@ -671,6 +682,7 @@ func load() error {
 	mustBind(t, &gtkMenuPopupAtRect, "gtk_menu_popup_at_rect")
 	mustBind(t, &gtkMenuShellDeactivate, "gtk_menu_shell_deactivate")
 	mustBind(t, &gtkWidgetGetWindow, "gtk_widget_get_window")
+	mustBind(t, &gtkWidgetGetAllocation, "gtk_widget_get_allocation")
 	mustBind(t, &gtkAccelGroupNew, "gtk_accel_group_new")
 	mustBind(t, &gtkFileChooserNativeNew, "gtk_file_chooser_native_new")
 	mustBind(t, &gtkNativeDialogRun, "gtk_native_dialog_run")

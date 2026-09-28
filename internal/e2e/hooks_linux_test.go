@@ -70,3 +70,20 @@ func fullScreenHidesToolbar(*mygo.Window) (bool, bool) { return false, false }
 
 // Only macOS windows have traffic lights.
 func trafficLights(*mygo.Window) (float64, float64, bool) { return 0, 0, false }
+
+// movePointer moves the pointer to a point of the screen, and pressButton
+// presses or releases the first mouse button, like a mouse.
+func movePointer(x, y int) (ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestMovePointer(x, y) })
+	return ok
+}
+
+func pressButton(press bool) (ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestPressButton(press) })
+	return ok
+}
+
+func resizeCursor(w *mygo.Window) (name string, supported bool) {
+	mygo.RunOnMain(func() { name = linux.TestResizeCursor(w.NativeHandle()) })
+	return name, true
+}

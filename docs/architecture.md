@@ -198,6 +198,14 @@ purego gives three primitives, used everywhere:
   `Wake` is `g_main_context_wakeup`.
 - GTK geometry changes are asynchronous: `SetBounds` remembers the requested
   rectangle and `Bounds` reports it until the configure event confirms it.
+- GTK gives windows without decorations no resize borders, so the outer
+  5 px of a frameless window's page resize it (16 px along the edges from
+  a corner resize the corner). The web view's `motion-notify-event` shows
+  a resize cursor there, keeping WebKit's cursor to restore, and its
+  `button-press-event` calls `gtk_window_begin_resize_drag` with the press,
+  as a Wayland compositor requires; neither event reaches WebKit. Nothing
+  resizes a maximized or full screen window, and a tiled one only resizes
+  at the edges the window manager allows, as with GTK's own decorations.
 - `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set unless the user set it, which
   avoids blank webviews on NVIDIA drivers, VMs and containers.
 - XDG desktop portal calls go through `portalCall` (`portal.go`), which
@@ -905,6 +913,7 @@ which npm allows only for packages that exist: the first release uses an
 | KeepAwake | `NSProcessInfo` activity (shows in `pmset -g assertions`) | XDG portal `Inhibit`, else `org.freedesktop.ScreenSaver.Inhibit` | `PowerCreateRequest` |
 | IsOnBattery, IdleTime | IOKit power sources, `CGEventSourceSecondsSinceLastEventType` | `/sys/class/power_supply`; Mutter idle monitor or `GetSessionIdleTime` | `GetSystemPowerStatus`, `GetLastInputInfo` |
 | window position | honored | ignored by Wayland compositors | honored |
+| frameless resize borders | the window's own | the outer 5 px of the page | invisible, outside the window |
 | content protection, click-through | yes | ignored | yes |
 | custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `http://<scheme>.localhost` (the page's `location`) |
 | window.open | keeps the opener | independent window | independent window |

@@ -23,6 +23,12 @@ const (
 	stateMaximized  = 1 << 2
 	stateFullscreen = 1 << 4
 	stateAbove      = 1 << 5
+	stateTiled      = 1 << 8
+	// The edges the window manager lets resize (GDK 3.22.23 and later).
+	stateTopResizable    = 1 << 10
+	stateRightResizable  = 1 << 12
+	stateBottomResizable = 1 << 14
+	stateLeftResizable   = 1 << 16
 )
 
 type window struct {
@@ -64,6 +70,15 @@ type window struct {
 		time       uint32
 		event      ptr
 		hasPressed bool
+	}
+
+	// cursor is the resize cursor shown over an edge of a frameless
+	// window, and the page's cursor it replaced.
+	cursor struct {
+		on    bool
+		edge  int32
+		shown ptr
+		saved ptr // a reference
 	}
 }
 
@@ -194,6 +209,9 @@ func (w *window) createWebView() {
 	connect(w.web, "close", cbClose, data)
 	connect(w.web, "web-process-terminated", cbCrashed, data)
 	connect(w.web, "button-press-event", cbButtonPress, data)
+	if o.Frameless {
+		connect(w.web, "motion-notify-event", cbMotion, data)
+	}
 	connect(w.web, "drag-data-received", cbDragData, data)
 	connect(w.web, "drag-drop", cbDragDrop, data)
 	connect(w.web, "permission-request", cbPermission, data)
@@ -233,6 +251,7 @@ func (w *window) cleanup() {
 		gdkEventFree(w.press.event)
 		w.press.event = 0
 	}
+	w.releaseCursor()
 }
 
 func (w *window) Handle() uintptr        { return w.win }
@@ -386,6 +405,123 @@ func (w *window) StartDrag() {
 		return
 	}
 	gtkWindowBeginMoveDrag(w.win, w.press.button, int32(w.press.rootX), int32(w.press.rootY), w.press.time)
+}
+
+// GTK gives windows without decorations no resize edges, so the outer
+// pixels of the page resize frameless windows, as in Electron.
+const (
+	resizeInset  = 5  // pixels of the page along the edges
+	resizeCorner = 16 // pixels along the edges from a corner that resize it
+)
+
+// resizeEdges are the GdkWindowEdge values, with their cursors and the
+// states in which the window manager lets them resize the window.
+var resizeEdges = [8]struct {
+	cursor string
+	states uint32
+}{
+	{"nw-resize", stateTopResizable | stateLeftResizable},
+	{"n-resize", stateTopResizable},
+	{"ne-resize", stateTopResizable | stateRightResizable},
+	{"w-resize", stateLeftResizable},
+	{"e-resize", stateRightResizable},
+	{"sw-resize", stateBottomResizable | stateLeftResizable},
+	{"s-resize", stateBottomResizable},
+	{"se-resize", stateBottomResizable | stateRightResizable},
+}
+
+// resizeEdge returns the GdkWindowEdge a pointer event on the page (a
+// GdkEventMotion or GdkEventButton) would resize, or -1.
+func (w *window) resizeEdge(event ptr) int32 {
+	// GdkEventMotion and GdkEventButton: window 8, x 24, y 32.
+	if !w.opts.Frameless || w.state&(stateMaximized|stateFullscreen) != 0 ||
+		field[ptr](event, 8) != gtkWidgetGetWindow(w.web) || !gtkWindowGetResizable(w.win) {
+		return -1
+	}
+	x, y := field[float64](event, 24), field[float64](event, 32)
+	var page gdkRectangle
+	gtkWidgetGetAllocation(w.web, &page)
+	width, height := float64(page.Width), float64(page.Height)
+	atTop := page.Y == 0 // no menu bar above the page
+	top, bottom := atTop && y < resizeInset, y >= height-resizeInset
+	left, right := x < resizeInset, x >= width-resizeInset
+	if !top && !bottom && !left && !right {
+		return -1
+	}
+	// Near a corner, the edges resize the corner.
+	top = top || (left || right) && atTop && y < resizeCorner
+	bottom = bottom || (left || right) && y >= height-resizeCorner
+	left = left || (top || bottom) && x < resizeCorner
+	right = right || (top || bottom) && x >= width-resizeCorner
+	var edge int32
+	switch {
+	case top && left:
+		edge = 0
+	case top && right:
+		edge = 2
+	case bottom && left:
+		edge = 5
+	case bottom && right:
+		edge = 7
+	case top:
+		edge = 1
+	case bottom:
+		edge = 6
+	case left:
+		edge = 3
+	default:
+		edge = 4
+	}
+	// Tiled windows resize at the edges the window manager allows, as
+	// with GTK's own decorations.
+	const resizable = stateTopResizable | stateRightResizable | stateBottomResizable | stateLeftResizable
+	if need := resizeEdges[edge].states; w.state&resizable != 0 && w.state&need != need ||
+		w.state&resizable == 0 && w.state&stateTiled != 0 {
+		return -1
+	}
+	return edge
+}
+
+// showResizeCursor shows the cursor of a resize edge over the page, or
+// the page's own cursor again for -1.
+func (w *window) showResizeCursor(edge int32) {
+	c := &w.cursor
+	if edge < 0 && !c.on {
+		return
+	}
+	page := gtkWidgetGetWindow(w.web)
+	current := gdkWindowGetCursor(page)
+	if edge < 0 {
+		if c.on && current == c.shown {
+			gdkWindowSetCursor(page, c.saved)
+		}
+		w.releaseCursor()
+		return
+	}
+	if !c.on || current != c.shown {
+		// The pointer comes onto an edge, or WebKit changed the cursor.
+		w.releaseCursor()
+		if current != 0 {
+			gObjectRef(current)
+		}
+		c.on, c.edge, c.saved = true, -1, current
+	}
+	if c.edge != edge {
+		cursor := gdkCursorNewFromName(gdkWindowGetDisplay(page), cs(resizeEdges[edge].cursor))
+		gdkWindowSetCursor(page, cursor)
+		if cursor != 0 {
+			gObjectUnref(cursor) // the GdkWindow holds it
+		}
+		c.edge, c.shown = edge, cursor
+	}
+}
+
+// releaseCursor forgets the page's cursor kept to restore.
+func (w *window) releaseCursor() {
+	if w.cursor.saved != 0 {
+		gObjectUnref(w.cursor.saved)
+	}
+	w.cursor.on, w.cursor.edge, w.cursor.shown, w.cursor.saved = false, -1, 0, 0
 }
 
 func (w *window) TitleBarDoubleClicked() {
@@ -645,6 +781,7 @@ var (
 	cbScriptMessage, cbLoadChanged, cbLoadFailed, cbTitle, cbDecidePolicy       ptr
 	cbCreate, cbClose, cbCrashed, cbButtonPress, cbAsyncReady, cbPNGWrite       ptr
 	cbDragData, cbDragDrop, cbPrintFinished, cbPrintFailed, cbPermission        ptr
+	cbMotion                                                                    ptr
 )
 
 func field[T any](p ptr, offset uintptr) T {
@@ -745,7 +882,23 @@ func initWindowCallbacks() {
 			gdkEventFree(w.press.event)
 		}
 		w.press.event = gdkEventCopy(event)
+		if edge := w.resizeEdge(event); edge >= 0 {
+			// GdkEventButton: type 0; GDK_BUTTON_PRESS, not a double click.
+			if field[int32](event, 0) == 4 && w.press.button == 1 {
+				gtkWindowBeginResizeDrag(w.win, edge, w.press.button, int32(w.press.rootX), int32(w.press.rootY), w.press.time)
+			}
+			return true // the edges are not the page's
+		}
 		return false
+	})
+	cbMotion = purego.NewCallback(func(widget, event, data ptr) bool {
+		w := b().window(data)
+		if w == nil {
+			return false
+		}
+		edge := w.resizeEdge(event)
+		w.showResizeCursor(edge)
+		return edge >= 0
 	})
 	// WebKit asks for the data of a drag while it moves over the page,
 	// before the drop; the uri-list of files gives their paths.

@@ -47,3 +47,7 @@ func fullScreenHidesToolbar(*mygo.Window) (bool, bool) { return false, false }
 
 // Only macOS windows have traffic lights.
 func trafficLights(*mygo.Window) (float64, float64, bool) { return 0, 0, false }
+
+func movePointer(int, int) bool                { return false }
+func pressButton(bool) bool                    { return false }
+func resizeCursor(*mygo.Window) (string, bool) { return "", false }

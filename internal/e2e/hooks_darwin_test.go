@@ -79,3 +79,8 @@ func trafficLights(w *mygo.Window) (x, y float64, supported bool) {
 	mygo.RunOnMain(func() { x, y = darwin.TestTrafficLights(w.NativeHandle()) })
 	return x, y, true
 }
+
+// Frameless windows keep native resize borders here.
+func movePointer(int, int) bool                { return false }
+func pressButton(bool) bool                    { return false }
+func resizeCursor(*mygo.Window) (string, bool) { return "", false }

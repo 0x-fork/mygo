@@ -439,6 +439,55 @@ func TestTrafficLightPosition(t *testing.T) {
 	placed("after the appearance changed")
 }
 
+// GTK gives frameless windows no resize borders, so the outer pixels of
+// the page resize them instead, as the borders do on macOS and Windows.
+func TestFramelessResizeEdges(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Frameless: true, X: 60, Y: 60, Width: 320, Height: 240})
+	if _, ok := resizeCursor(w); !ok {
+		t.Skip("frameless windows keep native resize borders on this platform")
+	}
+	w.LoadHTML(`<body style="margin:0;height:100vh" onmousedown="window.pressed=(window.pressed||0)+1"></body>`, "")
+	waitFor(t, w, "document.readyState === 'complete'")
+	cursor := func(want string) {
+		t.Helper()
+		eventually(t, fmt.Sprintf("the cursor %q", want), func() bool { c, _ := resizeCursor(w); return c == want })
+	}
+	// Window managers grab the pointer a moment after the press.
+	drag := func(x, y int) {
+		pressButton(true)
+		time.Sleep(100 * time.Millisecond)
+		movePointer(x, y)
+		time.Sleep(100 * time.Millisecond)
+		pressButton(false)
+	}
+
+	b := w.Bounds()
+	if !movePointer(b.X+b.Width-2, b.Y+b.Height/2) {
+		t.Skip("moving the pointer needs an X server")
+	}
+	cursor("e-resize")
+	drag(b.X+b.Width+58, b.Y+b.Height/2)
+	eventually(t, "the right edge to follow the pointer", func() bool { return w.Bounds().Width == b.Width+60 })
+
+	// Corners reach further along the edges.
+	b = w.Bounds()
+	movePointer(b.X+b.Width-10, b.Y+b.Height-2)
+	cursor("se-resize")
+	drag(b.X+b.Width-40, b.Y+b.Height-22)
+	eventually(t, "the corner to follow the pointer", func() bool {
+		r := w.Bounds()
+		return r.Width == b.Width-30 && r.Height == b.Height-20
+	})
+
+	// Elsewhere the page gets the mouse and shows its own cursor; it saw
+	// none of the presses on the edges.
+	movePointer(b.X+100, b.Y+100)
+	cursor("")
+	pressButton(true)
+	pressButton(false)
+	waitFor(t, w, "window.pressed === 1")
+}
+
 func TestDockedDevTools(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "DevTools", Width: 800, Height: 600, DevTools: mygo.DevToolsEnabled})
 	w.LoadHTML("<p>inspect me</p>", "")

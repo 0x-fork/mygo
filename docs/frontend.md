@@ -165,6 +165,17 @@ buttons, links, inputs and other interactive elements inside a region stay
 clickable. Double-clicking a region does what double-clicking a title bar
 does.
 
+Frameless windows still resize from their edges. On Linux, where GTK gives
+windows without decorations no borders, the outermost 5 px of the page act
+as the borders: they show resize cursors, and the page gets no clicks or
+pointer moves there.
+
+On Linux a frameless window also keeps the menu bar that `App.SetMenu` or
+`Window.SetMenu` gives it, above the page and so above a custom title bar.
+Give such a window an empty menu of its own,
+`win.SetMenu(mygo.NewMenu(nil))`, and show menus from the page instead
+(`Menu.PopupAt`, from a bound method the page calls).
+
 On macOS a window can keep its traffic lights and only hide the title bar,
 so the page extends under it: set `TitleBarStyle` to `mygo.TitleBarHidden`,
 or `mygo.TitleBarHiddenInset` for more room around the buttons, and move
