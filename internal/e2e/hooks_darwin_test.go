@@ -74,3 +74,8 @@ func fullScreenHidesToolbar(w *mygo.Window) (hides bool, supported bool) {
 	mygo.RunOnMain(func() { hides = darwin.TestFullScreenHidesToolbar(w.NativeHandle()) })
 	return hides, true
 }
+
+func trafficLights(w *mygo.Window) (x, y float64, supported bool) {
+	mygo.RunOnMain(func() { x, y = darwin.TestTrafficLights(w.NativeHandle()) })
+	return x, y, true
+}

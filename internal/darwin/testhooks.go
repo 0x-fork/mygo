@@ -4,6 +4,7 @@ package darwin
 
 import (
 	"fmt"
+	"math"
 )
 
 // The functions in this file drive native UI the way a user would, for the
@@ -77,6 +78,18 @@ func TestClick(handle uintptr, x, y float64) {
 			send(win, "sendEvent:", uintptr(ev))
 		}
 	})
+}
+
+// TestTrafficLights returns where the top-left corner of a window's close
+// button is, in points from the top-left corner of the window.
+func TestTrafficLights(handle uintptr) (x, y float64) {
+	win := id(handle)
+	btn := send(win, "standardWindowButton:", 0)
+	f := msgRect(btn, sel("frame"))
+	parent := send(btn, "superview")
+	a := msgPointFromView(parent, sel("convertPoint:toView:"), f.Origin, 0)
+	b := msgPointFromView(parent, sel("convertPoint:toView:"), NSPoint{f.Origin.X + f.Size.Width, f.Origin.Y + f.Size.Height}, 0)
+	return math.Min(a.X, b.X), msgRect(win, sel("frame")).Size.Height - math.Max(a.Y, b.Y)
 }
 
 // TestWebViewAttached reports whether a window's web view is in its view

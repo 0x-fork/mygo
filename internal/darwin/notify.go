@@ -25,6 +25,12 @@ func (b *Backend) runOnMain(fn func()) {
 		fn()
 		return
 	}
+	b.post(fn)
+}
+
+// post runs fn on the main thread after the current event, even when
+// called there.
+func (b *Backend) post(fn func()) {
 	mainQueueMu.Lock()
 	mainQueue = append(mainQueue, fn)
 	mainQueueMu.Unlock()

@@ -282,6 +282,7 @@ func (w *window) WebViewHandle() uintptr { return uintptr(w.web) }
 
 func (w *window) SetTitle(title string) {
 	withPool(func() { send(w.win, "setTitle:", uintptr(nsString(title))) })
+	w.layoutTrafficLights()
 }
 
 func (w *window) Title() string {
@@ -553,11 +554,14 @@ func (w *window) Close() {
 	send(w.win, "close")
 }
 
-// layoutTrafficLights moves the window buttons to the requested position.
-// AppKit resets them on resize, so this runs after every layout change.
+// layoutTrafficLights puts the top-left corner of the close button at the
+// requested position, and the other buttons after it, in a title bar that
+// leaves as much room below them as above. AppKit lays the title bar out
+// again when the window resizes, its title changes or the appearance
+// changes, so this runs after each of them.
 func (w *window) layoutTrafficLights() {
 	p := w.trafficLights
-	if p == nil || w.IsFullScreen() {
+	if p == nil || w.closed || w.IsFullScreen() {
 		return
 	}
 	closeBtn := send(w.win, "standardWindowButton:", 0)
@@ -569,7 +573,7 @@ func (w *window) layoutTrafficLights() {
 		return
 	}
 	btnFrame := msgRect(closeBtn, sel("frame"))
-	height := btnFrame.Size.Height + float64(p.Y)
+	height := btnFrame.Size.Height + 2*float64(p.Y)
 	winFrame := msgRect(w.win, sel("frame"))
 	cf := msgRect(container, sel("frame"))
 	cf.Size.Height = height
@@ -580,9 +584,14 @@ func (w *window) layoutTrafficLights() {
 	gap := msgRect(mini, sel("frame")).Origin.X - btnFrame.Origin.X
 	for i := uintptr(0); i < 3; i++ {
 		btn := send(w.win, "standardWindowButton:", i)
-		f := msgRect(btn, sel("frame"))
-		f.Origin.X = float64(p.X) + float64(i)*gap
-		msgSetPoint(btn, sel("setFrameOrigin:"), f.Origin)
+		msgSetPoint(btn, sel("setFrameOrigin:"), NSPoint{float64(p.X) + float64(i)*gap, float64(p.Y)})
+	}
+}
+
+// layoutTrafficLights lays out the window buttons of every window.
+func (b *Backend) layoutTrafficLights() {
+	for _, w := range b.byNSWindow {
+		w.layoutTrafficLights()
 	}
 }
 

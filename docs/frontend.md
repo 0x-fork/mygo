@@ -168,7 +168,8 @@ does.
 On macOS a window can keep its traffic lights and only hide the title bar,
 so the page extends under it: set `TitleBarStyle` to `mygo.TitleBarHidden`,
 or `mygo.TitleBarHiddenInset` for more room around the buttons, and move
-them with `TrafficLightPosition`. In full screen they only show with the
+them with `TrafficLightPosition`, the position of the close button's
+top-left corner in the window. In full screen they only show with the
 menu bar: `OnEnterFullScreen` and `OnLeaveFullScreen` tell when the page
 may use the room it keeps for them.
 

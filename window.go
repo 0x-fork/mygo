@@ -90,7 +90,8 @@ type WindowOptions struct {
 	// (macOS).
 	TitleBarStyle TitleBarStyle
 	// TrafficLightPosition moves the window controls of a window with a
-	// hidden title bar (macOS).
+	// hidden title bar (macOS): the top-left corner of the close button
+	// goes this far from the top-left corner of the window.
 	TrafficLightPosition *Point
 
 	DisableResize     bool

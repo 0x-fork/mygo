@@ -411,6 +411,34 @@ func TestFullScreenToolbar(t *testing.T) {
 	}
 }
 
+// AppKit lays the title bar out again when the title or the appearance
+// changes, which must not move the traffic lights back.
+func TestTrafficLightPosition(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 240, TitleBarStyle: mygo.TitleBarHidden,
+		TrafficLightPosition: &mygo.Point{X: 18, Y: 19}})
+	if _, _, ok := trafficLights(w); !ok {
+		t.Skip("only macOS windows have traffic lights")
+	}
+	placed := func(when string) {
+		t.Helper()
+		eventually(t, "the close button at (18, 19) "+when, func() bool {
+			x, y, _ := trafficLights(w)
+			return x == 18 && y == 19
+		})
+	}
+	placed("in a new window")
+	w.LoadHTML("<title>Traffic lights</title>", "")
+	eventually(t, "the page's title", func() bool { return w.Title() == "Traffic lights" })
+	placed("once the window takes the page's title")
+	defer mygo.Theme.SetSource(mygo.Theme.Source())
+	if mygo.Theme.IsDark() {
+		mygo.Theme.SetSource(mygo.ThemeLight)
+	} else {
+		mygo.Theme.SetSource(mygo.ThemeDark)
+	}
+	placed("after the appearance changed")
+}
+
 func TestDockedDevTools(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "DevTools", Width: 800, Height: 600, DevTools: mygo.DevToolsEnabled})
 	w.LoadHTML("<p>inspect me</p>", "")

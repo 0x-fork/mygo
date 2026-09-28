@@ -52,3 +52,6 @@ func pressKeys(...string) bool { return false }
 
 // Only macOS windows have a toolbar.
 func fullScreenHidesToolbar(*mygo.Window) (bool, bool) { return false, false }
+
+// Only macOS windows have traffic lights.
+func trafficLights(*mygo.Window) (float64, float64, bool) { return 0, 0, false }
