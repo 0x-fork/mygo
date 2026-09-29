@@ -24,46 +24,46 @@
     },
     "packages/cli": {
       "name": "mygo-cli",
-      "version": "0.1.5",
+      "version": "0.1.7",
       "bin": {
         "mygo": "bin/mygo.js",
       },
       "optionalDependencies": {
-        "@egoist/mygo-cli-darwin-arm64": "0.1.5",
-        "@egoist/mygo-cli-darwin-x64": "0.1.5",
-        "@egoist/mygo-cli-linux-arm64": "0.1.5",
-        "@egoist/mygo-cli-linux-x64": "0.1.5",
-        "@egoist/mygo-cli-win32-arm64": "0.1.5",
-        "@egoist/mygo-cli-win32-x64": "0.1.5",
+        "@egoist/mygo-cli-darwin-arm64": "0.1.7",
+        "@egoist/mygo-cli-darwin-x64": "0.1.7",
+        "@egoist/mygo-cli-linux-arm64": "0.1.7",
+        "@egoist/mygo-cli-linux-x64": "0.1.7",
+        "@egoist/mygo-cli-win32-arm64": "0.1.7",
+        "@egoist/mygo-cli-win32-x64": "0.1.7",
       },
     },
     "packages/cli/npm/darwin-arm64": {
       "name": "@egoist/mygo-cli-darwin-arm64",
-      "version": "0.1.5",
+      "version": "0.1.7",
     },
     "packages/cli/npm/darwin-x64": {
       "name": "@egoist/mygo-cli-darwin-x64",
-      "version": "0.1.5",
+      "version": "0.1.7",
     },
     "packages/cli/npm/linux-arm64": {
       "name": "@egoist/mygo-cli-linux-arm64",
-      "version": "0.1.5",
+      "version": "0.1.7",
     },
     "packages/cli/npm/linux-x64": {
       "name": "@egoist/mygo-cli-linux-x64",
-      "version": "0.1.5",
+      "version": "0.1.7",
     },
     "packages/cli/npm/win32-arm64": {
       "name": "@egoist/mygo-cli-win32-arm64",
-      "version": "0.1.5",
+      "version": "0.1.7",
     },
     "packages/cli/npm/win32-x64": {
       "name": "@egoist/mygo-cli-win32-x64",
-      "version": "0.1.5",
+      "version": "0.1.7",
     },
     "packages/runtime": {
       "name": "mygo-runtime",
-      "version": "0.1.5",
+      "version": "0.1.7",
     },
   },
   "packages": {
