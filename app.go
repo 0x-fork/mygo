@@ -102,12 +102,25 @@ func (a *Application) Run() error {
 	a.initialized = true
 	// Settings made before Run, which the backend could not take yet.
 	Theme.apply()
+	if m := a.Dock.Menu(); m != nil {
+		b.App().SetDockMenu(m.snapshot())
+	}
 	quitOnSignals()
 	// Run whatever was scheduled before the event loop existed.
 	b.Signal()
 	err := b.Run()
 	a.finish()
 	return err
+}
+
+// needsApp panics when main calls something that needs the running app
+// before Run: the backend is not initialized yet (on Linux its libraries
+// are not even loaded), and main cannot wait for it. Other goroutines
+// wait for the app to start instead. call names the method.
+func needsApp(call string) {
+	if isMainThread() && !App.initialized {
+		panic("mygo: " + call + " called before App.Run; call it once the application is ready (App.WhenReady)")
+	}
 }
 
 // WhenReady calls fn on the main thread once the application has finished
@@ -338,21 +351,32 @@ func (a *Application) SetActivationPolicy(p ActivationPolicy) {
 }
 
 // Focus brings the application to the foreground.
-func (a *Application) Focus() { onMain(func() { backend().App().Activate() }) }
+func (a *Application) Focus() {
+	needsApp("App.Focus")
+	onMain(func() { backend().App().Activate() })
+}
 
 // Hide hides all windows of the application (macOS).
-func (a *Application) Hide() { onMain(func() { backend().App().Hide() }) }
+func (a *Application) Hide() {
+	needsApp("App.Hide")
+	onMain(func() { backend().App().Hide() })
+}
 
 // Show shows the application after Hide (macOS).
-func (a *Application) Show() { onMain(func() { backend().App().Unhide() }) }
+func (a *Application) Show() {
+	needsApp("App.Show")
+	onMain(func() { backend().App().Unhide() })
+}
 
 // IsHidden reports whether the application is hidden (macOS).
 func (a *Application) IsHidden() bool {
+	needsApp("App.IsHidden")
 	return onMainValue(func() bool { return backend().App().IsHidden() })
 }
 
 // SetBadgeCount shows a counter on the application icon. Zero clears it.
 func (a *Application) SetBadgeCount(n int) {
+	needsApp("App.SetBadgeCount")
 	label := ""
 	if n > 0 {
 		label = strconv.Itoa(n)
@@ -377,6 +401,7 @@ type AboutPanelOptions struct {
 
 // ShowAboutPanel shows the standard about panel (macOS).
 func (a *Application) ShowAboutPanel(opts AboutPanelOptions) {
+	needsApp("App.ShowAboutPanel")
 	onMain(func() { backend().App().ShowAboutPanel(platform.AboutPanelOptions(opts)) })
 }
 
@@ -451,6 +476,7 @@ func (a *Application) OnWindowCreated(fn func(w *Window)) (off func()) {
 // user signs out. Open pages keep what they hold in memory until they are
 // reloaded.
 func (a *Application) ClearBrowsingData() error {
+	needsApp("App.ClearBrowsingData")
 	ch := make(chan error, 1)
 	onMain(func() { backend().App().ClearBrowsingData(func(err error) { deliver(ch, err) }) })
 	return await(ch)
@@ -464,13 +490,18 @@ type Dock struct {
 }
 
 // SetMenu sets the menu the Dock icon shows above the standard items, e.g.
-// to open a new window; nil removes it.
+// to open a new window; nil removes it. It may be called before App.Run.
 func (d *Dock) SetMenu(m *Menu) {
 	d.mu.Lock()
 	d.menu = m // its items must stay reachable for clicks
 	d.mu.Unlock()
-	snap := m.snapshot()
-	onMain(func() { backend().App().SetDockMenu(snap) })
+	onMain(func() {
+		if App.initialized { // else Run installs it
+			// The menu set last: calls may reach the main thread in
+			// another order.
+			backend().App().SetDockMenu(d.Menu().snapshot())
+		}
+	})
 }
 
 // Menu returns the menu set with SetMenu.
@@ -481,22 +512,33 @@ func (d *Dock) Menu() *Menu {
 }
 
 // SetBadge shows text on the Dock icon; "" clears it.
-func (d *Dock) SetBadge(text string) { onMain(func() { backend().App().SetBadge(text) }) }
+func (d *Dock) SetBadge(text string) {
+	needsApp("App.Dock.SetBadge")
+	onMain(func() { backend().App().SetBadge(text) })
+}
 
 // Badge returns the text shown on the Dock icon.
-func (d *Dock) Badge() string { return onMainValue(func() string { return backend().App().Badge() }) }
+func (d *Dock) Badge() string {
+	needsApp("App.Dock.Badge")
+	return onMainValue(func() string { return backend().App().Badge() })
+}
 
 // Bounce bounces the Dock icon to request attention and returns an id for
 // CancelBounce. Critical bounces continue until the app is activated.
 func (d *Dock) Bounce(critical bool) int {
+	needsApp("App.Dock.Bounce")
 	return onMainValue(func() int { return backend().App().Bounce(critical) })
 }
 
 // CancelBounce stops a bounce started with Bounce.
-func (d *Dock) CancelBounce(id int) { onMain(func() { backend().App().CancelBounce(id) }) }
+func (d *Dock) CancelBounce(id int) {
+	needsApp("App.Dock.CancelBounce")
+	onMain(func() { backend().App().CancelBounce(id) })
+}
 
 // SetIcon replaces the Dock icon with a PNG image.
 func (d *Dock) SetIcon(png []byte) error {
+	needsApp("App.Dock.SetIcon")
 	return onMainValue(func() error { return backend().App().SetDockIcon(png) })
 }
 

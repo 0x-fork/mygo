@@ -116,6 +116,7 @@ func toFilters(fs []FileFilter) []platform.FileFilter {
 // Open shows a dialog to pick files or directories and returns the chosen
 // paths, or nil when canceled.
 func (DialogModule) Open(opts OpenDialogOptions) ([]string, error) {
+	needsApp("Dialog.Open")
 	type result struct {
 		paths []string
 		err   error
@@ -148,6 +149,7 @@ func (DialogModule) Open(opts OpenDialogOptions) ([]string, error) {
 // Save shows a dialog to choose where to save a file and returns the path,
 // or "" when canceled.
 func (DialogModule) Save(opts SaveDialogOptions) (string, error) {
+	needsApp("Dialog.Save")
 	type result struct {
 		path string
 		err  error
@@ -177,6 +179,7 @@ func (DialogModule) Save(opts SaveDialogOptions) (string, error) {
 
 // Message shows a message dialog and reports which button was clicked.
 func (DialogModule) Message(opts MessageOptions) (MessageResult, error) {
+	needsApp("Dialog.Message")
 	type result struct {
 		res MessageResult
 		err error
@@ -223,5 +226,6 @@ func (DialogModule) Message(opts MessageOptions) (MessageResult, error) {
 
 // Error shows a modal error dialog.
 func (d DialogModule) Error(title, content string) {
+	needsApp("Dialog.Error")
 	_, _ = d.Message(MessageOptions{Type: MessageError, Message: title, Detail: content})
 }

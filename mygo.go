@@ -39,6 +39,12 @@
 // this package is safe to call from any goroutine: calls made off the main
 // thread are forwarded to it and wait for the result.
 //
+// Before App.Run, main sets the app up: it binds services, adds listeners
+// and makes settings, such as Theme.SetSource, which apply once the app
+// starts. Calls that need the running app, such as the clipboard, displays
+// or dialogs, panic when main makes them before Run; other goroutines wait
+// for the app to start.
+//
 // Event listeners (OnClose, OnFocus, ...) run on the main thread; keep them
 // short and move slow work to a goroutine. Methods of bound services run on
 // goroutines of their own, one per call, so they may block.

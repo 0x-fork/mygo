@@ -103,10 +103,15 @@ rules are:
    initializes the backend and blocks in the native event loop. Before
    that no backend is initialized (the Linux one has not even loaded GTK),
    yet `main` already runs on the main thread, where `onMain` calls
-   functions directly: settings apps make in `main` keep their value in the
-   core until the backend can take it (`SetActivationPolicy` through
-   `AppOptions`, `SetMenu` once ready, `Theme.SetSource` right after
-   `Init`); generate mode never initializes it.
+   functions directly, and generate mode never initializes it. So a public
+   method that reaches the backend either keeps its value in the core
+   until the backend can take it, for settings (`SetActivationPolicy`
+   through `AppOptions`, `SetMenu` once ready, `Theme.SetSource` and
+   `Dock.SetMenu` right after `Init`), or starts with `needsApp`, which
+   panics on the main thread before `Run` with the name of the call,
+   rather than letting it crash on Linux, hang in `await` or answer wrong
+   on macOS. Only calls that work before `Init` on every backend (`Locale`,
+   packaging info, login items, URL schemes, `IsOnBattery`) do neither.
 2. **Every `platform` method is called on the main thread, and every handler
    callback runs there.** The backend never needs locks for its own state.
 3. **Every public method is safe from any goroutine.** `loop.go` provides:
@@ -880,7 +885,9 @@ which npm allows only for packages that exist: the first release uses an
    and `unsupported` (return `platform.ErrUnsupported` or a zero value).
    Create callbacks once, never per call.
 4. **Wire the core**: hop with `onMain`/`onMainValue`, or `postMain` + `await`
-   + `deliver` for asynchronous native results.
+   + `deliver` for asynchronous native results. Start with `needsApp` when
+   the call needs the running app, or keep a setting until `Run` applies it
+   (see the threading model).
 5. **Test**: unit test through `internal/fake`, a GUI test in `internal/e2e`
    when behavior depends on the toolkit, and run the Linux GUI tests in the
    container.

@@ -127,7 +127,8 @@ builds.
 ## The Dock menu
 
 On macOS `App.Dock.SetMenu` adds items above the standard ones of the menu
-that right-clicking the Dock icon opens:
+that right-clicking the Dock icon opens. Like `App.SetMenu`, it may be
+called in `main` before `App.Run`:
 
 ```go
 mygo.App.Dock.SetMenu(mygo.NewMenu([]*mygo.MenuItem{

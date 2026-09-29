@@ -24,11 +24,16 @@ main goroutine on it. Windows exist only once the app is ready: create them
 in `WhenReady`, or from any goroutine after that.
 
 Before `Run`, `main` sets the app up: it binds services, handles protocols,
-adds listeners, and makes settings such as `App.SetName`, `App.SetMenu` and
-`Theme.SetSource`, which take effect when the app starts. Everything else
-that talks to the system, such as the clipboard, displays, dialogs,
-notifications and global shortcuts, needs the running app: use it from
-`WhenReady` on.
+adds listeners, and makes settings such as `App.SetName`, `App.SetMenu`,
+`App.Dock.SetMenu` and `Theme.SetSource`, which take effect when the app
+starts. It may also read what needs no running app, such as `App.Path`,
+`App.Locale` or `Power.IsOnBattery`, and register the app with the system
+(`App.SetOpenAtLogin`, `App.RegisterURLScheme`). Everything else needs the
+running app: when `main` calls the clipboard, displays, dialogs,
+notifications, global shortcuts, trays, Dock badges, `Theme.IsDark` and the
+like before `Run`, they panic with a message naming the call, on every
+platform. Use them from `WhenReady` on; other goroutines may call them
+earlier, and wait for the app to start.
 
 ## Threads
 

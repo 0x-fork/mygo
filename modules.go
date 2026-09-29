@@ -22,26 +22,33 @@ var Shell ShellModule
 // OpenExternal opens a URL with the default application, e.g. a web page
 // in the default browser.
 func (ShellModule) OpenExternal(url string) error {
+	needsApp("Shell.OpenExternal")
 	return onMainValue(func() error { return backend().Shell().OpenExternal(url) })
 }
 
 // OpenPath opens a file or directory with the default application.
 func (ShellModule) OpenPath(path string) error {
+	needsApp("Shell.OpenPath")
 	return onMainValue(func() error { return backend().Shell().OpenPath(path) })
 }
 
 // ShowItemInFolder reveals a file in the file manager.
 func (ShellModule) ShowItemInFolder(path string) {
+	needsApp("Shell.ShowItemInFolder")
 	onMain(func() { backend().Shell().ShowItemInFolder(path) })
 }
 
 // TrashItem moves a file or directory to the trash.
 func (ShellModule) TrashItem(path string) error {
+	needsApp("Shell.TrashItem")
 	return onMainValue(func() error { return backend().Shell().TrashItem(path) })
 }
 
 // Beep plays the system alert sound.
-func (ShellModule) Beep() { onMain(func() { backend().Shell().Beep() }) }
+func (ShellModule) Beep() {
+	needsApp("Shell.Beep")
+	onMain(func() { backend().Shell().Beep() })
+}
 
 // ClipboardModule reads and writes the system clipboard.
 type ClipboardModule struct{}
@@ -51,40 +58,50 @@ var Clipboard ClipboardModule
 
 // ReadText returns the plain text on the clipboard.
 func (ClipboardModule) ReadText() string {
+	needsApp("Clipboard.ReadText")
 	return onMainValue(func() string { return backend().Clipboard().ReadText() })
 }
 
 // WriteText puts plain text on the clipboard.
 func (ClipboardModule) WriteText(text string) {
+	needsApp("Clipboard.WriteText")
 	onMain(func() { backend().Clipboard().WriteText(text) })
 }
 
 // ReadHTML returns the HTML on the clipboard.
 func (ClipboardModule) ReadHTML() string {
+	needsApp("Clipboard.ReadHTML")
 	return onMainValue(func() string { return backend().Clipboard().ReadHTML() })
 }
 
 // WriteHTML puts HTML on the clipboard.
 func (ClipboardModule) WriteHTML(markup string) {
+	needsApp("Clipboard.WriteHTML")
 	onMain(func() { backend().Clipboard().WriteHTML(markup) })
 }
 
 // ReadImage returns the image on the clipboard as PNG, or nil.
 func (ClipboardModule) ReadImage() []byte {
+	needsApp("Clipboard.ReadImage")
 	return onMainValue(func() []byte { return backend().Clipboard().ReadImage() })
 }
 
 // WriteImage puts a PNG image on the clipboard.
 func (ClipboardModule) WriteImage(png []byte) error {
+	needsApp("Clipboard.WriteImage")
 	return onMainValue(func() error { return backend().Clipboard().WriteImage(png) })
 }
 
 // Clear empties the clipboard.
-func (ClipboardModule) Clear() { onMain(func() { backend().Clipboard().Clear() }) }
+func (ClipboardModule) Clear() {
+	needsApp("Clipboard.Clear")
+	onMain(func() { backend().Clipboard().Clear() })
+}
 
 // AvailableFormats lists the formats (MIME types or platform types) on the
 // clipboard.
 func (ClipboardModule) AvailableFormats() []string {
+	needsApp("Clipboard.AvailableFormats")
 	return onMainValue(func() []string { return backend().Clipboard().AvailableFormats() })
 }
 
@@ -112,6 +129,7 @@ var Screen = &ScreenModule{}
 
 // Displays returns all displays; the primary one comes first.
 func (s *ScreenModule) Displays() []Display {
+	needsApp("Screen.Displays")
 	return onMainValue(func() []Display {
 		var out []Display
 		for _, d := range backend().Screen().Displays() {
@@ -132,6 +150,7 @@ func (s *ScreenModule) Displays() []Display {
 
 // PrimaryDisplay returns the display with the menu bar or taskbar.
 func (s *ScreenModule) PrimaryDisplay() Display {
+	needsApp("Screen.PrimaryDisplay")
 	ds := s.Displays()
 	for _, d := range ds {
 		if d.Primary {
@@ -146,11 +165,13 @@ func (s *ScreenModule) PrimaryDisplay() Display {
 
 // CursorScreenPoint returns the mouse position in screen coordinates.
 func (s *ScreenModule) CursorScreenPoint() Point {
+	needsApp("Screen.CursorScreenPoint")
 	return onMainValue(func() Point { return Point(backend().Screen().CursorPoint()) })
 }
 
 // DisplayNearestPoint returns the display closest to p.
 func (s *ScreenModule) DisplayNearestPoint(p Point) Display {
+	needsApp("Screen.DisplayNearestPoint")
 	best, bestDist := Display{}, math.Inf(1)
 	for _, d := range s.Displays() {
 		b := d.Bounds
@@ -165,6 +186,7 @@ func (s *ScreenModule) DisplayNearestPoint(p Point) Display {
 
 // DisplayMatching returns the display that overlaps r the most.
 func (s *ScreenModule) DisplayMatching(r Rectangle) Display {
+	needsApp("Screen.DisplayMatching")
 	best, bestArea := Display{}, -1
 	for _, d := range s.Displays() {
 		b := d.Bounds
@@ -207,6 +229,7 @@ var Theme = &ThemeModule{}
 
 // IsDark reports whether the app currently uses a dark appearance.
 func (t *ThemeModule) IsDark() bool {
+	needsApp("Theme.IsDark")
 	return onMainValue(func() bool { return backend().Theme().IsDark() })
 }
 
@@ -279,6 +302,7 @@ var GlobalShortcut = &GlobalShortcutModule{}
 // desktop entry. The window fn shows or focuses first gets the activation
 // token of the key press, which lets it take the focus.
 func (g *GlobalShortcutModule) Register(acc string, fn func()) error {
+	needsApp("GlobalShortcut.Register")
 	a, err := accelerator.Parse(acc, runtime.GOOS)
 	if err != nil {
 		return err
@@ -392,6 +416,8 @@ func (h trayHandler) RightClicked() { fire(&h.t.onRight) }
 func NewTray(opts TrayOptions) (*Tray, error) {
 	if !isMainThread() {
 		App.waitReady()
+	} else if !App.IsReady() {
+		panic("mygo: NewTray called before the application is ready; create trays in App.WhenReady")
 	}
 	t := &Tray{menu: opts.Menu}
 	var err error
@@ -511,6 +537,7 @@ var notifications struct {
 // shown. On macOS they require a packaged app, which `mygo dev` and
 // `mygo build` produce.
 func NotificationsSupported() bool {
+	needsApp("NotificationsSupported")
 	return onMainValue(func() bool { return backend().NotificationsSupported() })
 }
 
@@ -525,6 +552,7 @@ func NewNotification(opts NotificationOptions) *Notification {
 
 // Show displays the notification.
 func (n *Notification) Show() error {
+	needsApp("Notification.Show")
 	notifications.Lock()
 	if notifications.byID == nil {
 		notifications.byID = map[string]*Notification{}

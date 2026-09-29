@@ -44,18 +44,8 @@ func TestMain(m *testing.M) {
 	}
 	fb = fake.New()
 	backendOnce.Do(func() { theBackend = fb })
-	if os.Getenv("MYGO_TEST_THEME_BEFORE_RUN") == "1" {
-		// Helper process for TestThemeSourceBeforeRun.
-		Theme.SetSource(ThemeDark)
-		App.WhenReady(func() {
-			fmt.Println("dark:", Theme.IsDark())
-			App.Quit()
-		})
-		if err := App.Run(); err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-		os.Exit(0)
+	if os.Getenv("MYGO_TEST_BEFORE_RUN") == "1" {
+		beforeRun()
 	}
 	App.SetName("MyGoTest")
 	// Keep running when tests close their windows.
@@ -1320,22 +1310,118 @@ func TestModules(t *testing.T) {
 	}
 }
 
-// TestThemeSourceBeforeRun: the source set before Run, when the backend
-// cannot take it yet, applies once Run has initialized it, and generate
-// mode, which never initializes it, still writes the client.
-func TestThemeSourceBeforeRun(t *testing.T) {
-	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), "MYGO_TEST_THEME_BEFORE_RUN=1")
-	if out, err := cmd.CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "dark: true" {
-		t.Errorf("exit: %v, output %q", err, out)
+// needsAppCalls are the calls that need the running app, which main may
+// not make before Run.
+var needsAppCalls = []struct {
+	name string
+	call func()
+}{
+	{"App.Focus", func() { App.Focus() }},
+	{"App.Hide", func() { App.Hide() }},
+	{"App.Show", func() { App.Show() }},
+	{"App.IsHidden", func() { App.IsHidden() }},
+	{"App.SetBadgeCount", func() { App.SetBadgeCount(1) }},
+	{"App.ShowAboutPanel", func() { App.ShowAboutPanel(AboutPanelOptions{}) }},
+	{"App.ClearBrowsingData", func() { App.ClearBrowsingData() }},
+	{"App.Dock.SetBadge", func() { App.Dock.SetBadge("1") }},
+	{"App.Dock.Badge", func() { App.Dock.Badge() }},
+	{"App.Dock.Bounce", func() { App.Dock.Bounce(false) }},
+	{"App.Dock.CancelBounce", func() { App.Dock.CancelBounce(1) }},
+	{"App.Dock.SetIcon", func() { App.Dock.SetIcon(nil) }},
+	{"Shell.OpenExternal", func() { Shell.OpenExternal("https://example.com") }},
+	{"Shell.OpenPath", func() { Shell.OpenPath("/") }},
+	{"Shell.ShowItemInFolder", func() { Shell.ShowItemInFolder("/") }},
+	{"Shell.TrashItem", func() { Shell.TrashItem("/nonexistent") }},
+	{"Shell.Beep", func() { Shell.Beep() }},
+	{"Clipboard.ReadText", func() { Clipboard.ReadText() }},
+	{"Clipboard.WriteText", func() { Clipboard.WriteText("x") }},
+	{"Clipboard.ReadHTML", func() { Clipboard.ReadHTML() }},
+	{"Clipboard.WriteHTML", func() { Clipboard.WriteHTML("x") }},
+	{"Clipboard.ReadImage", func() { Clipboard.ReadImage() }},
+	{"Clipboard.WriteImage", func() { Clipboard.WriteImage(nil) }},
+	{"Clipboard.Clear", func() { Clipboard.Clear() }},
+	{"Clipboard.AvailableFormats", func() { Clipboard.AvailableFormats() }},
+	{"Screen.Displays", func() { Screen.Displays() }},
+	{"Screen.PrimaryDisplay", func() { Screen.PrimaryDisplay() }},
+	{"Screen.CursorScreenPoint", func() { Screen.CursorScreenPoint() }},
+	{"Screen.DisplayNearestPoint", func() { Screen.DisplayNearestPoint(Point{}) }},
+	{"Screen.DisplayMatching", func() { Screen.DisplayMatching(Rectangle{}) }},
+	{"Theme.IsDark", func() { Theme.IsDark() }},
+	{"GlobalShortcut.Register", func() { GlobalShortcut.Register("CmdOrCtrl+Shift+K", func() {}) }},
+	{"NewTray", func() { NewTray(TrayOptions{}) }},
+	{"NotificationsSupported", func() { NotificationsSupported() }},
+	{"Notification.Show", func() { NewNotification(NotificationOptions{}).Show() }},
+	{"Power.KeepAwake", func() { Power.KeepAwake("test", false) }},
+	{"Power.IdleTime", func() { Power.IdleTime() }},
+	{"Dialog.Open", func() { Dialog.Open(OpenDialogOptions{}) }},
+	{"Dialog.Save", func() { Dialog.Save(SaveDialogOptions{}) }},
+	{"Dialog.Message", func() { Dialog.Message(MessageOptions{}) }},
+	{"Dialog.Error", func() { Dialog.Error("title", "content") }},
+	{"Menu.Popup", func() { NewMenu(nil).Popup(nil) }},
+	{"Menu.PopupAt", func() { NewMenu(nil).PopupAt(nil, 0, 0) }},
+}
+
+// beforeRun is a helper process for TestBeforeRun: it does what main may
+// do before Run, when the backend is not initialized, and what it may
+// not, then exits.
+func beforeRun() {
+	// Settings, which Run applies.
+	Theme.SetSource(ThemeDark)
+	App.Dock.SetMenu(NewMenu([]*MenuItem{{Label: "New Window"}}))
+	// Calls that work without the running app.
+	App.Locale()
+	Power.IsOnBattery()
+	GlobalShortcut.UnregisterAll()
+	NewNotification(NotificationOptions{}).Close()
+	for _, c := range needsAppCalls {
+		func() {
+			defer func() { fmt.Printf("%s: %v\n", c.name, recover()) }()
+			c.call()
+		}()
+	}
+	App.WhenReady(func() {
+		fmt.Println("dark:", Theme.IsDark())
+		fmt.Println("dock menu:", fb.DockMenu != nil && fb.DockMenu.Items[0].Label == "New Window")
+		App.Quit()
+	})
+	if err := App.Run(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+// TestBeforeRun: main may make settings before Run, which apply once Run
+// has initialized the backend, while calls that need the running app fail
+// with a message naming them, the same on every platform rather than
+// crashing, hanging or doing nothing depending on it. Generate mode,
+// which never initializes the backend, still writes the client.
+func TestBeforeRun(t *testing.T) {
+	run := func(env ...string) string {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^$")
+		cmd.Env = append(append(os.Environ(), "MYGO_TEST_BEFORE_RUN=1"), env...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+		return string(out)
+	}
+	out := run()
+	wants := []string{"dark: true\n", "dock menu: true\n"}
+	for _, c := range needsAppCalls {
+		wants = append(wants, c.name+": mygo: "+c.name+" called before ")
+	}
+	for _, want := range wants {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q in the output:\n%s", want, out)
+		}
 	}
 
 	client := filepath.Join(t.TempDir(), "mygo.ts")
-	cmd = exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), "MYGO_TEST_THEME_BEFORE_RUN=1", "MYGO_GENERATE="+client)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Errorf("generate mode: %v, output %q", err, out)
-	}
+	run("MYGO_GENERATE=" + client)
 	if _, err := os.Stat(client); err != nil {
 		t.Error(err)
 	}

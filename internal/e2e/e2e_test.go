@@ -107,8 +107,8 @@ func TestMain(m *testing.M) {
 		quitDuringDialog()
 		return
 	}
-	if s := os.Getenv("MYGO_E2E_THEME_BEFORE_RUN"); s != "" {
-		themeBeforeRun(mygo.ThemeSource(s))
+	if s := os.Getenv("MYGO_E2E_BEFORE_RUN"); s != "" {
+		beforeRun(mygo.ThemeSource(s))
 		return
 	}
 	mygo.Bind(Greeter{}, probe, streams)
@@ -192,14 +192,52 @@ func TestQuitDuringDialog(t *testing.T) {
 	}
 }
 
-// themeBeforeRun is a helper process for TestThemeSourceBeforeRun: it sets
-// the appearance before Run, when the backend is not initialized yet (on
-// Linux, GTK is not even loaded), and reports it once the app is ready.
-func themeBeforeRun(source mygo.ThemeSource) {
+// beforeRunCalls need the running app. Made before Run, they used to crash
+// on Linux, whose backend loads GTK in Init, while on macOS the dialog
+// hung, Theme.IsDark answered false and NewTray failed.
+var beforeRunCalls = []struct {
+	name string
+	call func()
+}{
+	{"Clipboard.ReadText", func() { mygo.Clipboard.ReadText() }},
+	{"Theme.IsDark", func() { mygo.Theme.IsDark() }},
+	{"Dialog.Message", func() { mygo.Dialog.Message(mygo.MessageOptions{Message: "Too early"}) }},
+	{"NewTray", func() { mygo.NewTray(mygo.TrayOptions{}) }},
+}
+
+// beforeRun is a helper process for TestBeforeRun: it does what main may
+// do before Run, when the backend is not initialized yet (on Linux, GTK is
+// not even loaded), and what it may not, then reports what took effect
+// once the app is ready.
+func beforeRun(source mygo.ThemeSource) {
 	mygo.Theme.SetSource(source)
+	clicked := make(chan struct{}, 1)
+	mygo.App.Dock.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
+		{Label: "New Window", Click: func(*mygo.MenuItem, *mygo.Window) { clicked <- struct{}{} }},
+	}))
+	fmt.Println("locale:", mygo.App.Locale() != "")
+	mygo.Power.IsOnBattery()
+	for _, c := range beforeRunCalls {
+		func() {
+			defer func() { fmt.Printf("%s: %v\n", c.name, recover()) }()
+			c.call()
+		}()
+	}
 	mygo.App.WhenReady(func() {
 		fmt.Println("dark:", mygo.Theme.IsDark())
-		mygo.App.Quit()
+		go func() {
+			defer mygo.App.Quit()
+			titles, ok := dockMenu(0)
+			if !ok {
+				return
+			}
+			select {
+			case <-clicked:
+				fmt.Printf("dock menu: %q clicked\n", titles)
+			case <-time.After(3 * time.Second):
+				fmt.Printf("dock menu: %q\n", titles)
+			}
+		}()
 	})
 	if err := mygo.App.Run(); err != nil {
 		fmt.Println(err)
@@ -207,15 +245,33 @@ func themeBeforeRun(source mygo.ThemeSource) {
 	}
 }
 
-// TestThemeSourceBeforeRun: apps apply a saved appearance in main, before
-// Run. Both sources are tried, so one differs from the system's.
-func TestThemeSourceBeforeRun(t *testing.T) {
+// TestBeforeRun: apps set up and configure themselves in main, before Run,
+// e.g. with a saved appearance, while calls that need the running app fail
+// clearly on every platform. Both appearances are tried, so one differs
+// from the system's.
+func TestBeforeRun(t *testing.T) {
 	for _, source := range []mygo.ThemeSource{mygo.ThemeDark, mygo.ThemeLight} {
-		cmd := exec.Command(os.Args[0], "-test.run=^$")
-		cmd.Env = append(os.Environ(), "MYGO_E2E_THEME_BEFORE_RUN="+string(source))
-		out, err := cmd.CombinedOutput()
-		if want := fmt.Sprint("dark: ", source == mygo.ThemeDark); err != nil || !strings.Contains(string(out), want) {
-			t.Errorf("%s: exit %v, output %q", source, err, out)
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^$")
+		cmd.Env = append(os.Environ(), "MYGO_E2E_BEFORE_RUN="+string(source))
+		b, err := cmd.CombinedOutput()
+		cancel()
+		out := string(b)
+		if err != nil {
+			t.Errorf("%s: %v:\n%s", source, err, out)
+			continue
+		}
+		wants := []string{"locale: true\n", fmt.Sprintf("dark: %v\n", source == mygo.ThemeDark)}
+		for _, c := range beforeRunCalls {
+			wants = append(wants, c.name+": mygo: "+c.name+" called before ")
+		}
+		if runtime.GOOS == "darwin" {
+			wants = append(wants, `dock menu: ["New Window"] clicked`)
+		}
+		for _, want := range wants {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: no %q in the output:\n%s", source, want, out)
+			}
 		}
 	}
 }

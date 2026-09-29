@@ -67,6 +67,7 @@ func (p *PowerModule) event(event string) {
 //
 // The reason shows where the system lists what keeps it awake.
 func (p *PowerModule) KeepAwake(reason string, display bool) (release func()) {
+	needsApp("Power.KeepAwake")
 	var r func()
 	onMain(func() { r = backend().Power().KeepAwake(display, reason) })
 	if r == nil {
@@ -84,6 +85,7 @@ func (p *PowerModule) IsOnBattery() bool {
 // IdleTime returns how long the user has not used the keyboard or mouse,
 // or 0 when the system does not tell (some Linux desktops).
 func (p *PowerModule) IdleTime() time.Duration {
+	needsApp("Power.IdleTime")
 	return onMainValue(func() time.Duration { return backend().Power().IdleTime() })
 }
 
