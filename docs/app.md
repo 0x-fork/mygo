@@ -23,6 +23,13 @@ platform must run on the thread that started the process; MyGo keeps the
 main goroutine on it. Windows exist only once the app is ready: create them
 in `WhenReady`, or from any goroutine after that.
 
+Before `Run`, `main` sets the app up: it binds services, handles protocols,
+adds listeners, and makes settings such as `App.SetName`, `App.SetMenu` and
+`Theme.SetSource`, which take effect when the app starts. Everything else
+that talks to the system, such as the clipboard, displays, dialogs,
+notifications and global shortcuts, needs the running app: use it from
+`WhenReady` on.
+
 ## Threads
 
 Every function and method of MyGo is safe to call from any goroutine: calls

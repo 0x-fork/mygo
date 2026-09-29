@@ -44,6 +44,19 @@ func TestMain(m *testing.M) {
 	}
 	fb = fake.New()
 	backendOnce.Do(func() { theBackend = fb })
+	if os.Getenv("MYGO_TEST_THEME_BEFORE_RUN") == "1" {
+		// Helper process for TestThemeSourceBeforeRun.
+		Theme.SetSource(ThemeDark)
+		App.WhenReady(func() {
+			fmt.Println("dark:", Theme.IsDark())
+			App.Quit()
+		})
+		if err := App.Run(); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	App.SetName("MyGoTest")
 	// Keep running when tests close their windows.
 	App.OnWindowAllClosed(func() {})
@@ -1304,6 +1317,27 @@ func TestModules(t *testing.T) {
 	fb.MessageResult = platform.MessageBoxResult{Response: 1, CheckboxChecked: true}
 	if res, err := Dialog.Message(MessageOptions{Buttons: []string{"OK", "Cancel"}}); err != nil || res.Button != 1 || !res.CheckboxChecked {
 		t.Errorf("Dialog.Message = %+v, %v", res, err)
+	}
+}
+
+// TestThemeSourceBeforeRun: the source set before Run, when the backend
+// cannot take it yet, applies once Run has initialized it, and generate
+// mode, which never initializes it, still writes the client.
+func TestThemeSourceBeforeRun(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), "MYGO_TEST_THEME_BEFORE_RUN=1")
+	if out, err := cmd.CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "dark: true" {
+		t.Errorf("exit: %v, output %q", err, out)
+	}
+
+	client := filepath.Join(t.TempDir(), "mygo.ts")
+	cmd = exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), "MYGO_TEST_THEME_BEFORE_RUN=1", "MYGO_GENERATE="+client)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("generate mode: %v, output %q", err, out)
+	}
+	if _, err := os.Stat(client); err != nil {
+		t.Error(err)
 	}
 }
 

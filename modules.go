@@ -220,16 +220,36 @@ func (t *ThemeModule) Source() ThemeSource {
 	return t.source
 }
 
-// SetSource forces a light or dark appearance, or follows the system.
+// SetSource forces a light or dark appearance, or follows the system. It
+// may be called before App.Run, e.g. with a saved preference, to start the
+// app in that appearance.
 func (t *ThemeModule) SetSource(s ThemeSource) {
+	if s == "" {
+		s = ThemeSystem
+	}
 	t.mu.Lock()
 	t.source = s
 	t.mu.Unlock()
 	onMain(func() {
-		backend().Theme().SetSource(string(s))
+		if !App.initialized {
+			return // Run applies it
+		}
+		t.apply()
 		// Not every backend reports its own change.
 		updateBackgrounds()
 	})
+}
+
+// apply gives the backend the source set last, if any: calls made on
+// several goroutines may reach the main thread in another order. Main
+// thread only.
+func (t *ThemeModule) apply() {
+	t.mu.Lock()
+	s := t.source
+	t.mu.Unlock()
+	if s != "" {
+		backend().Theme().SetSource(string(s))
+	}
 }
 
 // OnUpdated is called when the effective appearance changes.

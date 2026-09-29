@@ -123,6 +123,9 @@ mygo.Theme.OnUpdated(func() { log.Println("dark:", mygo.Theme.IsDark()) })
 mygo.Theme.SetSource(mygo.ThemeDark) // or ThemeLight, or ThemeSystem to follow the system
 ```
 
+`SetSource` may be called before `App.Run`, for example with an appearance
+the user saved in the app's preferences: the app then starts in it.
+
 ## Power
 
 ```go

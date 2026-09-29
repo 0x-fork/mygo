@@ -43,8 +43,9 @@ type Application struct {
 	finished  sync.Once
 
 	// quitting is only touched on the main thread.
-	quitting bool
-	relaunch bool // Relaunch: start again once quit (main thread)
+	quitting    bool
+	relaunch    bool // Relaunch: start again once quit (main thread)
+	initialized bool // Run initialized the backend (main thread)
 
 	// Dock controls the Dock icon on macOS.
 	Dock *Dock
@@ -98,6 +99,9 @@ func (a *Application) Run() error {
 	}); err != nil {
 		return err
 	}
+	a.initialized = true
+	// Settings made before Run, which the backend could not take yet.
+	Theme.apply()
 	quitOnSignals()
 	// Run whatever was scheduled before the event loop existed.
 	b.Signal()

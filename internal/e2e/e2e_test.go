@@ -107,6 +107,10 @@ func TestMain(m *testing.M) {
 		quitDuringDialog()
 		return
 	}
+	if s := os.Getenv("MYGO_E2E_THEME_BEFORE_RUN"); s != "" {
+		themeBeforeRun(mygo.ThemeSource(s))
+		return
+	}
 	mygo.Bind(Greeter{}, probe, streams)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -185,6 +189,34 @@ func TestQuitDuringDialog(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		cmd.Process.Kill()
 		t.Fatalf("the app did not quit while a dialog was open; output %q", out.String())
+	}
+}
+
+// themeBeforeRun is a helper process for TestThemeSourceBeforeRun: it sets
+// the appearance before Run, when the backend is not initialized yet (on
+// Linux, GTK is not even loaded), and reports it once the app is ready.
+func themeBeforeRun(source mygo.ThemeSource) {
+	mygo.Theme.SetSource(source)
+	mygo.App.WhenReady(func() {
+		fmt.Println("dark:", mygo.Theme.IsDark())
+		mygo.App.Quit()
+	})
+	if err := mygo.App.Run(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
+
+// TestThemeSourceBeforeRun: apps apply a saved appearance in main, before
+// Run. Both sources are tried, so one differs from the system's.
+func TestThemeSourceBeforeRun(t *testing.T) {
+	for _, source := range []mygo.ThemeSource{mygo.ThemeDark, mygo.ThemeLight} {
+		cmd := exec.Command(os.Args[0], "-test.run=^$")
+		cmd.Env = append(os.Environ(), "MYGO_E2E_THEME_BEFORE_RUN="+string(source))
+		out, err := cmd.CombinedOutput()
+		if want := fmt.Sprint("dark: ", source == mygo.ThemeDark); err != nil || !strings.Contains(string(out), want) {
+			t.Errorf("%s: exit %v, output %q", source, err, out)
+		}
 	}
 }
 

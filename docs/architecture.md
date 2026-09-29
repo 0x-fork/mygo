@@ -100,7 +100,13 @@ rules are:
 
 1. **The main goroutine is locked to the main thread** (`runtime.LockOSThread`
    in `mygo.go`'s `init`), and `App.Run` must be called from it. `Run`
-   initializes the backend and blocks in the native event loop.
+   initializes the backend and blocks in the native event loop. Before
+   that no backend is initialized (the Linux one has not even loaded GTK),
+   yet `main` already runs on the main thread, where `onMain` calls
+   functions directly: settings apps make in `main` keep their value in the
+   core until the backend can take it (`SetActivationPolicy` through
+   `AppOptions`, `SetMenu` once ready, `Theme.SetSource` right after
+   `Init`); generate mode never initializes it.
 2. **Every `platform` method is called on the main thread, and every handler
    callback runs there.** The backend never needs locks for its own state.
 3. **Every public method is safe from any goroutine.** `loop.go` provides:
