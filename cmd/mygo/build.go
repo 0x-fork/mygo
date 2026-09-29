@@ -70,12 +70,7 @@ and update-<platform>.json: publish them where updates point to.`)
 
 	// The TypeScript client comes first: the frontend build type-checks and
 	// bundles it.
-	host := tempBinary(c.executableName())
-	defer os.Remove(host)
-	if err := buildBinary(c, host, nil); err != nil {
-		return err
-	}
-	if err := generateBindings(c, host); err != nil {
+	if err := writeClient(c); err != nil {
 		return err
 	}
 	if c.BuildCommand != "" && !*skipBuildCommand {

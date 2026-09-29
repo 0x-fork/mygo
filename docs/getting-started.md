@@ -64,9 +64,9 @@ cd my-app
 bun run dev
 ```
 
-`bun run dev` runs `mygo dev`. It starts the Vite dev server, builds a
-development version of the app, which loads its pages from the dev server,
-and starts it:
+`bun run dev` runs `mygo dev`. It writes `src/mygo.ts`, starts the Vite dev
+server, builds a development version of the app, which loads its pages from
+the dev server, and starts it:
 
 - Edit `src/main.ts` or `src/style.css` and Vite updates the page right
   away.

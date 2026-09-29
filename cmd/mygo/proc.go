@@ -96,6 +96,17 @@ func generateBindings(c *Config, binary string) error {
 	return nil
 }
 
+// writeClient builds the app for this computer and writes its TypeScript
+// client.
+func writeClient(c *Config) error {
+	bin := tempBinary(c.executableName())
+	defer os.Remove(bin)
+	if err := buildBinary(c, bin, nil); err != nil {
+		return err
+	}
+	return generateBindings(c, bin)
+}
+
 // waitForURL polls url until it answers. It fails when ctx is done or the
 // server exits first.
 func waitForURL(ctx context.Context, url string, exited <-chan error) error {

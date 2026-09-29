@@ -727,8 +727,9 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   keeps its interfaces in step with the `Config` struct.
 - `generate` builds the app for the host and runs it in generate mode
   (`MYGO_GENERATE`; `RequestSingleInstanceLock` then returns true at once).
-- `dev` (`dev.go`, `watch.go`) runs `devCommand` in the project directory,
-  waits for `devUrl` to answer and runs a development build, pointed at it
+- `dev` (`dev.go`, `watch.go`) writes the client as `generate` does (the
+  frontend imports it), runs `devCommand` in the project directory, waits
+  for `devUrl` to answer and runs a development build, pointed at it
   with `MYGO_DEV_URL` (or at `frontendDist` on disk without `devUrl`). The
   build is packaged like a release: on macOS a bundle named
   "<name> Dev" with identifier "<id>.dev" in `.mygo/dev/<goos>-<goarch>`, so

@@ -21,12 +21,12 @@ import (
 )
 
 func runDev(args []string) error {
-	flags := newFlags("dev", "[flags] [dir]", `Develops the app with live reload. It runs devCommand from mygo.json (such
-as a Vite dev server), waits for devUrl to answer, then builds a development
-app, which loads devUrl in place of its built frontend, and launches it.
-Without devUrl, the app serves frontendDist from disk. On macOS the
-development app is a real bundle, "<name> Dev" with the identifier
-"<identifier>.dev", in .mygo/dev.
+	flags := newFlags("dev", "[flags] [dir]", `Develops the app with live reload. It writes the TypeScript client, runs
+devCommand from mygo.json (such as a Vite dev server), waits for devUrl to
+answer, then builds a development app, which loads devUrl in place of its
+built frontend, and launches it. Without devUrl, the app serves
+frontendDist from disk. On macOS the development app is a real bundle,
+"<name> Dev" with the identifier "<identifier>.dev", in .mygo/dev.
 
 Changes to the Go code, mygo.json or mygo.config.ts, the icon or the
 resources rebuild the app, regenerate the TypeScript client and relaunch
@@ -46,6 +46,10 @@ left to the dev server. Quitting the app ends mygo dev.`)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// The TypeScript client comes first: the frontend imports it.
+	if err := writeClient(c); err != nil {
+		return err
+	}
 	s := &devSession{root: c.root, sign: *sign, env: []string{"MYGO_ENV=development"}}
 	var exited chan error // the dev command's
 	if c.DevCommand != "" && !*skipDevCommand {

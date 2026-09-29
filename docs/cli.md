@@ -61,10 +61,11 @@ TypeScript client. See [the project](getting-started.md#the-project).
 mygo dev [flags] [dir]
 ```
 
-Develops the app with live reload. It runs `devCommand` from the configuration,
-such as a Vite dev server, waits for `devUrl` to answer, then builds a
-development app, which loads `devUrl` in place of its built frontend, and
-starts it. Without `devUrl` the app serves `frontendDist` from disk.
+Develops the app with live reload. It writes the TypeScript client, runs
+`devCommand` from the configuration, such as a Vite dev server, waits for
+`devUrl` to answer, then builds a development app, which loads `devUrl` in
+place of its built frontend, and starts it. Without `devUrl` the app serves
+`frontendDist` from disk.
 
 Changes to the Go code, the configuration, the icon or the resources rebuild the
 app, regenerate the TypeScript client and restart the app. The new build
