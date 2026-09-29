@@ -42,7 +42,8 @@ document.body.textContent = await Greeter.greet("Ada");
 With [Go](https://go.dev/dl/) 1.27+ and [Bun](https://bun.sh):
 
 ```sh
-bunx mygo-cli init my-app
+bunx mygo-cli init my-app      # or: npx mygo-cli init my-app
+                               # or: go run github.com/egoist/mygo/cmd/mygo@latest init my-app
 cd my-app
 bun run dev
 ```
