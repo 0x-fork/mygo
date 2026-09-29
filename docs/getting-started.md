@@ -16,6 +16,12 @@ without installing anything else:
 bunx mygo-cli init my-app      # or: npx mygo-cli init my-app
 ```
 
+The CLI is a Go program, which Go runs too, without installing it:
+
+```sh
+go run github.com/egoist/mygo/cmd/mygo@latest init my-app
+```
+
 You can also install the CLI with Go, which puts `mygo` on your `PATH`:
 
 ```sh
