@@ -36,6 +36,9 @@ window.plugins = { fetch, WebSocket };
 // A request of the page that the page aborted.
 var aborted = make(chan struct{}, 1)
 
+// Requests to /hold that were not canceled within a second.
+var held = make(chan struct{}, 1)
+
 // usePlugins adds the plugins and serves their test page.
 func usePlugins(mux *http.ServeMux) {
 	mygo.Use(fetch.Plugin, websocket.Plugin)
@@ -74,6 +77,13 @@ func pluginServer() *httptest.Server {
 		case <-r.Context().Done():
 			aborted <- struct{}{}
 		case <-time.After(10 * time.Second):
+		}
+	})
+	mux.HandleFunc("/hold", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(time.Second):
+			held <- struct{}{}
 		}
 	})
 	mux.HandleFunc("/ws", wsEcho)
@@ -169,6 +179,22 @@ func TestPlugins(t *testing.T) {
 	case <-aborted:
 	case <-time.After(5 * time.Second):
 		t.Error("the server's request was not canceled")
+	}
+
+	// Aborted right away, before Go even started the request.
+	got, err = mygo.EvalAs[string](w, fmt.Sprintf(`(async () => {
+		const ctrl = new AbortController();
+		const res = plugins.fetch(%q, { signal: ctrl.signal });
+		ctrl.abort();
+		return await res.then(() => "resolved", (e) => e.name);
+	})()`, srv.URL+"/hold"))
+	if err != nil || got != "AbortError" {
+		t.Errorf("fetch aborted at once: %q, %v", got, err)
+	}
+	select {
+	case <-held:
+		t.Error("the request aborted at once ran in Go")
+	case <-time.After(1500 * time.Millisecond):
 	}
 
 	got, err = mygo.EvalAs[string](w, fmt.Sprintf(`new Promise((resolve, reject) => {

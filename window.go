@@ -185,6 +185,9 @@ type Window struct {
 	pageCancel        context.CancelFunc
 	// channels are those of the current page, by the page's id for them.
 	channels map[int64]*channel
+	// closedEarly holds the channels the current page closed before
+	// their calls made them, with the page's token.
+	closedEarly map[int64]string
 
 	outMu    sync.Mutex
 	outbox   []message
@@ -1179,6 +1182,7 @@ func (w *Window) resetPage() {
 	prev := w.pageCancel
 	w.pageCtx, w.pageCancel = ctx, cancel
 	w.channels = nil // they close with the previous page's context
+	w.closedEarly = nil
 	w.mu.Unlock()
 	if prev != nil {
 		prev()
@@ -1576,9 +1580,7 @@ func (w *Window) handleMessage(msg string) {
 			c.ack(m.N)
 		}
 	case "chan-close":
-		if c := w.channel(m.C, m.K); c != nil {
-			c.close(closedByPage)
-		}
+		w.pageClosedChannel(m.C, m.K)
 	}
 }
 

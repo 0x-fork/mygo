@@ -701,6 +701,23 @@ func TestChannels(t *testing.T) {
 		t.Errorf("Send after navigating = %v", err)
 	}
 
+	// The page may close a channel before its call made it, e.g. by
+	// aborting a request right after starting it: the call is canceled
+	// as soon as it starts.
+	page(fw, `{"t":"chan-close","c":11,"k":"tok"}`)
+	page(fw, `{"t":"call","id":6,"k":"tok","m":"Stream.Wait","a":[11]}`)
+	select {
+	case err := <-s.stopped:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("call context of a channel closed early: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a channel the page closed before its call started did not cancel the call")
+	}
+	if err := <-s.sent; !errors.Is(err, ErrChannelClosed) {
+		t.Errorf("Send on a channel closed early = %v", err)
+	}
+
 	m := call(t, fw, 5, "Stream.Count", 1)
 	if m["ok"] != false || !strings.Contains(fmt.Sprint(m["e"]), "not a Channel") {
 		t.Errorf("call without its channel: %v", m)

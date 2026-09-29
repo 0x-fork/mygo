@@ -445,7 +445,10 @@ in `Window.channels`, and closes it when the method returns, before the
 reply is queued, so the page gets the values, the end, then the result.
 The page may close it earlier, which cancels the call's context, a context
 derived from the page's for calls with channels; so does the page going
-away. Values are queued in the window's outbox like replies, so they are
+away. The page may even close it before the call's goroutine made it
+(aborting a request right after starting it): the window remembers such
+closes (`closedEarly`, bounded, reset with the page) and the call closes
+the channel as soon as it makes it. Values are queued in the window's outbox like replies, so they are
 batched and stay in order with them.
 
 Flow control keeps a producer faster than the page from piling up

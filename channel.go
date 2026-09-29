@@ -168,17 +168,52 @@ func (w *Window) newChannel(page, ctx context.Context, cancel context.CancelFunc
 	c.head = append(head, `,"p":`...)
 
 	w.mu.Lock()
+	early := false
 	if w.pageCtx == page {
 		if w.channels == nil {
 			w.channels = map[int64]*channel{}
 		}
 		w.channels[id] = c
+		if tok, ok := w.closedEarly[id]; ok && tok == token {
+			delete(w.closedEarly, id)
+			early = true
+		}
 	} else {
 		c.closed = true
 	}
 	w.mu.Unlock()
 	c.stop = context.AfterFunc(ctx, func() { c.close(closedByLoss) })
+	if early {
+		c.close(closedByPage)
+	}
 	return c
+}
+
+// maxClosedEarly bounds the channels a page may close before their calls
+// made them.
+const maxClosedEarly = 1024
+
+// pageClosedChannel closes the channel id that the page with token closed.
+// Calls make their channels on goroutines of their own, so the page may
+// close one before its call made it, e.g. by aborting a request right
+// after starting it: the call then closes it as soon as it makes it.
+func (w *Window) pageClosedChannel(id int64, token string) {
+	w.mu.Lock()
+	c := w.channels[id]
+	if c == nil {
+		if len(w.closedEarly) < maxClosedEarly {
+			if w.closedEarly == nil {
+				w.closedEarly = map[int64]string{}
+			}
+			w.closedEarly[id] = token
+		}
+		w.mu.Unlock()
+		return
+	}
+	w.mu.Unlock()
+	if c.token == token {
+		c.close(closedByPage)
+	}
 }
 
 // channel returns the channel id of the current page, if token is the
