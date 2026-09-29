@@ -12,7 +12,7 @@ func (pluginService) Ping(s string) string { return "pong " + s }
 
 func TestUse(t *testing.T) {
 	setups := 0
-	Use(Plugin{Name: "test-ping", Service: pluginService{}, Setup: func() error { setups++; return nil }})
+	useForTest(t, Plugin{Name: "test-ping", Service: pluginService{}, Setup: func() error { setups++; return nil }})
 	if setups != 1 {
 		t.Errorf("Setup ran %d times", setups)
 	}
@@ -49,7 +49,7 @@ func TestUse(t *testing.T) {
 					t.Errorf("%s: Use did not panic", name)
 				}
 			}()
-			Use(p)
+			useForTest(t, p)
 		}()
 	}
 }

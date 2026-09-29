@@ -339,9 +339,16 @@ func TestPopupMenu(t *testing.T) {
 	}
 }
 
-var earlyWindow = make(chan *mygo.Window, 1)
+var (
+	earlyWindow  = make(chan *mygo.Window, 1)
+	earlyChecked atomic.Bool
+)
 
 func TestEarlyWindow(t *testing.T) {
+	// The window is requested once per process, before Run.
+	if earlyChecked.Swap(true) {
+		t.Skip("the window requested before Run was checked in the first run")
+	}
 	select {
 	case w := <-earlyWindow:
 		defer w.Destroy()
@@ -648,7 +655,12 @@ func eventually(t *testing.T, what string, cond func() bool) {
 	}
 }
 
+// windowStateRuns numbers the runs of TestWindowState: the state file is
+// loaded once per process, so each run uses keys of its own.
+var windowStateRuns atomic.Int32
+
 func TestWindowState(t *testing.T) {
+	run := strconv.Itoa(int(windowStateRuns.Add(1)))
 	mygo.App.SetPath(mygo.PathUserData, t.TempDir())
 	defer mygo.App.SetPath(mygo.PathUserData, "")
 	closeWindow := func(w *mygo.Window) {
@@ -658,11 +670,11 @@ func TestWindowState(t *testing.T) {
 		<-closed
 	}
 
-	w := mygo.NewWindow(mygo.WindowOptions{StateKey: "e2e", X: 140, Y: 160, Width: 480, Height: 360})
+	w := mygo.NewWindow(mygo.WindowOptions{StateKey: "e2e-" + run, X: 140, Y: 160, Width: 480, Height: 360})
 	want := mygo.Rectangle{X: 170, Y: 180, Width: 520, Height: 380}
 	w.SetBounds(want)
 	closeWindow(w)
-	w = newWindow(t, mygo.WindowOptions{StateKey: "e2e", Width: 300, Height: 200})
+	w = newWindow(t, mygo.WindowOptions{StateKey: "e2e-" + run, Width: 300, Height: 200})
 	if b := w.Bounds(); b != want {
 		t.Errorf("restored bounds = %+v, want %+v", b, want)
 	}
@@ -670,10 +682,10 @@ func TestWindowState(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		t.Skip("maximizing needs a window manager, which Xvfb lacks")
 	}
-	w = mygo.NewWindow(mygo.WindowOptions{StateKey: "e2e-max", Maximized: true, Width: 500, Height: 400})
+	w = mygo.NewWindow(mygo.WindowOptions{StateKey: "e2e-max-" + run, Maximized: true, Width: 500, Height: 400})
 	eventually(t, "a maximized window", w.IsMaximized)
 	closeWindow(w)
-	w = newWindow(t, mygo.WindowOptions{StateKey: "e2e-max"})
+	w = newWindow(t, mygo.WindowOptions{StateKey: "e2e-max-" + run})
 	eventually(t, "a restored maximized window", w.IsMaximized)
 	w.Unmaximize()
 	eventually(t, "the normal size", func() bool {

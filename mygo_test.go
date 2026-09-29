@@ -382,7 +382,7 @@ func (s *testService) Optional(a string, b *int) string { return fmt.Sprintf("%s
 
 func TestCalls(t *testing.T) {
 	svc := &testService{}
-	BindAs("Svc", svc)
+	bindForTest(t, "Svc", svc)
 	w, fw := testWindow(t, WindowOptions{})
 
 	tests := []struct {
@@ -429,7 +429,7 @@ func TestCalls(t *testing.T) {
 }
 
 func TestUntrustedOriginsCannotCall(t *testing.T) {
-	BindAs("Trust", &testService{})
+	bindForTest(t, "Trust", &testService{})
 	if err := Protocol.Handle("trusted", http.NotFoundHandler()); err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +461,7 @@ func TestUntrustedOriginsCannotCall(t *testing.T) {
 // origin posting directly) must not run anything.
 func TestMessagesNeedTheSecret(t *testing.T) {
 	svc := &testService{}
-	BindAs("Secret", svc)
+	bindForTest(t, "Secret", svc)
 	_, fw := readyWindow(t, WindowOptions{})
 	forged := `{"t":"call","id":1,"k":"tok","m":"Secret.Hello","a":["x"]}`
 	onMain(func() { fw.H.Message(forged) })
@@ -514,7 +514,7 @@ func TestBindErrors(t *testing.T) {
 	mustPanic("no methods", func() { Bind(emptyService{}) })
 	mustPanic("nil", func() { Bind(nil) })
 	mustPanic("bad name", func() { BindAs("not valid", &testService{}) })
-	BindAs("Dup", &testService{})
+	bindForTest(t, "Dup", &testService{})
 	mustPanic("duplicate", func() { BindAs("Dup", &testService{}) })
 }
 
@@ -538,7 +538,7 @@ type progress struct {
 }
 
 func TestEvents(t *testing.T) {
-	ev := NewEvent[progress]("test:progress")
+	ev := newEventForTest[progress](t, "test:progress")
 	w, fw := readyWindow(t, WindowOptions{})
 	if err := ev.Emit(w, progress{1, 3}); err != nil {
 		t.Fatal(err)
@@ -616,7 +616,7 @@ func pageMessages(t *testing.T, fw *fake.Window) []map[string]any {
 
 func TestChannels(t *testing.T) {
 	s := &streamer{sent: make(chan error, 16), stopped: make(chan error, 1)}
-	BindAs("Stream", s)
+	bindForTest(t, "Stream", s)
 	_, fw := testWindow(t, WindowOptions{})
 
 	// Values arrive in order, then the end, then the reply.
@@ -746,7 +746,7 @@ func TestChannelsAreParameters(t *testing.T) {
 }
 
 func TestMessagesAreBatched(t *testing.T) {
-	ev := NewEvent[int]("test:batch")
+	ev := newEventForTest[int](t, "test:batch")
 	w, fw := readyWindow(t, WindowOptions{})
 	onMain(func() {
 		for i := range 5 {
@@ -766,7 +766,7 @@ func TestMessagesAreBatched(t *testing.T) {
 }
 
 func TestEventsWaitForDOMReady(t *testing.T) {
-	ev := NewEvent[string]("test:early")
+	ev := newEventForTest[string](t, "test:early")
 	w, fw := testWindow(t, WindowOptions{})
 	if err := ev.Emit(w, "first"); err != nil {
 		t.Fatal(err)
