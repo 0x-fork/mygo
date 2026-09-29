@@ -20,7 +20,13 @@ Outside a project, run `bunx mygo-cli` or `npx mygo-cli`, e.g.
 mygo-cli` puts `mygo` on your `PATH`. `MYGO_CLI_BINARY` makes the package
 run another build of the CLI.
 
-The CLI is a Go program, which Go installs too:
+The CLI is a Go program, which Go runs too, without installing it:
+
+```sh
+go run github.com/egoist/mygo/cmd/mygo@latest init my-app
+```
+
+`go install` puts `mygo` on your `PATH`:
 
 ```sh
 go install github.com/egoist/mygo/cmd/mygo@latest
