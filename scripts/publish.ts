@@ -1,4 +1,5 @@
-// Publishes the npm packages of a release: mygo-runtime, the platform
+// Publishes the npm packages of a release: mygo-runtime, the official
+// plugins' packages (@mygo-plugins/*), the platform
 // packages of mygo-cli with freshly built binaries, then mygo-cli, which
 // depends on them, once npm serves them. Versions already on npm are
 // skipped, so a release that failed halfway can run again, and prereleases
@@ -8,12 +9,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, dir as cliDir, platformDir } from "../packages/cli/build.ts";
 import { platforms } from "../packages/cli/index.js";
+import { pluginPackages } from "./version.ts";
 
 const root = join(import.meta.dir, "..");
 const flags = process.argv.slice(2);
 
 await build();
-const first = [join(root, "packages", "runtime"), ...platforms.map(platformDir)];
+const first = [join(root, "packages", "runtime"), ...pluginPackages.map((p) => join(root, p)), ...platforms.map(platformDir)];
 for (const pkg of first) await publish(pkg);
 // npm can take minutes to serve new packages, and a package manager
 // installs mygo-cli without the platform packages it cannot fetch: bun then

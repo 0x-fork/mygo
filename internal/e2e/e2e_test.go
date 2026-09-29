@@ -126,6 +126,7 @@ func TestMain(m *testing.M) {
 		b, _ := io.ReadAll(r.Body)
 		fmt.Fprintf(w, "echo:%s", b)
 	})
+	usePlugins(mux)
 	if err := mygo.Protocol.Handle("app", mux); err != nil {
 		panic(err)
 	}

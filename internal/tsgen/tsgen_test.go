@@ -122,6 +122,9 @@ func TestGeneratedCodeTypeChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(runtimePkg, "dist", "index.d.ts")); err != nil {
+		t.Skip("mygo-runtime not built; run bun run build")
+	}
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "node_modules"), 0o755); err != nil {
 		t.Fatal(err)

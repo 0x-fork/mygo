@@ -5,11 +5,12 @@
   "workspaces": [
     "packages/*",
     "packages/cli/npm/*",
+    "plugins/*",
     "examples/*"
   ],
   "scripts": {
-    "build": "bun run --filter './packages/*' build",
-    "test": "bun test packages",
+    "build": "bun run --filter './packages/*' --filter './plugins/*' build",
+    "test": "bun test packages plugins",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

@@ -1,16 +1,17 @@
-// Builds dist/ of the mygo-runtime package: an ES module and its type
-// declarations. dist/ is not committed: `bun run build` at the root builds
-// it, as CI and releases do.
+// Builds dist/ of the plugin package in the working directory: an ES
+// module, which imports mygo-runtime, and its type declarations. dist/ is
+// not committed, like mygo-runtime's.
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 
-const dir = import.meta.dir;
+const dir = process.cwd();
 await rm(join(dir, "dist"), { recursive: true, force: true });
 const result = await Bun.build({
   entrypoints: [join(dir, "src/index.ts")],
   outdir: join(dir, "dist"),
   format: "esm",
   target: "browser",
+  external: ["mygo-runtime"],
 });
 if (!result.success) {
   for (const log of result.logs) console.error(log);

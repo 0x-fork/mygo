@@ -35,6 +35,7 @@ before changing anything under `internal/`.
 ├── app.go              lifecycle, quit sequence, Dock, paths (paths.go)
 ├── window.go           Window: native window + its page, events, Eval
 ├── ipc.go              Bind/BindAs, method calls, Event[T], CallerWindow
+├── plugin.go           Plugin and Use: services bound as "plugin:<name>"
 ├── channel.go          Channel[T]: values streamed to a call's page
 ├── typescript.go       GenerateTypeScript / WriteTypeScript (uses internal/tsgen)
 ├── protocol.go         custom schemes served by http.Handler, FileServer
@@ -62,6 +63,9 @@ before changing anything under `internal/`.
 │   ├── runtime/        mygo-runtime, the npm package apps and generated clients import
 │   └── cli/            mygo-cli, the npm package of the CLI, and in npm/ its
 │                       per-platform binary packages
+├── plugins/            official plugins, each a Go package and its npm
+│                       package (@mygo-plugins/<name>) side by side: fetch,
+│                       websocket
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native, vibrancy
 └── docs/               the user guides, and this architecture guide
@@ -341,10 +345,10 @@ Apps reach the injected runtime through the `mygo-runtime` npm package:
 MyGo window) and the public types (`Runtime`, `WindowControls`, `Platform`),
 which the bridge shares. It holds no transport of its own: it delegates to
 `window.mygo`, so the injected script stays the single implementation of the
-protocol. Its `dist/` is committed so the workspace and local projects
-(`mygo init --mygo <checkout>` depends on it with `file:`) need no build; the
-template depends on `^<version>` from npm, released in step with the Go
-module.
+protocol. Its `dist/` is not committed: `bun run build` builds it, as CI
+and releases do, and must have run in a checkout that `mygo init --mygo
+<checkout>` depends on with `file:`. The template depends on `^<version>`
+from npm, released in step with the Go module.
 
 ### The `mygo-cli` package (`packages/cli`)
 
@@ -477,6 +481,33 @@ the bridge's closure in its configuration, which prefixes every message;
 `handleMessage` drops messages without it. macOS additionally only accepts
 messages from the main frame (`WKScriptMessage.frameInfo.isMainFrame`);
 WebKitGTK exposes no frame information, so Linux relies on the secret.
+
+### Plugins
+
+`Use` binds a plugin's service as an internal service named
+`plugin:<name>`: calls reach it like any bound method (trust checks,
+contexts, channels), but `GenerateTypeScript` skips it, since the plugin's
+own npm package is its client. A call to a plugin that is not used fails
+with an error naming `mygo.Use`. The official plugins in `plugins/` keep
+each Go package next to its npm package, built into `dist/` by `bun run
+build` like mygo-runtime and released with the same version.
+
+- **fetch** streams a response through a `Channel`: the head first (status,
+  headers, final URL), then base64 chunks of the body as Go reads them. The
+  JavaScript side builds a `Response` around a pull-based `ReadableStream`
+  over the channel's iterator, so the page's reading paces Go through the
+  channel's flow control. Aborting, canceling the body or the page going
+  away closes the channel, which cancels the request's context. Request
+  headers go through a plain `Headers`, which, unlike a `Request`'s, drops
+  no forbidden names.
+- **websocket** is an RFC 6455 client of its own (no dependency) on top of
+  `net/http`, which keeps upgrade requests on HTTP/1.1 and hands the
+  connection over as the body of the 101 response, so proxies and the
+  client's TLS settings apply. `Connect` streams the connection's events
+  through a channel for as long as it lasts; the page sends with `Send`
+  calls numbered in order, since calls run on goroutines of their own and
+  would otherwise race, and Go writes them in that order. Connections are
+  keyed by window and a random id the page chooses.
 
 ## Typed client generation (`internal/tsgen`)
 
@@ -809,7 +840,8 @@ profile).
 | core | `go test .` | lifecycle, quit, IPC, channels, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance and its dev handover, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
 | CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, resources (platform directories, universal pairs, staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
-| runtime | `bun run test` | the injected runtime and `mygo-runtime` |
+| runtime | `bun run test` | the injected runtime, `mygo-runtime` and the plugins' packages (against a fake Go side on the real runtime, `plugins/fake-go.ts`) |
+| plugins | `go test ./plugins/...` | the fetch plugin against `httptest` servers, the WebSocket client against a test server (ordering, fragments, pings, closing handshakes) |
 | GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, channels, protocol, Eval, geometry, capture, menus, window.open; on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
 
 The XDG variables let the URL scheme test check that GLib opens the scheme
@@ -893,8 +925,7 @@ which npm allows only for packages that exist: the first release uses an
    container.
 6. **If the page runtime changes**, edit `packages/bridge` or
    `packages/runtime`, run `bun run test`, `bun run typecheck` and
-   `bun run build`, and commit `internal/bridge/bridge.js` and
-   `packages/runtime/dist`. If the generated client changes, update
+   `bun run build`, and commit `internal/bridge/bridge.js`. If the generated client changes, update
    `internal/tsgen/generate.go` and its tests.
 7. **Document** the behavior in the Go doc comments and platform
    differences in the README.

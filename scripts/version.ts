@@ -16,9 +16,13 @@ const goFiles = [
   { path: "cmd/mygo/main.go", pattern: /^const version = "([^"]*)"$/m, decl: "const version" },
 ];
 
+/** The official plugins' JavaScript packages, whose peer mygo-runtime is. */
+export const pluginPackages = ["plugins/fetch", "plugins/websocket"];
+
 /** package.json files of the npm packages. */
 const packages = [
   "packages/runtime",
+  ...pluginPackages,
   "packages/cli",
   ...platforms.map((p) => platformDir(p).slice(root.length + 1)),
 ];
@@ -34,30 +38,41 @@ async function versions(): Promise<Map<string, string>> {
     for (const [name, v] of Object.entries<string>(pkg.optionalDependencies ?? {})) {
       found.set(`${dir}/package.json: ${name}`, v);
     }
+    for (const deps of ["peerDependencies", "devDependencies"]) {
+      const runtime = pkg[deps]?.["mygo-runtime"];
+      if (runtime) found.set(`${dir}/package.json: ${deps} mygo-runtime`, runtime.replace(/^\^/, ""));
+    }
   }
   return found;
 }
 
-const args = process.argv.slice(2);
-if (args[0] === "--check" && args[1]) {
-  const want = args[1].replace(/^v/, "");
-  const wrong = [...(await versions())].filter(([, v]) => v !== want);
-  for (const [where, v] of wrong) console.error(`${where} has ${v}, not ${want}`);
-  if (wrong.length > 0) process.exit(1);
-  console.log(`everything is at ${want}`);
-} else if (args.length === 1 && /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(args[0]!)) {
-  const v = args[0]!;
-  for (const { path, pattern, decl } of goFiles) {
-    const file = join(root, path);
-    await writeFile(file, (await readFile(file, "utf8")).replace(pattern, `${decl} = "${v}"`));
+if (import.meta.main) {
+  const args = process.argv.slice(2);
+  if (args[0] === "--check" && args[1]) {
+    const want = args[1].replace(/^v/, "");
+    const wrong = [...(await versions())].filter(([, v]) => v !== want);
+    for (const [where, v] of wrong) console.error(`${where} has ${v}, not ${want}`);
+    if (wrong.length > 0) process.exit(1);
+    console.log(`everything is at ${want}`);
+  } else if (args.length === 1 && /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(args[0]!)) {
+    const v = args[0]!;
+    for (const { path, pattern, decl } of goFiles) {
+      const file = join(root, path);
+      await writeFile(file, (await readFile(file, "utf8")).replace(pattern, `${decl} = "${v}"`));
+    }
+    for (const dir of ["packages/runtime", ...pluginPackages]) {
+      const file = join(root, dir, "package.json");
+      const pkg = JSON.parse(await readFile(file, "utf8"));
+      pkg.version = v;
+      for (const deps of [pkg.peerDependencies, pkg.devDependencies]) {
+        if (deps?.["mygo-runtime"]) deps["mygo-runtime"] = `^${v}`;
+      }
+      await writeFile(file, JSON.stringify(pkg, null, 2) + "\n");
+    }
+    await writeManifests(v);
+    console.log(`set the version to ${v}: commit, then push the tag v${v} to release`);
+  } else {
+    console.error("usage: bun scripts/version.ts <version> | --check <tag>");
+    process.exit(2);
   }
-  const runtime = join(root, "packages/runtime/package.json");
-  const pkg = JSON.parse(await readFile(runtime, "utf8"));
-  pkg.version = v;
-  await writeFile(runtime, JSON.stringify(pkg, null, 2) + "\n");
-  await writeManifests(v);
-  console.log(`set the version to ${v}: commit, then push the tag v${v} to release`);
-} else {
-  console.error("usage: bun scripts/version.ts <version> | --check <tag>");
-  process.exit(2);
 }

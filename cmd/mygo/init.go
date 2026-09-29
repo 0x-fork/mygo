@@ -74,7 +74,11 @@ func runInit(args []string) error {
 		if err != nil {
 			return err
 		}
-		data.Runtime = "file:" + filepath.Join(checkout, "packages", "runtime")
+		runtime := filepath.Join(checkout, "packages", "runtime")
+		if _, err := os.Stat(filepath.Join(runtime, "dist", "index.js")); err != nil {
+			return fmt.Errorf("the packages of %s are not built: run bun install && bun run build there first", checkout)
+		}
+		data.Runtime = "file:" + runtime
 		data.CLI, data.Mygo = "", "go run github.com/egoist/mygo/cmd/mygo"
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err

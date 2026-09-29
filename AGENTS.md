@@ -14,7 +14,7 @@ wire protocol, TypeScript generation, and the checklist for adding features.
   (`internal/windows`), never `import "C"`.
 - **Bun is dev tooling only.** The repository is a Bun workspace
   (`packages/bridge`, `packages/runtime`, `packages/cli` with its platform
-  packages, and examples with a frontend, which keep it at their root like
+  packages, the plugins' packages in `plugins/`, and examples with a frontend, which keep it at their root like
   the project template); Bun also installs and runs the template's scripts
   (Vite, the mygo-cli package). Nothing in an app may need Bun at run time.
 - **Scope:** system webview on macOS, Linux and Windows (WebView2). The
@@ -37,7 +37,7 @@ go vet ./... && GOOS=linux go vet ./... && GOOS=windows go vet ./...
 go test ./...                              # core (fake backend), tsgen, CLI, accelerator
 MYGO_E2E=1 go test ./internal/e2e          # real GUI tests (macOS desktop session)
 bun install && bun run test && bun run typecheck   # the workspace, from the root
-bun run build                              # rebuild internal/bridge/bridge.js and packages/runtime/dist
+bun run build                              # build internal/bridge/bridge.js and the npm packages' dist/
 bun run --cwd packages/cli binaries        # cross-compile the CLI into the mygo-cli platform packages
 go run ./cmd/mygo generate examples/todo   # regenerate an example's TypeScript client
 go run ./cmd/mygo dev examples/todo        # live reload (dev bundle in examples/todo/.mygo)
@@ -55,8 +55,12 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   `darwin`, `linux`, `windows`, `fake` and `unsupported`.
 - Objective-C: `alloc`/`init` objects are owned and must be released; wrap
   temporary objects in `withPool`; copy blocks you call later.
-- Commit `internal/bridge/bridge.js` and `packages/runtime/dist` whenever
-  their sources change, and keep the generated clients of examples
+- Official plugins live in `plugins/<name>`: the Go package and its npm
+  package (`@mygo-plugins/<name>`) side by side, released with
+  mygo-runtime's version.
+- The `dist/` of npm packages is not committed: run `bun run build` after
+  `bun install` (CI and releases do). Commit `internal/bridge/bridge.js`
+  whenever its sources change, and keep the generated clients of examples
   (`examples/*/src/mygo.ts`) up to date. Built frontends are not
   committed: `mygo build` embeds them.
 - `mygo-runtime` (`packages/runtime`) and `mygo-cli` (`packages/cli`, with

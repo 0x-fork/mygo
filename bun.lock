@@ -65,6 +65,26 @@
       "name": "mygo-runtime",
       "version": "0.1.7",
     },
+    "plugins/fetch": {
+      "name": "@mygo-plugins/fetch",
+      "version": "0.1.7",
+      "devDependencies": {
+        "mygo-runtime": "^0.1.7",
+      },
+      "peerDependencies": {
+        "mygo-runtime": "^0.1.7",
+      },
+    },
+    "plugins/websocket": {
+      "name": "@mygo-plugins/websocket",
+      "version": "0.1.7",
+      "devDependencies": {
+        "mygo-runtime": "^0.1.7",
+      },
+      "peerDependencies": {
+        "mygo-runtime": "^0.1.7",
+      },
+    },
   },
   "packages": {
     "@egoist/mygo-cli-darwin-arm64": ["@egoist/mygo-cli-darwin-arm64@workspace:packages/cli/npm/darwin-arm64"],
@@ -78,6 +98,10 @@
     "@egoist/mygo-cli-win32-arm64": ["@egoist/mygo-cli-win32-arm64@workspace:packages/cli/npm/win32-arm64"],
 
     "@egoist/mygo-cli-win32-x64": ["@egoist/mygo-cli-win32-x64@workspace:packages/cli/npm/win32-x64"],
+
+    "@mygo-plugins/fetch": ["@mygo-plugins/fetch@workspace:plugins/fetch"],
+
+    "@mygo-plugins/websocket": ["@mygo-plugins/websocket@workspace:plugins/websocket"],
 
     "@oxc-project/types": ["@oxc-project/types@0.151.0", "", {}, "sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA=="],
 

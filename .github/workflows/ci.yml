@@ -45,6 +45,8 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install nsis -y --no-progress
       - run: bun install --frozen-lockfile
+      - name: Build the JavaScript packages
+        run: bun run build
       - name: Build and vet every platform
         if: runner.os == 'Linux'
         run: |

@@ -348,7 +348,7 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 	if !trusted {
 		err = fmt.Errorf("this page is not allowed to call Go methods (see WindowOptions.TrustedOrigins)")
 	} else if mi := lookupMethod(m.M); mi == nil {
-		err = fmt.Errorf("method %s is not bound", m.M)
+		err = notBound(m.M)
 	} else {
 		result, err = mi.call(w, ctx, m.K, m.A)
 	}

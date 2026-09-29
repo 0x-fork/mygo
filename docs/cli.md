@@ -53,7 +53,7 @@ TypeScript client. See [the project](getting-started.md#the-project).
 |---|---|
 | `-name` | the app's name (default: the directory's name) |
 | `-module` | the Go module path (default: the directory's name) |
-| `-mygo` | a checkout of MyGo to use, through a `replace` directive, instead of the released module; the scripts then run the checkout's CLI with `go run` |
+| `-mygo` | a checkout of MyGo to use, through a `replace` directive, instead of the released module; the scripts then run the checkout's CLI with `go run`; run `bun install && bun run build` in the checkout first |
 
 ## mygo dev
 

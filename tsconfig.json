@@ -27,6 +27,6 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["packages", "scripts"],
+  "include": ["packages", "plugins", "scripts"],
   "exclude": ["**/dist", "**/node_modules"]
 }

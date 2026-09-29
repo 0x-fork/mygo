@@ -36,6 +36,8 @@ document.body.textContent = await Greeter.greet("Ada");
   develop and build an app.
 - [Calling Go from the frontend](bindings.md): bound services, channels,
   typed events and the generated TypeScript client.
+- [Plugins](plugins.md): the official fetch and WebSocket plugins, which
+  run in Go, and writing your own.
 - [The frontend](frontend.md): how pages load during development and in
   builds, the `mygo-runtime` package, custom protocols, custom title bars
   and dropped files.
