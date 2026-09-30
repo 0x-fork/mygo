@@ -1,6 +1,6 @@
 {
   "name": "@mygo-plugins/websocket",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "A WebSocket whose connections Go makes, for MyGo desktop apps",
   "keywords": [
     "mygo",
@@ -33,9 +33,9 @@
     "test": "bun test"
   },
   "peerDependencies": {
-    "mygo-runtime": "^0.1.16"
+    "mygo-runtime": "^0.1.17"
   },
   "devDependencies": {
-    "mygo-runtime": "^0.1.16"
+    "mygo-runtime": "^0.1.17"
   }
 }
