@@ -136,7 +136,7 @@ machine's platform in `build/<os>-<arch>/`:
 |---|---|
 | macOS | `My App.app`, and a disk image `My App 0.1.0.dmg` |
 | Windows | `My App.exe`, and an installer `My App Setup 0.1.0.exe` |
-| Linux | the executable `my-app` with its desktop entry and icon, and a `.deb` package when `linux.maintainer` is set in mygo.config.ts |
+| Linux | the executable `my-app` with its desktop entry and icon, their archive with `install.sh`, which installs it for the user, and a `.deb` package when `linux.maintainer` is set in mygo.config.ts |
 
 MyGo needs no cgo, so any machine builds for every platform:
 

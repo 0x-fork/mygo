@@ -24,7 +24,9 @@ func runBuild(args []string) error {
 mygo.json, then compiles the app with the frontendDist files embedded, served
 at mygo://localhost/. macOS gets a signed .app bundle and a
 "<name> <version>.dmg" disk image whose window invites dragging the app to
-Applications; other platforms get an executable. The contents of the
+Applications; other platforms get an executable. Linux also gets the app
+as <name>-<version>-linux-<arch>.tar.gz, and install.sh, which installs it
+for the user in ~/.local, where it can update itself. The contents of the
 resources directory and the resources listed in mygo.json are copied into
 the bundle's Contents/Resources, or next to the executable, and the programs
 among them are signed with the app. Directories of resources named after a
@@ -290,12 +292,17 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		}
 		artifacts = append(artifacts, deb)
 	}
-	if c.Updates != nil {
-		files, err := writeUpdate(c, stage, target, installed)
+	files, err := writeArchive(c, stage, target, installed)
+	if err != nil {
+		return nil, err
+	}
+	artifacts = append(artifacts, files...)
+	if goos == "linux" {
+		script, err := writeInstallScript(c, stage)
 		if err != nil {
 			return nil, err
 		}
-		artifacts = append(artifacts, files...)
+		artifacts = append(artifacts, script)
 	}
 
 	final := filepath.Join(out, target)
@@ -409,8 +416,10 @@ func formatSize(n int64) string {
 	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
 }
 
-// writeLinuxDesktop writes a .desktop entry, and the icon, for the binary
-// name in dir and returns the files written.
+// writeLinuxDesktop writes a .desktop entry, the icon and the MIME package
+// of the file types the app defines, for the binary name in dir, and
+// returns the files written. install.sh registers them, and updates
+// register them again.
 func writeLinuxDesktop(c *Config, dir, name string) ([]string, error) {
 	var files []string
 	icon := ""
@@ -422,6 +431,13 @@ func writeLinuxDesktop(c *Config, dir, name string) ([]string, error) {
 		icon = name
 		path := filepath.Join(dir, icon+".png")
 		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return nil, err
+		}
+		files = append(files, path)
+	}
+	if xml := mimePackage(c); xml != "" {
+		path := filepath.Join(dir, name+".xml")
+		if err := os.WriteFile(path, []byte(xml), 0o644); err != nil {
 			return nil, err
 		}
 		files = append(files, path)

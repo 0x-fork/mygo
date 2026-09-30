@@ -312,7 +312,7 @@ func TestWriteDeltas(t *testing.T) {
 		mu.Lock()
 		requests = nil
 		mu.Unlock()
-		written, err := writeUpdate(c, stage, "linux-amd64", entries)
+		written, err := writeArchive(c, stage, "linux-amd64", entries)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -389,6 +389,12 @@ func TestPublishGitHub(t *testing.T) {
 	}
 	os.Mkdir(filepath.Join(dist, "App.app"), 0o755)
 	artifacts = append(artifacts, filepath.Join(dist, "App.app"))
+	for _, target := range []string{"linux-amd64", "linux-arm64"} {
+		p := filepath.Join(dist, target, "install.sh")
+		os.Mkdir(filepath.Dir(p), 0o755)
+		os.WriteFile(p, nil, 0o755)
+		artifacts = append(artifacts, p)
+	}
 	c := &Config{root: t.TempDir(), Version: "1.2.0", Updates: &Updates{GitHub: "me/app", TagPrefix: "v"}}
 	if err := publishGitHub(c, artifacts); err != nil {
 		t.Fatal(err)
@@ -398,7 +404,7 @@ func TestPublishGitHub(t *testing.T) {
 	if len(lines) != 4 || !strings.HasPrefix(lines[1], "release create v1.2.0 --repo me/app --draft") {
 		t.Fatalf("gh calls:\n%s", b)
 	}
-	if !strings.Contains(lines[2], "App 1.2.0.dmg") || !strings.Contains(lines[2], "App Setup 1.2.0.exe") || !strings.Contains(lines[2], ".delta") || strings.Contains(lines[2], "App.exe ") || strings.Contains(lines[2], "update-") {
+	if !strings.Contains(lines[2], "App 1.2.0.dmg") || !strings.Contains(lines[2], "App Setup 1.2.0.exe") || !strings.Contains(lines[2], ".delta") || strings.Count(lines[2], "install.sh") != 1 || strings.Contains(lines[2], "App.exe ") || strings.Contains(lines[2], "update-") {
 		t.Errorf("first upload: %s", lines[2])
 	}
 	if !strings.HasSuffix(lines[3], "update-darwin-arm64.json") {

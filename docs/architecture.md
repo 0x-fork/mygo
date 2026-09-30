@@ -726,7 +726,8 @@ as in Tauri:
   into the app, and when the private key is available
   (`MYGO_UPDATER_PRIVATE_KEY` or `updates.privateKey`) archives the app as
   installed (the bundle, else everything next to the executable) into
-  `<name>-<version>-<target>.tar.gz`, signs its SHA-256, and writes
+  `<name>-<version>-<target>.tar.gz` (Linux builds always get it, for
+  `install.sh`), signs its SHA-256, and writes
   `update-<target>.json` with the `## <version>` section of CHANGELOG.md as
   notes. `Updater.Check` fetches the manifest (HTTPS only, loopback HTTP for
   tests) and compares versions semantically; `Update.Install` streams the
@@ -931,7 +932,21 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   depending on GTK 3 and WebKitGTK 4.1. Packages hold the same files as
   the update archive; apps installed by a package manager do not update
   themselves (`Updater.Enabled` checks that the app can write where it is
-  installed).
+  installed). Every Linux build also gets `install.sh`
+  (`installscript.go`), a POSIX sh script, the same for every
+  architecture, that installs the archive for the user in
+  `~/.local/<name>.app` (which updates can replace), links
+  `~/.local/bin/<name>`, and registers the app's `<name>.desktop`, with
+  absolute `Exec` and `Icon` paths, and `<name>.xml`, the shared-mime-info
+  package of the types it defines, under `$XDG_DATA_HOME`.
+  `Update.Install` registers them again from the new version
+  (`update.RefreshDesktopEntry`, the same rewrite in Go, which a test
+  compares with the script's) when the user's entry runs the app it
+  updated. It takes the archive it is given, else the one of its
+  version next to it, else, with updates, the `url` of the target's
+  manifest, read with sed from the indented JSON `mygo build` writes.
+  `--uninstall` removes only what points into its install, including the
+  URL handler entry the app registers.
 - On a macOS host, macOS targets also get "<name> <version>.dmg"
   (`dmg.go`): `hdiutil` creates a writable HFS+ image from the app, the CLI
   adds the `/Applications` link, the volume icon and a `.DS_Store` written in

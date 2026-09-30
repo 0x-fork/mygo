@@ -65,7 +65,9 @@ Next to the installers of each platform it writes:
   notes, the date, and the URL, size and signature of the archive and of
   each delta.
 
-Without a key, `mygo build` builds the apps and skips the update files.
+Without a key, `mygo build` builds the apps and skips the update files,
+but for the Linux archives, which [`install.sh`](distribution.md#the-install-script)
+installs.
 
 The release notes are the section of the version in `CHANGELOG.md`
 (`updates.changelog` names another file), under a `## 1.2.0` heading. When
@@ -78,8 +80,9 @@ Publish the files where `updates` points to:
   which apps check: they read the manifests from
   `https://github.com/you/my-app/releases/latest/download/`.
 - **Your server**: upload the archives, deltas and manifests to the `url`
-  directory, and keep the files of earlier versions there. Upload the
-  manifests last, so apps never see a manifest whose files are missing.
+  directory, with the Linux `install.sh`, and keep the files of earlier
+  versions there. Upload the manifests last, so apps never see a manifest
+  whose files are missing.
 
 Each platform, such as `darwin-arm64`, `darwin-universal` or
 `windows-amd64`, has its own manifest, and a build only looks at its own.
@@ -268,7 +271,9 @@ An app replaces itself, so it must be able to write where it is installed:
   in the user's `~/Applications`.
 - Windows: the per-user install of the [installer](distribution.md#the-installer),
   in `%LOCALAPPDATA%\Programs`.
-- Linux: a directory of the user, such as the extracted build.
+- Linux: a directory of the user, such as `~/.local/my-app.app`, where
+  [`install.sh`](distribution.md#the-install-script) installs the app, or
+  the extracted build.
 
 Apps installed by a package manager, such as the Debian package in
 `/opt`, are updated by it instead: `Enabled` is false for them.

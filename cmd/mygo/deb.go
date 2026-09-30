@@ -60,7 +60,7 @@ func writeDeb(c *Config, stage, name, goarch string, app []string) (string, erro
 	size := int64(0)
 	md5sums := &bytes.Buffer{}
 	for _, entry := range app {
-		if strings.HasSuffix(entry, ".desktop") || entry == name+".png" {
+		if strings.HasSuffix(entry, ".desktop") || entry == name+".png" || entry == name+".xml" {
 			continue // installed where desktops look for them
 		}
 		err := filepath.WalkDir(filepath.Join(stage, entry), func(p string, d fs.DirEntry, err error) error {

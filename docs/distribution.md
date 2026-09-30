@@ -2,7 +2,8 @@
 
 `mygo build` turns a project into apps people install: an app bundle and a
 disk image on macOS, an executable and an installer on Windows, an
-executable, a desktop entry and a Debian package on Linux.
+executable, a desktop entry, an archive with its install script and a Debian
+package on Linux.
 
 ```sh
 bun run build     # mygo build
@@ -40,7 +41,7 @@ systems only where [NSIS](#the-installer) is installed.
 |---|---|
 | macOS | `My App.app`, signed, and `My App 0.1.0.dmg` |
 | Windows | `My App.exe`, the files of the app, and the installer `My App Setup 0.1.0.exe` |
-| Linux | `my-app`, `my-app.desktop`, `my-app.png`, the files of the app, and `my-app_0.1.0_amd64.deb` when `linux.maintainer` is set |
+| Linux | `my-app`, `my-app.desktop`, `my-app.png`, `my-app.xml` for the file types the app defines, the files of the app, their archive `my-app-0.1.0-linux-amd64.tar.gz` with [`install.sh`](#the-install-script), and `my-app_0.1.0_amd64.deb` when `linux.maintainer` is set |
 
 Other flags: `-debug` keeps development features such as the inspector,
 `-skip-dmg` and `-skip-notarize` skip those steps, `-sign` overrides the
@@ -319,20 +320,52 @@ The package depends on GTK 3 and WebKitGTK; `depends` adds more packages.
 `comment` describes the app in its desktop entry and package, and
 `categories` places it in application menus (`Utility` by default).
 
+### The install script
+
+Every Linux build also gets the app as an archive,
+`my-app-1.2.0-linux-amd64.tar.gz`, and `install.sh`, which installs it for
+the user without root: the app in `~/.local/my-app.app`, where it can
+[update itself](updates.md), the `my-app` command in `~/.local/bin`, and
+its desktop entry, icon, URL schemes and file types. With
+[updates](updates.md) configured, it downloads the latest version, which
+the update manifest of the machine names, so one line installs the app:
+
+```sh
+curl -fsSL https://github.com/me/my-app/releases/latest/download/install.sh | sh
+```
+
+`-upload` publishes it with the archives; with `updates.url`, publish it
+next to the manifests. Next to the archive of its version, as in
+`build/linux-amd64/`, it installs that archive instead, and it installs
+the one it is given:
+
+```sh
+sh install.sh my-app-1.2.0-linux-amd64.tar.gz
+sh install.sh --uninstall   # keeps the settings and data of the app
+```
+
+Running it again installs the version it finds over the installed one.
+When the app updates itself, it registers the desktop entry and file types
+of the new version, so a version that adds URL schemes or file types gets
+them. The Debian package suits people who want the system's package manager to
+update the app; `install.sh` suits the others, and is the Linux install
+that updates itself.
+
 ## URL schemes and file types
 
 `urlSchemes` and `fileAssociations` in the configuration (see
 [deep links](app.md#deep-links) and [file associations](app.md#file-associations))
 are registered by each package: in the macOS app's `Info.plist`, by the
-Windows installer, and by the Linux desktop entry and Debian package.
+Windows installer, and by the Linux desktop entry, install script and
+Debian package.
 
 ## Publishing
 
 With `updates.github` set in the configuration, `mygo build -upload` uploads the
-disk images, installers, packages and update files to the GitHub release of
-the version, tagged `v1.2.0`, creating it as a draft. Review the draft and
-publish it. It needs the [GitHub CLI](https://cli.github.com) (`gh`),
-signed in.
+disk images, installers, packages, Linux archives and install script, and
+update files to the GitHub release of the version, tagged `v1.2.0`,
+creating it as a draft. Review the draft and publish it. It needs the
+[GitHub CLI](https://cli.github.com) (`gh`), signed in.
 
 Build on each platform in CI and upload to the same release: macOS runners
 sign, notarize and make the disk images; any runner compiles and packages

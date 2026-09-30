@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -32,6 +33,11 @@ func publishGitHub(c *Config, artifacts []string) error {
 		switch {
 		case strings.HasPrefix(name, "update-") && strings.HasSuffix(name, ".json"):
 			manifests = append(manifests, a)
+		case name == installScriptName:
+			// The same script for every Linux target.
+			if !slices.ContainsFunc(files, func(f string) bool { return filepath.Base(f) == name }) {
+				files = append(files, a)
+			}
 		case strings.HasSuffix(name, ".dmg"), strings.HasSuffix(name, ".exe") && strings.Contains(name, " Setup "),
 			strings.HasSuffix(name, ".deb"), strings.HasSuffix(name, ".tar.gz"), strings.HasSuffix(name, ".delta"):
 			files = append(files, a)

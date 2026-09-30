@@ -522,7 +522,7 @@ func reservedNames(c *Config, goos string) []string {
 		return []string{c.executableName() + ".exe"}
 	}
 	name := slugify(c.executableName())
-	return []string{name, name + ".desktop", name + ".png"}
+	return []string{name, name + ".desktop", name + ".png", name + ".xml", installScriptName}
 }
 
 func hiddenName(name string) bool { return strings.HasPrefix(name, ".") }

@@ -162,22 +162,31 @@ func (c *Config) releaseNotes() (string, error) {
 	return notes, nil
 }
 
-// writeUpdate archives the entries of stage, the app of target, signs the
-// archive, makes delta updates from earlier versions and writes the
-// manifest. It returns the files written, none when no signing key is
-// available.
-func writeUpdate(c *Config, stage, target string, entries []string) ([]string, error) {
-	key, err := c.signingKey()
-	if err != nil {
-		return nil, fmt.Errorf("updates: %w", err)
+// writeArchive archives the entries of stage, the app of target: updates
+// install the archive, and Linux users extract it (install.sh). With
+// updates and their signing key, it signs the archive, makes delta updates
+// from earlier versions and writes the manifest. It returns the files
+// written, none but on Linux without the key.
+func writeArchive(c *Config, stage, target string, entries []string) ([]string, error) {
+	var key ed25519.PrivateKey
+	if c.Updates != nil {
+		var err error
+		if key, err = c.signingKey(); err != nil {
+			return nil, fmt.Errorf("updates: %w", err)
+		}
+		if key == nil {
+			logf("not signing an update: set MYGO_UPDATER_PRIVATE_KEY or updates.privateKey")
+		}
 	}
-	if key == nil {
-		logf("not signing an update: set MYGO_UPDATER_PRIVATE_KEY or updates.privateKey")
+	if key == nil && !strings.HasPrefix(target, "linux-") {
 		return nil, nil
 	}
-	notes, err := c.releaseNotes()
-	if err != nil {
-		return nil, err
+	var notes string
+	if key != nil {
+		var err error
+		if notes, err = c.releaseNotes(); err != nil {
+			return nil, err
+		}
 	}
 	name := slugify(c.executableName()) + "-" + c.Version + "-" + target + ".tar.gz"
 	archive := filepath.Join(stage, name)
@@ -186,6 +195,9 @@ func writeUpdate(c *Config, stage, target string, entries []string) ([]string, e
 	})
 	if err != nil {
 		return nil, err
+	}
+	if key == nil {
+		return []string{archive}, nil
 	}
 	m := update.Manifest{
 		Version:   c.Version,
@@ -211,7 +223,8 @@ func writeUpdate(c *Config, stage, target string, entries []string) ([]string, e
 	return append(files, manifest), nil
 }
 
-// writeSigned writes a file with write and returns its size and signature.
+// writeSigned writes a file with write and returns its size and signature,
+// none without a key.
 func writeSigned(path string, key ed25519.PrivateKey, write func(io.Writer) error) (int64, string, error) {
 	f, err := os.Create(path)
 	if err != nil {
@@ -226,8 +239,11 @@ func writeSigned(path string, key ed25519.PrivateKey, write func(io.Writer) erro
 		return 0, "", err
 	}
 	info, err := os.Stat(path)
-	if err != nil {
+	switch {
+	case err != nil:
 		return 0, "", err
+	case key == nil:
+		return info.Size(), "", nil
 	}
 	return info.Size(), update.Sign(key, sum.Sum(nil)), nil
 }
