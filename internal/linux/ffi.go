@@ -269,15 +269,18 @@ var (
 	gtkWidgetSetAppPaintable            func(w ptr, v bool)
 	gtkWidgetGetScreen                  func(w ptr) ptr
 	gtkWidgetSetSensitive               func(w ptr, v bool)
+	gtkWidgetIsSensitive                func(w ptr) bool
 	gtkWidgetSetTooltipText             func(w ptr, s *byte)
 	gtkWidgetAddAccelerator             func(w ptr, signal *byte, group ptr, key uint32, mods uint32, flags int32)
 	gtkWidgetSetNoShowAll               func(w ptr, v bool)
 	gtkWidgetSetVisible                 func(w ptr, v bool)
+	gtkWidgetMnemonicActivate           func(w ptr, groupCycling bool) bool
 	gtkBoxNew                           func(orientation int32, spacing int32) ptr
 	gtkBoxPackStart                     func(box, child ptr, expand, fill bool, padding uint32)
 	gtkBoxReorderChild                  func(box, child ptr, pos int32)
 	gtkContainerAdd                     func(c, w ptr)
 	gtkContainerRemove                  func(c, w ptr)
+	gtkContainerCheckResize             func(c ptr)
 	gtkMenuBarNew                       func() ptr
 	gtkMenuNew                          func() ptr
 	gtkMenuItemNewWithLabel             func(label *byte) ptr
@@ -655,15 +658,18 @@ func load() error {
 	mustBind(t, &gtkWidgetSetAppPaintable, "gtk_widget_set_app_paintable")
 	mustBind(t, &gtkWidgetGetScreen, "gtk_widget_get_screen")
 	mustBind(t, &gtkWidgetSetSensitive, "gtk_widget_set_sensitive")
+	mustBind(t, &gtkWidgetIsSensitive, "gtk_widget_is_sensitive")
 	mustBind(t, &gtkWidgetSetTooltipText, "gtk_widget_set_tooltip_text")
 	mustBind(t, &gtkWidgetAddAccelerator, "gtk_widget_add_accelerator")
 	mustBind(t, &gtkWidgetSetNoShowAll, "gtk_widget_set_no_show_all")
 	mustBind(t, &gtkWidgetSetVisible, "gtk_widget_set_visible")
+	mustBind(t, &gtkWidgetMnemonicActivate, "gtk_widget_mnemonic_activate")
 	mustBind(t, &gtkBoxNew, "gtk_box_new")
 	mustBind(t, &gtkBoxPackStart, "gtk_box_pack_start")
 	mustBind(t, &gtkBoxReorderChild, "gtk_box_reorder_child")
 	mustBind(t, &gtkContainerAdd, "gtk_container_add")
 	mustBind(t, &gtkContainerRemove, "gtk_container_remove")
+	mustBind(t, &gtkContainerCheckResize, "gtk_container_check_resize")
 	mustBind(t, &gtkMenuBarNew, "gtk_menu_bar_new")
 	mustBind(t, &gtkMenuNew, "gtk_menu_new")
 	mustBind(t, &gtkMenuItemNewWithLabel, "gtk_menu_item_new_with_label")

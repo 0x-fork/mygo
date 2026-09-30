@@ -45,6 +45,9 @@ type window struct {
 	accel   ptr
 	owner   int
 	ownMenu bool
+	// autoHideMenu shows the menu bar only while its menus are open;
+	// altAlone is an Alt press no other key or click has joined.
+	autoHideMenu, altAlone bool
 
 	closed       bool
 	programmatic bool
@@ -92,7 +95,7 @@ func (b *Backend) window(data ptr) *window {
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
 	b.nextID++
-	w := &window{b: b, id: b.nextID, h: h, opts: o}
+	w := &window{b: b, id: b.nextID, h: h, opts: o, autoHideMenu: o.AutoHideMenu}
 	data := ptr(w.id)
 
 	w.win = gtkWindowNew(0)
@@ -149,6 +152,8 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	connect(w.win, "focus-out-event", cbFocusOut, data)
 	connect(w.win, "configure-event", cbConfigure, data)
 	connect(w.win, "window-state-event", cbWindowState, data)
+	connect(w.win, "key-press-event", cbMenuKey, data)
+	connect(w.win, "key-release-event", cbMenuKey, data)
 
 	b.windows[w.id] = w
 	b.byWebView[w.web] = w
@@ -810,6 +815,7 @@ func initWindowCallbacks() {
 	})
 	cbFocusOut = purego.NewCallback(func(widget, event, data ptr) bool {
 		if w := b().window(data); w != nil {
+			w.altAlone = false
 			w.h.Blurred()
 		}
 		return false
@@ -872,6 +878,7 @@ func initWindowCallbacks() {
 		if w == nil {
 			return false
 		}
+		w.altAlone = false
 		// GdkEventButton: time 20, button 52, x_root 64, y_root 72.
 		w.press.time = field[uint32](event, 20)
 		w.press.button = int32(field[uint32](event, 52))

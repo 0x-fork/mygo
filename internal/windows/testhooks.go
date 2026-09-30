@@ -2,7 +2,11 @@
 
 package windows
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/egoist/mygo/internal/accelerator"
+)
 
 // The functions in this file drive native UI the way a user would, for the
 // GUI tests in internal/e2e. They must run on the main thread.
@@ -42,6 +46,46 @@ func TestActivateMenuItem(hwnd uintptr, path ...string) error {
 		}
 	}
 	return nil
+}
+
+// TestMenuBarShown reports whether a window shows its menu bar.
+func TestMenuBarShown(hwnd uintptr) bool {
+	bar, _, _ := user32.NewProc("GetMenu").Call(hwnd)
+	return bar != 0
+}
+
+// TestEnterMenuBar takes the keyboard to a window's menu bar, as Alt and
+// F10 do, and returns once it leaves the menus. It reports false when the
+// window cannot come to the front, which the keyboard needs.
+func TestEnterMenuBar(hwnd uintptr) bool {
+	procSetForegroundWindow.Call(hwnd)
+	if fg, _, _ := procGetForegroundWindow.Call(); fg != hwnd {
+		return false
+	}
+	procSendMessageW.Call(hwnd, wmSysCommand, scKeyMenu, 0)
+	return true
+}
+
+// TestEndMenu leaves the menus, as Escape does.
+func TestEndMenu() { user32.NewProc("EndMenu").Call() }
+
+// TestActivateAccelerator runs the menu item of a window's shortcut, as its
+// keys do in the page, and reports whether there is one.
+func TestActivateAccelerator(hwnd uintptr, acc string) bool {
+	w := theBackend.windows[hwnd]
+	a, err := accelerator.Parse(acc, "windows")
+	if w == nil || err != nil {
+		return false
+	}
+	vk, ok := virtualKey(a.Key)
+	if !ok {
+		return false
+	}
+	cmd, ok := w.accels[accelKey{vk: vk, mods: a.Modifiers}]
+	if ok {
+		theBackend.menuCommand(cmd, w)
+	}
+	return ok
 }
 
 // TestSetDroppedFiles makes paths the files of the next drop on a window's

@@ -96,6 +96,16 @@ menu to every window without one of its own, `Window.SetMenu` gives a
 window its own, and windows have none by default. `App.SetMenu(nil)`
 removes the menu.
 
+A window with `AutoHideMenuBar` keeps its menu bar out of sight, and the
+room for the page. Alt pressed alone, or F10, shows the bar with the
+keyboard in it (Windows) or its first menu open (Linux), and the bar hides
+again once the user picks an item or leaves it. Its shortcuts work all
+along:
+
+```go
+mygo.NewWindow(mygo.WindowOptions{URL: "/", AutoHideMenuBar: true})
+```
+
 ## Context menus
 
 `Menu.Popup` shows a menu at the mouse over a window and returns once it

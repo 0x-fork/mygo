@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"time"
+
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/internal/linux"
 )
@@ -86,4 +88,39 @@ func pressButton(press bool) (ok bool) {
 func resizeCursor(w *mygo.Window) (name string, supported bool) {
 	mygo.RunOnMain(func() { name = linux.TestResizeCursor(w.NativeHandle()) })
 	return name, true
+}
+
+func menuBarShown(w *mygo.Window) (shown, supported bool) {
+	mygo.RunOnMain(func() { shown, _ = linux.TestMenuBarState(w.NativeHandle()) })
+	return shown, true
+}
+
+func activateAccelerator(w *mygo.Window, accel string) (handled, supported bool) {
+	mygo.RunOnMain(func() { handled = linux.TestActivateAccelerator(w.NativeHandle(), accel) })
+	return handled, true
+}
+
+// enterMenuBar presses key, an X keysym name, on the window: the bar should
+// show with its first menu open. Then it closes the menus, as Escape does.
+func enterMenuBar(w *mygo.Window, key string) (during, after, supported bool) {
+	if !w.IsFocused() || !pressKeys(key) {
+		return false, false, false
+	}
+	state := func() (shown, open bool) {
+		mygo.RunOnMain(func() { shown, open = linux.TestMenuBarState(w.NativeHandle()) })
+		return shown, open
+	}
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if shown, open := state(); shown && open {
+			during = true
+			break
+		}
+	}
+	mygo.RunOnMain(func() { linux.TestCloseMenuBar(w.NativeHandle()) })
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if after, _ = state(); !after {
+			break
+		}
+	}
+	return during, after, true
 }

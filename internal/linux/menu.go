@@ -30,7 +30,14 @@ var (
 
 	cbMenuActivate   ptr
 	cbMenuDeactivate ptr
+
+	// Menu bars that hide (window.autoHideMenu).
+	cbMenuKey, cbCanActivateAccel, cbMenuBarDeactivate ptr
 )
+
+// modifierMask holds the GDK modifiers that make a key a shortcut: Shift,
+// Control, Alt, Super, Hyper and Meta.
+const modifierMask = 1<<0 | 1<<2 | 1<<3 | 1<<26 | 1<<27 | 1<<28
 
 // editCommands are handled by the focused webview itself.
 var editCommands = map[string]string{
@@ -57,6 +64,45 @@ func initMenuCallbacks() {
 	})
 	cbMenuDeactivate = purego.NewCallback(func(menu, loop ptr) {
 		gMainLoopQuit(loop)
+	})
+	// Alt pressed and released alone, or F10, show a menu bar that hides.
+	cbMenuKey = purego.NewCallback(func(widget, event, data ptr) bool {
+		w := theBackend.window(data)
+		if w == nil {
+			return false
+		}
+		if !w.autoHideMenu || w.menubar == 0 || gtkWidgetGetVisible(w.menubar) {
+			w.altAlone = false
+			return false
+		}
+		// GdkEventKey: type 0, state 24, keyval 28.
+		press := field[int32](event, 0) == 8 // GDK_KEY_PRESS
+		state, key := field[uint32](event, 24), field[uint32](event, 28)
+		alt := key == 0xffe9 || key == 0xffea // Alt_L, Alt_R
+		switch {
+		case press && key == 0xffc7 && state&modifierMask == 0: // F10
+			w.revealMenu()
+			return true
+		case press:
+			w.altAlone = alt && state&modifierMask == 0
+		case alt && w.altAlone:
+			w.altAlone = false
+			w.revealMenu()
+		default:
+			w.altAlone = false
+		}
+		return false
+	})
+	// GTK activates the shortcuts of widgets on screen only: a menu bar that
+	// hides keeps its own.
+	cbCanActivateAccel = purego.NewCallback(func(widget ptr, signal uint32, data ptr) bool {
+		w := theBackend.window(data)
+		return w != nil && w.autoHideMenu
+	})
+	cbMenuBarDeactivate = purego.NewCallback(func(shell, data ptr) {
+		if w := theBackend.window(data); w != nil && w.autoHideMenu {
+			gtkWidgetHide(shell)
+		}
 	})
 }
 
@@ -223,6 +269,46 @@ func (w *window) installMenu(m *platform.Menu) {
 	gtkBoxPackStart(w.box, w.menubar, false, false, 0)
 	gtkBoxReorderChild(w.box, w.menubar, 0)
 	gtkWidgetShowAll(w.menubar)
+	// The bar shows as autoHideMenu says, whatever shows the window.
+	gtkWidgetSetNoShowAll(w.menubar, true)
+	gtkWidgetSetVisible(w.menubar, !w.autoHideMenu)
+	data := ptr(w.id)
+	connect(w.menubar, "can-activate-accel", cbCanActivateAccel, data)
+	connect(w.menubar, "deactivate", cbMenuBarDeactivate, data)
+}
+
+func (w *window) SetAutoHideMenu(v bool) {
+	w.autoHideMenu = v
+	if w.menubar != 0 {
+		gtkWidgetSetVisible(w.menubar, !v)
+	}
+}
+
+// revealMenu shows a menu bar that hides and opens its first menu, as F10
+// does in GTK, while the key event is current: the menu grabs its device.
+// The bar hides again when its menus close.
+func (w *window) revealMenu() {
+	gtkWidgetShow(w.menubar)
+	// The menu opens under its item: lay the bar out now.
+	gtkContainerCheckResize(w.win)
+	if item := firstMenu(w.menubar); item != 0 {
+		gtkWidgetMnemonicActivate(item, false) // as the item's mnemonic
+	} else {
+		gtkWidgetHide(w.menubar) // nothing to open, so no deactivate to come
+	}
+}
+
+// firstMenu returns the first menu of a menu bar that the user can open,
+// or 0.
+func firstMenu(bar ptr) ptr {
+	list := gtkContainerGetChildren(bar)
+	defer gListFree(list)
+	for node := list; node != 0; node = field[ptr](node, 8) {
+		if item := field[ptr](node, 0); gtkWidgetGetVisible(item) && gtkWidgetIsSensitive(item) {
+			return item
+		}
+	}
+	return 0
 }
 
 func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {

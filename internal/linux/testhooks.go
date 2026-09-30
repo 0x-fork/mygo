@@ -49,6 +49,45 @@ func findMenuItem(shell ptr, label string) ptr {
 	return 0
 }
 
+func windowByHandle(handle uintptr) *window {
+	for _, w := range theBackend.windows {
+		if w.win == handle {
+			return w
+		}
+	}
+	return nil
+}
+
+// TestMenuBarState reports whether a window shows its menu bar, and whether
+// the bar's first menu is open.
+func TestMenuBarState(handle uintptr) (shown, open bool) {
+	w := windowByHandle(handle)
+	if w == nil || w.menubar == 0 {
+		return false, false
+	}
+	if item := firstMenu(w.menubar); item != 0 {
+		if sub := gtkMenuItemGetSubmenu(item); sub != 0 {
+			open = gtkWidgetGetVisible(sub)
+		}
+	}
+	return gtkWidgetGetVisible(w.menubar), open
+}
+
+// TestCloseMenuBar closes the menus of a window's menu bar, as Escape does.
+func TestCloseMenuBar(handle uintptr) {
+	if w := windowByHandle(handle); w != nil && w.menubar != 0 {
+		gtkMenuShellDeactivate(w.menubar)
+	}
+}
+
+// TestActivateAccelerator presses a window's shortcut, as its keys do, and
+// reports whether a menu item took it.
+func TestActivateAccelerator(handle uintptr, acc string) bool {
+	var activate func(object ptr, key, mods uint32) bool
+	key, mods, ok := gtkAccelerator(acc)
+	return ok && bind(libGTK, &activate, "gtk_accel_groups_activate") && activate(handle, key, mods)
+}
+
 // TestDismissPopups closes the context menus being shown, as if the user
 // pressed Escape, and reports how many there were.
 func TestDismissPopups() int {

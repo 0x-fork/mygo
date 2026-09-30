@@ -195,6 +195,7 @@ type WindowOptions struct {
 	FullScreen     bool
 	Maximized      bool
 	SkipTaskbar    bool
+	AutoHideMenu   bool
 	HasShadow      bool
 	Frameless      bool
 	Transparent    bool
@@ -295,6 +296,9 @@ type Window interface {
 	SetIcon(png []byte) error
 	// SetMenu sets a per-window menu bar (Linux/Windows). No-op on macOS.
 	SetMenu(m *Menu)
+	// SetAutoHideMenu hides the menu bar until Alt or F10 brings the
+	// keyboard to it (Linux/Windows). No-op on macOS.
+	SetAutoHideMenu(v bool)
 	// StartDrag moves the window with the mouse (frameless drag regions).
 	StartDrag()
 	// TitleBarDoubleClicked performs the platform action for a double click

@@ -1383,6 +1383,58 @@ func TestMenuActivation(t *testing.T) {
 	}
 }
 
+func TestAutoHideMenuBar(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, AutoHideMenuBar: true})
+	w.LoadHTML("<p>menu bar</p>", "")
+	clicks := make(chan string, 4)
+	menu := mygo.NewMenu([]*mygo.MenuItem{
+		{Label: "Test", Submenu: []*mygo.MenuItem{
+			{ID: "ping", Label: "Ping", Accelerator: "CmdOrCtrl+Shift+J", Click: func(item *mygo.MenuItem, win *mygo.Window) {
+				clicks <- item.ID
+			}},
+		}},
+	})
+	mygo.App.SetMenu(menu)
+	defer mygo.App.SetMenu(nil)
+	w.Focus()
+	time.Sleep(200 * time.Millisecond)
+
+	shown, supported := menuBarShown(w)
+	if !supported {
+		t.Skip("the menu bar belongs to the application")
+	}
+	if shown {
+		t.Fatal("the menu bar shows before Alt")
+	}
+	if handled, _ := activateAccelerator(w, "CmdOrCtrl+Shift+J"); !handled {
+		t.Error("the hidden menu bar lost its shortcut")
+	} else {
+		expectClick(t, clicks, "ping")
+	}
+	for _, key := range []string{"Alt_L", "F10"} {
+		during, after, ok := enterMenuBar(w, key)
+		if !ok {
+			t.Logf("%s: the keyboard cannot reach the window", key)
+			continue
+		}
+		if !during {
+			t.Errorf("%s: the menu bar did not show", key)
+		}
+		if after {
+			t.Errorf("%s: the menu bar still shows once its menus closed", key)
+		}
+	}
+
+	w.SetAutoHideMenuBar(false)
+	if shown, _ := menuBarShown(w); !shown {
+		t.Error("SetAutoHideMenuBar(false) left the menu bar hidden")
+	}
+	w.SetAutoHideMenuBar(true)
+	if shown, _ := menuBarShown(w); shown {
+		t.Error("SetAutoHideMenuBar(true) left the menu bar shown")
+	}
+}
+
 func expectClick(t *testing.T, clicks chan string, want string) {
 	t.Helper()
 	select {

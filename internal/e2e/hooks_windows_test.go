@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"time"
+
 	"github.com/egoist/mygo"
 	win "github.com/egoist/mygo/internal/windows"
 )
@@ -60,3 +62,34 @@ func trafficLights(*mygo.Window) (float64, float64, bool) { return 0, 0, false }
 func movePointer(int, int) bool                { return false }
 func pressButton(bool) bool                    { return false }
 func resizeCursor(*mygo.Window) (string, bool) { return "", false }
+
+func menuBarShown(w *mygo.Window) (shown, supported bool) {
+	mygo.RunOnMain(func() { shown = win.TestMenuBarShown(w.NativeHandle()) })
+	return shown, true
+}
+
+func activateAccelerator(w *mygo.Window, accel string) (handled, supported bool) {
+	mygo.RunOnMain(func() { handled = win.TestActivateAccelerator(w.NativeHandle(), accel) })
+	return handled, true
+}
+
+// enterMenuBar sends the window the SC_KEYMENU that Alt and F10 become, and
+// leaves the menus from inside the menu loop, which runs the app's work.
+func enterMenuBar(w *mygo.Window, _ string) (during, after, supported bool) {
+	hwnd := w.NativeHandle()
+	inLoop := make(chan bool, 1)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		mygo.RunOnMain(func() {
+			inLoop <- win.TestMenuBarShown(hwnd)
+			win.TestEndMenu()
+		})
+	}()
+	mygo.RunOnMain(func() { supported = win.TestEnterMenuBar(hwnd) })
+	if !supported {
+		return false, false, false
+	}
+	during = <-inLoop
+	mygo.RunOnMain(func() { after = win.TestMenuBarShown(hwnd) })
+	return during, after, true
+}

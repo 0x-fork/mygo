@@ -44,6 +44,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `DisableResize`, `DisableMove`, `DisableMinimize`, `DisableMaximize`, `DisableClose`, `DisableFullScreen`, `DisableShadow` | take abilities away |
 | `AlwaysOnTop` | keeps the window above others |
 | `SkipTaskbar` | leaves the window out of the taskbar (Linux, Windows) |
+| `AutoHideMenuBar` | shows the menu bar only while the keyboard is in it, from Alt or F10 (Linux, Windows), see [the menu bar](menus.md#the-menu-bar) |
 | `Parent`, `Modal` | a child window, modal to its parent |
 | `PreloadScript` | JavaScript run before every page's own scripts |
 | `TrustedOrigins` | other origins whose pages may call Go, see [who may call](bindings.md#who-may-call) |
@@ -104,6 +105,8 @@ Other properties:
 - `SetIcon(png)` gives the window its own icon in its title bar and taskbar
   button (Linux, Windows).
 - `SetSkipTaskbar` hides the window from the taskbar (Linux, Windows).
+- `SetAutoHideMenuBar` hides the menu bar until Alt or F10, or shows it
+  for good again (Linux, Windows).
 - `SetVisibleOnAllWorkspaces` shows it on every Space or virtual desktop
   (macOS, Linux).
 - `SetContentProtection(true)` keeps it out of screenshots and screen

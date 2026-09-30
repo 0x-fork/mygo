@@ -522,6 +522,9 @@ func (w *window) SetVibrancy(material string) {
 
 func (w *window) SetMenu(*platform.Menu) {}
 
+// SetAutoHideMenu does nothing: the menu bar belongs to the application.
+func (w *window) SetAutoHideMenu(bool) {}
+
 func (w *window) StartDrag() {
 	if w.lastMouseDown != 0 {
 		send(w.win, "performWindowDragWithEvent:", uintptr(w.lastMouseDown))

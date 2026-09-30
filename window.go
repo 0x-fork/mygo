@@ -107,6 +107,10 @@ type WindowOptions struct {
 	Maximized bool
 	// SkipTaskbar hides the window from the taskbar (Linux, Windows).
 	SkipTaskbar bool
+	// AutoHideMenuBar keeps the window's menu bar out of sight until the
+	// user presses Alt or F10, and hides it again once they leave it
+	// (Linux, Windows). Its keyboard shortcuts work all along.
+	AutoHideMenuBar bool
 	// Transparent makes the window background transparent, so a page with a
 	// transparent background shows the desktop through.
 	Transparent bool
@@ -373,6 +377,7 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		FullScreen:     o.FullScreen,
 		Maximized:      o.Maximized,
 		SkipTaskbar:    o.SkipTaskbar,
+		AutoHideMenu:   o.AutoHideMenuBar,
 		HasShadow:      !o.DisableShadow,
 		Frameless:      o.Frameless,
 		Transparent:    o.Transparent,
@@ -863,6 +868,13 @@ func (w *Window) SetMenu(m *Menu) {
 			w.native.SetMenu(m.snapshot())
 		}
 	})
+}
+
+// SetAutoHideMenuBar keeps the menu bar of this window out of sight until
+// the user presses Alt or F10, or shows it for good again (Linux,
+// Windows). See WindowOptions.AutoHideMenuBar.
+func (w *Window) SetAutoHideMenuBar(v bool) {
+	w.do(func(n platform.Window) { n.SetAutoHideMenu(v) })
 }
 
 // NativeHandle returns the native window: NSWindow* on macOS, GtkWindow* on

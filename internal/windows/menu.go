@@ -144,10 +144,37 @@ func (w *window) installMenu(m *platform.Menu) {
 		w.owner = w.b.menus.newOwner()
 		w.hmenu = w.b.buildMenu(m, true, w.owner, w.accels)
 	}
-	procSetMenu.Call(w.hwnd, w.hmenu)
+	w.attachMenu()
 	if old != 0 {
 		procDestroyMenu.Call(old)
 	}
+}
+
+// menuShown reports whether the menu bar is on the window. One that hides
+// is there only while the keyboard is in it.
+func (w *window) menuShown() bool { return w.hmenu != 0 && (!w.autoHideMenu || w.revealed) }
+
+// attachMenu puts the menu bar on the window, or takes it off one whose bar
+// hides. Its shortcuts work either way: they come from the webview.
+func (w *window) attachMenu() {
+	bar := uintptr(0)
+	if w.menuShown() {
+		bar = w.hmenu
+	}
+	procSetMenu.Call(w.hwnd, bar)
+}
+
+// revealMenu shows a menu bar that hides for the menu loop, which Alt or
+// F10 starts with SC_KEYMENU and which runs inside DefWindowProc.
+func (w *window) revealMenu(wp, lp uintptr) uintptr {
+	w.revealed = true
+	w.attachMenu()
+	r, _, _ := procDefWindowProcW.Call(w.hwnd, wmSysCommand, wp, lp)
+	w.revealed = false
+	if !w.closed {
+		w.attachMenu()
+	}
+	return r
 }
 
 func (b *Backend) SetApplicationMenu(m *platform.Menu) {
@@ -171,7 +198,7 @@ func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 		setItemInfo(e.menu, cmd, label, it.Enabled, it.Checked, e.radio)
 	}
 	for _, w := range b.windows {
-		if w.hmenu != 0 {
+		if w.menuShown() {
 			procDrawMenuBar.Call(w.hwnd)
 		}
 	}

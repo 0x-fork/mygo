@@ -165,9 +165,12 @@ func TestFileDrop(t *testing.T) {
 }
 
 func TestWindowExtras(t *testing.T) {
-	w, fw := testWindow(t, WindowOptions{SkipTaskbar: true})
+	w, fw := testWindow(t, WindowOptions{SkipTaskbar: true, AutoHideMenuBar: true})
 	if !fw.Opts.SkipTaskbar {
 		t.Error("SkipTaskbar option not passed")
+	}
+	if !fw.Opts.AutoHideMenu {
+		t.Error("AutoHideMenuBar option not passed")
 	}
 	for _, c := range []struct {
 		p     ProgressBar
@@ -189,7 +192,8 @@ func TestWindowExtras(t *testing.T) {
 	w.FlashFrame(true)
 	w.SetSkipTaskbar(false)
 	w.SetVisibleOnAllWorkspaces(true)
-	if !onMainValue(func() bool { return fw.Flashing && !fw.SkipsTaskbar && fw.OnAllWorkspaces }) {
+	w.SetAutoHideMenuBar(true)
+	if !onMainValue(func() bool { return fw.Flashing && !fw.SkipsTaskbar && fw.OnAllWorkspaces && fw.AutoHidesMenu }) {
 		t.Error("window extras not applied")
 	}
 	if err := w.SetIcon([]byte("not a png")); err == nil {

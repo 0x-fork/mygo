@@ -57,6 +57,9 @@ type window struct {
 	owner   int
 	ownMenu bool
 	accels  map[accelKey]uint16
+	// autoHideMenu keeps hmenu off the window except while revealed, when
+	// the keyboard is in the menu bar.
+	autoHideMenu, revealed bool
 
 	programmatic bool
 	loading      bool
@@ -71,7 +74,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	w := &window{
 		b: b, h: h, opts: o,
 		movable: o.Movable, closable: o.Closable, frameless: o.Frameless,
-		opacity: 1, zoom: 1, shadow: o.HasShadow,
+		opacity: 1, zoom: 1, shadow: o.HasShadow, autoHideMenu: o.AutoHideMenu,
 		minW: o.MinSize.Width, minH: o.MinSize.Height, maxW: o.MaxSize.Width, maxH: o.MaxSize.Height,
 		htmlFor: map[string]string{}, calls: map[int]func(string, error){},
 	}
@@ -171,7 +174,7 @@ func (w *window) placeInitially() {
 func (w *window) outerSize(width, height int32, dpi int) (int32, int32) {
 	r := rect{0, 0, width, height}
 	menu := uintptr(0)
-	if w.hmenu != 0 || (w.hmenu == 0 && w.b.appMenu != nil) {
+	if !w.autoHideMenu && (w.hmenu != 0 || w.b.appMenu != nil) {
 		menu = 1
 	}
 	style, ex := windowLong(w.hwnd, gwlStyle), windowLong(w.hwnd, gwlExStyle)
@@ -309,6 +312,12 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			w.b.menuCommand(loword(wp), w)
 			return 0, true
 		}
+	case wmSysCommand:
+		// Alt or F10 alone (lp 0) take the keyboard to the menu bar. WebView2
+		// passes no Alt+letter on, so mnemonics never reach the window.
+		if wp&0xFFF0 == scKeyMenu && lp == 0 && w.autoHideMenu && w.hmenu != 0 && !w.revealed {
+			return w.revealMenu(wp, lp), true
+		}
 	}
 	return 0, false
 }
@@ -364,6 +373,11 @@ func (w *window) cleanup() {
 		w.controller, w.webview, w.settings = 0, 0, 0
 	}
 	w.b.menus.drop(w.owner)
+	// Windows destroys the menu bar on the window, not one hidden off it.
+	if w.hmenu != 0 && !w.menuShown() {
+		procDestroyMenu.Call(w.hmenu)
+		w.hmenu = 0
+	}
 	if w.bgBrush != 0 {
 		procDeleteObject.Call(w.bgBrush)
 		w.bgBrush = 0
@@ -426,7 +440,7 @@ func (w *window) SetContentBounds(r platform.Rect) {
 	outer := rect{toPx(r.X, dpi), toPx(r.Y, dpi), toPx(r.X+r.Width, dpi), toPx(r.Y+r.Height, dpi)}
 	if !w.frameless && has(procAdjustWindowRectExForDpi) {
 		menu := uintptr(0)
-		if w.hmenu != 0 {
+		if w.menuShown() {
 			menu = 1
 		}
 		procAdjustWindowRectExForDpi.Call(uintptr(unsafe.Pointer(&outer)), windowLong(w.hwnd, gwlStyle), menu, windowLong(w.hwnd, gwlExStyle), uintptr(dpi))
@@ -750,6 +764,13 @@ func (w *window) SetMenu(m *platform.Menu) {
 		m = w.b.appMenu
 	}
 	w.installMenu(m)
+}
+
+func (w *window) SetAutoHideMenu(v bool) {
+	w.autoHideMenu = v
+	if w.hmenu != 0 && !w.revealed {
+		w.attachMenu()
+	}
 }
 
 func (w *window) StartDrag() {

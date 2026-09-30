@@ -271,7 +271,8 @@ const (
 	htBottomLeft  = 16
 	htBottomRight = 17
 
-	scClose = 0xF060
+	scClose   = 0xF060
+	scKeyMenu = 0xF100
 
 	mfString    = 0x0000
 	mfGrayed    = 0x0001
