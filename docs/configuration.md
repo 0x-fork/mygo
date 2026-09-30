@@ -88,6 +88,7 @@ Signed [auto-updates](updates.md). `publicKey` and one of `github` and
 | `github` | | a public repository, `owner/name`, whose releases hold the updates |
 | `tagPrefix` | `v` | what precedes the version in release tags |
 | `url` | | instead of `github`, the HTTPS URL of a directory holding the updates |
+| `s3` | | the bucket that serves `url`, which `mygo build -upload` uploads to: `bucket`, and optionally `prefix`, its directory, `region` (default: `AWS_REGION`, else `us-east-1`), `endpoint`, of a compatible service such as Cloudflare R2, and `pathStyle` (see [publishing to S3](updates.md#publishing-to-s3)) |
 | `privateKey` | | the path of `mygo-update.key`, for `mygo build`; the `MYGO_UPDATER_PRIVATE_KEY` environment variable, holding the key, takes precedence |
 | `changelog` | `CHANGELOG.md` when it exists | a Markdown file whose `## <version>` section becomes the release notes |
 | `deltas` | `3` | how many earlier versions get a [delta update](updates.md#delta-updates); `0` for none |

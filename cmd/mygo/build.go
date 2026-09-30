@@ -52,7 +52,7 @@ update-<platform>.json: publish them where updates point to.`)
 	skipNotarize := flags.Bool("skip-notarize", false, "do not notarize even when macos.notarize is set")
 	sign := flags.String("sign", "", `macOS signing identity (default: macos.signingIdentity, or "-" for ad hoc)`)
 	out := flags.String("o", "", "output directory (default: out from mygo.json or dist)")
-	upload := flags.Bool("upload", false, "upload the installers and updates to the GitHub release of this version (updates.github), as a draft")
+	upload := flags.Bool("upload", false, "upload the installers and updates to the GitHub release of this version (updates.github), as a draft, or to the bucket of updates.s3")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -63,8 +63,10 @@ update-<platform>.json: publish them where updates point to.`)
 	if *out != "" {
 		c.Out = *out
 	}
-	if *upload && (c.Updates == nil || c.Updates.GitHub == "") {
-		return fmt.Errorf("-upload needs updates.github in %s", c.configName())
+	if *upload {
+		if err := checkUpload(c); err != nil {
+			return err
+		}
 	}
 	opts := buildOptions{debug: *debug, sign: c.MacOS.SigningIdentity, skipDMG: *skipDMG, skipNotarize: *skipNotarize}
 	if *sign != "" {
@@ -120,7 +122,7 @@ update-<platform>.json: publish them where updates point to.`)
 		}
 	}
 	if *upload {
-		return publishGitHub(c, built)
+		return publish(c, built)
 	}
 	return nil
 }

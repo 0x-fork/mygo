@@ -112,6 +112,7 @@ func TestConfigTypes(t *testing.T) {
 		"Config":          reflect.TypeFor[Config](),
 		"FileAssociation": reflect.TypeFor[FileAssociation](),
 		"UpdatesConfig":   reflect.TypeFor[Updates](),
+		"S3Config":        reflect.TypeFor[S3](),
 		"MacOSConfig":     reflect.TypeFor[MacOS](),
 		"NotarizeConfig":  reflect.TypeFor[Notarize](),
 		"WindowsConfig":   reflect.TypeFor[Windows](),

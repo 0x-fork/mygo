@@ -128,12 +128,32 @@ export interface UpdatesConfig {
   tagPrefix?: string;
   /** Instead of `github`, the HTTPS URL of a directory holding the updates. */
   url?: string;
+  /** The bucket that serves `url`, which `mygo build -upload` uploads to. */
+  s3?: S3Config;
   /** The path of mygo-update.key; `MYGO_UPDATER_PRIVATE_KEY`, holding the key, takes precedence. */
   privateKey?: string;
   /** A Markdown file whose `## <version>` section becomes the release notes (default: `CHANGELOG.md` when it exists). */
   changelog?: string;
   /** How many earlier versions get a delta update, a smaller download of what changed (default: `3`; `0` for none). */
   deltas?: number;
+}
+
+/**
+ * A bucket of Amazon S3, or of a compatible service such as Cloudflare R2.
+ * The credentials come from `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and
+ * `AWS_SESSION_TOKEN`.
+ */
+export interface S3Config {
+  /** The name of the bucket. */
+  bucket: string;
+  /** The directory of the files in the bucket, e.g. `my-app` (default: its root). */
+  prefix?: string;
+  /** The region of the bucket (default: `AWS_REGION`, else `AWS_DEFAULT_REGION`, else `us-east-1`). */
+  region?: string;
+  /** The endpoint of a compatible service, e.g. `https://<account>.r2.cloudflarestorage.com` (default: Amazon S3's). */
+  endpoint?: string;
+  /** Names the bucket in the path of URLs rather than in the host name (default: with `endpoint`, or a bucket name with dots). */
+  pathStyle?: boolean;
 }
 
 /** macOS packaging. */

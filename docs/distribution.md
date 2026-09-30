@@ -370,7 +370,10 @@ With `updates.github` set in the configuration, `mygo build -upload` uploads the
 disk images, installers, packages, Linux archives and install script, and
 update files to the GitHub release of the version, tagged `v1.2.0`,
 creating it as a draft. Review the draft and publish it. It needs the
-[GitHub CLI](https://cli.github.com) (`gh`), signed in.
+[GitHub CLI](https://cli.github.com) (`gh`), signed in. With `updates.s3`,
+it uploads them to a bucket of Amazon S3 or of a compatible service, such
+as Cloudflare R2, with the credentials in `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY` (see [publishing to S3](updates.md#publishing-to-s3)).
 
 Build on each platform in CI and upload to the same release: macOS runners
 sign, notarize and make the disk images; any runner compiles and packages

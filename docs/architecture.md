@@ -758,7 +758,13 @@ as in Tauri:
   with the changelog section as notes, uploads installers, update
   archives and deltas, then the manifests, and leaves
   publishing the draft (which makes the manifests "latest") to the
-  developer once every platform is there.
+  developer once every platform is there. With `updates.s3` it puts the
+  same files, manifests last, into a bucket of S3 or a compatible service
+  (`cmd/mygo/s3.go`): one `PUT` per object, signed with AWS Signature
+  Version 4 in pure Go (`crypto/hmac`), its SHA-256 payload hash checked
+  by the service; the bucket goes in the host name on AWS, and in the path
+  with a custom `endpoint` or a bucket name with dots, unless `pathStyle`
+  says otherwise.
 - File associations (`fileAssociations` in the configuration) are declared by the
   packages (see the table below) and their extensions linked into the
   binary; like deep links, files of those extensions among the launch

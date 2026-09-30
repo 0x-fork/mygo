@@ -45,6 +45,9 @@ func TestUpdatesConfig(t *testing.T) {
 	if err != nil || c.updateFeed("linux-amd64") != "https://dl.example.com/my-app/update-linux-amd64.json" {
 		t.Errorf("url feed = %s, %v", c.updateFeed("linux-amd64"), err)
 	}
+	if _, err := load(`{"publicKey": "` + key + `", "url": "https://dl.example.com/my-app", "s3": {"bucket": "downloads", "prefix": "my-app", "endpoint": "https://acc.r2.cloudflarestorage.com"}}`); err != nil {
+		t.Error(err)
+	}
 	for _, bad := range []string{
 		`{"github": "me/my-app"}`,
 		`{"publicKey": "nope", "github": "me/my-app"}`,
@@ -52,6 +55,10 @@ func TestUpdatesConfig(t *testing.T) {
 		`{"publicKey": "` + key + `", "github": "me"}`,
 		`{"publicKey": "` + key + `", "url": "http://dl.example.com"}`,
 		`{"publicKey": "` + key + `", "github": "me/my-app", "deltas": -1}`,
+		`{"publicKey": "` + key + `", "github": "me/my-app", "s3": {"bucket": "downloads"}}`,
+		`{"publicKey": "` + key + `", "url": "https://dl.example.com", "s3": {}}`,
+		`{"publicKey": "` + key + `", "url": "https://dl.example.com", "s3": {"bucket": "downloads", "endpoint": "acc.r2.cloudflarestorage.com"}}`,
+		`{"publicKey": "` + key + `", "url": "https://dl.example.com", "s3": {"bucket": "downloads", "endpoint": "https://acc.r2.cloudflarestorage.com/downloads"}}`,
 	} {
 		if _, err := load(bad); err == nil {
 			t.Errorf("accepted updates %s", bad)

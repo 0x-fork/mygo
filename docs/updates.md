@@ -34,8 +34,9 @@ export default defineConfig({
 ```
 
 `github` is a public repository whose releases, tagged `v1.2.0` and so on
-(`tagPrefix` changes the `v`), hold the updates. For your own server, set
-`url` instead, an HTTPS URL of a directory:
+(`tagPrefix` changes the `v`), hold the updates. For your own server or an
+[S3 bucket](#publishing-to-s3), set `url` instead, an HTTPS URL of a
+directory:
 
 ```ts
 export default defineConfig({
@@ -79,6 +80,8 @@ Publish the files where `updates` points to:
   draft release of the version. Publishing the release makes it the latest,
   which apps check: they read the manifests from
   `https://github.com/you/my-app/releases/latest/download/`.
+- **S3**: `mygo build -upload` uploads them, with the installers, to the
+  bucket of `updates.s3`; see [below](#publishing-to-s3).
 - **Your server**: upload the archives, deltas and manifests to the `url`
   directory, with the Linux `install.sh`, and keep the files of earlier
   versions there. Upload the manifests last, so apps never see a manifest
@@ -86,6 +89,38 @@ Publish the files where `updates` points to:
 
 Each platform, such as `darwin-arm64`, `darwin-universal` or
 `windows-amd64`, has its own manifest, and a build only looks at its own.
+
+### Publishing to S3
+
+When a bucket of Amazon S3, or of a compatible service such as Cloudflare
+R2, serves `url`, directly or through a CDN, name it in `updates.s3`:
+
+```ts
+export default defineConfig({
+  updates: {
+    publicKey: "…",
+    url: "https://downloads.example.com/my-app",
+    s3: {
+      bucket: "downloads",
+      prefix: "my-app", // the directory in the bucket that url serves
+      endpoint: "https://<account>.r2.cloudflarestorage.com", // not for Amazon S3
+    },
+  },
+});
+```
+
+`mygo build -upload` then uploads the installers, archives, deltas and
+install script to it, and the manifests last, which publishes the update
+of each platform. It needs no other tool: the credentials come from
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary ones,
+`AWS_SESSION_TOKEN`, and the region from `s3.region`, else `AWS_REGION`
+(or `AWS_DEFAULT_REGION`), else `us-east-1`, which R2 accepts. The
+manifests and `install.sh`, whose names stay from version to version, are
+uploaded with `Cache-Control: no-cache`, so a CDN checks them again.
+
+The bucket is named in the host name of requests on Amazon S3 and in their
+path with `endpoint`; set `pathStyle` to `false` for services that only
+take it in the host name, or to `true` to force the path.
 
 ## Delta updates
 

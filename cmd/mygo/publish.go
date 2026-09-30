@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,20 +11,32 @@ import (
 	"strings"
 )
 
-// publishGitHub uploads the artifacts of a build to the GitHub release of
-// this version, a draft created if needed, with the gh CLI. Update
-// manifests go last, so that they never point at a file that is not there.
-// Installed apps see the update once the release is published.
-func publishGitHub(c *Config, artifacts []string) error {
-	if c.Updates == nil || c.Updates.GitHub == "" {
-		return fmt.Errorf("-upload needs updates.github in %s", c.configName())
+// checkUpload checks, before a build, that -upload has somewhere to upload
+// to.
+func checkUpload(c *Config) error {
+	switch u := c.Updates; {
+	case u != nil && u.S3 != nil:
+		_, err := newS3Client(u.S3)
+		return err
+	case u == nil || u.GitHub == "":
+		return fmt.Errorf("-upload needs updates.github or updates.s3 in %s", c.configName())
 	}
-	gh, err := exec.LookPath("gh")
-	if err != nil {
-		return errors.New("-upload needs the GitHub CLI (https://cli.github.com), signed in with gh auth login or GH_TOKEN")
+	return nil
+}
+
+// publish uploads the artifacts of a build where updates point to: the
+// bucket of updates.s3, else the GitHub release of this version.
+func publish(c *Config, artifacts []string) error {
+	if c.Updates != nil && c.Updates.S3 != nil {
+		return publishS3(c, artifacts)
 	}
-	repo, tag := c.Updates.GitHub, c.Updates.TagPrefix+c.Version
-	var files, manifests []string
+	return publishGitHub(c, artifacts)
+}
+
+// uploads returns the artifacts of a build to publish: the installers and
+// update files, and apart the update manifests, which go last so that they
+// never point at a file that is not there.
+func uploads(artifacts []string) (files, manifests []string, err error) {
 	for _, a := range artifacts {
 		info, err := os.Stat(a)
 		if err != nil || info.IsDir() {
@@ -44,7 +57,26 @@ func publishGitHub(c *Config, artifacts []string) error {
 		}
 	}
 	if len(files)+len(manifests) == 0 {
-		return errors.New("nothing to upload")
+		return nil, nil, errors.New("nothing to upload")
+	}
+	return files, manifests, nil
+}
+
+// publishGitHub uploads the artifacts of a build to the GitHub release of
+// this version, a draft created if needed, with the gh CLI. Installed apps
+// see the update once the release is published.
+func publishGitHub(c *Config, artifacts []string) error {
+	if c.Updates == nil || c.Updates.GitHub == "" {
+		return fmt.Errorf("-upload needs updates.github in %s", c.configName())
+	}
+	gh, err := exec.LookPath("gh")
+	if err != nil {
+		return errors.New("-upload needs the GitHub CLI (https://cli.github.com), signed in with gh auth login or GH_TOKEN")
+	}
+	repo, tag := c.Updates.GitHub, c.Updates.TagPrefix+c.Version
+	files, manifests, err := uploads(artifacts)
+	if err != nil {
+		return err
 	}
 	if exec.Command(gh, "release", "view", tag, "--repo", repo).Run() != nil {
 		notes, _ := c.releaseNotes()
@@ -68,4 +100,51 @@ func publishGitHub(c *Config, artifacts []string) error {
 	}
 	logf("uploaded to the release %s of %s; publish it when every platform is there:\n  gh release edit %s --repo %s --draft=false", tag, repo, tag, repo)
 	return nil
+}
+
+// publishS3 uploads the artifacts of a build to the bucket of updates.s3,
+// which updates.url serves. Installed apps see the update of a platform
+// once its manifest is there.
+func publishS3(c *Config, artifacts []string) error {
+	bucket, err := newS3Client(c.Updates.S3)
+	if err != nil {
+		return err
+	}
+	files, manifests, err := uploads(artifacts)
+	if err != nil {
+		return err
+	}
+	for _, f := range slices.Concat(files, manifests) {
+		name := filepath.Base(f)
+		logf("uploading %s", name)
+		if err := bucket.put(bucket.key(name), f, uploadHeader(name)); err != nil {
+			return err
+		}
+	}
+	logf("uploaded to s3://%s/%s, which %s serves", bucket.bucket, bucket.prefix, c.Updates.URL)
+	return nil
+}
+
+// uploadHeader returns the headers of an uploaded file: its type and, for
+// the files whose names stay from version to version, that caches must
+// check them again.
+func uploadHeader(name string) http.Header {
+	typ, ok := contentTypes[filepath.Ext(name)]
+	if !ok {
+		typ = "application/octet-stream"
+	}
+	h := http.Header{"Content-Type": {typ}}
+	if name == installScriptName || strings.HasPrefix(name, "update-") && strings.HasSuffix(name, ".json") {
+		h.Set("Cache-Control", "no-cache")
+	}
+	return h
+}
+
+var contentTypes = map[string]string{
+	".dmg":  "application/x-apple-diskimage",
+	".exe":  "application/vnd.microsoft.portable-executable",
+	".deb":  "application/vnd.debian.binary-package",
+	".gz":   "application/gzip",
+	".json": "application/json",
+	".sh":   "text/plain; charset=utf-8", // readable in a browser before piping it to sh
 }

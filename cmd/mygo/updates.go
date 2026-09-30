@@ -38,6 +38,9 @@ type Updates struct {
 	// URL is where the update files are served from instead, e.g.
 	// "https://downloads.example.com/my-app".
 	URL string `json:"url"`
+	// S3 is the bucket that serves URL, which `mygo build -upload` uploads
+	// to.
+	S3 *S3 `json:"s3"`
 	// PrivateKey is the path of mygo-update.key. MYGO_UPDATER_PRIVATE_KEY,
 	// holding the key itself, takes precedence.
 	PrivateKey string `json:"privateKey"`
@@ -73,6 +76,14 @@ func (u *Updates) validate() error {
 		p, err := url.Parse(u.URL)
 		if err != nil || p.Scheme != "https" || p.Host == "" {
 			return fmt.Errorf("updates.url %q is not an https URL", u.URL)
+		}
+	}
+	if u.S3 != nil {
+		if u.URL == "" {
+			return errors.New("updates.s3 needs url, the HTTPS URL that serves the files of the bucket, in place of github")
+		}
+		if err := u.S3.validate(); err != nil {
+			return err
 		}
 	}
 	if u.Deltas != nil && *u.Deltas < 0 {

@@ -53,8 +53,9 @@ document.body.textContent = await Greeter.greet("Ada");
   shell, displays, dark mode, power and global shortcuts.
 - [Building and distributing](distribution.md): packaged apps for macOS,
   Windows and Linux, signing, installers and disk images.
-- [Auto-updates](updates.md): signed updates from GitHub releases or your
-  own server, delta updates, and an update window in the manner of Sparkle.
+- [Auto-updates](updates.md): signed updates from GitHub releases, an S3
+  bucket or your own server, delta updates, and an update window in the
+  manner of Sparkle.
 
 ## Reference
 

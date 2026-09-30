@@ -104,7 +104,7 @@ Builds production apps: runs `buildCommand`, compiles the app with
 | `-skip-build-command` | does not run `buildCommand` |
 | `-skip-dmg` | does not make macOS disk images |
 | `-skip-notarize` | does not notarize, even with `macos.notarize` set |
-| `-upload` | uploads the installers and updates to a draft GitHub release of the version (`updates.github`), with `gh` |
+| `-upload` | uploads the installers and updates to a draft GitHub release of the version (`updates.github`), with `gh`, or to the bucket of `updates.s3` |
 
 ## mygo generate
 
