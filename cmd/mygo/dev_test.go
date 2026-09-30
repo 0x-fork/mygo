@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -50,7 +51,26 @@ func TestMain(m *testing.M) {
 	case "hang":
 		signal.Ignore(syscall.SIGTERM)
 		time.Sleep(time.Hour)
+
+	// A build's processes for TestKillSparesWebView2: a child of its own,
+	// and a WebView2 browser (a copy of the test binary) with a child too.
+	// Each quits after a minute, whatever happens to the test.
+	case "tree":
+		_ = fakeChild(os.Args[0], "sleep").Start()
+		_ = fakeChild(os.Getenv("MYGO_FAKE_WEBVIEW"), "webview").Start()
+		time.Sleep(time.Minute)
+	case "webview":
+		_ = fakeChild(os.Args[0], "sleep").Start()
+		time.Sleep(time.Minute)
+	case "sleep":
+		time.Sleep(time.Minute)
 	}
+}
+
+func fakeChild(exe, mode string) *exec.Cmd {
+	cmd := exec.Command(exe)
+	cmd.Env = append(os.Environ(), "MYGO_FAKE_APP="+mode)
+	return cmd
 }
 
 func TestDevLaunch(t *testing.T) {
