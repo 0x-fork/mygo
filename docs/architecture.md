@@ -65,7 +65,7 @@ before changing anything under `internal/`.
 │                       per-platform binary packages
 ├── plugins/            official plugins, each a Go package and its npm
 │                       package (@mygo-plugins/<name>) side by side: fetch,
-│                       websocket
+│                       websocket; and updater, the update window, Go only
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native, vibrancy
 └── docs/               the user guides, and this architecture guide
@@ -212,7 +212,11 @@ purego gives three primitives, used everywhere:
   compares `gettid`. `Step` is `g_main_context_iteration(NULL, TRUE)` and
   `Wake` is `g_main_context_wakeup`.
 - GTK geometry changes are asynchronous: `SetBounds` remembers the requested
-  rectangle and `Bounds` reports it until the configure event confirms it.
+  rectangle and `Bounds` reports it until the configure event confirms it;
+  `Center` moves that rectangle along. `SetBounds` also sets the default
+  size, since GTK keeps a window the user cannot resize at least as large
+  as its default size, which `SetResizable(false)` sets to the current
+  size.
 - GTK gives windows without decorations no resize borders, so the outer
   5 px of the page of a frameless window, or one with a hidden title bar,
   resize it (16 px along the edges from a corner resize the corner). The web view's `motion-notify-event` shows
@@ -545,6 +549,40 @@ build` like mygo-runtime and released with the same version.
   calls numbered in order, since calls run on goroutines of their own and
   would otherwise race, and Go writes them in that order. Connections are
   keyed by window and a random id the page chooses.
+- **updater** is the update window, in the manner of Sparkle, built on
+  `mygo.Updater` alone. A *session* is a check and what follows it (the
+  release notes, the download, the offer to relaunch): a goroutine that
+  sets the session's *view* (title, message, progress, rendered notes,
+  buttons) and waits for responses, whether or not the window shows, so
+  that a background check shows it only when it has something to offer and
+  a "Check for Updates…" during one just shows it. The window's page, one
+  embedded HTML file loaded with `LoadHTML` (an `about:blank` page, so
+  trusted), watches the views through a `Channel` (`Watch`) and answers
+  with `Respond`; each set of buttons has a prompt number and only the
+  first answer to the current prompt counts, so a double click cannot
+  answer the next view. The plugin's service rejects calls from other
+  windows. Release notes are Markdown rendered in Go (`markdown.go`), which
+  escapes all HTML and only links http(s) and mailto URLs, and a
+  Content Security Policy with a nonce runs only the page's own script:
+  the page may call Go, and the notes come from the unsigned manifest.
+  Links open in the browser (`OnWillNavigate`). Views with release notes
+  have a fixed size; status views ask for the height of their text
+  (`Fit`). The window gets an empty menu of its own, so it has no menu bar
+  on Linux and Windows. `updater.json` in `PathUserData` keeps the
+  preferences, the skipped version and the time of the last check; the
+  next check is due an interval after it, or an hour after a failure, and
+  is rescheduled on resume since timers stop while the computer sleeps. An
+  update installed while the app runs is remembered, so that checks offer
+  to relaunch instead of installing it again. The texts are `Strings` in
+  the language that best matches `Options.Language` or `App.Locale`
+  (`matchLanguage`: language, script, region; Chinese scripts inferred
+  from regions such as TW; another variant of the language before
+  English), among the plugin's translations (`translations.go`) and the
+  app's, whose empty fields fall back to the plugin's, then English. The
+  page gets `lang`, which picks CJK fonts, and `dir`; status texts use
+  `unicode-bidi: plaintext` and the notes `dir="auto"`, as either may be
+  in another language than the window. The page reports the width its
+  buttons need too, as translations can be long.
 
 ## Typed client generation (`internal/tsgen`)
 

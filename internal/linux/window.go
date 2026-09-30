@@ -283,6 +283,9 @@ func (w *window) Title() string         { return goStr(gtkWindowGetTitle(w.win))
 
 func (w *window) SetBounds(r platform.Rect) {
 	w.requested = &r
+	// GTK keeps a window the user cannot resize at least as large as its
+	// default size.
+	gtkWindowSetDefaultSize(w.win, int32(r.Width), int32(r.Height))
 	gtkWindowMove(w.win, int32(r.X), int32(r.Y))
 	gtkWindowResize(w.win, int32(r.Width), int32(r.Height))
 }
@@ -311,6 +314,12 @@ func (w *window) SetMaximumSize(s platform.Size) {
 }
 
 func (w *window) SetResizable(v bool) {
+	if !v {
+		// Keep the size the user gave it (see SetBounds).
+		var width, height int32
+		gtkWindowGetSize(w.win, &width, &height)
+		gtkWindowSetDefaultSize(w.win, width, height)
+	}
 	gtkWindowSetResizable(w.win, v)
 	if w.controls != nil {
 		w.layoutControls() // with a maximize button or without
@@ -415,7 +424,12 @@ func (w *window) Center() {
 	for _, d := range (screen{}).Displays() {
 		if d.Primary {
 			area := d.WorkArea
-			gtkWindowMove(w.win, int32(area.X+(area.Width-b.Width)/2), int32(area.Y+(area.Height-b.Height)/2))
+			x, y := area.X+(area.Width-b.Width)/2, area.Y+(area.Height-b.Height)/2
+			if w.requested != nil {
+				// Bounds that GTK has not confirmed yet move with it.
+				w.requested.X, w.requested.Y = x, y
+			}
+			gtkWindowMove(w.win, int32(x), int32(y))
 			return
 		}
 	}

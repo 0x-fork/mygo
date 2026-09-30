@@ -11,6 +11,11 @@ package whose functions call them. The app uses the Go half with
 | fetch | `github.com/egoist/mygo/plugins/fetch` | `@mygo-plugins/fetch` | a `fetch` that makes HTTP requests from Go: no CORS, any header, streamed bodies, cancellation with `AbortSignal` |
 | websocket | `github.com/egoist/mygo/plugins/websocket` | `@mygo-plugins/websocket` | a `WebSocket` whose connections Go makes, with headers on the handshake |
 
+The updater plugin, `github.com/egoist/mygo/plugins/updater`, is all Go:
+it gives the app an update window in the manner of Sparkle, which checks
+for updates in the background and offers to install them. See
+[the update window](updates.md#the-update-window).
+
 ```go
 import (
 	"github.com/egoist/mygo"

@@ -54,7 +54,7 @@ document.body.textContent = await Greeter.greet("Ada");
 - [Building and distributing](distribution.md): packaged apps for macOS,
   Windows and Linux, signing, installers and disk images.
 - [Auto-updates](updates.md): signed updates from GitHub releases or your
-  own server.
+  own server, and an update window in the manner of Sparkle.
 
 ## Reference
 

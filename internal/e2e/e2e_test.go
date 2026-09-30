@@ -644,6 +644,81 @@ func TestWindowGeometryAndState(t *testing.T) {
 	}
 }
 
+// A window the user cannot resize still takes the sizes the app gives it,
+// smaller ones too: GTK keeps such windows at least as large as their
+// default size.
+func TestResizeFixedWindow(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Width: 500, Height: 400, UseContentSize: true, DisableResize: true})
+	w.LoadHTML("<p>fixed</p>", "")
+	for _, size := range [][2]int{{360, 240}, {540, 420}} {
+		w.SetContentSize(size[0], size[1])
+		eventually(t, fmt.Sprintf("a %dx%d page", size[0], size[1]), func() bool {
+			got, _ := mygo.EvalAs[[2]int](w, "[innerWidth, innerHeight]")
+			return got == size
+		})
+	}
+	if w.IsResizable() {
+		t.Error("the window became resizable")
+	}
+}
+
+// A page whose Content Security Policy runs only its own scripts still
+// talks to Go: the bridge and the messages it receives are not the page's.
+func TestStrictCSP(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200})
+	w.LoadHTML(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-e2e'">
+<script nonce="e2e">
+window.results = [];
+(async () => {
+  results.push(await mygo.call("Greeter.Greet", "csp"));
+  const values = [];
+  await mygo.call("Streams.Count", 3, mygo.channel((v) => values.push(v)));
+  results.push(values.join(","));
+})().catch((e) => results.push("error: " + e.message));
+</script>`, "")
+	waitFor(t, w, "window.results && results.length === 2")
+	got, err := mygo.EvalAs[[]string](w, "results")
+	if err != nil || fmt.Sprint(got) != "[Hello, csp! 0,1,2]" {
+		t.Errorf("results = %q, %v", got, err)
+	}
+}
+
+// A window with an empty menu of its own has no menu bar, where windows
+// get the application's (Linux, Windows).
+func TestEmptyWindowMenu(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200})
+	if _, supported := menuBarShown(w); !supported {
+		t.Skip("the menu bar belongs to the application")
+	}
+	prev := mygo.App.Menu()
+	defer mygo.App.SetMenu(prev)
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))
+	if shown, _ := menuBarShown(w); !shown {
+		t.Fatal("the window has no menu bar of the application")
+	}
+	w.SetMenu(mygo.NewMenu(nil))
+	if shown, _ := menuBarShown(w); shown {
+		t.Error("an empty menu left the menu bar")
+	}
+	w.SetMenu(nil)
+	if shown, _ := menuBarShown(w); !shown {
+		t.Error("SetMenu(nil) did not bring back the menu bar of the application")
+	}
+}
+
+// Resizing a centered window keeps its position, also when it was
+// resized right before, which GTK has not confirmed yet.
+func TestCenterThenResize(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, X: 10, Y: 10})
+	w.SetSize(380, 280)
+	w.Center()
+	w.SetSize(360, 260)
+	eventually(t, "a centered window", func() bool {
+		b := w.Bounds()
+		return b.X > 60 && b.Y > 60 && b.Width == 360 && b.Height == 260
+	})
+}
+
 // eventually waits for cond, which polls the window system.
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()

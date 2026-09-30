@@ -81,7 +81,98 @@ Publish the files where `updates` points to:
 Each platform, such as `darwin-arm64`, `darwin-universal` or
 `windows-amd64`, has its own manifest, and a build only looks at its own.
 
-## Update from the app
+## The update window
+
+The updater plugin gives an app the update window that Mac users know from
+Sparkle, on every platform:
+
+```go
+import "github.com/egoist/mygo/plugins/updater"
+
+mygo.Use(updater.Plugin)
+```
+
+- It checks in the background once a day, the first time 10 seconds after
+  launch when a check is due. When a new version is out, a window shows its
+  release notes and offers **Install Update**, **Remind Me Later** and
+  **Skip This Version**. Background checks do not offer a skipped version
+  again, but offer the next one.
+- Installing downloads the update with a progress bar, then offers to
+  relaunch; otherwise the update runs at the next launch.
+- With the window's "Automatically download and install updates in the
+  future" checked, background checks install updates without asking, and
+  they run at the next launch.
+- `updater.CheckForUpdates()` checks as the user asked: the window shows at
+  once, and says when the app is up to date or the check failed.
+  `updater.MenuItem()` is a "Check for Updates…" item that calls it, which
+  goes after About on macOS:
+
+```go
+mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
+	{Label: "My App", Submenu: []*mygo.MenuItem{
+		{Role: mygo.RoleAbout},
+		updater.MenuItem(),
+		mygo.Separator(),
+		{Role: mygo.RoleQuit},
+	}},
+	{Role: mygo.RoleEditMenu},
+	{Role: mygo.RoleWindowMenu},
+}))
+```
+
+`updater.New` takes options instead of the defaults of `updater.Plugin`:
+
+```go
+mygo.Use(updater.New(updater.Options{
+	Interval:               12 * time.Hour, // between checks (default a day)
+	DisableAutomaticChecks: true,           // until SetAutomaticChecks(true)
+	Icon:                   iconPNG,        // default: icon.png among the resources
+}))
+```
+
+The user's choices are kept in `updater.json` in `PathUserData`.
+`AutomaticChecks` and `AutomaticDownloads` read them and
+`SetAutomaticChecks` and `SetAutomaticDownloads` change them, for a
+preferences page; `LastCheck` returns when the app last checked. Sparkle
+asks on the second launch whether to check automatically: apps that want to
+ask set `DisableAutomaticChecks` and call `SetAutomaticChecks` with the
+answer.
+
+Builds that cannot update themselves, such as development builds and apps
+installed by a package manager, never check in the background, and the
+window says why when the user checks.
+
+### Languages
+
+The window speaks the user's language (`App.Locale`) when the plugin has
+it: English, Chinese (Simplified and Traditional), Dutch, French, German,
+Italian, Japanese, Korean, Polish, Portuguese (Brazil), Russian, Spanish,
+Turkish and Ukrainian, with their decimal marks and units ("1,5 Mo").
+Other languages get English. `Language` picks one, such as the language the
+app itself shows, and `Strings` changes texts or adds languages, by language
+tag; the fields an app leaves empty keep the plugin's texts:
+
+```go
+mygo.Use(updater.New(updater.Options{
+	Language: settings.Language, // "" follows the system
+	Strings: map[string]updater.Strings{
+		"en": {Install: "Update Now"},
+		"sv": {Title: "Programuppdatering", Install: "Installera uppdatering" /* … */},
+	},
+}))
+```
+
+Some texts are formats, such as `AvailableMessage`, whose arguments are the
+app's name, the new version and the running one: indexed verbs (`%[2]s`)
+let a language order them. `mygo.Use` fails when a format does not fit its
+arguments. Languages written from right to left, such as Arabic and Hebrew,
+get a mirrored window, and release notes take the direction of the language
+they are written in.
+
+## Your own update UI
+
+`mygo.Updater` is what the plugin is built on. Use it for an interface of
+your own, such as a banner in the app's page:
 
 ```go
 // UpdateProgress tells pages how far the download got.

@@ -12,7 +12,8 @@ binary of a few megabytes, focused on low memory and CPU use.
 - **Desktop APIs**: windows, menus, tray, dialogs, notifications, global
   shortcuts, deep links, file associations and more.
 - **Ready to ship**: app bundles and disk images, Windows installers, Debian
-  packages, code signing, notarization and signed auto-updates.
+  packages, code signing, notarization, and signed auto-updates with an
+  update window in the manner of Sparkle.
 
 ```go
 type Greeter struct{}
