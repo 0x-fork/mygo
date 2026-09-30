@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -30,7 +31,15 @@ type Linux struct {
 	// Depends lists Debian packages the app needs besides GTK and
 	// WebKitGTK.
 	Depends []string `json:"depends"`
+	// Command is the name of a command that runs the app: a link in
+	// /usr/bin from the Debian package, and in ~/.local/bin from
+	// install.sh. Empty means none, and the app opens from the applications
+	// menu.
+	Command string `json:"command"`
 }
+
+// commandRe matches the names linux.command may take.
+var commandRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
 
 // debArch maps GOARCH to Debian architectures.
 var debArch = map[string]string{"amd64": "amd64", "arm64": "arm64", "386": "i386", "arm": "armhf", "riscv64": "riscv64"}
@@ -47,7 +56,8 @@ func debVersion(v string) string {
 
 // writeDeb packages the Linux app in stage, the executable name and the
 // files next to it, as a Debian package: the app in /opt/<name>, a link in
-// /usr/bin, its desktop entry and icons. It returns the package's path.
+// /usr/bin named linux.command when there is one, its desktop entry and
+// icons. It returns the package's path.
 func writeDeb(c *Config, stage, name, goarch string, app []string) (string, error) {
 	arch, ok := debArch[goarch]
 	if !ok {
@@ -55,7 +65,7 @@ func writeDeb(c *Config, stage, name, goarch string, app []string) (string, erro
 	}
 	data := newTarGz()
 	opt := "opt/" + name
-	for _, dir := range []string{"opt", opt, "usr", "usr/bin", "usr/share", "usr/share/applications"} {
+	for _, dir := range []string{"opt", opt, "usr", "usr/share", "usr/share/applications"} {
 		data.dir(dir)
 	}
 	size := int64(0)
@@ -102,7 +112,10 @@ func writeDeb(c *Config, stage, name, goarch string, app []string) (string, erro
 			return "", err
 		}
 	}
-	data.link("usr/bin/"+name, "../../"+opt+"/"+name)
+	if command := c.Linux.Command; command != "" {
+		data.dir("usr/bin")
+		data.link("usr/bin/"+command, "../../"+opt+"/"+name)
+	}
 	if xml := mimePackage(c); xml != "" {
 		// Types the app defines; the shared-mime-info trigger registers them.
 		for _, d := range []string{"usr/share/mime", "usr/share/mime/packages"} {
@@ -111,7 +124,8 @@ func writeDeb(c *Config, stage, name, goarch string, app []string) (string, erro
 		data.file("usr/share/mime/packages/"+name+".xml", []byte(xml), 0o644)
 		fmt.Fprintf(md5sums, "%x  usr/share/mime/packages/%s.xml\n", md5.Sum([]byte(xml)), name)
 	}
-	desktop := []byte(linuxDesktopEntry(c, name, name))
+	// The entry runs the app by its path, with or without a command.
+	desktop := []byte(linuxDesktopEntry(c, "/"+opt+"/"+name, name))
 	data.file("usr/share/applications/"+name+".desktop", desktop, 0o644)
 	fmt.Fprintf(md5sums, "%x  usr/share/applications/%s.desktop\n", md5.Sum(desktop), name)
 	if c.Icon != "" {

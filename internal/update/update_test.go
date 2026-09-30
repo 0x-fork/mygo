@@ -113,4 +113,12 @@ func TestReleaseNotes(t *testing.T) {
 	if got := ReleaseNotes(changelog, "1.3.0"); got != "" {
 		t.Errorf("notes = %q", got)
 	}
+
+	// Keep a Changelog, with a Windows checkout's line endings.
+	keep := "# Changelog\r\n\r\n## [Unreleased]\r\n\r\n- Soon\r\n\r\n## [1.2.0] - 2026-09-19\r\n\r\n- Faster\r\n\r\n## [v1.1.0](https://example.com/compare/v1.0.0...v1.1.0)\r\n- Tray\r\n"
+	for version, want := range map[string]string{"1.2.0": "- Faster", "1.1.0": "- Tray", "Unreleased": "- Soon", "1.0.0": ""} {
+		if got := ReleaseNotes(keep, version); got != want {
+			t.Errorf("notes of %s = %q, want %q", version, got, want)
+		}
+	}
 }

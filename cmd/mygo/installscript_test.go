@@ -91,9 +91,10 @@ func TestInstallScript(t *testing.T) {
 		return string(out)
 	}
 	appDir := filepath.Join(home, ".local", "my-app.app")
+	binDir := filepath.Join(home, ".local", "bin")
 	installed := func(version string) {
 		t.Helper()
-		if out, err := exec.Command(filepath.Join(home, ".local", "bin", "my-app")).Output(); err != nil || string(out) != version+"\n" {
+		if out, err := exec.Command(filepath.Join(appDir, "my-app")).Output(); err != nil || string(out) != version+"\n" {
 			t.Errorf("my-app printed %q, %v, want %s", out, err, version)
 		}
 		if _, err := os.Stat(filepath.Join(appDir, "resources", "config.json")); err != nil {
@@ -134,8 +135,17 @@ func TestInstallScript(t *testing.T) {
 	if strings.Contains(string(script), "curl -fsSL http") {
 		t.Errorf("install.sh without updates tells to download it:\n%s", script)
 	}
-	if out := run(filepath.Join(local, "install.sh")); !strings.Contains(out, "run "+filepath.Join(home, ".local", "bin", "my-app")) {
+	// Without linux.command, no command, and none left from earlier
+	// scripts, which linked one named after the app.
+	os.MkdirAll(binDir, 0o755)
+	if err := os.Symlink(filepath.Join(appDir, "my-app"), filepath.Join(binDir, "my-app")); err != nil {
+		t.Fatal(err)
+	}
+	if out := run(filepath.Join(local, "install.sh")); !strings.HasSuffix(out, "Installed My App: open it from the applications menu\n") {
 		t.Errorf("install.sh printed:\n%s", out)
+	}
+	if entries, _ := os.ReadDir(binDir); len(entries) != 0 {
+		t.Errorf("~/.local/bin holds %v", entries)
 	}
 	installed("1.0.0")
 
@@ -152,6 +162,7 @@ func TestInstallScript(t *testing.T) {
 	defer srv.Close()
 	none := 0
 	c.Updates = &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), URL: srv.URL, Deltas: &none}
+	c.Linux.Command = "my-app"
 	published := build(c, "1.1.0")
 	for _, name := range []string{"my-app-1.1.0-linux-amd64.tar.gz", "update-linux-amd64.json"} {
 		b, err := os.ReadFile(filepath.Join(published, name))
@@ -166,10 +177,30 @@ func TestInstallScript(t *testing.T) {
 	}
 	alone := filepath.Join(t.TempDir(), "install.sh")
 	os.WriteFile(alone, script, 0o755)
-	if out := run(alone); !strings.Contains(out, "Downloading My App 1.1.0") {
+	if out := run(alone); !strings.Contains(out, "Downloading My App 1.1.0") || !strings.Contains(out, "run "+filepath.Join(binDir, "my-app")+"\n") {
 		t.Errorf("install.sh printed:\n%s", out)
 	}
 	installed("1.1.0")
+	// The command of linux.command.
+	if out, err := exec.Command(filepath.Join(binDir, "my-app")).Output(); err != nil || string(out) != "1.1.0\n" {
+		t.Errorf("the my-app command printed %q, %v", out, err)
+	}
+
+	// A command that another program has is left alone.
+	notes := filepath.Join(binDir, "notes")
+	os.WriteFile(notes, []byte("#!/bin/sh\necho notes\n"), 0o755)
+	c.Linux.Command = "notes"
+	withNotes := t.TempDir()
+	if _, err := writeInstallScript(c, withNotes); err != nil {
+		t.Fatal(err)
+	}
+	if out := run(filepath.Join(withNotes, "install.sh"), filepath.Join(local, "my-app-1.0.0-linux-amd64.tar.gz")); !strings.Contains(out, "Leaving "+notes+" alone: it is not My App's\n") ||
+		!strings.HasSuffix(out, "open it from the applications menu\n") {
+		t.Errorf("install.sh printed:\n%s", out)
+	}
+	if b, _ := os.ReadFile(notes); string(b) != "#!/bin/sh\necho notes\n" {
+		t.Errorf("the notes command became %q", b)
+	}
 
 	// The archive given, over the installed version.
 	run(alone, filepath.Join(local, "my-app-1.0.0-linux-amd64.tar.gz"))
@@ -219,6 +250,9 @@ func TestInstallScript(t *testing.T) {
 	}
 	if _, err := os.Stat(other); err != nil {
 		t.Errorf("the entry of another app was removed: %v", err)
+	}
+	if _, err := os.Stat(notes); err != nil {
+		t.Errorf("the command of another program was removed: %v", err)
 	}
 	if out, err := exec.Command("sh", alone, "--uninstall").CombinedOutput(); err == nil {
 		t.Errorf("uninstalling twice succeeded:\n%s", out)

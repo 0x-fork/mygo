@@ -223,6 +223,9 @@ func (c *Config) validate() error {
 	if c.Windows.Certificate != "" && c.Windows.SignCommand != "" {
 		return errors.New("windows.certificate and windows.signCommand exclude each other")
 	}
+	if cmd := c.Linux.Command; cmd != "" && !commandRe.MatchString(cmd) {
+		return fmt.Errorf("linux.command %q is not a command name (a letter or digit, then letters, digits, ., _, + or -)", cmd)
+	}
 	if c.Updates != nil {
 		if err := c.Updates.validate(); err != nil {
 			return err

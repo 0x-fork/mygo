@@ -71,8 +71,9 @@ but for the Linux archives, which [`install.sh`](distribution.md#the-install-scr
 installs.
 
 The release notes are the section of the version in `CHANGELOG.md`
-(`updates.changelog` names another file), under a `## 1.2.0` heading. When
-the file exists, it must have that section.
+(`updates.changelog` names another file), under a `## 1.2.0` heading, or
+`## [1.2.0] - 2026-09-19` as in [Keep a Changelog](https://keepachangelog.com).
+When the file exists, it must have that section.
 
 Publish the files where `updates` points to:
 

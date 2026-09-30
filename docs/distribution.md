@@ -302,8 +302,8 @@ export default defineConfig({
 
 `mygo build` writes the executable, named after the app in lower case, a
 desktop entry and the icon, and a Debian package, which installs the app
-in `/opt/my-app` with a `my-app` command, its desktop entry, icons, URL
-schemes and file types:
+in `/opt/my-app` with its desktop entry, icons, URL schemes and file
+types:
 
 ```ts
 export default defineConfig({
@@ -312,6 +312,7 @@ export default defineConfig({
     comment: "Take notes",
     categories: ["Office"],
     depends: ["libayatana-appindicator3-1"],
+    command: "my-app",
   },
 });
 ```
@@ -321,14 +322,20 @@ The package depends on GTK 3 and WebKitGTK; `depends` adds more packages.
 the app.
 `comment` describes the app in its desktop entry and package, and
 `categories` places it in application menus (`Utility` by default).
+The app opens from the applications menu. `command` also gives it a
+command, `/usr/bin/my-app` from the package and `~/.local/bin/my-app` from
+[`install.sh`](#the-install-script); without it, neither adds a command,
+which leaves the name to a command-line tool of the same name, such as
+the app's own.
 
 ### The install script
 
 Every Linux build also gets the app as an archive,
 `my-app-1.2.0-linux-amd64.tar.gz`, and `install.sh`, which installs it for
 the user without root: the app in `~/.local/my-app.app`, where it can
-[update itself](updates.md), the `my-app` command in `~/.local/bin`, and
-its desktop entry, icon, URL schemes and file types. With
+[update itself](updates.md), its desktop entry, icon, URL schemes and file
+types, and with `linux.command` that command in `~/.local/bin`, unless
+another program is there. With
 [updates](updates.md) configured, it downloads the latest version, which
 the update manifest of the machine names, so one line installs the app:
 

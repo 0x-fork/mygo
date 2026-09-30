@@ -9,8 +9,9 @@ import (
 
 // The install script of Linux apps: install.sh installs the archive of the
 // app for the user, without root or a package manager, in
-// ~/.local/<name>.app, where the app can update itself, with a command in
-// ~/.local/bin, and registers its desktop entry and file types
+// ~/.local/<name>.app, where the app can update itself, with the command of
+// linux.command in ~/.local/bin when there is one (never over a file it did
+// not make), and registers its desktop entry and file types
 // (writeLinuxDesktop) with the paths of the install, as updates do again
 // (update.RefreshDesktopEntry). It warns when WebKitGTK is missing, with
 // the command that installs it. It installs the archive it is given, else
@@ -35,6 +36,7 @@ func installScript(c *Config) string {
 		"Name":     c.Name,
 		"Title":    strings.Join(strings.Fields(c.Name), " "),
 		"Slug":     slugify(c.executableName()),
+		"Command":  c.Linux.Command,
 		"Version":  c.Version,
 		"Releases": "",
 	}
@@ -56,7 +58,7 @@ func shQuote(s string) string {
 
 var installScriptTemplate = template.Must(template.New("").Funcs(template.FuncMap{"q": shQuote}).Parse(`#!/bin/sh
 # Installs {{.Title}} for the current user, without root: the app in
-# ~/.local/{{.Slug}}.app, the {{.Slug}} command in ~/.local/bin, and its entry
+# ~/.local/{{.Slug}}.app{{with .Command}}, the {{.}} command in ~/.local/bin,{{end}} and its entry
 # in the applications menu. Made by mygo build.
 #
 {{- with .Curl}}
@@ -68,6 +70,8 @@ set -eu
 
 app_name={{q .Name}}
 name={{q .Slug}}
+# The command in ~/.local/bin that runs the app (linux.command), if any.
+command_name={{q .Command}}
 version={{q .Version}}
 # Where the manifests of the latest version are, with updates.
 releases={{q .Releases}}
@@ -98,7 +102,7 @@ fetch() {
 
 main() {
 	app_dir="$HOME/.local/$name.app"
-	bin_link="$HOME/.local/bin/$name"
+	bin_dir="$HOME/.local/bin"
 	data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 	desktop_file="$data_home/applications/$name.desktop"
 	mime_file="$data_home/mime/packages/$name.xml"
@@ -169,8 +173,26 @@ main() {
 	rm -rf "$app_dir"
 	mv "$staging" "$app_dir"
 
-	mkdir -p "$HOME/.local/bin" "$data_home/applications"
-	ln -sf "$app_dir/$name" "$bin_link"
+	mkdir -p "$data_home/applications"
+	# Earlier install scripts linked a command named after the app.
+	if [ "$name" != "$command_name" ] && ours "$bin_dir/$name"; then
+		rm -f "$bin_dir/$name"
+	fi
+	run=
+	if [ -n "$command_name" ]; then
+		bin_link="$bin_dir/$command_name"
+		if { [ -e "$bin_link" ] || [ -L "$bin_link" ]; } && ! ours "$bin_link"; then
+			echo "Leaving $bin_link alone: it is not $app_name's" >&2
+		else
+			mkdir -p "$bin_dir"
+			ln -sf "$app_dir/$name" "$bin_link"
+			if [ "$(command -v "$command_name" || true)" = "$bin_link" ]; then
+				run=$command_name
+			else
+				run=$bin_link
+			fi
+		fi
+	fi
 	# The entry of the app, running it and showing its icon by their paths,
 	# which updates of the app register again the same way.
 	if [ -f "$app_dir/$name.desktop" ]; then
@@ -190,12 +212,11 @@ main() {
 	fi
 	update_databases
 
-	if [ "$(command -v "$name" || true)" = "$bin_link" ]; then
-		run=$name
+	if [ -n "$run" ]; then
+		echo "Installed $app_name: open it from the applications menu, or run $run"
 	else
-		run=$bin_link
+		echo "Installed $app_name: open it from the applications menu"
 	fi
-	echo "Installed $app_name: open it from the applications menu, or run $run"
 	if ! has_webkit; then
 		echo "$app_name needs WebKitGTK, which is not installed. Install it with:" >&2
 		echo "  $(webkit_install_command)" >&2
@@ -240,9 +261,11 @@ uninstall() {
 	[ -d "$app_dir" ] || fail "$app_name is not installed in $app_dir"
 	# Only what install.sh and the app made: a package of the system may
 	# install the same names.
-	if [ "$(readlink "$bin_link" 2>/dev/null || true)" = "$app_dir/$name" ]; then
-		rm -f "$bin_link"
-	fi
+	for link in "$bin_dir/$name" "$bin_dir/$command_name"; do
+		if ours "$link"; then
+			rm -f "$link"
+		fi
+	done
 	if [ -f "$desktop_file" ] && grep -qF "$app_dir/" "$desktop_file"; then
 		rm -f "$desktop_file" "$mime_file"
 	fi
@@ -254,6 +277,11 @@ uninstall() {
 	rm -rf "$app_dir"
 	update_databases
 	echo "Uninstalled $app_name. Its settings and data are still in place."
+}
+
+# ours tells whether $1 is the link to the app that install.sh makes.
+ours() {
+	[ -L "$1" ] && [ "$(readlink "$1")" = "$app_dir/$name" ]
 }
 
 update_databases() {

@@ -291,18 +291,19 @@ func ExtractArchive(r io.Reader, dir string) error {
 }
 
 // ReleaseNotes returns the section of a Markdown changelog under the
-// "## <version>" heading (a date or other text may follow the version),
-// or "" when there is none.
+// "## <version>" heading, or "## [<version>]" as in Keep a Changelog (a date
+// or other text may follow the version), or "" when there is none.
 func ReleaseNotes(changelog, version string) string {
 	var notes []string
 	in := false
-	for _, line := range strings.Split(changelog, "\n") {
+	version = strings.TrimPrefix(version, "v")
+	for _, line := range strings.Split(strings.ReplaceAll(changelog, "\r\n", "\n"), "\n") {
 		if rest, ok := strings.CutPrefix(line, "## "); ok {
 			if in {
 				break
 			}
 			fields := strings.Fields(rest)
-			in = len(fields) > 0 && strings.TrimPrefix(fields[0], "v") == strings.TrimPrefix(version, "v")
+			in = len(fields) > 0 && strings.TrimPrefix(headingVersion(fields[0]), "v") == version
 			continue
 		}
 		if in {
@@ -310,4 +311,14 @@ func ReleaseNotes(changelog, version string) string {
 		}
 	}
 	return strings.TrimSpace(strings.Join(notes, "\n"))
+}
+
+// headingVersion returns the version a changelog heading starts with, from
+// "1.2.0", or from "[1.2.0]" and "[1.2.0](link)" as Keep a Changelog and
+// release tools write it.
+func headingVersion(s string) string {
+	if rest, ok := strings.CutPrefix(s, "["); ok {
+		s, _, _ = strings.Cut(rest, "]")
+	}
+	return s
 }

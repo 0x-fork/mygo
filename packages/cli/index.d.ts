@@ -207,4 +207,10 @@ export interface LinuxConfig {
   categories?: string[];
   /** Debian packages the app needs besides GTK and WebKitGTK. */
   depends?: string[];
+  /**
+   * A command that runs the app, such as `my-app`: a link in `/usr/bin` from
+   * the Debian package, and in `~/.local/bin` from install.sh (default: none;
+   * the app opens from the applications menu).
+   */
+  command?: string;
 }
