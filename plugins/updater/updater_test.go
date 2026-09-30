@@ -35,6 +35,7 @@ func newHarness(t *testing.T, opts Options) *harness {
 		func(l func() string) func() { return func() { locale = l } }(locale),
 		func(p func(*session)) func() { return func() { present = p } }(present),
 		func(d func() (string, error)) func() { return func() { stateDir = d } }(stateDir),
+		func(r func(func())) func() { return func() { runOnMain = r } }(runOnMain),
 	}
 	t.Cleanup(func() {
 		for _, restore := range saved {
@@ -52,6 +53,7 @@ func newHarness(t *testing.T, opts Options) *harness {
 	locale = func() string { return "en-US" }
 	present = func(s *session) { h.presented <- s }
 	stateDir = func() (string, error) { return h.dir, nil }
+	runOnMain = func(fn func()) { fn() }
 	h.u = newUpdater(opts)
 	return h
 }
@@ -427,6 +429,55 @@ func TestPreferences(t *testing.T) {
 	if u := newUpdater(Options{}); u.opts.Interval != 24*time.Hour {
 		t.Errorf("interval %v", u.opts.Interval)
 	}
+}
+
+func TestOnChange(t *testing.T) {
+	h := newHarness(t, Options{})
+	active.Store(h.u)
+	t.Cleanup(func() { active.Store(nil) })
+	changes := make(chan struct{}, 10)
+	off := OnChange(func() { changes <- struct{}{} })
+	told := func(want bool, what string) {
+		t.Helper()
+		wait := 50 * time.Millisecond
+		if want {
+			wait = 5 * time.Second
+		}
+		select {
+		case <-changes:
+			if !want {
+				t.Errorf("%s: told of a change", what)
+			}
+		case <-time.After(wait):
+			if want {
+				t.Errorf("%s: not told", what)
+			}
+		}
+	}
+
+	SetAutomaticDownloads(true)
+	told(true, "SetAutomaticDownloads")
+	SetAutomaticDownloads(true)
+	told(false, "the same value")
+
+	waitDone(t, h.begin(false))
+	told(true, "a check")
+	h.result = func(context.Context) (*release, error) { return nil, errors.New("offline") }
+	waitDone(t, h.begin(false))
+	told(false, "a failed check")
+
+	h.result = func(context.Context) (*release, error) { return newRelease("2.0.0", nil), nil }
+	done := h.begin(true)
+	s := h.shown()
+	told(true, "the user's check")
+	v := waitView(t, s, "A new version of")
+	s.respond(v.Prompt, actionSkip, true)
+	waitDone(t, done)
+	told(true, "Skip This Version")
+
+	off()
+	SetAutomaticDownloads(false)
+	told(false, "a function removed")
 }
 
 func TestSchedule(t *testing.T) {

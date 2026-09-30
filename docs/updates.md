@@ -162,10 +162,27 @@ mygo.Use(updater.New(updater.Options{
 The user's choices are kept in `updater.json` in `PathUserData`.
 `AutomaticChecks` and `AutomaticDownloads` read them and
 `SetAutomaticChecks` and `SetAutomaticDownloads` change them, for a
-preferences page; `LastCheck` returns when the app last checked. Sparkle
-asks on the second launch whether to check automatically: apps that want to
-ask set `DisableAutomaticChecks` and call `SetAutomaticChecks` with the
-answer.
+preferences page; `LastCheck` returns when the app last checked.
+`OnChange` calls a function on the main thread whenever one of them
+changed, after a check or an answer in the update window as well, so the
+page can show them again:
+
+```go
+// UpdatePreferences tells the preferences page what they are now.
+var UpdatePreferences = mygo.NewEvent[Prefs]("update-preferences")
+
+updater.OnChange(func() {
+	UpdatePreferences.Broadcast(Prefs{
+		AutomaticChecks:    updater.AutomaticChecks(),
+		AutomaticDownloads: updater.AutomaticDownloads(),
+		LastCheck:          updater.LastCheck(),
+	})
+})
+```
+
+Sparkle asks on the second launch whether to check automatically: apps
+that want to ask set `DisableAutomaticChecks` and call `SetAutomaticChecks`
+with the answer.
 
 Builds that cannot update themselves, such as development builds and apps
 installed by a package manager, never check in the background, and the

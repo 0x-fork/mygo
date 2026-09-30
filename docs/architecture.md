@@ -580,8 +580,10 @@ build` like mygo-runtime and released with the same version.
   have a fixed size; status views ask for the height of their text
   (`Fit`). The window gets an empty menu of its own, so it has no menu bar
   on Linux and Windows. `updater.json` in `PathUserData` keeps the
-  preferences, the skipped version and the time of the last check; the
-  next check is due an interval after it, or an hour after a failure, and
+  preferences, the skipped version and the time of the last check, and
+  a change that alters them calls the functions of `OnChange` on the main
+  thread, from a goroutine of its own so that no caller waits for the main
+  thread; the next check is due an interval after it, or an hour after a failure, and
   is rescheduled on resume since timers stop while the computer sleeps. An
   update installed while the app runs is remembered, so that checks offer
   to relaunch instead of installing it again. The texts are `Strings` in

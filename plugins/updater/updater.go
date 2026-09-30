@@ -27,6 +27,7 @@
 // directory: whether to check automatically (AutomaticChecks), whether to
 // install updates without asking (AutomaticDownloads, the checkbox of the
 // update window), the version they skipped and when the app last checked.
+// OnChange tells the app when they changed, for a preferences page.
 package updater
 
 import (
@@ -35,6 +36,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -155,6 +157,14 @@ func LastCheck() time.Time {
 	return u.state.LastCheck
 }
 
+// OnChange calls fn on the main thread after the choices of the user or the
+// time of the last check changed: a check succeeded, the user answered the
+// update window (its checkbox, Skip This Version), or the app called
+// SetAutomaticChecks or SetAutomaticDownloads. A preferences page that shows
+// AutomaticChecks, AutomaticDownloads or LastCheck reads them again. It
+// returns a function that removes fn.
+func OnChange(fn func()) (off func()) { return used().onChange(fn) }
+
 // active is the plugin that was used.
 var active atomic.Pointer[updater]
 
@@ -177,6 +187,7 @@ var (
 	present        = openWindow
 	stateDir       = func() (string, error) { return mygo.App.Path(mygo.PathUserData) }
 	resourcesDir   = func() (string, error) { return mygo.App.Path(mygo.PathResources) }
+	runOnMain      = mygo.RunOnMain
 	firstCheckWait = 10 * time.Second
 )
 
@@ -204,6 +215,17 @@ type state struct {
 	LastCheck          time.Time `json:"lastCheck,omitzero"`
 }
 
+// same reports whether s keeps what o keeps.
+func (s state) same(o state) bool {
+	if (s.AutomaticChecks == nil) != (o.AutomaticChecks == nil) ||
+		s.AutomaticChecks != nil && *s.AutomaticChecks != *o.AutomaticChecks {
+		return false
+	}
+	return s.AutomaticDownloads == o.AutomaticDownloads &&
+		s.SkippedVersion == o.SkippedVersion &&
+		s.LastCheck.Equal(o.LastCheck)
+}
+
 const stateFile = "updater.json"
 
 type updater struct {
@@ -216,6 +238,8 @@ type updater struct {
 	mu       sync.Mutex
 	file     string // "" when the state cannot be saved
 	state    state
+	// changes are the functions of OnChange, in the order they were added.
+	changes []*func()
 	// running is set once the app is ready and can update itself: only
 	// then are checks scheduled.
 	running bool
@@ -278,12 +302,31 @@ func (u *updater) load() {
 	})
 }
 
-// update changes the state and saves it.
+// update changes the state, saves it, and calls the functions of OnChange
+// when it changed.
 func (u *updater) update(fn func(*state)) {
 	u.load()
 	u.mu.Lock()
-	defer u.mu.Unlock()
+	before := u.state
 	fn(&u.state)
+	u.save()
+	var changes []*func()
+	if !u.state.same(before) {
+		changes = slices.Clone(u.changes)
+	}
+	u.mu.Unlock()
+	if len(changes) > 0 {
+		// From a goroutine of its own: no caller waits for the main thread.
+		go runOnMain(func() {
+			for _, fn := range changes {
+				(*fn)()
+			}
+		})
+	}
+}
+
+// save writes the state file. u.mu is held.
+func (u *updater) save() {
 	if u.file == "" {
 		return
 	}
@@ -293,6 +336,18 @@ func (u *updater) update(fn func(*state)) {
 	}
 	if err := os.WriteFile(u.file+".tmp", data, 0o644); err == nil {
 		_ = os.Rename(u.file+".tmp", u.file)
+	}
+}
+
+func (u *updater) onChange(fn func()) (off func()) {
+	p := &fn
+	u.mu.Lock()
+	u.changes = append(u.changes, p)
+	u.mu.Unlock()
+	return func() {
+		u.mu.Lock()
+		defer u.mu.Unlock()
+		u.changes = slices.DeleteFunc(u.changes, func(q *func()) bool { return q == p })
 	}
 }
 
