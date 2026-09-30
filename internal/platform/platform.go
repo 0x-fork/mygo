@@ -28,6 +28,11 @@ type Size struct{ Width, Height int }
 // Rect is a rectangle in screen coordinates (DIPs).
 type Rect struct{ X, Y, Width, Height int }
 
+// TitleBar is the room the window controls take at the top of a window
+// with a hidden title bar, in DIPs: they sit in a band of Height along the
+// top edge, Left wide from the left edge and Right wide from the right.
+type TitleBar struct{ Height, Left, Right int }
+
 // Color is an 8-bit RGBA color.
 type Color struct{ R, G, B, A uint8 }
 
@@ -202,8 +207,14 @@ type WindowOptions struct {
 	// BackgroundColor is painted before the page renders; nil keeps the
 	// platform default.
 	BackgroundColor *Color
-	// TitleBarStyle is "default", "hidden" or "hiddenInset" (macOS).
-	TitleBarStyle        string
+	// TitleBarStyle is "default", "hidden" or "hiddenInset". A hidden title
+	// bar gives the page the whole window, under the window controls:
+	// AppKit's traffic lights on macOS, and on Linux and Windows controls
+	// the backend puts over the page (see Window.TitleBar).
+	TitleBarStyle string
+	// TitleBarHeight is the height of a hidden title bar in DIPs (Linux,
+	// Windows); 0 is the backend's own.
+	TitleBarHeight       int
 	TrafficLightPosition *Point
 	Vibrancy             string
 	Opacity              float64
@@ -299,6 +310,11 @@ type Window interface {
 	// SetAutoHideMenu hides the menu bar until Alt or F10 brings the
 	// keyboard to it (Linux/Windows). No-op on macOS.
 	SetAutoHideMenu(v bool)
+	// TitleBar returns the room the window controls of a window with a
+	// hidden title bar take, which WindowHandler.TitleBarChanged reports
+	// changes of. It is zero for other windows and while the controls are
+	// hidden, in full screen.
+	TitleBar() TitleBar
 	// StartDrag moves the window with the mouse (frameless drag regions).
 	StartDrag()
 	// TitleBarDoubleClicked performs the platform action for a double click
@@ -359,6 +375,9 @@ type WindowHandler interface {
 	Unmaximized()
 	EnteredFullScreen()
 	LeftFullScreen()
+	// TitleBarChanged is called when Window.TitleBar changes, e.g. when the
+	// window enters full screen or the desktop's button layout changes.
+	TitleBarChanged()
 
 	// Message delivers a message posted by the renderer bridge.
 	Message(msg string)

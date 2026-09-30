@@ -12,6 +12,7 @@ import (
 
 	"github.com/ebitengine/purego/objc"
 
+	"github.com/egoist/mygo/internal/bridge"
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -212,6 +213,13 @@ func (w *window) createWebView(content NSRect) {
 		}
 		script := send(send(class("WKUserScript"), "alloc"), "initWithSource:injectionTime:forMainFrameOnly:",
 			uintptr(nsString(s.Source)), injection, boolArg(!s.AllFrames))
+		send(w.ucc, "addUserScript:", uintptr(script))
+		release(script)
+	}
+	if w.hiddenTitleBar() {
+		// After the bridge, which it tells: the room of the traffic lights.
+		script := send(send(class("WKUserScript"), "alloc"), "initWithSource:injectionTime:forMainFrameOnly:",
+			uintptr(nsString(bridge.TitleBarScript(w.TitleBar(), o.Zoom))), 0, 1)
 		send(w.ucc, "addUserScript:", uintptr(script))
 		release(script)
 	}
@@ -529,6 +537,38 @@ func (w *window) StartDrag() {
 	if w.lastMouseDown != 0 {
 		send(w.win, "performWindowDragWithEvent:", uintptr(w.lastMouseDown))
 	}
+}
+
+// hiddenTitleBar reports a TitleBarStyle that hides the title bar but keeps
+// the traffic lights.
+func (w *window) hiddenTitleBar() bool {
+	o := w.opts
+	return !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset")
+}
+
+// TitleBar returns the room the traffic lights take, from the left edge to
+// the right edge of the zoom button, in the title bar, which is as tall as
+// the window's own or, with TrafficLightPosition, leaves as much room below
+// them as above. They hide in full screen.
+func (w *window) TitleBar() platform.TitleBar {
+	if !w.hiddenTitleBar() || w.closed || w.IsFullScreen() {
+		return platform.TitleBar{}
+	}
+	closeBtn := send(w.win, "standardWindowButton:", 0)
+	zoom := send(w.win, "standardWindowButton:", 2)
+	if closeBtn == 0 || zoom == 0 {
+		return platform.TitleBar{}
+	}
+	c, z := msgRect(closeBtn, sel("frame")), msgRect(zoom, sel("frame"))
+	if p := w.trafficLights; p != nil {
+		// Where layoutTrafficLights puts them, which may not have run yet.
+		right := float64(p.X) + z.Origin.X - c.Origin.X + z.Size.Width
+		return platform.TitleBar{Height: int(math.Round(c.Size.Height + 2*float64(p.Y))), Left: int(math.Ceil(right))}
+	}
+	frame := msgRect(w.win, sel("frame"))
+	content := msgRect(w.win, sel("contentLayoutRect"))
+	height := frame.Size.Height - content.Origin.Y - content.Size.Height
+	return platform.TitleBar{Height: int(math.Round(height)), Left: int(math.Ceil(z.Origin.X + z.Size.Width))}
 }
 
 func (w *window) TitleBarDoubleClicked() {
@@ -1013,12 +1053,18 @@ func registerWindowClasses() {
 			method("windowDidEnterFullScreen:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {
 					w.h.EnteredFullScreen()
+					if w.hiddenTitleBar() {
+						w.h.TitleBarChanged() // the traffic lights hid
+					}
 				}
 			}),
 			method("windowDidExitFullScreen:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {
 					w.layoutTrafficLights()
 					w.h.LeftFullScreen()
+					if w.hiddenTitleBar() {
+						w.h.TitleBarChanged()
+					}
 				}
 			}),
 

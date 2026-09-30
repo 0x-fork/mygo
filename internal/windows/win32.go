@@ -134,10 +134,31 @@ var (
 	procFillRect                      = user32.NewProc("FillRect")
 	procGetNextWindow                 = user32.NewProc("GetWindow")
 	procInvalidateRectW               = user32.NewProc("InvalidateRect")
+	procUpdateLayeredWindow           = user32.NewProc("UpdateLayeredWindow")
+	procGetDC                         = user32.NewProc("GetDC")
+	procReleaseDC                     = user32.NewProc("ReleaseDC")
+	procDrawTextW                     = user32.NewProc("DrawTextW")
+	procTrackMouseEvent               = user32.NewProc("TrackMouseEvent")
+	procScreenToClient                = user32.NewProc("ScreenToClient")
+	procGetMenuItemCount              = user32.NewProc("GetMenuItemCount")
+	procGetSubMenu                    = user32.NewProc("GetSubMenu")
+	procGetMenuItemID                 = user32.NewProc("GetMenuItemID")
+	procGetMenuStringW                = user32.NewProc("GetMenuStringW")
+	procGetMenuState                  = user32.NewProc("GetMenuState")
+	procRemoveMenu                    = user32.NewProc("RemoveMenu")
 
 	// gdi32
-	procCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
-	procDeleteObject     = gdi32.NewProc("DeleteObject")
+	procCreateSolidBrush   = gdi32.NewProc("CreateSolidBrush")
+	procDeleteObject       = gdi32.NewProc("DeleteObject")
+	procCreateCompatibleDC = gdi32.NewProc("CreateCompatibleDC")
+	procDeleteDC           = gdi32.NewProc("DeleteDC")
+	procCreateDIBSection   = gdi32.NewProc("CreateDIBSection")
+	procSelectObject       = gdi32.NewProc("SelectObject")
+	procCreateFontW        = gdi32.NewProc("CreateFontW")
+	procGetTextFaceW       = gdi32.NewProc("GetTextFaceW")
+	procSetBkMode          = gdi32.NewProc("SetBkMode")
+	procSetTextColor       = gdi32.NewProc("SetTextColor")
+	procGdiFlush           = gdi32.NewProc("GdiFlush")
 
 	// ole32
 	procCoInitializeEx        = ole32.NewProc("CoInitializeEx")
@@ -197,7 +218,15 @@ const (
 	wmSetIcon           = 0x0080
 	wmNCCalcSize        = 0x0083
 	wmNCHitTest         = 0x0084
+	wmNCMouseMove       = 0x00A0
 	wmNCLButtonDown     = 0x00A1
+	wmNCLButtonUp       = 0x00A2
+	wmNCLButtonDblClk   = 0x00A3
+	wmNCRButtonDown     = 0x00A4
+	wmNCRButtonUp       = 0x00A5
+	wmNCRButtonDblClk   = 0x00A6
+	wmNCMouseLeave      = 0x02A2
+	wmMouseLeave        = 0x02A3
 	wmCommand           = 0x0111
 	wmSysCommand        = 0x0112
 	wmLButtonUp         = 0x0202
@@ -216,7 +245,9 @@ const (
 
 	wsOverlapped       = 0x00000000
 	wsPopup            = 0x80000000
+	wsChild            = 0x40000000
 	wsVisible          = 0x10000000
+	wsClipSiblings     = 0x04000000
 	wsClipChildren     = 0x02000000
 	wsCaption          = 0x00C00000
 	wsSysMenu          = 0x00080000
@@ -230,6 +261,7 @@ const (
 	wsExToolWindow  = 0x00000080
 	wsExAppWindow   = 0x00040000
 	wsExLayered     = 0x00080000
+	wsExNoRedirect  = 0x00200000 // WS_EX_NOREDIRECTIONBITMAP
 	wsExNoActivate  = 0x08000000
 
 	gwlStyle   = -16
@@ -249,6 +281,8 @@ const (
 	swpNoZOrder     = 0x0004
 	swpNoActivate   = 0x0010
 	swpFrameChanged = 0x0020
+	swpShowWindow   = 0x0040
+	swpHideWindow   = 0x0080
 
 	hwndTopmost   = ^uintptr(0)     // -1
 	hwndNoTopmost = ^uintptr(0) - 1 // -2
@@ -262,6 +296,8 @@ const (
 
 	htClient      = 1
 	htCaption     = 2
+	htMinButton   = 8
+	htMaxButton   = 9
 	htLeft        = 10
 	htRight       = 11
 	htTop         = 12
@@ -270,16 +306,21 @@ const (
 	htBottom      = 15
 	htBottomLeft  = 16
 	htBottomRight = 17
+	htClose       = 20
 
-	scClose   = 0xF060
-	scKeyMenu = 0xF100
+	scMinimize = 0xF020
+	scMaximize = 0xF030
+	scClose    = 0xF060
+	scKeyMenu  = 0xF100
+	scRestore  = 0xF120
 
-	mfString    = 0x0000
-	mfGrayed    = 0x0001
-	mfChecked   = 0x0008
-	mfPopup     = 0x0010
-	mfSeparator = 0x0800
-	mfByCommand = 0x0000
+	mfString     = 0x0000
+	mfGrayed     = 0x0001
+	mfChecked    = 0x0008
+	mfPopup      = 0x0010
+	mfSeparator  = 0x0800
+	mfByCommand  = 0x0000
+	mfByPosition = 0x0400
 
 	miimState     = 0x0001
 	miimFType     = 0x0100
@@ -316,6 +357,15 @@ const (
 	dwmwaSystemBackdropType   = 38
 
 	lwaAlpha = 0x2
+	ulwAlpha = 0x2
+
+	tmeLeave     = 0x02
+	tmeNonClient = 0x10
+
+	dtCenter     = 0x001
+	dtVCenter    = 0x004
+	dtSingleLine = 0x020
+	dtNoPrefix   = 0x800
 
 	wdaNone               = 0
 	wdaExcludeFromCapture = 0x11

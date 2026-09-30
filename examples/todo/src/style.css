@@ -28,12 +28,15 @@ body {
   color: var(--fg);
 }
 
-/* The title bar is hidden, so the header doubles as the drag handle. */
+/* The title bar is hidden, so the header doubles as the drag handle. It
+   keeps as much room on both sides as the window controls take on either,
+   so the title stays centered. */
 .titlebar {
   --app-region: drag;
   height: 52px;
   display: grid;
   place-items: center;
+  padding: 0 max(var(--mygo-titlebar-inset-left, 0px), var(--mygo-titlebar-inset-right, 0px));
 }
 
 h1 {

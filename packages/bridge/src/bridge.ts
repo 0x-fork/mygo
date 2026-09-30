@@ -24,6 +24,14 @@ const INTERACTIVE =
   Object.defineProperty(w, "mygo", { value: runtime, enumerable: true });
   Object.defineProperty(w, "__mygo", { value: Object.freeze({ ...internal, find, stopFind }) });
 
+  // A window with a hidden title bar tells its pages the room its window
+  // controls take, from document start on: CSS variables on :root.
+  runtime.on<TitleBar>("mygo:title-bar", (tb) =>
+    setRootStyle(
+      `:root{--mygo-titlebar-height:${tb.height}px;--mygo-titlebar-inset-left:${tb.left}px;--mygo-titlebar-inset-right:${tb.right}px}`,
+    ),
+  );
+
   const notify = (t: "dom-ready" | "drag" | "dblclick") => {
     try {
       post(JSON.stringify({ t }));
@@ -99,6 +107,36 @@ const INTERACTIVE =
     true,
   );
 })();
+
+/** The room the window controls take, in CSS pixels. */
+interface TitleBar {
+  height: number;
+  left: number;
+  right: number;
+}
+
+let rootSheet: CSSStyleSheet | null = null;
+let rootStyle: HTMLStyleElement | null = null;
+
+/** Sets the rules of MyGo's own style sheet, which a Content Security Policy
+ * allows as a constructed sheet. Engines without them get a style element. */
+function setRootStyle(css: string): void {
+  if ((document as Partial<Document>).adoptedStyleSheets) {
+    if (!rootSheet) {
+      rootSheet = new CSSStyleSheet();
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, rootSheet];
+    }
+    rootSheet.replaceSync(css);
+    return;
+  }
+  const style = (rootStyle ??= document.createElement("style"));
+  style.textContent = css;
+  const attach = () => {
+    if (!style.isConnected) (document.head ?? document.documentElement)?.append(style);
+  };
+  if (document.documentElement) attach();
+  else document.addEventListener("DOMContentLoaded", attach, { once: true });
+}
 
 interface Transport {
   post(message: string): void;

@@ -822,6 +822,59 @@ func TestEventsWaitForDOMReady(t *testing.T) {
 	received(t, fw, func(m map[string]any) bool { return m["p"] == "second" })
 }
 
+func TestHiddenTitleBar(t *testing.T) {
+	// titleBar matches the page event of the room the window controls take.
+	titleBar := func(height, left, right float64) func(m map[string]any) bool {
+		return func(m map[string]any) bool {
+			p, _ := m["p"].(map[string]any)
+			return m["n"] == "mygo:title-bar" && p["height"] == height && p["left"] == left && p["right"] == right
+		}
+	}
+	w, fw := readyWindow(t, WindowOptions{TitleBarStyle: TitleBarHidden, TitleBarHeight: 52})
+	if fw.Opts.TitleBarHeight != 52 {
+		t.Errorf("TitleBarHeight = %d, want 52", fw.Opts.TitleBarHeight)
+	}
+	received(t, fw, titleBar(52, 0, 138))
+
+	// The backend reports a change, such as another button layout.
+	onMain(func() {
+		fw.TitleBarRoom = platform.TitleBar{Height: 46, Left: 80}
+		fw.H.TitleBarChanged()
+	})
+	received(t, fw, titleBar(46, 80, 0))
+
+	// The page gets CSS pixels, which zoom makes larger.
+	w.SetZoomFactor(2)
+	received(t, fw, titleBar(23, 40, 0))
+
+	// A later page hears it once its DOM is ready: the script the backend
+	// runs at document start may be older.
+	onMain(func() { fw.H.NavigationCommitted("https://next.example/") })
+	n := len(fw.Scripts())
+	page(fw, `{"t":"dom-ready"}`)
+	received(t, fw, titleBar(23, 40, 0))
+	if len(fw.Scripts()) == n {
+		t.Error("the new page did not hear the title bar")
+	}
+
+	// Windows with their title bar, or none at all, hear nothing.
+	for _, opts := range []WindowOptions{{}, {Frameless: true, TitleBarStyle: TitleBarHidden}} {
+		_, other := readyWindow(t, opts)
+		onMain(func() { other.H.TitleBarChanged() })
+		time.Sleep(20 * time.Millisecond)
+		for _, s := range other.Scripts() {
+			if strings.Contains(s, "mygo:title-bar") {
+				t.Errorf("%+v: title bar sent to the page: %s", opts, s)
+			}
+		}
+	}
+
+	_, fw = testWindow(t, WindowOptions{TitleBarStyle: TitleBarHiddenInset, TitleBarHeight: -1})
+	if fw.Opts.TitleBarHeight != 0 {
+		t.Errorf("TitleBarHeight -1 = %d, want 0", fw.Opts.TitleBarHeight)
+	}
+}
+
 func TestEval(t *testing.T) {
 	w, fw := testWindow(t, WindowOptions{})
 	var bodies []string

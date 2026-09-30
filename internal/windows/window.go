@@ -31,6 +31,8 @@ type window struct {
 	minW, minH, maxW, maxH int // DIPs
 	movable, closable      bool
 	frameless              bool
+	hiddenTitleBar         bool        // a TitleBarStyle that hides the caption
+	caption                *captionBar // the controls in its place, nil if they failed
 	fullScreen             bool
 	showMaximized          bool     // on the first show (WindowOptions.Maximized)
 	dropped                []string // DroppedFiles
@@ -78,6 +80,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 		minW: o.MinSize.Width, minH: o.MinSize.Height, maxW: o.MaxSize.Width, maxH: o.MaxSize.Height,
 		htmlFor: map[string]string{}, calls: map[int]func(string, error){},
 	}
+	w.hiddenTitleBar = !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset")
 	var owner uintptr
 	if p, ok := o.Parent.(*window); ok && p != nil && !p.closed {
 		w.parent, owner = p, p.hwnd
@@ -102,8 +105,11 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if o.BackgroundColor != nil {
 		w.SetBackgroundColor(*o.BackgroundColor)
 	}
-	if w.frameless && w.shadow {
+	if w.captionless() && w.shadow {
 		w.SetHasShadow(true)
+	}
+	if w.hiddenTitleBar {
+		w.caption = newCaptionBar(w)
 	}
 	b.applyWindowTheme(w)
 	if o.Vibrancy != "" {
@@ -124,6 +130,9 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 		w.showMaximized = true
 	}
 	w.skipTaskbar = o.SkipTaskbar // applied once the taskbar button exists
+	if w.caption != nil {
+		w.caption.layout()
+	}
 	b.whenEnvironment(w.createWebView)
 	return w, nil
 }
@@ -158,7 +167,7 @@ func (w *window) placeInitially() {
 	}
 	dpi := monitorDPI(mon)
 	width, height := toPx(o.Width, dpi), toPx(o.Height, dpi)
-	if o.UseContentSize && !w.frameless {
+	if o.UseContentSize && !w.captionless() {
 		width, height = w.outerSize(width, height, dpi)
 	}
 	x, y := toPx(o.X, dpi), toPx(o.Y, dpi)
@@ -232,6 +241,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		return 0, true
 	case wmSize:
 		w.resizeWebView()
+		if w.caption != nil && wp != sizeMinimized {
+			w.caption.layout()
+		}
 		switch wp {
 		case sizeMinimized:
 			if w.state != sizeMinimized {
@@ -264,6 +276,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		w.h.Moved()
 		return 0, true
 	case wmActivate:
+		if w.caption != nil {
+			w.caption.activate(loword(wp) != waInactive)
+		}
 		if loword(wp) == waInactive {
 			w.h.Blurred()
 		} else {
@@ -291,7 +306,7 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		procSetWindowPos.Call(w.hwnd, 0, uintptr(r.Left), uintptr(r.Top), uintptr(r.Right-r.Left), uintptr(r.Bottom-r.Top), swpNoZOrder|swpNoActivate)
 		return 0, true
 	case wmNCCalcSize:
-		if w.frameless && wp != 0 && !w.fullScreen {
+		if w.captionless() && wp != 0 && !w.fullScreen {
 			return w.frameCalcSize(wp, lp), true
 		}
 	case wmEraseBkgnd:
@@ -315,17 +330,28 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 	case wmSysCommand:
 		// Alt or F10 alone (lp 0) take the keyboard to the menu bar. WebView2
 		// passes no Alt+letter on, so mnemonics never reach the window.
-		if wp&0xFFF0 == scKeyMenu && lp == 0 && w.autoHideMenu && w.hmenu != 0 && !w.revealed {
-			return w.revealMenu(wp, lp), true
+		if wp&0xFFF0 == scKeyMenu && lp == 0 && w.hmenu != 0 {
+			if w.captionless() {
+				w.popupMenuBar()
+				return 0, true
+			}
+			if w.autoHideMenu && !w.revealed {
+				return w.revealMenu(wp, lp), true
+			}
 		}
 	}
 	return 0, false
 }
 
-// frameCalcSize removes the title bar of frameless windows. Resizable ones
-// keep their left, right and bottom borders, which Windows 10 and later
-// draw invisible outside the window, so they still resize. Maximized
-// windows would overflow the screen by their borders: fit the work area.
+// captionless reports a window without a caption: frameless, or with a
+// hidden title bar. It has no room for a menu bar either.
+func (w *window) captionless() bool { return w.frameless || w.hiddenTitleBar }
+
+// frameCalcSize removes the title bar of windows without a caption.
+// Resizable ones keep their left, right and bottom borders, which Windows
+// 10 and later draw invisible outside the window, so they still resize.
+// Maximized windows would overflow the screen by their borders: fit the
+// work area.
 func (w *window) frameCalcSize(wp, lp uintptr) uintptr {
 	params := (*ncCalcSizeParams)(native(lp))
 	if w.IsMaximized() {
@@ -365,6 +391,9 @@ func (w *window) cleanup() {
 		cb("", errDestroyed)
 	}
 	w.pending = nil
+	if w.caption != nil {
+		w.caption.forget()
+	}
 	if w.controller != 0 {
 		comCall(w.controller, ctlClose)
 		release(w.settings)
@@ -438,7 +467,7 @@ func (w *window) Bounds() platform.Rect {
 func (w *window) SetContentBounds(r platform.Rect) {
 	dpi := dpiOf(w.hwnd)
 	outer := rect{toPx(r.X, dpi), toPx(r.Y, dpi), toPx(r.X+r.Width, dpi), toPx(r.Y+r.Height, dpi)}
-	if !w.frameless && has(procAdjustWindowRectExForDpi) {
+	if !w.captionless() && has(procAdjustWindowRectExForDpi) {
 		menu := uintptr(0)
 		if w.menuShown() {
 			menu = 1
@@ -488,16 +517,27 @@ func (w *window) SetResizable(v bool) {
 		bits |= wsMaximizeBox
 	}
 	w.setStyle(bits, v)
+	w.captionChanged()
 }
 
-func (w *window) IsResizable() bool     { return w.hasStyle(wsThickFrame) }
-func (w *window) SetMovable(v bool)     { w.movable = v }
-func (w *window) IsMovable() bool       { return w.movable }
-func (w *window) SetMinimizable(v bool) { w.setStyle(wsMinimizeBox, v) }
-func (w *window) IsMinimizable() bool   { return w.hasStyle(wsMinimizeBox) }
-func (w *window) SetMaximizable(v bool) { w.setStyle(wsMaximizeBox, v) }
-func (w *window) IsMaximizable() bool   { return w.hasStyle(wsMaximizeBox) }
-func (w *window) IsClosable() bool      { return w.closable }
+func (w *window) IsResizable() bool { return w.hasStyle(wsThickFrame) }
+func (w *window) SetMovable(v bool) { w.movable = v }
+func (w *window) IsMovable() bool   { return w.movable }
+
+func (w *window) SetMinimizable(v bool) {
+	w.setStyle(wsMinimizeBox, v)
+	w.captionChanged()
+}
+
+func (w *window) IsMinimizable() bool { return w.hasStyle(wsMinimizeBox) }
+
+func (w *window) SetMaximizable(v bool) {
+	w.setStyle(wsMaximizeBox, v)
+	w.captionChanged()
+}
+
+func (w *window) IsMaximizable() bool { return w.hasStyle(wsMaximizeBox) }
+func (w *window) IsClosable() bool    { return w.closable }
 
 func (w *window) SetClosable(v bool) {
 	w.closable = v
@@ -507,6 +547,9 @@ func (w *window) SetClosable(v bool) {
 		flags |= mfGrayed
 	}
 	procEnableMenuItem.Call(menu, scClose, flags)
+	if w.caption != nil {
+		w.caption.paint()
+	}
 }
 
 func (w *window) SetAlwaysOnTop(v bool) {
@@ -616,6 +659,7 @@ func (w *window) SetFullScreen(v bool) {
 		m := monitorInfo(w.monitor()).Monitor
 		procSetWindowPos.Call(w.hwnd, 0, uintptr(m.Left), uintptr(m.Top), uintptr(m.Right-m.Left), uintptr(m.Bottom-m.Top), swpNoZOrder|swpFrameChanged)
 		w.h.EnteredFullScreen()
+		w.captionChanged() // hidden in full screen
 		return
 	}
 	w.fullScreen = false
@@ -624,6 +668,7 @@ func (w *window) SetFullScreen(v bool) {
 	procSetWindowPlacement.Call(w.hwnd, uintptr(unsafe.Pointer(&w.saved.placement)))
 	procSetWindowPos.Call(w.hwnd, 0, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoZOrder|swpFrameChanged)
 	w.h.LeftFullScreen()
+	w.captionChanged()
 }
 
 func (w *window) IsFullScreen() bool { return w.fullScreen }
@@ -688,7 +733,7 @@ func (w *window) updateLayered() {
 
 func (w *window) SetHasShadow(v bool) {
 	w.shadow = v
-	if !w.frameless || w.vibrancy != "" {
+	if !w.captionless() || w.vibrancy != "" {
 		return
 	}
 	m := margins{}
@@ -751,7 +796,7 @@ func (w *window) SetVibrancy(material string) {
 	}
 	procDwmExtendFrameIntoClientArea.Call(w.hwnd, uintptr(unsafe.Pointer(&m)))
 	procDwmSetWindowAttribute.Call(w.hwnd, dwmwaSystemBackdropType, uintptr(unsafe.Pointer(&backdrop)), 4)
-	if material == "" && w.frameless && w.shadow {
+	if material == "" && w.captionless() && w.shadow {
 		w.SetHasShadow(true)
 	}
 	w.withWebView(w.applyWebViewBackground)

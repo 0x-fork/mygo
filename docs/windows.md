@@ -37,7 +37,9 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `Hidden` | creates the window without showing it |
 | `Maximized`, `FullScreen` | creates it maximized or in full screen |
 | `Frameless` | no title bar and borders: the page draws them, see [custom title bars](frontend.md#custom-title-bars) |
-| `TitleBarStyle`, `TrafficLightPosition` | hides the title bar but keeps the window buttons, and moves them (macOS) |
+| `TitleBarStyle` | hides the title bar but keeps the window buttons over the page, see [custom title bars](frontend.md#custom-title-bars) |
+| `TrafficLightPosition` | moves the window buttons of a hidden title bar (macOS) |
+| `TitleBarHeight` | the height of the title bar the page draws under the window buttons (Linux, Windows) |
 | `Transparent`, `Vibrancy` | a transparent window, and the material behind a transparent page (macOS, Windows 11) |
 | `BackgroundColor` | fills the window until the page paints, in CSS syntax such as `"#1e1e1e"`, or `"light-dark(#f5f5f7, #1e1e1e)"` to follow the appearance |
 | `Opacity` | between 0 and 1 |

@@ -4,6 +4,7 @@ package windows
 
 import (
 	"fmt"
+	"unsafe"
 
 	"github.com/egoist/mygo/internal/accelerator"
 )
@@ -107,4 +108,58 @@ func TestPressKeys(keys ...byte) {
 	for i := len(keys) - 1; i >= 0; i-- {
 		proc.Call(uintptr(keys[i]), 0, keyUp, 0)
 	}
+}
+
+// TestCaptionButtons returns the window controls of a window with a hidden
+// title bar, left to right, named after what WM_NCHITTEST answers over
+// their middles, which Windows' snap layouts rely on.
+func TestCaptionButtons(hwnd uintptr) []string {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.caption == nil {
+		return nil
+	}
+	var names []string
+	for i := range w.caption.shown {
+		hit, _, _ := procSendMessageW.Call(w.caption.buttons, wmNCHitTest, 0, captionButtonPoint(w.caption, i))
+		switch hit {
+		case htMinButton:
+			names = append(names, "minimize")
+		case htMaxButton:
+			names = append(names, "maximize")
+		case htClose:
+			names = append(names, "close")
+		default:
+			names = append(names, fmt.Sprint(hit))
+		}
+	}
+	return names
+}
+
+// TestPressCaptionButton clicks a window control of a window with a hidden
+// title bar: "minimize", "maximize" or "close".
+func TestPressCaptionButton(hwnd uintptr, name string) bool {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.caption == nil {
+		return false
+	}
+	for i, b := range w.caption.shown {
+		if [...]string{"minimize", "maximize", "close"}[b] != name {
+			continue
+		}
+		lp := captionButtonPoint(w.caption, i)
+		procSendMessageW.Call(w.caption.buttons, wmNCLButtonDown, b.hitTest(), lp)
+		procSendMessageW.Call(w.caption.buttons, wmNCLButtonUp, b.hitTest(), lp)
+		return true
+	}
+	return false
+}
+
+// captionButtonPoint is the screen position of the middle of the i-th
+// button, as the lParam of mouse messages.
+func captionButtonPoint(c *captionBar, i int) uintptr {
+	var r rect
+	procGetWindowRect.Call(c.buttons, uintptr(unsafe.Pointer(&r)))
+	bw := (r.Right - r.Left) / int32(len(c.shown))
+	x, y := r.Left+int32(i)*bw+bw/2, r.Top+(r.Bottom-r.Top)/2
+	return uintptr(uint16(x)) | uintptr(uint16(y))<<16
 }

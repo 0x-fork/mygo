@@ -52,6 +52,11 @@ type Backend struct {
 	badge       string
 	hidden      []*window
 	icon        uintptr // default window icon (SetDockIcon)
+
+	// captions are the windows of the controls of windows with a hidden
+	// title bar (titlebar.go), captionFonts their glyphs by DPI.
+	captions     map[uintptr]*captionBar
+	captionFonts map[int]captionFont
 }
 
 var (
@@ -67,6 +72,8 @@ func New() *Backend {
 		notifications: map[string]*notification{},
 		menus:         newMenuTable(),
 		themeSource:   "system",
+		captions:      map[uintptr]*captionBar{},
+		captionFonts:  map[int]captionFont{},
 	}
 }
 
@@ -207,9 +214,13 @@ func registerClasses() error {
 	wndProcCallback = syscall.NewCallback(wndProc)
 	cursor, _, _ := procLoadCursorW.Call(0, idcArrow)
 	icon, _, _ := procLoadIconW.Call(instance(), 1) // the icon resource `mygo build` embeds
-	for _, name := range []string{appClass, windowClass} {
+	for _, name := range []string{appClass, windowClass, captionClass} {
+		style := uint32(0x0003) // CS_HREDRAW | CS_VREDRAW
+		if name == captionClass {
+			style = 0x0008 // CS_DBLCLKS: a double click on the top edge
+		}
 		wc := wndClassEx{
-			Style:     0x0003, // CS_HREDRAW | CS_VREDRAW
+			Style:     style,
 			WndProc:   wndProcCallback,
 			Instance:  instance(),
 			Cursor:    cursor,
@@ -246,6 +257,10 @@ func wndProc(hwnd, m, wp, lp uintptr) uintptr {
 			}
 		} else if w := b.windows[hwnd]; w != nil {
 			if r, ok := w.message(uint32(m), wp, lp); ok {
+				return r
+			}
+		} else if c := b.captions[hwnd]; c != nil {
+			if r, ok := c.message(hwnd, uint32(m), wp, lp); ok {
 				return r
 			}
 		}

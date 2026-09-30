@@ -48,6 +48,9 @@ type window struct {
 	// autoHideMenu shows the menu bar only while its menus are open;
 	// altAlone is an Alt press no other key or click has joined.
 	autoHideMenu, altAlone bool
+	// controls are the title buttons over the page of a window with a
+	// hidden title bar (titlebar.go), in an overlay with the web view.
+	controls *windowControls
 
 	closed       bool
 	programmatic bool
@@ -108,7 +111,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 	gtkWindowSetResizable(w.win, o.Resizable)
 	gtkWindowSetDeletable(w.win, o.Closable)
-	if o.Frameless {
+	if w.undecorated() {
 		gtkWindowSetDecorated(w.win, false)
 	}
 	if o.AlwaysOnTop {
@@ -138,8 +141,15 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 
 	w.box = gtkBoxNew(1, 0) // vertical
 	gtkContainerAdd(w.win, w.box)
+	if w.hiddenTitleBar() {
+		w.newControls()
+	}
 	w.createWebView()
-	gtkBoxPackStart(w.box, w.web, true, true, 0)
+	if w.controls != nil {
+		gtkContainerAdd(w.controls.overlay, w.web)
+	} else {
+		gtkBoxPackStart(w.box, w.web, true, true, 0)
+	}
 	w.accel = gtkAccelGroupNew()
 	gtkWindowAddAccelGroup(w.win, w.accel)
 	if b.appMenu != nil {
@@ -188,6 +198,12 @@ func (w *window) createWebView() {
 		webkitUserContentManagerAddScript(w.ucm, script)
 		webkitUserScriptUnref(script)
 	}
+	if w.controls != nil {
+		// After the bridge, which it tells; top frame, document start.
+		script := webkitUserScriptNew(cs(w.titleBarScript()), 1, 0, 0, 0)
+		webkitUserContentManagerAddScript(w.ucm, script)
+		webkitUserScriptUnref(script)
+	}
 
 	settings := webkitWebViewGetSettings(w.web)
 	webkitSettingsSetEnableDeveloperExtras(settings, o.DevTools)
@@ -214,7 +230,7 @@ func (w *window) createWebView() {
 	connect(w.web, "close", cbClose, data)
 	connect(w.web, "web-process-terminated", cbCrashed, data)
 	connect(w.web, "button-press-event", cbButtonPress, data)
-	if o.Frameless {
+	if w.undecorated() {
 		connect(w.web, "motion-notify-event", cbMotion, data)
 	}
 	connect(w.web, "drag-data-received", cbDragData, data)
@@ -294,7 +310,13 @@ func (w *window) SetMaximumSize(s platform.Size) {
 	w.applyGeometry()
 }
 
-func (w *window) SetResizable(v bool) { gtkWindowSetResizable(w.win, v) }
+func (w *window) SetResizable(v bool) {
+	gtkWindowSetResizable(w.win, v)
+	if w.controls != nil {
+		w.layoutControls() // with a maximize button or without
+	}
+}
+
 func (w *window) IsResizable() bool   { return gtkWindowGetResizable(w.win) }
 func (w *window) SetMovable(bool)     {}
 func (w *window) IsMovable() bool     { return true }
@@ -302,8 +324,14 @@ func (w *window) SetMinimizable(bool) {}
 func (w *window) IsMinimizable() bool { return true }
 func (w *window) SetMaximizable(bool) {}
 func (w *window) IsMaximizable() bool { return gtkWindowGetResizable(w.win) }
-func (w *window) SetClosable(v bool)  { gtkWindowSetDeletable(w.win, v) }
-func (w *window) IsClosable() bool    { return gtkWindowGetDeletable(w.win) }
+func (w *window) SetClosable(v bool) {
+	gtkWindowSetDeletable(w.win, v)
+	if w.controls != nil {
+		w.layoutControls() // with a close button or without
+	}
+}
+
+func (w *window) IsClosable() bool { return gtkWindowGetDeletable(w.win) }
 func (w *window) SetAlwaysOnTop(v bool) {
 	w.keepAbove = v
 	gtkWindowSetKeepAbove(w.win, v)
@@ -439,7 +467,7 @@ var resizeEdges = [8]struct {
 // GdkEventMotion or GdkEventButton) would resize, or -1.
 func (w *window) resizeEdge(event ptr) int32 {
 	// GdkEventMotion and GdkEventButton: window 8, x 24, y 32.
-	if !w.opts.Frameless || w.state&(stateMaximized|stateFullscreen) != 0 ||
+	if !w.undecorated() || w.state&(stateMaximized|stateFullscreen) != 0 ||
 		field[ptr](event, 8) != gtkWidgetGetWindow(w.web) || !gtkWindowGetResizable(w.win) {
 		return -1
 	}
@@ -528,6 +556,17 @@ func (w *window) releaseCursor() {
 	}
 	w.cursor.on, w.cursor.edge, w.cursor.shown, w.cursor.saved = false, -1, 0, 0
 }
+
+// hiddenTitleBar reports a TitleBarStyle that hides the title bar (not a
+// frameless window's, which has no buttons either).
+func (w *window) hiddenTitleBar() bool {
+	o := w.opts
+	return !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset")
+}
+
+// undecorated reports a window without the window manager's decorations,
+// whose page's outer pixels resize it.
+func (w *window) undecorated() bool { return w.opts.Frameless || w.hiddenTitleBar() }
 
 func (w *window) TitleBarDoubleClicked() {
 	if w.IsMaximized() {
@@ -786,7 +825,7 @@ var (
 	cbScriptMessage, cbLoadChanged, cbLoadFailed, cbTitle, cbDecidePolicy       ptr
 	cbCreate, cbClose, cbCrashed, cbButtonPress, cbAsyncReady, cbPNGWrite       ptr
 	cbDragData, cbDragDrop, cbPrintFinished, cbPrintFailed, cbPermission        ptr
-	cbMotion                                                                    ptr
+	cbMotion, cbControlsAllocated, cbDecorationLayout                           ptr
 )
 
 func field[T any](p ptr, offset uintptr) T {
@@ -870,8 +909,25 @@ func initWindowCallbacks() {
 			} else {
 				w.h.LeftFullScreen()
 			}
+			if w.controls != nil {
+				w.fullScreenChanged()
+			}
 		}
 		return false
+	})
+	cbControlsAllocated = purego.NewCallback(func(widget, allocation, data ptr) {
+		if w := b().window(data); w != nil && w.controls != nil {
+			w.measureControls()
+		}
+	})
+	// The desktop's button layout changed: every window's title buttons
+	// follow it.
+	cbDecorationLayout = purego.NewCallback(func(settings, pspec, data ptr) {
+		for _, w := range b().windows {
+			if w.controls != nil && !w.closed {
+				w.layoutControls()
+			}
+		}
 	})
 	cbButtonPress = purego.NewCallback(func(widget, event, data ptr) bool {
 		w := b().window(data)

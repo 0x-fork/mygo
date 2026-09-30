@@ -22,17 +22,17 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
-// TitleBarStyle selects how the title bar of a framed window looks (macOS).
+// TitleBarStyle selects how the title bar of a framed window looks.
 type TitleBarStyle string
 
 // Title bar styles.
 const (
 	TitleBarDefault TitleBarStyle = "default"
-	// TitleBarHidden extends the page under a transparent title bar while
-	// keeping the window controls.
+	// TitleBarHidden gives the page the whole window while keeping the
+	// window controls, which sit over it (see WindowOptions.TitleBarStyle).
 	TitleBarHidden TitleBarStyle = "hidden"
 	// TitleBarHiddenInset is TitleBarHidden with the window controls inset
-	// further from the edges.
+	// further from the edges (macOS; TitleBarHidden elsewhere).
 	TitleBarHiddenInset TitleBarStyle = "hiddenInset"
 )
 
@@ -86,13 +86,25 @@ type WindowOptions struct {
 	// Frameless removes the title bar and window chrome. Mark draggable
 	// areas with the CSS `--app-region: drag`.
 	Frameless bool
-	// TitleBarStyle hides the title bar but keeps the window controls
-	// (macOS).
+	// TitleBarStyle hides the title bar but keeps the window controls, so
+	// the page fills the window and draws its own title bar under them:
+	// the traffic lights on macOS, and minimize, maximize and close at the
+	// top corner on Linux and Windows. On Linux they are GTK's own title
+	// buttons, and the desktop's button layout decides which show and on
+	// which side, possibly none. Pages keep clear of them with the
+	// --mygo-titlebar-* CSS variables and drag the window by their title
+	// bar with --app-region: drag, as in a frameless window.
 	TitleBarStyle TitleBarStyle
 	// TrafficLightPosition moves the window controls of a window with a
 	// hidden title bar (macOS): the top-left corner of the close button
 	// goes this far from the top-left corner of the window.
 	TrafficLightPosition *Point
+	// TitleBarHeight is the height of the title bar that the page of a
+	// window with a hidden title bar draws (Linux, Windows): the window
+	// controls fill it on Windows and are centered in it on Linux. Zero is
+	// 32 on Windows, as Windows 11's own title bars, and the height of the
+	// desktop's header bars on Linux.
+	TitleBarHeight int
 
 	DisableResize     bool
 	DisableMove       bool
@@ -171,7 +183,10 @@ type Window struct {
 	readyShow bool
 	// background is the BackgroundColor, if any. Main thread only.
 	background *background
-	menu       *Menu
+	// hiddenTitleBar is a TitleBarStyle that hides the title bar: the pages
+	// hear the room the window controls take. Main thread only.
+	hiddenTitleBar bool
+	menu           *Menu
 	// stateKey is WindowOptions.StateKey; stateTimer captures the state
 	// once it settled. Main thread only.
 	stateKey   string
@@ -321,6 +336,7 @@ func newWindow(opts WindowOptions, bg *background, native uintptr) *Window {
 	windows.Unlock()
 
 	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.TrustedOrigins, secret: rand.Text(), stateKey: opts.StateKey, background: bg}
+	w.hiddenTitleBar = !opts.Frameless && (opts.TitleBarStyle == TitleBarHidden || opts.TitleBarStyle == TitleBarHiddenInset)
 	w.resetPage()
 	popts := w.platformOptions(&opts)
 	popts.BackgroundColor = w.backgroundColor()
@@ -382,6 +398,7 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		Frameless:      o.Frameless,
 		Transparent:    o.Transparent,
 		TitleBarStyle:  string(o.TitleBarStyle),
+		TitleBarHeight: max(o.TitleBarHeight, 0),
 		Vibrancy:       string(o.Vibrancy),
 		Opacity:        o.Opacity,
 		Modal:          o.Modal,
@@ -999,7 +1016,10 @@ func (w *Window) SetZoomFactor(f float64) {
 	if f <= 0 {
 		return
 	}
-	w.do(func(n platform.Window) { n.SetZoom(f) })
+	w.do(func(n platform.Window) {
+		n.SetZoom(f)
+		w.sendTitleBar() // the controls take other CSS pixels
+	})
 }
 
 // ZoomFactor returns the page zoom; 1 is 100%.
@@ -1459,6 +1479,20 @@ func (h *windowHandler) Maximized()         { h.w.stateChanged(); fire(&h.w.onMa
 func (h *windowHandler) Unmaximized()       { h.w.stateChanged(); fire(&h.w.onUnmaximize) }
 func (h *windowHandler) EnteredFullScreen() { h.w.stateChanged(); fire(&h.w.onEnterFullScreen) }
 func (h *windowHandler) LeftFullScreen()    { h.w.stateChanged(); fire(&h.w.onLeaveFullScreen) }
+func (h *windowHandler) TitleBarChanged()   { h.w.sendTitleBar() }
+
+// sendTitleBar tells the page of a window with a hidden title bar the room
+// its controls take. The backend's script tells the first page at document
+// start; this keeps the current page, and later ones, up to date. Main
+// thread only.
+func (w *Window) sendTitleBar() {
+	if !w.hiddenTitleBar || w.native == nil {
+		return
+	}
+	if msg, err := encodeEvent(bridge.TitleBarEvent, bridge.NewTitleBar(w.native.TitleBar(), w.native.Zoom())); err == nil {
+		w.enqueue(msg, true)
+	}
+}
 
 func (h *windowHandler) Message(msg string) { h.w.handleMessage(msg) }
 
@@ -1572,6 +1606,9 @@ func (w *Window) handleMessage(msg string) {
 		w.outbox = append(w.outbox, w.held...)
 		w.held = nil
 		w.outMu.Unlock()
+		// The script at document start may tell a later page the room of
+		// the controls before a change.
+		w.sendTitleBar()
 		w.flush()
 		fire(&w.onDOMReady)
 		w.readyToShow()

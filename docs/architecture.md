@@ -214,13 +214,24 @@ purego gives three primitives, used everywhere:
 - GTK geometry changes are asynchronous: `SetBounds` remembers the requested
   rectangle and `Bounds` reports it until the configure event confirms it.
 - GTK gives windows without decorations no resize borders, so the outer
-  5 px of a frameless window's page resize it (16 px along the edges from
-  a corner resize the corner). The web view's `motion-notify-event` shows
+  5 px of the page of a frameless window, or one with a hidden title bar,
+  resize it (16 px along the edges from a corner resize the corner). The web view's `motion-notify-event` shows
   a resize cursor there, keeping WebKit's cursor to restore, and its
   `button-press-event` calls `gtk_window_begin_resize_drag` with the press,
   as a Wayland compositor requires; neither event reaches WebKit. Nothing
   resizes a maximized or full screen window, and a tiled one only resizes
   at the edges the window manager allows, as with GTK's own decorations.
+- A hidden title bar (`titlebar.go`) is a window without decorations whose
+  web view is in a `GtkOverlay`, under a `GtkHeaderBar` for each side of
+  `gtk-decoration-layout` that names window buttons. Each bar shows only
+  that side's minimize, maximize and close (`decoration-layout`), and CSS
+  clears its background and, with `TitleBarHeight`, its minimum height.
+  GTK makes the buttons (they need the bar inside a `GtkWindow`) and hides
+  those the window cannot use, and they act as a header bar's: iconify,
+  toggle maximized, close. The bars are measured before the web view
+  exists, from their natural size, for the script that tells the first
+  page, then from their allocations; a change of the layout setting
+  rebuilds them.
 - `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set unless the user set it, which
   avoids blank webviews on NVIDIA drivers, VMs and containers.
 - XDG desktop portal calls go through `portalCall` (`portal.go`), which
@@ -286,9 +297,25 @@ purego gives three primitives, used everywhere:
   be passed as bits. On ARM64, 16-byte structs travel in two registers and
   floats cannot be passed, so zoom falls back to CSS (`abi_*.go`).
 - DPI: the process is per-monitor aware (v2); the backend converts between
-  pixels and DIPs with the window's or monitor's DPI. Frameless windows drop
-  the caption in `WM_NCCALCSIZE` but keep the side and bottom borders, which
-  Windows 10+ draws invisibly outside the window, so they still resize.
+  pixels and DIPs with the window's or monitor's DPI. Frameless windows, and
+  those with a hidden title bar, drop the caption in `WM_NCCALCSIZE` but
+  keep the side and bottom borders, which Windows 10+ draws invisibly
+  outside the window, so they still resize.
+- A hidden title bar (`titlebar.go`) gets its controls from two child
+  windows above the webview's. The buttons are a layered window
+  (`UpdateLayeredWindow`, premultiplied BGRA): Segoe Fluent Icons glyphs
+  (Segoe MDL2 Assets on Windows 10) drawn white on black with GDI give
+  their coverage, over backplates of Chromium's alphas. It answers
+  `WM_NCHITTEST` with `HTMINBUTTON`, `HTMAXBUTTON` and `HTCLOSE`, passes
+  `WM_NCMOUSEMOVE` to `DefWindowProc`, which opens Windows 11's snap
+  layouts over maximize, and runs the buttons itself from the non-client
+  button messages, sending the window `WM_SYSCOMMAND`. The top edge is a
+  layered window without a bitmap (`WS_EX_NOREDIRECTIONBITMAP`), as tall as
+  the sizing frame, that answers `HTTOP` and sends the window's presses on,
+  so it resizes; Windows Terminal's caption works the same way. The
+  webview's window is created later, so the controls go back to the top of
+  the z-order when it appears. A window without a caption has no room for
+  its menu bar: Alt and F10 open a popup holding the bar's own submenus.
 - Message boxes are task dialogs (comctl32 v6, activated from shell32's
   manifest for executables without one); their structs are packed and laid
   out by hand. Notifications are notification-area balloons, which Windows
@@ -310,6 +337,13 @@ document start into the main frame. It installs:
 - dom-ready notification and `--app-region: drag` handling for frameless
   windows (the mousedown is reported, the backend starts a native window drag
   from the recorded mouse event).
+- The `--mygo-titlebar-*` CSS variables of a window with a hidden title
+  bar, in a constructed style sheet (a `<style>` element where engines
+  lack them), from the `mygo:title-bar` event: the room its controls take
+  (`Window.TitleBar` of the backend, in CSS pixels). Each backend delivers
+  the event at document start, in a script after the bridge, so the first
+  page lays out around the controls before it paints; the core sends it
+  again when the room changes and once the DOM of any later page is ready.
 - File drops (`Window.OnFileDrop`, `onFileDrop` in mygo-runtime). Unlike
   Tauri, whose native drop handler takes drops away from the page (on
   Windows, HTML5 drag and drop needs it turned off), MyGo leaves the page's
@@ -945,6 +979,7 @@ which npm allows only for packages that exist: the first release uses an
 | notifications | UserNotifications, packaged apps only | org.freedesktop.Notifications over D-Bus | notification-area balloons (toasts) |
 | vibrancy | all materials | ignored | Windows 11 Mica, Acrylic, Tabbed |
 | traffic lights, Dock | yes | ignored | ignored |
+| hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout` | caption buttons drawn in a layered child window; snap layouts; a top edge that resizes |
 | progress bar | Dock tile content view (NSBoxes: NSProgressIndicator does not draw there), app-wide | Unity launcher API over D-Bus (`com.canonical.Unity.LauncherEntry`), app-wide | `ITaskbarList3`, per window |
 | badge count | Dock tile label | Unity launcher API count | not shown |
 | skip taskbar | ignored | skip-taskbar hint | `ITaskbarList::DeleteTab` (the window style is untouched) |
@@ -962,7 +997,7 @@ which npm allows only for packages that exist: the first release uses an
 | KeepAwake | `NSProcessInfo` activity (shows in `pmset -g assertions`) | XDG portal `Inhibit`, else `org.freedesktop.ScreenSaver.Inhibit` | `PowerCreateRequest` |
 | IsOnBattery, IdleTime | IOKit power sources, `CGEventSourceSecondsSinceLastEventType` | `/sys/class/power_supply`; Mutter idle monitor or `GetSessionIdleTime` | `GetSystemPowerStatus`, `GetLastInputInfo` |
 | window position | honored | ignored by Wayland compositors | honored |
-| frameless resize borders | the window's own | the outer 5 px of the page | invisible, outside the window |
+| resize borders without a title bar | the window's own | the outer 5 px of the page | invisible, outside the window; along the top of a hidden title bar, a child window |
 | content protection, click-through | yes | ignored | yes |
 | custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `http://<scheme>.localhost` (the page's `location`) |
 | window.open | keeps the opener | independent window | independent window |

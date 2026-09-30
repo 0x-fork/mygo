@@ -176,13 +176,54 @@ Give such a window an empty menu of its own,
 `win.SetMenu(mygo.NewMenu(nil))`, and show menus from the page instead
 (`Menu.PopupAt`, from a bound method the page calls).
 
-On macOS a window can keep its traffic lights and only hide the title bar,
-so the page extends under it: set `TitleBarStyle` to `mygo.TitleBarHidden`,
-or `mygo.TitleBarHiddenInset` for more room around the buttons, and move
-them with `TrafficLightPosition`, the position of the close button's
-top-left corner in the window. In full screen they only show with the
-menu bar: `OnEnterFullScreen` and `OnLeaveFullScreen` tell when the page
-may use the room it keeps for them.
+### Hidden title bars
+
+A window can keep its window controls and only hide the title bar, so the
+page extends under them and draws the rest of the title bar: set
+`TitleBarStyle` to `mygo.TitleBarHidden`. The controls stay at the top of
+the window:
+
+- On macOS, the traffic lights. `mygo.TitleBarHiddenInset` leaves more
+  room around them, and `TrafficLightPosition` moves them: the position of
+  the close button's top-left corner in the window.
+- On Windows, minimize, maximize or restore, and close at the top-right
+  corner, drawn as Windows 11 draws its own. They fill the height of the
+  title bar, `TitleBarHeight` (32 by default), and hovering maximize opens
+  the snap layouts. The window resizes from its top edge.
+- On Linux, GTK's own title buttons, where the desktop's button layout puts
+  them, centered in `TitleBarHeight` (by default the height of the
+  desktop's header bars). The layout decides which buttons show, possibly
+  none, as tiling window managers are often set up. The outer pixels of
+  the page resize the window, as a frameless one's.
+
+```go
+mygo.NewWindow(mygo.WindowOptions{
+	URL:            "/",
+	TitleBarStyle:  mygo.TitleBarHidden,
+	TitleBarHeight: 40,
+})
+```
+
+From its first paint, the page learns the room the controls take from
+CSS variables on `:root`:
+
+| variable | |
+|---|---|
+| `--mygo-titlebar-height` | the height of the title bar |
+| `--mygo-titlebar-inset-left`, `--mygo-titlebar-inset-right` | the room the controls take from the left and from the right edge |
+
+They are `0px` in full screen, where the controls hide (on macOS they come
+back with the menu bar). The page's title bar keeps clear of the controls
+and, marked with `--app-region: drag`, moves the window:
+
+```css
+.titlebar {
+  --app-region: drag;
+  height: var(--mygo-titlebar-height, 40px);
+  padding-left: var(--mygo-titlebar-inset-left, 0px);
+  padding-right: var(--mygo-titlebar-inset-right, 0px);
+}
+```
 
 `Transparent: true` lets a page with a transparent background show the
 desktop through, and `Vibrancy` puts a blurred material behind it on macOS

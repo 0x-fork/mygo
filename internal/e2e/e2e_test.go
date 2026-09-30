@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -1433,6 +1434,82 @@ func TestAutoHideMenuBar(t *testing.T) {
 	if shown, _ := menuBarShown(w); shown {
 		t.Error("SetAutoHideMenuBar(true) left the menu bar shown")
 	}
+}
+
+// A hidden title bar leaves the window controls over the page, which hears
+// the room they take in CSS variables, and they work as the system's do.
+func TestHiddenTitleBar(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{X: 80, Y: 80, Width: 480, Height: 320,
+		TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 40})
+	closing := make(chan struct{}, 1)
+	w.OnClose(func(e *mygo.CloseEvent) {
+		e.PreventDefault()
+		closing <- struct{}{}
+	})
+	w.LoadHTML("<p>hidden title bar</p>", "")
+	waitFor(t, w, "document.querySelector('p')")
+	room := func(win *mygo.Window) (r [3]string) {
+		v, _ := mygo.EvalAs[[]string](win, `(() => {
+			const s = getComputedStyle(document.documentElement);
+			return ["height", "inset-left", "inset-right"].map((k) => s.getPropertyValue("--mygo-titlebar-" + k).trim());
+		})()`)
+		copy(r[:], v)
+		return r
+	}
+	shown := room(w)
+	switch runtime.GOOS {
+	case "windows":
+		if shown != [3]string{"40px", "0px", "138px"} {
+			t.Errorf("room = %q, want the title bar's height and three buttons 46 wide at the right", shown)
+		}
+	case "linux":
+		if shown[0] != "40px" {
+			t.Errorf("room = %q, want the title bar's height", shown)
+		}
+		if shown[1] == "0px" && shown[2] == "0px" {
+			t.Log("the desktop's button layout names no buttons")
+		}
+	case "darwin":
+		if shown[0] == "0px" || shown[1] == "0px" || shown[2] != "0px" {
+			t.Errorf("room = %q, want the traffic lights at the left of the title bar", shown)
+		}
+	}
+
+	// The page of a window with its title bar hears nothing.
+	plain := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200})
+	plain.LoadHTML("<p>title bar</p>", "")
+	waitFor(t, plain, "document.querySelector('p')")
+	if r := room(plain); r != ([3]string{}) {
+		t.Errorf("a window with its title bar: room = %q", r)
+	}
+
+	if names, ok := titleButtons(w); ok {
+		if runtime.GOOS == "windows" && !slices.Equal(names, []string{"minimize", "maximize", "close"}) {
+			t.Errorf("buttons = %q, want minimize, maximize and close", names)
+		}
+		// Maximizing needs a window manager, which Xvfb lacks.
+		if runtime.GOOS != "linux" && pressTitleButton(w, "maximize") {
+			eventually(t, "the maximize button to maximize the window", w.IsMaximized)
+			pressTitleButton(w, "maximize")
+			eventually(t, "the restore button to restore the window", func() bool { return !w.IsMaximized() })
+		}
+		if slices.Contains(names, "close") && pressTitleButton(w, "close") {
+			select {
+			case <-closing:
+			case <-time.After(3 * time.Second):
+				t.Error("the close button did not ask to close the window")
+			}
+		}
+	}
+
+	// Full screen hides the controls, and the page gets their room back.
+	if runtime.GOOS != "windows" {
+		return // no window manager under Xvfb; the macOS animation is slow
+	}
+	w.SetFullScreen(true)
+	eventually(t, "no room for the controls in full screen", func() bool { return room(w) == [3]string{"0px", "0px", "0px"} })
+	w.SetFullScreen(false)
+	eventually(t, "the room of the controls back", func() bool { return room(w) == shown })
 }
 
 func expectClick(t *testing.T, clicks chan string, want string) {

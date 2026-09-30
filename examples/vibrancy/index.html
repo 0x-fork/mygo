@@ -8,7 +8,9 @@
       color-scheme: light dark;
       font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
       --titlebar: 52px;        /* the height of an inset title bar */
-      --traffic-lights: 0px;   /* room for the window buttons */
+      /* The room of the window controls over the page, 0 in full screen. */
+      --controls-left: var(--mygo-titlebar-inset-left, 0px);
+      --controls-right: var(--mygo-titlebar-inset-right, 0px);
       --sidebar: 220px;
       --label: light-dark(rgb(0 0 0 / 85%), rgb(255 255 255 / 85%));
       --secondary: light-dark(rgb(0 0 0 / 50%), rgb(255 255 255 / 55%));
@@ -18,9 +20,6 @@
       --content: light-dark(#fff, #1e1e1e);
       --accent: light-dark(#007aff, #0a84ff);
     }
-    /* The traffic lights sit over the page on macOS, except in full screen. */
-    .darwin:not(.fullscreen) { --traffic-lights: 78px; }
-
     html, body { height: 100%; margin: 0; }
     body {
       display: flex;
@@ -54,9 +53,9 @@
     nav button svg { color: var(--accent); }
     nav button[aria-current] { background: var(--fill); }
 
-    /* Next to the traffic lights, whether the sidebar is shown or not. */
+    /* Next to the window controls on the left, whether the sidebar is shown or not. */
     #toggle {
-      position: fixed; top: calc((var(--titlebar) - 28px) / 2); left: calc(var(--traffic-lights) + 8px);
+      position: fixed; top: calc((var(--titlebar) - 28px) / 2); left: calc(var(--controls-left) + 8px);
       display: grid; place-items: center; width: 32px; height: 28px; border-radius: 6px;
       color: var(--secondary); transition: left 0.25s ease;
     }
@@ -64,8 +63,8 @@
 
     main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--content); }
     .see-through main { background: none; }
-    main .titlebar { padding: 0 20px; border-bottom: 1px solid var(--separator); transition: padding-left 0.25s ease; }
-    .collapsed main .titlebar { padding-left: calc(var(--traffic-lights) + 56px); }
+    main .titlebar { padding: 0 calc(var(--controls-right) + 20px) 0 20px; border-bottom: 1px solid var(--separator); transition: padding-left 0.25s ease; }
+    .collapsed main .titlebar { padding-left: calc(var(--controls-left) + 56px); }
     h1 { margin: 0; font-size: 15px; font-weight: 600; }
     article { flex: 1; overflow-y: auto; padding: 24px 28px; max-width: 560px; }
     article p { margin: 0 0 16px; }
@@ -126,10 +125,7 @@
   </main>
 
   <script>
-    const root = document.documentElement;
     const $ = (id) => document.getElementById(id);
-    root.classList.add(mygo.platform); // "darwin", "linux" or "win32"
-    mygo.on("fullscreen", (on) => root.classList.toggle("fullscreen", on));
 
     const nav = document.querySelector("nav");
     function select(item) {

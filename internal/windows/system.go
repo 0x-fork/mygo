@@ -428,13 +428,17 @@ func (b *Backend) applyTheme() {
 	}
 }
 
-// applyWindowTheme matches the title bar to the appearance.
+// applyWindowTheme matches the title bar, or the controls drawn in its
+// place, to the appearance.
 func (b *Backend) applyWindowTheme(w *window) {
 	dark := int32(0)
 	if b.isDark() {
 		dark = 1
 	}
 	procDwmSetWindowAttribute.Call(w.hwnd, dwmwaUseImmersiveDarkMode, uintptr(unsafe.Pointer(&dark)), 4)
+	if w.caption != nil {
+		w.caption.paint()
+	}
 }
 
 // applyWebViewTheme makes prefers-color-scheme follow an overridden

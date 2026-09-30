@@ -337,6 +337,22 @@ var (
 	gtkSelectionDataFree                func(sd ptr)
 	gtkSelectionDataGetUris             func(sd ptr) ptr
 	gtkSettingsGetDefault               func() ptr
+	gtkOverlayNew                       func() ptr
+	gtkOverlayAddOverlay                func(o, w ptr)
+	gtkHeaderBarNew                     func() ptr
+	gtkHeaderBarSetShowCloseButton      func(b ptr, v bool)
+	gtkHeaderBarSetHasSubtitle          func(b ptr, v bool)
+	gtkHeaderBarSetDecorationLayout     func(b ptr, layout *byte)
+	gtkWidgetSetHalign                  func(w ptr, align int32)
+	gtkWidgetSetValign                  func(w ptr, align int32)
+	gtkWidgetSetSizeRequest             func(w ptr, width, height int32)
+	gtkWidgetGetPreferredWidth          func(w ptr, min, natural *int32)
+	gtkWidgetGetPreferredHeight         func(w ptr, min, natural *int32)
+	gtkWidgetGetStyleContext            func(w ptr) ptr
+	gtkStyleContextAddClass             func(c ptr, name *byte)
+	gtkStyleContextAddProviderForScreen func(screen, provider ptr, priority uint32)
+	gtkCssProviderNew                   func() ptr
+	gtkCssProviderLoadFromData          func(p ptr, data *byte, length int, err *ptr) bool
 	gtkAboutDialogNew                   func() ptr
 	gtkAboutDialogSetProgramName        func(d ptr, s *byte)
 	gtkAboutDialogSetVersion            func(d ptr, s *byte)
@@ -726,6 +742,22 @@ func load() error {
 	mustBind(t, &gtkSelectionDataGetLength, "gtk_selection_data_get_length")
 	mustBind(t, &gtkSelectionDataFree, "gtk_selection_data_free")
 	mustBind(t, &gtkSettingsGetDefault, "gtk_settings_get_default")
+	mustBind(t, &gtkOverlayNew, "gtk_overlay_new")
+	mustBind(t, &gtkOverlayAddOverlay, "gtk_overlay_add_overlay")
+	mustBind(t, &gtkHeaderBarNew, "gtk_header_bar_new")
+	mustBind(t, &gtkHeaderBarSetShowCloseButton, "gtk_header_bar_set_show_close_button")
+	mustBind(t, &gtkHeaderBarSetHasSubtitle, "gtk_header_bar_set_has_subtitle")
+	mustBind(t, &gtkHeaderBarSetDecorationLayout, "gtk_header_bar_set_decoration_layout")
+	mustBind(t, &gtkWidgetSetHalign, "gtk_widget_set_halign")
+	mustBind(t, &gtkWidgetSetValign, "gtk_widget_set_valign")
+	mustBind(t, &gtkWidgetSetSizeRequest, "gtk_widget_set_size_request")
+	mustBind(t, &gtkWidgetGetPreferredWidth, "gtk_widget_get_preferred_width")
+	mustBind(t, &gtkWidgetGetPreferredHeight, "gtk_widget_get_preferred_height")
+	mustBind(t, &gtkWidgetGetStyleContext, "gtk_widget_get_style_context")
+	mustBind(t, &gtkStyleContextAddClass, "gtk_style_context_add_class")
+	mustBind(t, &gtkStyleContextAddProviderForScreen, "gtk_style_context_add_provider_for_screen")
+	mustBind(t, &gtkCssProviderNew, "gtk_css_provider_new")
+	mustBind(t, &gtkCssProviderLoadFromData, "gtk_css_provider_load_from_data")
 	mustBind(t, &gtkAboutDialogNew, "gtk_about_dialog_new")
 	mustBind(t, &gtkAboutDialogSetProgramName, "gtk_about_dialog_set_program_name")
 	mustBind(t, &gtkAboutDialogSetVersion, "gtk_about_dialog_set_version")

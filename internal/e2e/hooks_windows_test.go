@@ -93,3 +93,15 @@ func enterMenuBar(w *mygo.Window, _ string) (during, after, supported bool) {
 	mygo.RunOnMain(func() { after = win.TestMenuBarShown(hwnd) })
 	return during, after, true
 }
+
+// titleButtons returns the window controls of a hidden title bar, named
+// after the hit-test codes over them.
+func titleButtons(w *mygo.Window) (names []string, supported bool) {
+	mygo.RunOnMain(func() { names = win.TestCaptionButtons(w.NativeHandle()) })
+	return names, true
+}
+
+func pressTitleButton(w *mygo.Window, name string) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestPressCaptionButton(w.NativeHandle(), name) })
+	return ok
+}

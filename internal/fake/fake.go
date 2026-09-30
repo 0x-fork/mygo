@@ -5,6 +5,7 @@ package fake
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"runtime"
 	"strconv"
@@ -142,6 +143,10 @@ func (b *Backend) Windows() []*Window {
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
 	w := &Window{b: b, H: h, Opts: o, title: o.Title, zoom: o.Zoom, bounds: platform.Rect{X: o.X, Y: o.Y, Width: o.Width, Height: o.Height}, maximized: o.Maximized, full: o.FullScreen}
+	if !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset") {
+		// Three buttons 46 wide at the top right, as on Windows.
+		w.TitleBarRoom = platform.TitleBar{Height: cmp.Or(o.TitleBarHeight, 32), Right: 138}
+	}
 	b.mu.Lock()
 	b.windows = append(b.windows, w)
 	b.mu.Unlock()
@@ -255,6 +260,9 @@ type Window struct {
 	OnAllWorkspaces bool
 	AutoHidesMenu   bool
 	Icon            []byte
+	// TitleBarRoom is what TitleBar returns: set for windows with a hidden
+	// title bar, and changed by tests before they call H.TitleBarChanged.
+	TitleBarRoom platform.TitleBar
 	// AsyncFunction answers CallAsyncFunction.
 	AsyncFunction func(body string) (string, error)
 	// AsyncCallback, when set, receives CallAsyncFunction calls to answer
@@ -311,6 +319,12 @@ func (w *Window) IsClosed() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.closed
+}
+
+func (w *Window) TitleBar() platform.TitleBar {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.TitleBarRoom
 }
 
 func (w *Window) Handle() uintptr        { return 1 }

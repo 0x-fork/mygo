@@ -1,7 +1,7 @@
 // Vibrancy shows a window in the style of a native macOS app: a sidebar
-// made of a translucent material, under a hidden title bar whose traffic
-// lights are inset over it. Pick a material in the sidebar to see it behind
-// the window.
+// made of a translucent material, under a hidden title bar whose window
+// controls sit over the page, the traffic lights inset over the sidebar on
+// macOS. Pick a material in the sidebar to see it behind the window.
 //
 //	go run ./examples/vibrancy
 package main
@@ -22,10 +22,6 @@ func (Vibrancy) Set(ctx context.Context, material mygo.Vibrancy) {
 	mygo.CallerWindow(ctx).SetVibrancy(material)
 }
 
-// FullScreen tells the page whether its window is in full screen, where
-// the traffic lights are hidden and need no room.
-var FullScreen = mygo.NewEvent[bool]("fullscreen")
-
 //go:embed index.html
 var page string
 
@@ -39,17 +35,15 @@ func main() {
 			MinWidth:  560,
 			MinHeight: 400,
 			// Hide the title bar and inset the traffic lights over the
-			// sidebar (macOS).
-			TitleBarStyle: mygo.TitleBarHiddenInset,
+			// sidebar (macOS). Elsewhere the window controls sit in the
+			// page's title bar, 52 pixels tall.
+			TitleBarStyle:  mygo.TitleBarHiddenInset,
+			TitleBarHeight: 52,
 			// The material shows wherever the page is transparent (macOS,
 			// Windows 11). Linux has none and shows the background color.
 			Vibrancy:        mygo.VibrancySidebar,
 			BackgroundColor: "light-dark(#ececec, #2a2a2a)",
 		})
-		fullScreen := func() { _ = FullScreen.Emit(win, win.IsFullScreen()) }
-		win.OnDOMReady(fullScreen)
-		win.OnEnterFullScreen(fullScreen)
-		win.OnLeaveFullScreen(fullScreen)
 		win.LoadHTML(page, "")
 	})
 	if err := mygo.App.Run(); err != nil {

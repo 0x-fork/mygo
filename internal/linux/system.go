@@ -52,6 +52,7 @@ func initSystemCallbacks() {
 
 	settings := gtkSettingsGetDefault()
 	connect(settings, "notify::gtk-theme-name", cbThemeChanged, 0)
+	connect(settings, "notify::gtk-decoration-layout", cbDecorationLayout, 0)
 	connect(settings, "notify::gtk-application-prefer-dark-theme", cbThemeChanged, 0)
 	if d := gdkDisplayGetDefault(); d != 0 {
 		connect(d, "monitor-added", cbMonitorsChanged, 0)

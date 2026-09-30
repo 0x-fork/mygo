@@ -121,7 +121,12 @@ func (w *window) setUp(controller uintptr) {
 	}
 	w.applyWebViewBackground()
 
-	for _, us := range o.UserScripts {
+	scripts := o.UserScripts
+	if w.caption != nil {
+		// After the bridge, which it tells.
+		scripts = append(scripts[:len(scripts):len(scripts)], platform.UserScript{Source: w.titleBarScript()})
+	}
+	for _, us := range scripts {
 		src := us.Source
 		if us.AtDocumentEnd {
 			src = "document.readyState===\"loading\"?document.addEventListener(\"DOMContentLoaded\",()=>{\n" + src + "\n},{once:true}):(()=>{\n" + src + "\n})();"
@@ -187,6 +192,9 @@ func (w *window) setUp(controller uintptr) {
 
 	comCall(controller, ctlPutIsVisible, 1)
 	w.resizeWebView()
+	if w.caption != nil {
+		w.caption.layout() // above the webview's window
+	}
 	if o.Zoom > 0 && o.Zoom != 1 {
 		w.SetZoom(o.Zoom)
 	}

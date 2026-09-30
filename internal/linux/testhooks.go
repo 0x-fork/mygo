@@ -2,7 +2,12 @@
 
 package linux
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+
+	"github.com/ebitengine/purego"
+)
 
 // The functions in this file drive native UI the way a user would, for the
 // GUI tests in internal/e2e. They must run on the main thread.
@@ -203,4 +208,74 @@ func TestResizeCursor(handle uintptr) string {
 func TestUsePortalShortcuts(on bool) bool {
 	portalShortcutsOnly = on
 	return !on || portalVersion(shortcutsPortal) != 0
+}
+
+// Walking a header bar's own children, its title buttons among them.
+var (
+	walkOnce                sync.Once
+	walkCallback            ptr
+	walked                  []ptr
+	gtkContainerForall      func(c, cb, data ptr)
+	gtkContainerGetType     func() uintptr
+	gtkStyleContextHasClass func(c ptr, name *byte) bool
+	gtkButtonClicked        func(b ptr)
+)
+
+// titleButtons returns the title buttons shown over the page of a window
+// with a hidden title bar, in order across its bars, with their names:
+// "minimize", "maximize" or "close".
+func titleButtons(w *window) (names []string, buttons []ptr) {
+	walkOnce.Do(func() {
+		mustBind(libGTK, &gtkContainerForall, "gtk_container_forall")
+		mustBind(libGTK, &gtkContainerGetType, "gtk_container_get_type")
+		mustBind(libGTK, &gtkStyleContextHasClass, "gtk_style_context_has_class")
+		mustBind(libGTK, &gtkButtonClicked, "gtk_button_clicked")
+		walkCallback = purego.NewCallback(func(widget, data ptr) {
+			walked = append(walked, widget)
+			if gTypeCheckInstanceIsA(widget, gtkContainerGetType()) {
+				gtkContainerForall(widget, walkCallback, 0)
+			}
+		})
+	})
+	if w == nil || w.controls == nil {
+		return nil, nil
+	}
+	for _, bar := range w.controls.bars {
+		if bar == 0 {
+			continue
+		}
+		walked = nil
+		gtkContainerForall(bar, walkCallback, 0)
+		for _, widget := range walked {
+			style := gtkWidgetGetStyleContext(widget)
+			if !gtkWidgetGetVisible(widget) || !gtkStyleContextHasClass(style, cs("titlebutton")) {
+				continue
+			}
+			for _, name := range []string{"minimize", "maximize", "close"} {
+				if gtkStyleContextHasClass(style, cs(name)) {
+					names, buttons = append(names, name), append(buttons, widget)
+				}
+			}
+		}
+	}
+	return names, buttons
+}
+
+// TestTitleButtons returns the names of the title buttons over the page of
+// a window with a hidden title bar.
+func TestTitleButtons(handle uintptr) []string {
+	names, _ := titleButtons(windowByHandle(handle))
+	return names
+}
+
+// TestPressTitleButton clicks one of them.
+func TestPressTitleButton(handle uintptr, name string) bool {
+	names, buttons := titleButtons(windowByHandle(handle))
+	for i, n := range names {
+		if n == name {
+			gtkButtonClicked(buttons[i])
+			return true
+		}
+	}
+	return false
 }

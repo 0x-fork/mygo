@@ -124,3 +124,15 @@ func enterMenuBar(w *mygo.Window, key string) (during, after, supported bool) {
 	}
 	return during, after, true
 }
+
+// titleButtons returns GTK's title buttons over the page of a window with
+// a hidden title bar.
+func titleButtons(w *mygo.Window) (names []string, supported bool) {
+	mygo.RunOnMain(func() { names = linux.TestTitleButtons(w.NativeHandle()) })
+	return names, true
+}
+
+func pressTitleButton(w *mygo.Window, name string) (ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestPressTitleButton(w.NativeHandle(), name) })
+	return ok
+}

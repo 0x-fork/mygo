@@ -151,8 +151,11 @@ func (w *window) installMenu(m *platform.Menu) {
 }
 
 // menuShown reports whether the menu bar is on the window. One that hides
-// is there only while the keyboard is in it.
-func (w *window) menuShown() bool { return w.hmenu != 0 && (!w.autoHideMenu || w.revealed) }
+// is there only while the keyboard is in it, and a window without a caption
+// has no room for it.
+func (w *window) menuShown() bool {
+	return w.hmenu != 0 && !w.captionless() && (!w.autoHideMenu || w.revealed)
+}
 
 // attachMenu puts the menu bar on the window, or takes it off one whose bar
 // hides. Its shortcuts work either way: they come from the webview.
@@ -175,6 +178,46 @@ func (w *window) revealMenu(wp, lp uintptr) uintptr {
 		w.attachMenu()
 	}
 	return r
+}
+
+// popupMenuBar opens the menus of the menu bar from the top-left corner of
+// a window without a caption, below its title bar, when Alt or F10 would
+// take the keyboard to the bar. The popup holds the bar's own submenus, so
+// their items keep their states and commands, and gives them back before
+// it is destroyed.
+func (w *window) popupMenuBar() {
+	n, _, _ := procGetMenuItemCount.Call(w.hmenu)
+	count := int(int32(n))
+	if count <= 0 {
+		return
+	}
+	popup, _, _ := procCreatePopupMenu.Call()
+	for i := range count {
+		buf := make([]uint16, 256)
+		procGetMenuStringW.Call(w.hmenu, uintptr(i), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), mfByPosition)
+		state, _, _ := procGetMenuState.Call(w.hmenu, uintptr(i), mfByPosition)
+		flags := uintptr(mfString) | state&mfGrayed
+		item, _, _ := procGetSubMenu.Call(w.hmenu, uintptr(i))
+		if item != 0 {
+			flags |= mfPopup
+		} else {
+			item, _, _ = procGetMenuItemID.Call(w.hmenu, uintptr(i))
+		}
+		procAppendMenuW.Call(popup, flags, item, uintptr(unsafe.Pointer(&buf[0])))
+	}
+	pt := point{}
+	if w.caption != nil {
+		pt.Y = toPx(w.titleBarHeight(), dpiOf(w.hwnd))
+	}
+	procClientToScreen.Call(w.hwnd, uintptr(unsafe.Pointer(&pt)))
+	cmd := w.b.trackPopup(popup, w.hwnd, pt)
+	for i := count - 1; i >= 0; i-- {
+		procRemoveMenu.Call(popup, uintptr(i), mfByPosition)
+	}
+	procDestroyMenu.Call(popup)
+	if cmd != 0 && !w.closed {
+		w.b.menuCommand(cmd, w)
+	}
 }
 
 func (b *Backend) SetApplicationMenu(m *platform.Menu) {
