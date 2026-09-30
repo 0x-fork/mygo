@@ -31,7 +31,9 @@ among them are signed with the app. Directories of resources named after a
 platform, such as resources/darwin or resources/linux-amd64, only ship with
 that platform's apps; darwin/universal combines darwin-arm64 and
 darwin-amd64. MyGo needs no cgo, so any platform can be compiled from any
-machine; signing and disk images need macOS.
+machine; signing and disk images need macOS. Windows also gets
+"<name> Setup <version>.exe", made with NSIS, which mygo build downloads
+on Windows when it is not installed.
 
 Set macos.signingIdentity in mygo.json (or -sign) to a Developer ID to ship
 outside the Mac App Store, and macos.notarize to notarize the disk image.

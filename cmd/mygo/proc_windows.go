@@ -9,6 +9,16 @@ import (
 	"unsafe"
 )
 
+// shell runs a command line with cmd, which reads its own command line:
+// quoted as an argument, the line would reach it with its quotes escaped
+// as \", which cmd does not understand. /s makes it run what is between
+// the outer quotes as it is.
+func shell(line string) *exec.Cmd {
+	cmd := exec.Command("cmd")
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: `cmd /s /c "` + line + `"`}
+	return cmd
+}
+
 func setProcessGroup(cmd *exec.Cmd) {}
 
 func terminate(cmd *exec.Cmd) { kill(cmd) }

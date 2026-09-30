@@ -1,27 +1,40 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// TestWindowsInstaller builds the installer of an app where NSIS is
-// installed and, on Windows, installs and uninstalls it silently.
+// TestWindowsInstaller builds the installer of an app, on Windows with the
+// NSIS that mygo build downloads when it is not installed, and elsewhere
+// where NSIS is installed. Its sign command lists the files it signs: the
+// executable, the uninstaller and the installer. On Windows, it installs
+// and uninstalls the app silently.
 func TestWindowsInstaller(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles programs")
 	}
-	if makensis() == "" {
+	if tool, err := nsisCompiler(); err != nil {
+		t.Fatal(err)
+	} else if tool == "" {
 		t.Skip("NSIS is not installed")
 	}
 	dir := testModule(t, map[string]string{
 		"main.go":              "package main\n\nfunc main() {}\n",
-		"mygo.json":            `{"name": "Setup Test", "identifier": "com.example.setuptest", "version": "2.0.0", "urlSchemes": ["setuptest"], "fileAssociations": [{"ext": ["setuptest"], "name": "Setup Test File"}]}`,
+		"mygo.json":            `{"name": "Setup Test", "identifier": "com.example.setuptest", "version": "2.0.0", "urlSchemes": ["setuptest"], "fileAssociations": [{"ext": ["setuptest"], "name": "Setup Test File"}], "windows": {"signCommand": "echo %1>>signed.txt"}}`,
 		"resources/data/a.txt": "a",
 		"resources/icon.png":   string(defaultIcon()),
 	})
@@ -40,6 +53,16 @@ func TestWindowsInstaller(t *testing.T) {
 	setup := artifacts[len(artifacts)-1]
 	if filepath.Base(setup) != "Setup Test Setup 2.0.0.exe" {
 		t.Fatalf("artifacts = %q", artifacts)
+	}
+	// The executable, the uninstaller that makensis made, then the
+	// installer.
+	listed, _ := os.ReadFile(filepath.Join(dir, "signed.txt"))
+	var signed []string
+	for _, line := range strings.Split(strings.TrimSpace(string(listed)), "\n") {
+		signed = append(signed, filepath.Base(strings.Trim(line, "\r \"")))
+	}
+	if len(signed) != 3 || signed[0] != "Setup Test.exe" || signed[1] == signed[0] || signed[1] == signed[2] || signed[2] != "Setup Test Setup 2.0.0.exe" {
+		t.Errorf("signed %q", signed)
 	}
 	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
 		return
@@ -69,20 +92,122 @@ func TestWindowsInstaller(t *testing.T) {
 			}
 		}
 	}()
-	if out, err := exec.Command(filepath.Join(install, "Uninstall.exe"), "/S").CombinedOutput(); err != nil {
+	uninstall(t, install)
+}
+
+// uninstall runs the uninstaller of the app installed in dir silently, and
+// waits until the app is gone.
+func uninstall(t *testing.T, dir string) {
+	t.Helper()
+	if out, err := exec.Command(filepath.Join(dir, "Uninstall.exe"), "/S").CombinedOutput(); err != nil {
 		t.Fatalf("uninstalling: %v\n%s", err, out)
 	}
 	// The uninstaller copies itself away and runs from there.
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		if _, err := os.Stat(install); os.IsNotExist(err) {
-			break
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			return
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("the uninstaller left the app installed")
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// TestDownloadNSIS downloads NSIS from a test server into the cache once,
+// and refuses an archive that is not the expected one.
+func TestDownloadNSIS(t *testing.T) {
+	archive := zipArchive(t, "nsis-9.9/", "nsis-9.9/Bin/makensis.exe", "nsis-9.9/Include/MUI2.nsh")
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Write(archive)
+	}))
+	defer srv.Close()
+	saved := nsisRelease
+	defer func() { nsisRelease = saved }()
+	sum := sha256.Sum256(archive)
+	nsisRelease.url, nsisRelease.sha256 = srv.URL+"/nsis-9.9.zip", hex.EncodeToString(sum[:])
+
+	cache := t.TempDir()
+	dir := filepath.Join(cache, "nsis-9.9")
+	tool, err := downloadNSIS(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool != filepath.Join(dir, "Bin", "makensis.exe") {
+		t.Errorf("makensis = %s", tool)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "Include", "MUI2.nsh")); err != nil || string(b) != "nsis-9.9/Include/MUI2.nsh" {
+		t.Errorf("Include/MUI2.nsh = %q, %v", b, err)
+	}
+	if again, err := downloadNSIS(dir); err != nil || again != tool || requests.Load() != 1 {
+		t.Errorf("downloading again = %s, %v after %d requests", again, err, requests.Load())
+	}
+
+	nsisRelease.sha256 = strings.Repeat("0", 64)
+	other := filepath.Join(cache, "nsis-other")
+	if _, err := downloadNSIS(other); err == nil || !strings.Contains(err.Error(), "SHA-256") {
+		t.Errorf("downloading an unexpected archive: %v", err)
+	}
+	if entries, _ := os.ReadDir(cache); len(entries) != 1 || entries[0].Name() != "nsis-9.9" {
+		t.Errorf("the cache holds %v", entries)
+	}
+}
+
+// TestUnzipTop unpacks the top directory of archives, and refuses entries
+// outside it.
+func TestUnzipTop(t *testing.T) {
+	for _, tc := range []struct {
+		entries []string
+		ok      bool
+	}{
+		{[]string{"top/", "top/a/b.txt", "top/c.txt"}, true},
+		{[]string{"top/a.txt", "other/b.txt"}, false},
+		{[]string{"top/a.txt", "b.txt"}, false},
+		{[]string{"top/../evil.txt"}, false},
+		{[]string{"top/a/../../evil.txt"}, false},
+	} {
+		path := filepath.Join(t.TempDir(), "archive.zip")
+		if err := os.WriteFile(path, zipArchive(t, tc.entries...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		dir := filepath.Join(t.TempDir(), "out")
+		err := unzipTop(path, dir)
+		if (err == nil) != tc.ok {
+			t.Errorf("%q: %v", tc.entries, err)
+			continue
+		}
+		if tc.ok {
+			for _, name := range []string{"a/b.txt", "c.txt"} {
+				if b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name))); err != nil || string(b) != "top/"+name {
+					t.Errorf("%s = %q, %v", name, b, err)
+				}
+			}
+		}
+	}
+}
+
+// zipArchive makes a zip archive of the named entries: directories end with
+// a slash, and files hold their names.
+func zipArchive(t *testing.T, names ...string) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	zw := zip.NewWriter(&b)
+	for _, name := range names {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasSuffix(name, "/") {
+			io.WriteString(w, name)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
 }
 
 // TestWindowsSigning signs a build with a throwaway self-signed
@@ -121,11 +246,23 @@ func TestWindowsSigning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	signer := func(file string) string {
+		return ps(`(Get-AuthenticodeSignature "` + file + `").SignerCertificate.Subject`)
+	}
 	for _, a := range artifacts {
 		if strings.HasSuffix(a, ".exe") {
-			if subject := ps(`(Get-AuthenticodeSignature "` + a + `").SignerCertificate.Subject`); subject != "CN=MyGo Test" {
+			if subject := signer(a); subject != "CN=MyGo Test" {
 				t.Errorf("%s is signed by %q", filepath.Base(a), subject)
 			}
 		}
 	}
+	// The installer writes an uninstaller signed with the app.
+	install := filepath.Join(t.TempDir(), "SignedApp")
+	if out, err := exec.Command(artifacts[len(artifacts)-1], "/S", "/D="+install).CombinedOutput(); err != nil {
+		t.Fatalf("installing: %v\n%s", err, out)
+	}
+	if subject := signer(filepath.Join(install, "Uninstall.exe")); subject != "CN=MyGo Test" {
+		t.Errorf("Uninstall.exe is signed by %q", subject)
+	}
+	uninstall(t, install)
 }

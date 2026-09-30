@@ -41,9 +41,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth dbus-x11
-      - name: Install NSIS
-        if: runner.os == 'Windows'
-        run: choco install nsis -y --no-progress
       - run: bun install --frozen-lockfile
       - name: Build the JavaScript packages
         run: bun run build

@@ -1,20 +1,41 @@
 package main
 
 import (
+	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
-// The Windows installer is built with NSIS (makensis) when it is installed:
-// a per-user install in %LOCALAPPDATA%\Programs, where the app can update
-// itself, with a Start menu shortcut and an uninstaller that Settings >
-// Apps lists.
+// The Windows installer is built with NSIS: a per-user install in
+// %LOCALAPPDATA%\Programs, where the app can update itself, with a Start
+// menu shortcut and an uninstaller that Settings > Apps lists. Windows
+// rarely has NSIS installed, so there mygo build downloads it when it
+// needs it, as Tauri and electron-builder do; elsewhere makensis must be
+// installed.
 
-// makensis finds the NSIS compiler.
+// nsisRelease is the NSIS that mygo build downloads: the official zip,
+// checked against its SHA-256 and unpacked into the user's cache
+// directory, where makensis runs as it does from an installation.
+var nsisRelease = struct{ version, url, sha256 string }{
+	version: "3.13",
+	url:     "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip",
+	sha256:  "ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8",
+}
+
+// makensis finds the NSIS compiler: an installed one or, on Windows, the
+// one an earlier build downloaded.
 func makensis() string {
 	if p, err := exec.LookPath("makensis"); err == nil {
 		return p
@@ -25,15 +46,193 @@ func makensis() string {
 				return p
 			}
 		}
+		if dir := nsisDir(); dir != "" {
+			return nsisExecutable(dir)
+		}
 	}
 	return ""
+}
+
+// nsisCompiler returns the NSIS compiler, which it downloads on Windows
+// when there is none, or "" on other systems without NSIS.
+func nsisCompiler() (string, error) {
+	if p := makensis(); p != "" || runtime.GOOS != "windows" {
+		return p, nil
+	}
+	dir := nsisDir()
+	if dir == "" {
+		return "", errors.New("no cache directory to download NSIS into: install NSIS (makensis)")
+	}
+	return downloadNSIS(dir)
+}
+
+// nsisDir is where mygo build keeps the NSIS it downloads.
+func nsisDir() string {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(cache, "mygo", "nsis-"+nsisRelease.version)
+}
+
+// nsisExecutable returns makensis in the NSIS directory dir, or "".
+func nsisExecutable(dir string) string {
+	for _, p := range []string{filepath.Join(dir, "Bin", "makensis.exe"), filepath.Join(dir, "makensis.exe")} {
+		if fileExists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// downloadNSIS downloads nsisRelease into dir, unless it is there already,
+// and returns its makensis. The archive is unpacked next to dir and renamed
+// into place, so dir is complete whenever it exists.
+func downloadNSIS(dir string) (string, error) {
+	if p := nsisExecutable(dir); p != "" {
+		return p, nil
+	}
+	parent := filepath.Dir(dir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", err
+	}
+	work, err := os.MkdirTemp(parent, ".nsis-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(work)
+	logf("downloading NSIS %s for the Windows installer", nsisRelease.version)
+	archive := filepath.Join(work, "nsis.zip")
+	if err := download(nsisRelease.url, nsisRelease.sha256, archive); err != nil {
+		return "", fmt.Errorf("downloading NSIS %s (or install it: https://nsis.sourceforge.io): %w", nsisRelease.version, err)
+	}
+	unpacked := filepath.Join(work, "nsis")
+	if err := unzipTop(archive, unpacked); err != nil {
+		return "", fmt.Errorf("unpacking NSIS: %w", err)
+	}
+	if nsisExecutable(unpacked) == "" {
+		return "", errors.New("unpacking NSIS: the archive holds no makensis.exe")
+	}
+	if err := os.Rename(unpacked, dir); err != nil {
+		// Another build may have downloaded it meanwhile; anything else
+		// there is broken.
+		if p := nsisExecutable(dir); p != "" {
+			return p, nil
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			return "", err
+		}
+		if err := os.Rename(unpacked, dir); err != nil {
+			return "", err
+		}
+	}
+	return nsisExecutable(dir), nil
+}
+
+// download fetches url into the file path and checks that its SHA-256 is
+// sum.
+func download(url, sum, path string) error {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "mygo/"+version)
+	resp, err := (&http.Client{Timeout: 10 * time.Minute}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET %s: %s", url, resp.Status)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	h := sha256.New()
+	_, err = io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, 64<<20))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != sum {
+		return fmt.Errorf("%s has the SHA-256 %s, not %s", url, got, sum)
+	}
+	return nil
+}
+
+// unzipTop unpacks the zip archive at path, whose entries are all in one
+// top directory, into dir without that directory.
+func unzipTop(path, dir string) error {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	top := ""
+	for _, f := range r.File {
+		first, rest, ok := strings.Cut(f.Name, "/")
+		if top == "" {
+			top = first
+		}
+		if !ok || first != top {
+			return fmt.Errorf("%q is not in the top directory %q", f.Name, top)
+		}
+		if rest == "" {
+			continue // the top directory
+		}
+		name := strings.TrimSuffix(rest, "/")
+		if !fs.ValidPath(name) || !filepath.IsLocal(filepath.FromSlash(name)) || strings.Contains(name, `\`) {
+			return fmt.Errorf("invalid path %q", f.Name)
+		}
+		target := filepath.Join(dir, filepath.FromSlash(name))
+		switch mode := f.Mode(); {
+		case mode.IsDir():
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+		case mode.IsRegular():
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			if err := unzipFile(f, target); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("%q is neither a file nor a directory", f.Name)
+		}
+	}
+	return nil
+}
+
+func unzipFile(f *zip.File, target string) error {
+	src, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := os.Create(target)
+	if err != nil {
+		return err
+	}
+	// The zip reader checks the CRC-32 of the file once it is read.
+	_, err = io.Copy(dst, src)
+	if cerr := dst.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 // writeInstaller builds "<Name> Setup <version>.exe" in stage from the app
 // files installed, the executable exe among them, and returns its path, or
 // "" without NSIS.
 func writeInstaller(c *Config, stage, work, exe string, installed []string) (string, error) {
-	tool := makensis()
+	tool, err := nsisCompiler()
+	if err != nil {
+		return "", err
+	}
 	if tool == "" {
 		logf("skipping the Windows installer: install NSIS (makensis)")
 		return "", nil
@@ -64,6 +263,10 @@ func writeInstaller(c *Config, stage, work, exe string, installed []string) (str
 		}
 		icon = "!define MUI_ICON " + nsisString(path) + "\n!define MUI_UNICON " + nsisString(path) + "\n"
 	}
+	signing, env, err := uninstallerSigning(c, tool)
+	if err != nil {
+		return "", err
+	}
 	uninstallKey := `Software\Microsoft\Windows\CurrentVersion\Uninstall\` + c.Identifier
 	register, unregister := nsisAssociations(c, exe)
 	script := `Unicode true
@@ -71,7 +274,7 @@ ManifestDPIAware true
 SetCompressor /SOLID lzma
 Name ` + nsisString(c.Name) + `
 OutFile ` + nsisString(out) + `
-InstallDir "$LOCALAPPDATA\Programs\` + nsisEscape(fsName(c.Name)) + `"
+` + signing + `InstallDir "$LOCALAPPDATA\Programs\` + nsisEscape(fsName(c.Name)) + `"
 RequestExecutionLevel user
 BrandingText " "
 ` + icon + `!define MUI_FINISHPAGE_RUN "$INSTDIR\` + nsisEscape(exe) + `"
@@ -108,10 +311,59 @@ Section "Uninstall"
 		return "", err
 	}
 	logf("creating %s", filepath.Base(out))
-	if out, err := exec.Command(tool, "-V2", nsi).CombinedOutput(); err != nil {
+	if signing != "" {
+		logf("signing Uninstall.exe")
+	}
+	cmd := exec.Command(tool, "-V2", nsi)
+	cmd.Env = append(os.Environ(), env...)
+	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("makensis: %v\n%s", err, out)
 	}
 	return out, nil
+}
+
+// uninstallerSigning returns the NSIS command that signs the uninstaller
+// of a signed app, and the environment makensis needs to run it. makensis
+// writes the uninstaller to a temporary file, runs the command with it and
+// puts the signed file into the installer. The command runs mygo, which
+// signs the uninstaller as it signs the app (runSignUninstaller); its path
+// goes through the environment, since NSIS reads "$" in the script as its
+// own syntax.
+func uninstallerSigning(c *Config, tool string) (script string, env []string, err error) {
+	if !c.Windows.signs() {
+		return "", nil, nil
+	}
+	if major, minor := nsisVersion(tool); major < 3 || major == 3 && minor < 8 {
+		logf("not signing Uninstall.exe: that needs NSIS 3.08 or later, not %s", tool)
+		return "", nil, nil
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return "", nil, err
+	}
+	settings, err := json.Marshal(signSettings{Root: c.root, Windows: c.Windows})
+	if err != nil {
+		return "", nil, err
+	}
+	signer := `"%` + signerEnv + `%"`
+	if runtime.GOOS != "windows" {
+		signer = `"$` + signerEnv + `"`
+	}
+	// "= 0" stops the build when signing fails; NSIS ignores the exit code
+	// otherwise.
+	return "!uninstfinalize '" + signer + ` sign-uninstaller "%1"' = 0` + "\n",
+		[]string{signerEnv + "=" + self, signSettingsEnv + "=" + string(settings)}, nil
+}
+
+// nsisVersion returns the version of the NSIS compiler tool, or zeros when
+// it does not tell.
+func nsisVersion(tool string) (major, minor int) {
+	out, err := exec.Command(tool, "-VERSION").Output()
+	if err == nil {
+		// "v3.13", or "v3.08-3" for a distribution's build.
+		fmt.Sscanf(strings.TrimPrefix(strings.TrimSpace(string(out)), "v"), "%d.%d", &major, &minor)
+	}
+	return major, minor
 }
 
 // nsisAssociations returns the installer commands that register, and

@@ -841,10 +841,22 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   removed resources do not linger; development builds on Linux and Windows
   remove what the previous build placed and this one lacks.
 - Packages for the other platforms. Windows gets "<name> Setup
-  <version>.exe" when NSIS (`makensis`) is installed (`nsis.go`): a
-  per-user install in `%LOCALAPPDATA%\Programs\<name>`, where the updater
-  can write, a Start menu shortcut and an uninstaller registered under
-  `HKCU\…\Uninstall\<identifier>`; `/S /D=<dir>` installs silently. Linux
+  <version>.exe", made with NSIS (`nsis.go`): a per-user install in
+  `%LOCALAPPDATA%\Programs\<name>`, where the updater can write, a Start
+  menu shortcut and an uninstaller registered under
+  `HKCU\…\Uninstall\<identifier>`; `/S /D=<dir>` installs silently.
+  `makensis` comes from an installation of NSIS or, on Windows, where NSIS
+  is rarely installed, from the official zip of the release `nsisRelease`
+  pins, which the CLI downloads once, checks against its SHA-256 and
+  unpacks into `<user cache>/mygo`, as Tauri does. Other systems skip the
+  installer without NSIS: its zip holds Windows programs only. A signed
+  app gets a signed uninstaller too, as with Tauri: `!uninstfinalize`
+  (NSIS 3.08 and later) makes makensis run `mygo sign-uninstaller` on the
+  uninstaller it generates, before it puts it into the installer, and the
+  CLI signs it as it signs the app. The executable and the Windows
+  configuration reach it through the environment (`MYGO_SIGNER`,
+  `MYGO_SIGN_SETTINGS`), since NSIS reads `$` in the script as its own
+  syntax. Linux
   gets a Debian package written in pure Go (`deb.go`) when
   `linux.maintainer` is set: the app in `/opt/<name>`, a `/usr/bin` link,
   the desktop entry (categories, comment, URL schemes) and hicolor icons,

@@ -7,6 +7,9 @@ import (
 	"syscall"
 )
 
+// shell runs a command line with the shell.
+func shell(line string) *exec.Cmd { return exec.Command("sh", "-c", line) }
+
 // setProcessGroup starts the command in its own process group so the whole
 // tree (e.g. a dev server and its workers) can be stopped.
 func setProcessGroup(cmd *exec.Cmd) {

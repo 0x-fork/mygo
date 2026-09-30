@@ -62,8 +62,11 @@ func runDoctor(args []string) error {
 		p, _ := exec.LookPath(name)
 		return p
 	}
-	nsis := makensis()
-	optional("makensis", "the Windows installer, https://nsis.sourceforge.io", nsis != "", nsis)
+	if nsis := makensis(); nsis != "" || runtime.GOOS != "windows" {
+		optional("makensis", "the Windows installer, https://nsis.sourceforge.io", nsis != "", nsis)
+	} else {
+		fmt.Printf("- %-10s not found (mygo build downloads NSIS %s for the Windows installer)\n", "makensis", nsisRelease.version)
+	}
 	if runtime.GOOS == "windows" {
 		st := signtool()
 		optional("signtool", "signing Windows apps, from the Windows SDK", st != "", st)

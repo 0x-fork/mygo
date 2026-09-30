@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -18,8 +19,16 @@ import (
 )
 
 // TestMain lets the test binary play a development build of an app for
-// the launch tests.
+// the launch tests, and mygo for makensis, which runs it to sign
+// uninstallers.
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "sign-uninstaller" {
+		if err := runSignUninstaller(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "mygo:", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	mode := os.Getenv("MYGO_FAKE_APP")
 	if mode == "relaunch" {
 		// mygo.App.Relaunch the first time, then like "ready".

@@ -135,7 +135,8 @@ to the configuration.
 ## mygo doctor
 
 Checks the development machine: Go, Bun, the webview of the platform, and
-the tools of optional features: NSIS for Windows installers, `signtool` or
+the tools of optional features: NSIS for Windows installers (which
+`mygo build` downloads on Windows), `signtool` or
 `osslsigncode` for signing Windows apps, `gh` for `-upload`, and Developer
 ID identities for signing macOS apps.
 

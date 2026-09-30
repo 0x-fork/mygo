@@ -291,23 +291,25 @@ func TestPackageFlags(t *testing.T) {
 	}
 }
 
+// TestWindowsSignCommand signs a file whose path the shell gets quoted.
 func TestWindowsSignCommand(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("uses sh")
-	}
 	dir := t.TempDir()
 	file := filepath.Join(dir, "My App.exe")
 	if err := os.WriteFile(file, []byte("MZ"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	c := &Config{root: dir, Windows: Windows{SignCommand: `printf signed >> %1`}}
+	sign, fail, want := `printf signed >> %1`, "false %1", "MZsigned"
+	if runtime.GOOS == "windows" {
+		sign, fail, want = `echo signed>> %1`, "exit /b 1 %1", "MZsigned\r\n"
+	}
+	c := &Config{root: dir, Windows: Windows{SignCommand: sign}}
 	if err := signWindows(c, file); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(file); string(b) != "MZsigned" {
+	if b, _ := os.ReadFile(file); string(b) != want {
 		t.Errorf("the sign command got %q", b)
 	}
-	c.Windows.SignCommand = "false %1"
+	c.Windows.SignCommand = fail
 	if err := signWindows(c, file); err == nil {
 		t.Error("a failing sign command succeeded")
 	}

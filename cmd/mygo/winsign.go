@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,8 +18,9 @@ import (
 // Windows configures Windows packaging.
 type Windows struct {
 	// Certificate is a code signing certificate (.pfx) to sign the
-	// executable and the installer with, which keeps SmartScreen from
-	// warning users. Its password comes from
+	// executable, the installer and its uninstaller with, which keeps
+	// SmartScreen from warning users; signing the uninstaller needs NSIS
+	// 3.08 or later. Its password comes from
 	// MYGO_WINDOWS_CERTIFICATE_PASSWORD. signtool signs on Windows,
 	// osslsigncode elsewhere.
 	Certificate string `json:"certificate"`
@@ -79,6 +81,31 @@ func signWindows(c *Config, file string) error {
 		return fmt.Errorf("osslsigncode: %v\n%s", err, out)
 	}
 	return os.Rename(signed, file)
+}
+
+// The environment of the mygo that makensis runs to sign the uninstaller
+// (see uninstallerSigning): the executable, and the signSettings in JSON.
+const (
+	signerEnv       = "MYGO_SIGNER"
+	signSettingsEnv = "MYGO_SIGN_SETTINGS"
+)
+
+// signSettings are what `mygo sign-uninstaller` signs with: the Windows
+// configuration of the build, and the project directory its paths are
+// relative to.
+type signSettings struct {
+	Root    string  `json:"root"`
+	Windows Windows `json:"windows"`
+}
+
+// runSignUninstaller signs the file makensis names, the uninstaller it
+// made, for the build that runs makensis.
+func runSignUninstaller(args []string) error {
+	var s signSettings
+	if len(args) != 1 || json.Unmarshal([]byte(os.Getenv(signSettingsEnv)), &s) != nil {
+		return errors.New("sign-uninstaller is for makensis, which mygo build runs")
+	}
+	return signWindows(&Config{root: s.Root, Windows: s.Windows}, args[0])
 }
 
 // signWindowsResources signs the executables and libraries among the

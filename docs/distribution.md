@@ -33,12 +33,13 @@ mygo build -platform darwin/universal,windows/amd64,windows/arm64,linux/amd64,li
 `darwin/universal` combines arm64 and amd64 in one app. MyGo needs no cgo,
 so any machine compiles for every platform. Some steps need the tools of a
 platform, and are skipped with a note elsewhere: macOS apps are signed and
-put in disk images on macOS only.
+put in disk images on macOS only, and Windows installers are made on other
+systems only where [NSIS](#the-installer) is installed.
 
 | Platform | In `build/<os>-<arch>/` |
 |---|---|
 | macOS | `My App.app`, signed, and `My App 0.1.0.dmg` |
-| Windows | `My App.exe`, the files of the app, and `My App Setup 0.1.0.exe` when [NSIS](https://nsis.sourceforge.io) (`makensis`) is installed |
+| Windows | `My App.exe`, the files of the app, and the installer `My App Setup 0.1.0.exe` |
 | Linux | `my-app`, `my-app.desktop`, `my-app.png`, the files of the app, and `my-app_0.1.0_amd64.deb` when `linux.maintainer` is set |
 
 Other flags: `-debug` keeps development features such as the inspector,
@@ -255,19 +256,24 @@ window. A `.syso` file of your own in the main package replaces them.
 
 ### The installer
 
-With NSIS installed (`brew install makensis`, `apt install nsis`, or
-`choco install nsis` on Windows), `mygo build` also makes
-`My App Setup 1.2.0.exe`. It installs the app for the current user in
-`%LOCALAPPDATA%\Programs\My App`, which needs no administrator rights and
-lets the app [update itself](updates.md), adds a Start menu shortcut and an
-uninstaller listed in Settings, and registers the app's URL schemes and
-file associations.
+`mygo build` also makes `My App Setup 1.2.0.exe`. It installs the app for
+the current user in `%LOCALAPPDATA%\Programs\My App`, which needs no
+administrator rights and lets the app [update itself](updates.md), adds a
+Start menu shortcut and an uninstaller listed in Settings, and registers
+the app's URL schemes and file associations.
+
+The installer is made with [NSIS](https://nsis.sourceforge.io). On
+Windows, `mygo build` uses NSIS when it is installed, and otherwise
+downloads it the first time it needs it: the official NSIS 3.13 zip,
+checked against its SHA-256 and kept in `%LOCALAPPDATA%\mygo`. On macOS and
+Linux, install NSIS to make Windows installers (`brew install makensis`,
+`apt install nsis`); without it, `mygo build` skips the installer.
 
 ### Code signing
 
 Unsigned apps make SmartScreen warn users. Sign the executable, the
-[helper executables](#helper-executables) and the installer with a
-certificate:
+[helper executables](#helper-executables), the installer and its
+uninstaller with a certificate:
 
 ```ts
 export default defineConfig({

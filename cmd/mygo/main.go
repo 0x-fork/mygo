@@ -56,6 +56,8 @@ func main() {
 		err = runDoctor(args)
 	case "keygen":
 		err = runKeygen(args)
+	case "sign-uninstaller": // run by makensis, see uninstallerSigning
+		err = runSignUninstaller(args)
 	case "version", "-v", "--version":
 		fmt.Println("mygo", version)
 	case "help", "-h", "--help":

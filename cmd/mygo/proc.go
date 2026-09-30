@@ -15,12 +15,7 @@ import (
 
 // shellCommand runs a command line such as "bun run dev" through the shell.
 func shellCommand(dir, line string, env ...string) *exec.Cmd {
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/c", line)
-	} else {
-		cmd = exec.Command("sh", "-c", line)
-	}
+	cmd := shell(line)
 	cmd.Dir = dir
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	cmd.Env = append(os.Environ(), env...)
