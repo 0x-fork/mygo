@@ -33,7 +33,7 @@ func publishGitHub(c *Config, artifacts []string) error {
 		case strings.HasPrefix(name, "update-") && strings.HasSuffix(name, ".json"):
 			manifests = append(manifests, a)
 		case strings.HasSuffix(name, ".dmg"), strings.HasSuffix(name, ".exe") && strings.Contains(name, " Setup "),
-			strings.HasSuffix(name, ".deb"), strings.HasSuffix(name, ".tar.gz"):
+			strings.HasSuffix(name, ".deb"), strings.HasSuffix(name, ".tar.gz"), strings.HasSuffix(name, ".delta"):
 			files = append(files, a)
 		}
 	}

@@ -90,6 +90,7 @@ Signed [auto-updates](updates.md). `publicKey` and one of `github` and
 | `url` | | instead of `github`, the HTTPS URL of a directory holding the updates |
 | `privateKey` | | the path of `mygo-update.key`, for `mygo build`; the `MYGO_UPDATER_PRIVATE_KEY` environment variable, holding the key, takes precedence |
 | `changelog` | `CHANGELOG.md` when it exists | a Markdown file whose `## <version>` section becomes the release notes |
+| `deltas` | `3` | how many earlier versions get a [delta update](updates.md#delta-updates); `0` for none |
 
 ## macos
 

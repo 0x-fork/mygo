@@ -8,9 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,6 +44,17 @@ type Updates struct {
 	// Changelog is a Markdown file whose "## <version>" section becomes the
 	// release notes (default CHANGELOG.md when it exists).
 	Changelog string `json:"changelog"`
+	// Deltas is how many earlier versions get a delta update: a smaller
+	// download holding only what changed (default 3, 0 for none).
+	Deltas *int `json:"deltas"`
+}
+
+// deltas returns how many earlier versions get a delta update.
+func (u *Updates) deltas() int {
+	if u.Deltas == nil {
+		return 3
+	}
+	return *u.Deltas
 }
 
 func (u *Updates) validate() error {
@@ -60,6 +74,9 @@ func (u *Updates) validate() error {
 		if err != nil || p.Scheme != "https" || p.Host == "" {
 			return fmt.Errorf("updates.url %q is not an https URL", u.URL)
 		}
+	}
+	if u.Deltas != nil && *u.Deltas < 0 {
+		return fmt.Errorf("updates.deltas is %d, not a number of versions", *u.Deltas)
 	}
 	if u.TagPrefix == "" {
 		u.TagPrefix = "v"
@@ -146,8 +163,9 @@ func (c *Config) releaseNotes() (string, error) {
 }
 
 // writeUpdate archives the entries of stage, the app of target, signs the
-// archive and writes its manifest. It returns the files written, none when
-// no signing key is available.
+// archive, makes delta updates from earlier versions and writes the
+// manifest. It returns the files written, none when no signing key is
+// available.
 func writeUpdate(c *Config, stage, target string, entries []string) ([]string, error) {
 	key, err := c.signingKey()
 	if err != nil {
@@ -163,19 +181,9 @@ func writeUpdate(c *Config, stage, target string, entries []string) ([]string, e
 	}
 	name := slugify(c.executableName()) + "-" + c.Version + "-" + target + ".tar.gz"
 	archive := filepath.Join(stage, name)
-	f, err := os.Create(archive)
-	if err != nil {
-		return nil, err
-	}
-	sum := sha256.New()
-	err = update.WriteArchive(io.MultiWriter(f, sum), stage, entries)
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return nil, err
-	}
-	info, err := os.Stat(archive)
+	size, sig, err := writeSigned(archive, key, func(w io.Writer) error {
+		return update.WriteArchive(w, stage, entries)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -184,15 +192,209 @@ func writeUpdate(c *Config, stage, target string, entries []string) ([]string, e
 		Notes:     notes,
 		Date:      time.Now().UTC().Format(time.RFC3339),
 		URL:       c.updateFile(name, false),
-		Size:      info.Size(),
-		Signature: update.Sign(key, sum.Sum(nil)),
+		Size:      size,
+		Signature: sig,
+	}
+	files := []string{archive}
+	if n := c.Updates.deltas(); n > 0 {
+		deltas, err := writeDeltas(c, key, stage, target, entries, &m, n)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, deltas...)
 	}
 	data, _ := json.MarshalIndent(m, "", "  ")
 	manifest := filepath.Join(stage, update.ManifestName(target))
 	if err := os.WriteFile(manifest, append(data, '\n'), 0o644); err != nil {
 		return nil, err
 	}
-	return []string{archive, manifest}, nil
+	return append(files, manifest), nil
+}
+
+// writeSigned writes a file with write and returns its size and signature.
+func writeSigned(path string, key ed25519.PrivateKey, write func(io.Writer) error) (int64, string, error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return 0, "", err
+	}
+	sum := sha256.New()
+	err = write(io.MultiWriter(f, sum))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return 0, "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, "", err
+	}
+	return info.Size(), update.Sign(key, sum.Sum(nil)), nil
+}
+
+// writeDeltas makes delta updates to the app of target in stage from the
+// n versions before it, as Sparkle does: the version of the published
+// manifest of target and those it lists as previous, whose archives it
+// downloads. It adds them to m, with the archives the next version makes
+// deltas from, and returns the files written. Deltas only save downloads,
+// so a version without one is skipped with a message.
+func writeDeltas(c *Config, key ed25519.PrivateKey, stage, target string, entries []string, m *update.Manifest, n int) ([]string, error) {
+	published, err := fetchManifest(c.updateFeed(target))
+	if err != nil {
+		if errors.Is(err, errNotPublished) {
+			logf("no delta updates for %s: no version is published yet", target)
+		} else {
+			logf("no delta updates for %s: %v", target, err)
+		}
+		return nil, nil
+	}
+	var bases []update.Archive
+	for _, a := range append([]update.Archive{{Version: published.Version, URL: published.URL, Size: published.Size, Signature: published.Signature}}, published.Previous...) {
+		if update.Compare(a.Version, c.Version) < 0 && !slices.ContainsFunc(bases, func(b update.Archive) bool { return b.Version == a.Version }) {
+			bases = append(bases, a)
+		}
+	}
+	if len(bases) == 0 {
+		logf("no delta updates for %s: the published version is %s", target, published.Version)
+		return nil, nil
+	}
+	bases = bases[:min(len(bases), n)]
+	m.Previous = bases[:min(len(bases), n-1)]
+
+	work, err := os.MkdirTemp("", "mygo-delta-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(work)
+	// The app as the delta has it: inside the bundle on macOS.
+	newDir, newEntries := stage, entries
+	if strings.HasPrefix(target, "darwin-") {
+		newDir, newEntries = filepath.Join(stage, entries[0]), nil
+	}
+	var files []string
+	for i, base := range bases {
+		name := slugify(c.executableName()) + "-" + base.Version + "-to-" + c.Version + "-" + target + ".delta"
+		path := filepath.Join(stage, name)
+		d, err := writeDelta(key, base, filepath.Join(work, strconv.Itoa(i)), path, c.Version, newDir, newEntries)
+		switch {
+		case err != nil:
+			logf("no delta update from %s for %s: %v", base.Version, target, err)
+			continue
+		case d.Size >= m.Size:
+			os.Remove(path)
+			logf("no delta update from %s for %s: it is not smaller than the archive", base.Version, target)
+			continue
+		}
+		d.URL = c.updateFile(name, false)
+		m.Deltas = append(m.Deltas, d)
+		files = append(files, path)
+		logf("made the delta update from %s for %s: %s, instead of %s", base.Version, target, formatSize(d.Size), formatSize(m.Size))
+	}
+	return files, nil
+}
+
+// writeDelta downloads the archive of base into work, checks that it is
+// signed with key, and writes the delta from it to the app of version in
+// newDir to path.
+func writeDelta(key ed25519.PrivateKey, base update.Archive, work, path, version, newDir string, newEntries []string) (update.Delta, error) {
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		return update.Delta{}, err
+	}
+	archive := filepath.Join(work, "archive.tar.gz")
+	if err := fetchSigned(base.URL, base.Size, base.Signature, key.Public().(ed25519.PublicKey), archive); err != nil {
+		return update.Delta{}, err
+	}
+	f, err := os.Open(archive)
+	if err != nil {
+		return update.Delta{}, err
+	}
+	oldDir := filepath.Join(work, "app")
+	err = update.ExtractArchive(f, oldDir)
+	f.Close()
+	if err != nil {
+		return update.Delta{}, err
+	}
+	if newEntries == nil { // a bundle
+		all, _ := os.ReadDir(oldDir)
+		if len(all) != 1 || !strings.HasSuffix(all[0].Name(), ".app") {
+			return update.Delta{}, errors.New("its archive holds no app bundle")
+		}
+		oldDir = filepath.Join(oldDir, all[0].Name())
+	}
+	size, sig, err := writeSigned(path, key, func(w io.Writer) error {
+		return update.WriteDelta(w, base.Version, version, oldDir, newDir, newEntries)
+	})
+	if err != nil {
+		os.Remove(path)
+		return update.Delta{}, err
+	}
+	return update.Delta{From: base.Version, Size: size, Signature: sig}, nil
+}
+
+var errNotPublished = errors.New("not published")
+
+// fetchManifest downloads a published manifest.
+func fetchManifest(u string) (*update.Manifest, error) {
+	resp, err := updateGet(u, 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var m update.Manifest
+	if err := json.NewDecoder(io.LimitReader(resp.Body, update.MaxManifestSize)).Decode(&m); err != nil {
+		return nil, fmt.Errorf("reading %s: %w", u, err)
+	}
+	return &m, nil
+}
+
+// fetchSigned downloads a file of an update to path and checks its size
+// and signature.
+func fetchSigned(u string, size int64, signature string, pub ed25519.PublicKey, path string) error {
+	resp, err := updateGet(u, 10*time.Minute)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	sum := sha256.New()
+	n, err := io.Copy(io.MultiWriter(f, sum), io.LimitReader(resp.Body, size+1))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	switch {
+	case err != nil:
+		return fmt.Errorf("downloading %s: %w", u, err)
+	case n != size:
+		return fmt.Errorf("%s has %d bytes, not %d", u, n, size)
+	case update.Verify(pub, sum.Sum(nil), signature) != nil:
+		return fmt.Errorf("%s is not signed with the key of updates.publicKey", u)
+	}
+	return nil
+}
+
+// updateGet requests a published file of an update, which takes at most
+// timeout.
+func updateGet(u string, timeout time.Duration) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "mygo/"+version)
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, errNotPublished
+		}
+		return nil, fmt.Errorf("GET %s: %s", u, resp.Status)
+	}
+	return resp, nil
 }
 
 func runKeygen(args []string) error {

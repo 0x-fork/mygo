@@ -2,11 +2,13 @@ package mygo
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -62,6 +64,9 @@ type Update struct {
 
 	manifest update.Manifest
 	key      string
+	// current is the version that Check compared with, which delta updates
+	// update.
+	current string
 }
 
 // Enabled reports whether the app can update itself: it was built with
@@ -108,15 +113,18 @@ func checkUpdate(ctx context.Context, feed, key, current string) (*Update, error
 	if update.Compare(m.Version, current) <= 0 {
 		return nil, nil
 	}
-	up := &Update{Version: m.Version, Notes: m.Notes, manifest: m, key: key}
+	up := &Update{Version: m.Version, Notes: m.Notes, manifest: m, key: key, current: current}
 	up.Date, _ = time.Parse(time.RFC3339, m.Date)
 	return up, nil
 }
 
 // Install downloads the update, checks that it is signed with the app's
 // key and replaces the app with it; progress, when not nil, is called with
-// the bytes downloaded so far. The running app is not affected: the new
-// version runs after App.Relaunch, or at the next launch.
+// the bytes downloaded so far. When the update has a delta for the running
+// version, only the delta is downloaded, unless it fails to make the new
+// version: the whole update is downloaded then, and the progress starts
+// over. The running app is not affected: the new version runs after
+// App.Relaunch, or at the next launch.
 //
 // The app must be able to write where it is installed: a bundle in
 // /Applications of an administrator, or an app directory the user owns on
@@ -126,7 +134,7 @@ func (up *Update) Install(ctx context.Context, progress func(downloaded, total i
 	if err != nil {
 		return err
 	}
-	if err := installUpdate(ctx, up.manifest, up.key, target, progress); err != nil {
+	if err := installUpdate(ctx, up.manifest, up.key, up.current, target, progress); err != nil {
 		return fmt.Errorf("mygo: installing the update: %w", err)
 	}
 	return nil
@@ -152,15 +160,13 @@ func installTarget() (string, error) {
 	return filepath.Dir(exe), nil
 }
 
-// installUpdate downloads the archive of m, verifies it and installs it in
-// place of target.
-func installUpdate(ctx context.Context, m update.Manifest, key, target string, progress func(downloaded, total int64)) error {
+// installUpdate installs the version of m in place of target, the app of
+// version current: from its delta for current when there is one, else, or
+// when the delta fails, from its archive.
+func installUpdate(ctx context.Context, m update.Manifest, key, current, target string, progress func(downloaded, total int64)) error {
 	pub, err := update.ParsePublicKey(key)
 	if err != nil {
 		return err
-	}
-	if m.Size <= 0 || m.Size > update.MaxArchiveSize {
-		return fmt.Errorf("invalid size %d", m.Size)
 	}
 	// Next to the app, so that it can be renamed into place.
 	work, err := os.MkdirTemp(filepath.Dir(target), "."+filepath.Base(target)+".update-")
@@ -168,45 +174,94 @@ func installUpdate(ctx context.Context, m update.Manifest, key, target string, p
 		return fmt.Errorf("cannot write next to the app: %w", err)
 	}
 	defer os.RemoveAll(work)
+	unpacked := filepath.Join(work, "app")
+	swap := swapFiles
+	if runtime.GOOS == "darwin" {
+		swap = swapBundle
+	}
 
-	body, err := httpGet(ctx, m.URL)
+	if d := m.Delta(current); d != nil {
+		err := applyDelta(ctx, *d, pub, m.Version, target, work, unpacked, progress)
+		if err == nil {
+			return swap(unpacked, target)
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		log.Printf("mygo: downloading the whole update, as its delta update failed: %v", err)
+		if err := os.RemoveAll(unpacked); err != nil {
+			return err
+		}
+	}
+
+	if m.Size <= 0 || m.Size > update.MaxArchiveSize {
+		return fmt.Errorf("invalid size %d", m.Size)
+	}
+	archive := filepath.Join(work, "update.tar.gz")
+	if err := download(ctx, m.URL, m.Size, m.Signature, pub, archive, progress); err != nil {
+		return err
+	}
+	f, err := os.Open(archive)
+	if err != nil {
+		return err
+	}
+	err = update.ExtractArchive(f, unpacked)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	return swap(unpacked, target)
+}
+
+// applyDelta downloads the delta d into work and makes the new version of
+// the app at target from it, in dir: its bundle on macOS, in dir too, as
+// the bundle of an archive is.
+func applyDelta(ctx context.Context, d update.Delta, pub ed25519.PublicKey, version, target, work, dir string, progress func(downloaded, total int64)) error {
+	if d.Size <= 0 || d.Size > update.MaxArchiveSize {
+		return fmt.Errorf("invalid size %d", d.Size)
+	}
+	path := filepath.Join(work, "update.delta")
+	if err := download(ctx, d.URL, d.Size, d.Signature, pub, path, progress); err != nil {
+		return err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if runtime.GOOS == "darwin" {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			return err
+		}
+		dir = filepath.Join(dir, filepath.Base(target))
+	}
+	return update.ApplyDelta(f, d.Size, d.From, version, target, dir)
+}
+
+// download fetches url into the file path and checks its size and
+// signature.
+func download(ctx context.Context, url string, size int64, signature string, pub ed25519.PublicKey, path string, progress func(downloaded, total int64)) error {
+	body, err := httpGet(ctx, url)
 	if err != nil {
 		return err
 	}
 	defer body.Close()
-	archive := filepath.Join(work, "update.tar.gz")
-	f, err := os.Create(archive)
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	sum := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, sum), &progressReader{r: io.LimitReader(body, m.Size+1), total: m.Size, fn: progress})
+	n, err := io.Copy(io.MultiWriter(f, sum), &progressReader{r: io.LimitReader(body, size+1), total: size, fn: progress})
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
 		return fmt.Errorf("downloading: %w", err)
 	}
-	if n != m.Size {
-		return fmt.Errorf("downloaded %d bytes, want %d", n, m.Size)
+	if n != size {
+		return fmt.Errorf("downloaded %d bytes, want %d", n, size)
 	}
-	if err := update.Verify(pub, sum.Sum(nil), m.Signature); err != nil {
-		return err
-	}
-	f, err = os.Open(archive)
-	if err != nil {
-		return err
-	}
-	unpacked := filepath.Join(work, "app")
-	err = update.ExtractArchive(f, unpacked)
-	f.Close()
-	if err != nil {
-		return err
-	}
-	if runtime.GOOS == "darwin" {
-		return swapBundle(unpacked, target)
-	}
-	return swapFiles(unpacked, target)
+	return update.Verify(pub, sum.Sum(nil), signature)
 }
 
 // swapBundle replaces the bundle at target with the one in dir.

@@ -132,6 +132,8 @@ export interface UpdatesConfig {
   privateKey?: string;
   /** A Markdown file whose `## <version>` section becomes the release notes (default: `CHANGELOG.md` when it exists). */
   changelog?: string;
+  /** How many earlier versions get a delta update, a smaller download of what changed (default: `3`; `0` for none). */
+  deltas?: number;
 }
 
 /** macOS packaging. */

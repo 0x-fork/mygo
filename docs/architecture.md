@@ -57,6 +57,7 @@ before changing anything under `internal/`.
 │   ├── bridge/         embeds bridge.js, built from packages/bridge
 │   ├── tsgen/          TypeScript client generator
 │   ├── accelerator/    parses "CmdOrCtrl+Shift+K"
+│   ├── update/         update manifests, signatures, archives and delta updates
 │   └── e2e/            GUI tests against the real backend (MYGO_E2E=1)
 ├── packages/           Bun workspace (with the examples' frontends):
 │   ├── bridge/         the runtime injected into pages (→ internal/bridge/bridge.js)
@@ -732,10 +733,27 @@ as in Tauri:
   renamed on macOS, the entries of the app directory on Linux and Windows,
   where the running executable is renamed away and removed at the next
   launch. `App.Relaunch` then starts the new version from the path the app
-  started from. Development builds are never updated. `mygo build -upload`
-  publishes to `updates.github` with the `gh` CLI: it creates the release
-  `<tagPrefix><version>` as a draft with the changelog section as notes,
-  uploads installers and update archives, then the manifests, and leaves
+  started from. Development builds are never updated. Delta updates work
+  as Sparkle's (`internal/update/delta.go`): `mygo build` fetches the
+  published manifest of the target, downloads the archives of up to
+  `updates.deltas` versions (that manifest's, and those it lists as
+  `previous`, which the new manifest passes on), checks their signatures
+  and writes a signed delta from each. Its index lists the tree of the new
+  app, inside the bundle on macOS, with each file's size and SHA-256 and
+  how to make it: a copy of a file of the old app with the same content
+  (at its path, or elsewhere for moved files), else a patch of the file at
+  its path or its own bytes, whichever is smaller. Patches are bsdiff's
+  (`bsdiff.go`, with the qsufsort suffix array of `suffix.go`), their
+  three streams compressed apart so that they are read from the delta
+  file in place. `Update.Install` takes the delta whose `from` is the
+  running version, makes the new app next to the old one through
+  `os.Root`s, and fails on any file that does not match, then downloads
+  the archive; the delta also names the versions it updates and makes.
+  The tree made is the signed one byte for byte, so bundles keep their
+  code signature. `mygo build -upload` publishes to `updates.github` with
+  the `gh` CLI: it creates the release `<tagPrefix><version>` as a draft
+  with the changelog section as notes, uploads installers, update
+  archives and deltas, then the manifests, and leaves
   publishing the draft (which makes the manifests "latest") to the
   developer once every platform is there.
 - File associations (`fileAssociations` in the configuration) are declared by the

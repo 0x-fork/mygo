@@ -20,7 +20,7 @@ It:
 4. packages it for each platform in `build/<os>-<arch>/` (`out` in
    the configuration);
 5. signs what it can, and with [updates](updates.md) configured, writes the
-   signed update archives.
+   signed update archives, and delta updates from the published versions.
 
 ## Platforms
 

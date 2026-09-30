@@ -1,5 +1,6 @@
 // Package update holds what the updater of package mygo and `mygo build`
-// share: the update manifest, signatures, versions and the archive format.
+// share: the update manifest, signatures, versions, and the formats of
+// archives and delta updates.
 package update
 
 import (
@@ -31,6 +32,38 @@ type Manifest struct {
 	URL       string `json:"url"`
 	Size      int64  `json:"size"`
 	Signature string `json:"signature"`
+	// Deltas update earlier versions with smaller downloads (delta.go).
+	Deltas []Delta `json:"deltas,omitempty"`
+	// Previous are the archives of the versions before, newest first,
+	// which `mygo build` makes the deltas of the next version from.
+	Previous []Archive `json:"previous,omitempty"`
+}
+
+// Delta is a delta update of the app of version From, signed like the
+// archive.
+type Delta struct {
+	From      string `json:"from"`
+	URL       string `json:"url"`
+	Size      int64  `json:"size"`
+	Signature string `json:"signature"`
+}
+
+// Archive is the archive of an earlier version.
+type Archive struct {
+	Version   string `json:"version"`
+	URL       string `json:"url"`
+	Size      int64  `json:"size"`
+	Signature string `json:"signature"`
+}
+
+// Delta returns the delta update of version from, or nil.
+func (m *Manifest) Delta(from string) *Delta {
+	for i, d := range m.Deltas {
+		if d.From == from {
+			return &m.Deltas[i]
+		}
+	}
+	return nil
 }
 
 // ManifestName is the file name of the manifest of target.

@@ -58,9 +58,12 @@ MYGO_UPDATER_PRIVATE_KEY="$(cat path/to/mygo-update.key)" bun run build
 
 Next to the installers of each platform it writes:
 
-- `my-app-1.2.0-darwin-arm64.tar.gz`, the app as installed, and
+- `my-app-1.2.0-darwin-arm64.tar.gz`, the app as installed,
+- [delta updates](#delta-updates) from the versions before, such as
+  `my-app-1.1.0-to-1.2.0-darwin-arm64.delta`, and
 - `update-darwin-arm64.json`, the manifest: the version, its release
-  notes, the date, and the URL, size and signature of the archive.
+  notes, the date, and the URL, size and signature of the archive and of
+  each delta.
 
 Without a key, `mygo build` builds the apps and skips the update files.
 
@@ -74,12 +77,38 @@ Publish the files where `updates` points to:
   draft release of the version. Publishing the release makes it the latest,
   which apps check: they read the manifests from
   `https://github.com/you/my-app/releases/latest/download/`.
-- **Your server**: upload the archives and manifests to the `url`
-  directory. Upload the manifests last, so apps never see a manifest whose
-  archive is missing.
+- **Your server**: upload the archives, deltas and manifests to the `url`
+  directory, and keep the files of earlier versions there. Upload the
+  manifests last, so apps never see a manifest whose files are missing.
 
 Each platform, such as `darwin-arm64`, `darwin-universal` or
 `windows-amd64`, has its own manifest, and a build only looks at its own.
+
+## Delta updates
+
+As with Sparkle, apps download only what changed since their version,
+usually a small part of the whole app: a new version of a Go executable
+mostly moves code around, which a binary patch describes in little space.
+
+When `mygo build` signs an update, it reads the manifest of each platform
+that is published, the one apps check, and downloads the archives of the
+last 3 versions: the published one and the earlier ones its manifest lists
+(`updates.deltas` changes how many, `0` makes none). It checks that they are
+signed with your key and writes a delta from each to the new version:
+files that did not change are copied from the installed app, changed ones
+are patched ([bsdiff](https://www.daemonology.net/bsdiff/)), and the rest
+are included. The manifest lists the deltas, and the archives of the
+versions before for the next build. A delta that is not smaller than the
+archive is left out. Builds need to download the published updates then;
+when they cannot, such as for the first version, they make no deltas and
+say why.
+
+An app whose version has a delta downloads it, checks its signature and
+makes the new version from itself next to it, checking that every file has
+the size and SHA-256 that the delta gives, so that the result is exactly
+the version published, code signature included. When anything fails, for
+example because the app was changed since it was installed, it downloads
+the archive instead.
 
 ## The update window
 
@@ -205,9 +234,11 @@ func checkForUpdates(ctx context.Context) {
 
 - `Check` returns the newer version, with its `Version`, `Notes` and
   `Date`, or nil when the app is up to date.
-- `Install` downloads the archive, checks its signature, and replaces the
-  app. The running app is not affected: the new version runs after
-  `App.Relaunch`, or at the next launch.
+- `Install` downloads the archive, or the delta of the running version,
+  checks its signature, and replaces the app. The progress callback gets
+  the bytes of the delta, and when the delta fails, starts over with those
+  of the archive. The running app is not affected: the new version runs
+  after `App.Relaunch`, or at the next launch.
 - `Enabled` reports whether the app can update itself: it was built with
   updates, and it can write where it is installed. Development builds
   cannot, and `Check` returns `mygo.ErrUpdatesDisabled` in them.

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -10,7 +12,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/egoist/mygo/internal/update"
@@ -47,6 +51,7 @@ func TestUpdatesConfig(t *testing.T) {
 		`{"publicKey": "` + key + `"}`,
 		`{"publicKey": "` + key + `", "github": "me"}`,
 		`{"publicKey": "` + key + `", "url": "http://dl.example.com"}`,
+		`{"publicKey": "` + key + `", "github": "me/my-app", "deltas": -1}`,
 	} {
 		if _, err := load(bad); err == nil {
 			t.Errorf("accepted updates %s", bad)
@@ -78,8 +83,9 @@ func TestKeygen(t *testing.T) {
 	}
 }
 
-// TestUpdateEndToEnd builds two versions of an app, installs the first and
-// lets it update itself to the second from a local server.
+// TestUpdateEndToEnd builds and publishes two versions of an app on a
+// local server, installs the first and lets it update itself to the second
+// with the delta update of the second.
 func TestUpdateEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles programs")
@@ -117,7 +123,15 @@ func main() {
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	t.Setenv("MYGO_UPDATER_PRIVATE_KEY", base64.StdEncoding.EncodeToString(priv))
 	serve := t.TempDir()
-	srv := httptest.NewServer(http.FileServer(http.Dir(serve)))
+	var mu sync.Mutex
+	var requests []string
+	files := http.FileServer(http.Dir(serve))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, r.URL.Path)
+		mu.Unlock()
+		files.ServeHTTP(w, r)
+	}))
 	defer srv.Close()
 
 	goos, goarch := runtime.GOOS, runtime.GOARCH
@@ -139,28 +153,47 @@ func main() {
 		}
 		return filepath.Join(dir, out, target)
 	}
-	v1, v2 := build("1.0.0", "dist1"), build("1.1.0", "dist2")
-
-	// Publish 1.1.0.
-	data, err := os.ReadFile(filepath.Join(v2, update.ManifestName(target)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var m update.Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		t.Fatal(err)
-	}
-	if m.Version != "1.1.0" || m.Notes != "- New things" {
-		t.Errorf("manifest = %+v", m)
-	}
-	for _, name := range []string{update.ManifestName(target), filepath.Base(m.URL)} {
-		b, err := os.ReadFile(filepath.Join(v2, name))
+	// publish copies the update files of a build to the server, and
+	// returns its manifest.
+	publish := func(dir string) update.Manifest {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(dir, update.ManifestName(target)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(serve, name), b, 0o644); err != nil {
+		var m update.Manifest
+		if err := json.Unmarshal(data, &m); err != nil {
 			t.Fatal(err)
 		}
+		names := []string{filepath.Base(m.URL), update.ManifestName(target)}
+		for _, d := range m.Deltas {
+			names = append([]string{filepath.Base(d.URL)}, names...)
+		}
+		for _, name := range names {
+			b, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(serve, name), b, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return m
+	}
+	v1 := build("1.0.0", "dist1")
+	if m := publish(v1); len(m.Deltas) != 0 || len(m.Previous) != 0 {
+		t.Errorf("the first version has deltas %+v and previous %+v", m.Deltas, m.Previous)
+	}
+	v2 := build("1.1.0", "dist2")
+	m := publish(v2)
+	if m.Version != "1.1.0" || m.Notes != "- New things" {
+		t.Errorf("manifest = %+v", m)
+	}
+	if len(m.Deltas) != 1 || m.Deltas[0].From != "1.0.0" || len(m.Previous) != 1 || m.Previous[0].Version != "1.0.0" {
+		t.Fatalf("deltas %+v, previous %+v", m.Deltas, m.Previous)
+	}
+	if d := m.Deltas[0]; d.Size > m.Size/5 {
+		t.Errorf("the delta update takes %d bytes, the archive %d", d.Size, m.Size)
 	}
 
 	// Install 1.0.0 as a user would, and run it.
@@ -178,7 +211,7 @@ func main() {
 	default:
 		entries, _ := os.ReadDir(v1)
 		for _, e := range entries {
-			if strings.HasSuffix(e.Name(), ".tar.gz") || strings.HasSuffix(e.Name(), ".json") {
+			if strings.HasSuffix(e.Name(), ".tar.gz") || strings.HasSuffix(e.Name(), ".json") || strings.HasSuffix(e.Name(), ".delta") {
 				continue
 			}
 			if err := copyResource(filepath.Join(v1, e.Name()), filepath.Join(install, e.Name())); err != nil {
@@ -196,9 +229,17 @@ func main() {
 		}
 		return string(out)
 	}
+	mu.Lock()
+	requests = nil
+	mu.Unlock()
 	if out := run("UPDATE=1"); !strings.Contains(out, "version 1.0.0") || !strings.Contains(out, "installed 1.1.0 - New things") {
 		t.Fatalf("updating printed:\n%s", out)
 	}
+	mu.Lock()
+	if want := []string{"/" + update.ManifestName(target), "/" + filepath.Base(m.Deltas[0].URL)}; !slices.Equal(requests, want) {
+		t.Errorf("the update downloaded %q, want %q", requests, want)
+	}
+	mu.Unlock()
 	if out := run(); !strings.Contains(out, "version 1.1.0") {
 		t.Errorf("after the update the app printed:\n%s", out)
 	}
@@ -206,6 +247,125 @@ func main() {
 		if out, err := exec.Command("codesign", "--verify", "--deep", "--strict", filepath.Join(install, "Update Test.app")).CombinedOutput(); err != nil {
 			t.Errorf("the updated bundle fails codesign: %v\n%s", err, out)
 		}
+	}
+}
+
+// TestWriteDeltas makes delta updates from the versions a published
+// manifest lists.
+func TestWriteDeltas(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	t.Setenv("MYGO_UPDATER_PRIVATE_KEY", base64.StdEncoding.EncodeToString(priv))
+	code := make([]byte, 50_000)
+	for i := range code {
+		code[i] = byte(i * i >> 3)
+	}
+	// app writes the app of a version into dir.
+	app := func(dir, version string) []string {
+		os.MkdirAll(dir, 0o755)
+		os.WriteFile(filepath.Join(dir, "app"), append(slices.Clone(code), version...), 0o755)
+		os.WriteFile(filepath.Join(dir, "LICENSE"), []byte("MIT"), 0o644)
+		return []string{"LICENSE", "app"}
+	}
+	serve := t.TempDir()
+	var mu sync.Mutex
+	var requests []string
+	files := http.FileServer(http.Dir(serve))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, r.URL.Path)
+		mu.Unlock()
+		files.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	// Published: 1.1.0, and before it 1.0.0, a 2.0.0 that cannot be, and
+	// 0.9.0, whose archive is signed with another key.
+	published := update.Manifest{Version: "1.1.0"}
+	for _, v := range []string{"1.1.0", "1.0.0", "2.0.0", "0.9.0"} {
+		dir := filepath.Join(t.TempDir(), v)
+		entries := app(dir, v)
+		var archive bytes.Buffer
+		if err := update.WriteArchive(&archive, dir, entries); err != nil {
+			t.Fatal(err)
+		}
+		name := "app-" + v + ".tar.gz"
+		os.WriteFile(filepath.Join(serve, name), archive.Bytes(), 0o644)
+		sum := sha256.Sum256(archive.Bytes())
+		a := update.Archive{Version: v, URL: srv.URL + "/" + name, Size: int64(archive.Len()), Signature: update.Sign(priv, sum[:])}
+		if v == "0.9.0" {
+			_, other, _ := ed25519.GenerateKey(nil)
+			a.Signature = update.Sign(other, sum[:])
+		}
+		if v == "1.1.0" {
+			published.URL, published.Size, published.Signature = a.URL, a.Size, a.Signature
+		} else {
+			published.Previous = append(published.Previous, a)
+		}
+	}
+	data, _ := json.Marshal(published)
+	os.WriteFile(filepath.Join(serve, update.ManifestName("linux-amd64")), data, 0o644)
+
+	build := func(deltas int) (update.Manifest, []string) {
+		t.Helper()
+		stage := t.TempDir()
+		entries := app(stage, "1.2.0")
+		c := &Config{root: t.TempDir(), Name: "App", Version: "1.2.0", Updates: &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), URL: srv.URL, Deltas: &deltas}}
+		mu.Lock()
+		requests = nil
+		mu.Unlock()
+		written, err := writeUpdate(c, stage, "linux-amd64", entries)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m update.Manifest
+		data, _ := os.ReadFile(written[len(written)-1])
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatal(err)
+		}
+		// Each delta makes the new version of the old.
+		for _, d := range m.Deltas {
+			old := filepath.Join(t.TempDir(), "old")
+			app(old, d.From)
+			f, err := os.Open(filepath.Join(stage, filepath.Base(d.URL)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(t.TempDir(), "new")
+			err = update.ApplyDelta(f, d.Size, d.From, "1.2.0", old, out)
+			f.Close()
+			if err != nil {
+				t.Fatalf("the delta from %s: %v", d.From, err)
+			}
+			if b, _ := os.ReadFile(filepath.Join(out, "app")); !bytes.Equal(b, append(slices.Clone(code), "1.2.0"...)) {
+				t.Errorf("the delta from %s made another app", d.From)
+			}
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return m, slices.Clone(requests)
+	}
+	versions := func(m update.Manifest) (deltas, previous []string) {
+		for _, d := range m.Deltas {
+			deltas = append(deltas, d.From)
+		}
+		for _, a := range m.Previous {
+			previous = append(previous, a.Version)
+		}
+		return deltas, previous
+	}
+
+	m, _ := build(3)
+	if deltas, previous := versions(m); !slices.Equal(deltas, []string{"1.1.0", "1.0.0"}) || !slices.Equal(previous, []string{"1.1.0", "1.0.0"}) {
+		t.Errorf("3 deltas: from %v, previous %v", deltas, previous)
+	}
+	if d := m.Deltas[0]; d.URL != srv.URL+"/app-1.1.0-to-1.2.0-linux-amd64.delta" || d.Size > m.Size/4 {
+		t.Errorf("delta %+v, archive of %d bytes", d, m.Size)
+	}
+	m, _ = build(1)
+	if deltas, previous := versions(m); !slices.Equal(deltas, []string{"1.1.0"}) || previous != nil {
+		t.Errorf("1 delta: from %v, previous %v", deltas, previous)
+	}
+	if m, requests := build(0); m.Deltas != nil || m.Previous != nil || requests != nil {
+		t.Errorf("no deltas: %+v, requested %v", m, requests)
 	}
 }
 
@@ -222,7 +382,7 @@ func TestPublishGitHub(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var artifacts []string
-	for _, name := range []string{"App 1.2.0.dmg", "app-1.2.0-darwin-arm64.tar.gz", "update-darwin-arm64.json", "App Setup 1.2.0.exe", "App.exe"} {
+	for _, name := range []string{"App 1.2.0.dmg", "app-1.2.0-darwin-arm64.tar.gz", "app-1.1.0-to-1.2.0-darwin-arm64.delta", "update-darwin-arm64.json", "App Setup 1.2.0.exe", "App.exe"} {
 		p := filepath.Join(dist, name)
 		os.WriteFile(p, nil, 0o644)
 		artifacts = append(artifacts, p)
@@ -238,7 +398,7 @@ func TestPublishGitHub(t *testing.T) {
 	if len(lines) != 4 || !strings.HasPrefix(lines[1], "release create v1.2.0 --repo me/app --draft") {
 		t.Fatalf("gh calls:\n%s", b)
 	}
-	if !strings.Contains(lines[2], "App 1.2.0.dmg") || !strings.Contains(lines[2], "App Setup 1.2.0.exe") || strings.Contains(lines[2], "App.exe ") || strings.Contains(lines[2], "update-") {
+	if !strings.Contains(lines[2], "App 1.2.0.dmg") || !strings.Contains(lines[2], "App Setup 1.2.0.exe") || !strings.Contains(lines[2], ".delta") || strings.Contains(lines[2], "App.exe ") || strings.Contains(lines[2], "update-") {
 		t.Errorf("first upload: %s", lines[2])
 	}
 	if !strings.HasSuffix(lines[3], "update-darwin-arm64.json") {

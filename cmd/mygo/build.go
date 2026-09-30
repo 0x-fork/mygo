@@ -39,8 +39,9 @@ Set macos.signingIdentity in mygo.json (or -sign) to a Developer ID to ship
 outside the Mac App Store, and macos.notarize to notarize the disk image.
 
 With updates in mygo.json and the key of mygo keygen in
-MYGO_UPDATER_PRIVATE_KEY, each platform also gets a signed update archive
-and update-<platform>.json: publish them where updates point to.`)
+MYGO_UPDATER_PRIVATE_KEY, each platform also gets a signed update archive,
+delta updates from the last versions published (updates.deltas), and
+update-<platform>.json: publish them where updates point to.`)
 	platforms := flags.String("platform", runtime.GOOS+"/"+runtime.GOARCH, "comma separated GOOS/GOARCH targets, e.g. darwin/universal,linux/amd64,windows/amd64")
 	debug := flags.Bool("debug", false, "keep development features such as the web inspector")
 	skipBuildCommand := flags.Bool("skip-build-command", false, "do not run buildCommand")
@@ -397,7 +398,15 @@ func sizeOf(path string) string {
 		}
 		return nil
 	})
-	return fmt.Sprintf("%.1f MB", float64(total)/(1<<20))
+	return formatSize(total)
+}
+
+// formatSize formats a number of bytes for messages.
+func formatSize(n int64) string {
+	if n < 1<<20 {
+		return fmt.Sprintf("%d KB", (n+1<<10-1)>>10)
+	}
+	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
 }
 
 // writeLinuxDesktop writes a .desktop entry, and the icon, for the binary
