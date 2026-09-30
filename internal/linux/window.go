@@ -56,8 +56,12 @@ type window struct {
 	programmatic bool
 	keepAbove    bool
 	// requested holds bounds set with SetBounds until the window manager
-	// confirms them: GTK resizes and moves asynchronously.
+	// answers: GTK resizes and moves asynchronously. previous is the size
+	// the window had then, which reports sent before still carry. placing
+	// is set while the window manager places a window that shows.
 	requested    *platform.Rect
+	previous     [2]int32
+	placing      bool
 	state        uint32
 	x, y, w, hgt int32
 	minW, minH   int32
@@ -140,6 +144,10 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 
 	w.box = gtkBoxNew(1, 0) // vertical
+	// GTK makes a window whose child has no natural size, as the web view,
+	// 200x200 by nature, and one the user cannot resize never smaller than
+	// its natural size.
+	gtkWidgetSetSizeRequest(w.box, 1, 1)
 	gtkContainerAdd(w.win, w.box)
 	if w.hiddenTitleBar() {
 		w.newControls()
@@ -282,12 +290,36 @@ func (w *window) SetTitle(title string) { gtkWindowSetTitle(w.win, cs(title)) }
 func (w *window) Title() string         { return goStr(gtkWindowGetTitle(w.win)) }
 
 func (w *window) SetBounds(r platform.Rect) {
+	width, height := w.constrain(int32(r.Width), int32(r.Height))
+	r.Width, r.Height = int(width), int(height)
+	if w.requested == nil {
+		gtkWindowGetSize(w.win, &w.previous[0], &w.previous[1])
+	}
 	w.requested = &r
 	// GTK keeps a window the user cannot resize at least as large as its
 	// default size.
-	gtkWindowSetDefaultSize(w.win, int32(r.Width), int32(r.Height))
+	gtkWindowSetDefaultSize(w.win, width, height)
 	gtkWindowMove(w.win, int32(r.X), int32(r.Y))
-	gtkWindowResize(w.win, int32(r.Width), int32(r.Height))
+	gtkWindowResize(w.win, width, height)
+}
+
+// constrain returns the size GTK gives the window when asked for one:
+// within its minimum and maximum sizes, and no smaller than its content, or
+// than the content's natural size when the user cannot resize the window.
+func (w *window) constrain(width, height int32) (int32, int32) {
+	var minW, natW, minH, natH int32
+	gtkWidgetGetPreferredWidth(w.box, &minW, &natW)
+	gtkWidgetGetPreferredHeight(w.box, &minH, &natH)
+	if !gtkWindowGetResizable(w.win) {
+		minW, minH = natW, natH
+	}
+	if w.maxW > 0 {
+		width = min(width, w.maxW)
+	}
+	if w.maxH > 0 {
+		height = min(height, w.maxH)
+	}
+	return max(width, w.minW, minW), max(height, w.minH, minH)
 }
 
 func (w *window) Bounds() platform.Rect {
@@ -315,10 +347,9 @@ func (w *window) SetMaximumSize(s platform.Size) {
 
 func (w *window) SetResizable(v bool) {
 	if !v {
-		// Keep the size the user gave it (see SetBounds).
-		var width, height int32
-		gtkWindowGetSize(w.win, &width, &height)
-		gtkWindowSetDefaultSize(w.win, width, height)
+		// Keep the size it has or was given (see SetBounds).
+		b := w.Bounds()
+		gtkWindowSetDefaultSize(w.win, int32(b.Width), int32(b.Height))
 	}
 	gtkWindowSetResizable(w.win, v)
 	if w.controls != nil {
@@ -351,14 +382,40 @@ func (w *window) SetAlwaysOnTop(v bool) {
 func (w *window) IsAlwaysOnTop() bool { return w.keepAbove || w.state&stateAbove != 0 }
 
 func (w *window) Show() {
+	w.willShow()
 	gtkWidgetShow(w.win)
 	gtkWindowPresent(w.win)
 }
 
-func (w *window) ShowInactive()     { gtkWidgetShow(w.win) }
-func (w *window) Hide()             { gtkWidgetHide(w.win) }
-func (w *window) IsVisible() bool   { return gtkWidgetGetVisible(w.win) }
-func (w *window) Focus()            { gtkWindowPresent(w.win) }
+func (w *window) ShowInactive() {
+	w.willShow()
+	gtkWidgetShow(w.win)
+}
+
+// willShow makes Bounds report where GTK asks for a window about to show
+// until the window manager put it there. Until then, X has the window where
+// GTK created it or where it was, and a reparenting window manager has its
+// frame where it created that.
+func (w *window) willShow() {
+	if gtkWidgetGetVisible(w.win) {
+		return
+	}
+	if w.requested == nil {
+		b := w.Bounds() // what GTK asks for, while the window does not show
+		w.requested = &b
+		w.previous = [2]int32{int32(b.Width), int32(b.Height)}
+	}
+	w.placing = w.b.windowManager(w.win)
+}
+
+func (w *window) Hide()           { gtkWidgetHide(w.win) }
+func (w *window) IsVisible() bool { return gtkWidgetGetVisible(w.win) }
+
+func (w *window) Focus() {
+	w.willShow() // presenting shows a hidden window
+	gtkWindowPresent(w.win)
+}
+
 func (w *window) Blur()             {}
 func (w *window) IsFocused() bool   { return gtkWindowIsActive(w.win) }
 func (w *window) Minimize()         { gtkWindowIconify(w.win) }
@@ -884,8 +941,39 @@ func initWindowCallbacks() {
 		moved := x != w.x || y != w.y
 		resized := width != w.w || height != w.hgt
 		w.x, w.y, w.w, w.hgt = x, y, width, height
-		if r := w.requested; r != nil && int32(r.Width) == width && int32(r.Height) == height {
-			w.requested = nil
+		if r := w.requested; r != nil {
+			// Without the decorations GTK draws, as requested.
+			var cw, ch int32
+			gtkWindowGetSize(w.win, &cw, &ch)
+			// The window manager's own report (GdkEventConfigure's
+			// send_event, at 16) comes once it moved the window.
+			synthetic := field[int8](event, 16) != 0
+			done := false
+			switch {
+			case cw != int32(r.Width) || ch != int32(r.Height):
+				if cw == w.previous[0] && ch == w.previous[1] {
+					// A report from before the window manager took the
+					// request, as openbox sends when the size hints change.
+					// GTK would ask for this size again from it (and keeps a
+					// window the user cannot resize as large), unless asked
+					// for the new one again.
+					gtkWindowResize(w.win, int32(r.Width), int32(r.Height))
+				} else {
+					done = true // the window manager, or the user, chose it
+				}
+			case synthetic || !w.b.onX11:
+				done = true
+			case !w.placing:
+				// X11 reports where the window is, in the frame of the
+				// window manager: it is done once that is where it was
+				// asked to be.
+				var cx, cy int32
+				gtkWindowGetPosition(w.win, &cx, &cy)
+				done = cx == int32(r.X) && cy == int32(r.Y)
+			}
+			if done {
+				w.requested, w.placing = nil, false
+			}
 		}
 		if resized {
 			w.h.Resized()

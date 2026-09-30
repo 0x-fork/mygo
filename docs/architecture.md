@@ -212,11 +212,21 @@ purego gives three primitives, used everywhere:
   compares `gettid`. `Step` is `g_main_context_iteration(NULL, TRUE)` and
   `Wake` is `g_main_context_wakeup`.
 - GTK geometry changes are asynchronous: `SetBounds` remembers the requested
-  rectangle and `Bounds` reports it until the configure event confirms it;
-  `Center` moves that rectangle along. `SetBounds` also sets the default
-  size, since GTK keeps a window the user cannot resize at least as large
-  as its default size, which `SetResizable(false)` sets to the current
-  size.
+  rectangle, within the sizes GTK gives the window (`constrain`), as does a
+  window about to show, which X has where GTK created it, or where it was,
+  until the window manager places it; `Center` moves that rectangle along.
+  `Bounds` reports that rectangle until a configure event reports its size
+  and, on X11, its position, or the window manager's own (synthetic)
+  report of the size comes, or another size, which the window manager or
+  the user chose. A window being placed waits for the window manager's
+  report: a reparenting one first puts its frame where it created it. A
+  report of the previous size was sent before the window manager took the
+  request (openbox sends one when the size hints change); GTK would ask
+  for that size again from it, so the backend asks for the new one again.
+- A window the user cannot resize is never smaller than its default size,
+  which `SetBounds` sets too, and `SetResizable(false)` to the size it has,
+  or than its natural size, which GTK makes 200x200 when the window's child
+  has none, as the web view: the box around the web view asks for 1x1.
 - GTK gives windows without decorations no resize borders, so the outer
   5 px of the page of a frameless window, or one with a hidden title bar,
   resize it (16 px along the edges from a corner resize the corner). The web view's `motion-notify-event` shows

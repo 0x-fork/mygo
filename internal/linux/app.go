@@ -37,6 +37,10 @@ type Backend struct {
 	grabs      map[int]grab    // global shortcuts on X11
 	portal     portalShortcuts // global shortcuts elsewhere
 	themeHooks bool
+	// onX11 reports an X11 display, where windows have positions, and
+	// wmName names its window manager.
+	onX11  bool
+	wmName func(screen ptr) ptr
 
 	// What the launcher entry shows (Window.SetProgressBar, badges).
 	launcher struct {
@@ -61,6 +65,12 @@ func New() *Backend {
 
 func (b *Backend) Name() string { return "linux/webkitgtk" }
 
+// windowManager reports an X11 window manager, which places windows once
+// they show; Wayland compositors do not tell where windows are.
+func (b *Backend) windowManager(win ptr) bool {
+	return b.onX11 && goStr(b.wmName(gtkWidgetGetScreen(win))) != "unknown"
+}
+
 // IsMainThread reports whether the caller runs on the thread the process
 // started with, whose thread id is the process id. Package mygo locks the
 // main goroutine to it, so this holds before Init too.
@@ -83,6 +93,9 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	if !gtkInitCheck(0, 0) {
 		return errors.New("mygo: cannot open display (is DISPLAY or WAYLAND_DISPLAY set?)")
 	}
+	var x11Type func() uintptr
+	b.onX11 = bind(libGDK, &x11Type, "gdk_x11_display_get_type") && gTypeCheckInstanceIsA(gdkDisplayGetDefault(), x11Type()) &&
+		bind(libGDK, &b.wmName, "gdk_x11_screen_get_window_manager_name")
 	initCallbacks()
 	return nil
 }
