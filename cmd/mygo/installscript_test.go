@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -256,5 +257,89 @@ func TestInstallScript(t *testing.T) {
 	}
 	if out, err := exec.Command("sh", alone, "--uninstall").CombinedOutput(); err == nil {
 		t.Errorf("uninstalling twice succeeded:\n%s", out)
+	}
+}
+
+func TestInstallScriptTagged(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("runs install.sh")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("install.sh refuses to install for root")
+	}
+	// uname answers as an x86-64 Linux machine would, and curl serves the
+	// GitHub API and release downloads of me/my-app from $SERVED.
+	bin := t.TempDir()
+	scripts := map[string]string{
+		"uname": "#!/bin/sh\ncase \"$1\" in -s) echo Linux ;; -m) echo x86_64 ;; esac\n",
+		"curl": `#!/bin/sh
+for url; do :; done
+case "$url" in
+"https://api.github.com/repos/me/my-app/releases?per_page=100&page="*) file="$SERVED/releases-${url##*page=}.json" ;;
+"https://github.com/me/my-app/releases/download/"*) file="$SERVED/${url#https://github.com/me/my-app/releases/download/}" ;;
+*) exit 22 ;;
+esac
+[ -f "$file" ] || exit 22
+cat "$file"
+`,
+	}
+	for name, script := range scripts {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	served := t.TempDir()
+	t.Setenv("SERVED", served)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", "")
+
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	t.Setenv("MYGO_UPDATER_PRIVATE_KEY", base64.StdEncoding.EncodeToString(priv))
+	none := 0
+	c := &Config{root: t.TempDir(), Name: "My App", Version: "1.1.0",
+		Updates: &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), GitHub: "me/my-app", TagPrefix: "desktop-v", Deltas: &none}}
+	stage := filepath.Join(t.TempDir(), "linux-amd64")
+	os.MkdirAll(stage, 0o755)
+	if err := os.WriteFile(filepath.Join(stage, "my-app"), []byte("#!/bin/sh\necho 1.1.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeArchive(c, stage, "linux-amd64", []string{"my-app"}); err != nil {
+		t.Fatal(err)
+	}
+	script, err := writeInstallScript(c, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := filepath.Join(served, "desktop-v1.1.0")
+	os.MkdirAll(release, 0o755)
+	for _, name := range []string{"my-app-1.1.0-linux-amd64.tar.gz", "update-linux-amd64.json"} {
+		b, err := os.ReadFile(filepath.Join(stage, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(release, name), b, 0o644)
+	}
+	// The API's releases, newest first, as it prints them.
+	rel := func(tag string, draft, pre bool) string {
+		return fmt.Sprintf("  {\n    \"tag_name\": %q,\n    \"name\": \"not \\\"tag_name\\\": \\\"desktop-v9.0.0\\\"\",\n    \"draft\": %t,\n    \"prerelease\": %t\n  }", tag, draft, pre)
+	}
+	page := func(releases ...string) {
+		os.WriteFile(filepath.Join(served, "releases-1.json"), []byte("[\n"+strings.Join(releases, ",\n")+"\n]\n"), 0o644)
+	}
+
+	page(rel("cli-v2.0.0", false, false))
+	if out, err := exec.Command("sh", script).CombinedOutput(); err == nil || !strings.Contains(string(out), "no release of My App is published") {
+		t.Errorf("without a release, install.sh printed %v:\n%s", err, out)
+	}
+	page(rel("cli-v2.0.0", false, false), rel("desktop-v1.2.0", true, false), rel("desktop-v1.2.0-beta.1", false, true),
+		rel("desktop-v1.1.0", false, false), rel("desktop-v1.0.0", false, false))
+	out, err := exec.Command("sh", script).CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "Downloading My App 1.1.0") {
+		t.Fatalf("install.sh printed %v:\n%s", err, out)
+	}
+	if out, err := exec.Command(filepath.Join(home, ".local", "my-app.app", "my-app")).Output(); err != nil || string(out) != "1.1.0\n" {
+		t.Errorf("my-app printed %q, %v", out, err)
 	}
 }

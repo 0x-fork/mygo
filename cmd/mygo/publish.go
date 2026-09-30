@@ -78,10 +78,19 @@ func publishGitHub(c *Config, artifacts []string) error {
 	if err != nil {
 		return err
 	}
+	// With a tag prefix, the repository's latest release is another's, which
+	// the app's releases leave alone.
+	latest := ""
+	if c.Updates.tagged() {
+		latest = " --latest=false"
+	}
 	if exec.Command(gh, "release", "view", tag, "--repo", repo).Run() != nil {
 		notes, _ := c.releaseNotes()
 		logf("creating the draft release %s of %s", tag, repo)
 		args := []string{"release", "create", tag, "--repo", repo, "--draft", "--title", tag, "--notes", notes}
+		if latest != "" {
+			args = append(args, "--latest=false")
+		}
 		if out, err := exec.Command(gh, args...).CombinedOutput(); err != nil {
 			return fmt.Errorf("gh release create: %v\n%s", err, out)
 		}
@@ -98,7 +107,7 @@ func publishGitHub(c *Config, artifacts []string) error {
 			return fmt.Errorf("gh release upload: %v\n%s", err, out)
 		}
 	}
-	logf("uploaded to the release %s of %s; publish it when every platform is there:\n  gh release edit %s --repo %s --draft=false", tag, repo, tag, repo)
+	logf("uploaded to the release %s of %s; publish it when every platform is there:\n  gh release edit %s --repo %s --draft=false%s", tag, repo, tag, repo, latest)
 	return nil
 }
 

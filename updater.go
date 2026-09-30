@@ -24,8 +24,9 @@ import (
 )
 
 // Set by `mygo build` with -ldflags -X when mygo.config.ts configures updates:
-// the manifest of this build's target and the public key updates must be
-// signed with.
+// the manifest of this build's target, or with a tag prefix on GitHub its
+// feed in the newest tagged release (update.TaggedFeed), and the public key
+// updates must be signed with.
 var (
 	packageUpdateFeed string
 	packageUpdateKey  string
@@ -98,6 +99,10 @@ func (u *UpdaterModule) Check(ctx context.Context) (*Update, error) {
 }
 
 func checkUpdate(ctx context.Context, feed, key, current string) (*Update, error) {
+	feed, err := update.ResolveFeed(ctx, feed, httpGet)
+	if err != nil {
+		return nil, fmt.Errorf("mygo: checking for updates: %w", err)
+	}
 	body, err := httpGet(ctx, feed)
 	if err != nil {
 		return nil, fmt.Errorf("mygo: checking for updates: %w", err)

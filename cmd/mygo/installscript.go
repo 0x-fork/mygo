@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/egoist/mygo/internal/update"
 )
 
 // The install script of Linux apps: install.sh installs the archive of the
@@ -33,14 +35,24 @@ func writeInstallScript(c *Config, dir string) (string, error) {
 
 func installScript(c *Config) string {
 	data := map[string]string{
-		"Name":     c.Name,
-		"Title":    strings.Join(strings.Fields(c.Name), " "),
-		"Slug":     slugify(c.executableName()),
-		"Command":  c.Linux.Command,
-		"Version":  c.Version,
-		"Releases": "",
+		"Name":      c.Name,
+		"Title":     strings.Join(strings.Fields(c.Name), " "),
+		"Slug":      slugify(c.executableName()),
+		"Command":   c.Linux.Command,
+		"Version":   c.Version,
+		"Releases":  "",
+		"API":       "",
+		"TagPrefix": "",
 	}
-	if c.Updates != nil {
+	switch u := c.Updates; {
+	case u != nil && u.tagged():
+		// The newest release tagged with the prefix, which the GitHub API
+		// finds among the others.
+		data["Releases"] = "https://github.com/" + u.GitHub + "/releases/download/"
+		data["API"] = update.GitHubAPI + "/repos/" + u.GitHub + "/releases?per_page=100"
+		data["TagPrefix"] = u.TagPrefix
+		data["Curl"] = "curl -fsSL " + c.updateFile(installScriptName, false) + " | sh"
+	case u != nil:
 		data["Releases"] = c.updateFile("", true)
 		data["Curl"] = "curl -fsSL " + c.updateFile(installScriptName, true) + " | sh"
 	}
@@ -73,8 +85,12 @@ name={{q .Slug}}
 # The command in ~/.local/bin that runs the app (linux.command), if any.
 command_name={{q .Command}}
 version={{q .Version}}
-# Where the manifests of the latest version are, with updates.
+# Where the manifests of the latest version are, with updates: in the
+# release of the newest tag with the prefix when the repository's releases
+# (api) hold others too.
 releases={{q .Releases}}
+api={{q .API}}
+tag_prefix={{q .TagPrefix}}
 
 usage() {
 	cat <<EOF
@@ -149,7 +165,13 @@ main() {
 	if [ -z "$archive" ]; then
 		[ -n "$releases" ] || fail "no $name-$version-$target.tar.gz next to this script: pass the archive to install"
 		command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || fail "downloading $app_name needs curl or wget"
-		manifest="${releases}update-$target.json"
+		if [ -n "$api" ]; then
+			tag="$(latest_tag)" || fail "could not list the releases at $api"
+			[ -n "$tag" ] || fail "no release of $app_name is published"
+			manifest="$releases$tag/update-$target.json"
+		else
+			manifest="${releases}update-$target.json"
+		fi
 		fetch "$manifest" >"$work/update.json" || fail "could not download $manifest"
 		latest="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$work/update.json")"
 		url="$(sed -n 's/^  "url": "\(.*\)",$/\1/p' "$work/update.json")"
@@ -221,6 +243,30 @@ main() {
 		echo "$app_name needs WebKitGTK, which is not installed. Install it with:" >&2
 		echo "  $(webkit_install_command)" >&2
 	fi
+}
+
+# latest_tag prints the tag of the newest release tagged $tag_prefix that is
+# neither a draft nor a prerelease. The GitHub API lists releases newest
+# first, each with its tag_name, draft and prerelease fields in that order.
+latest_tag() {
+	page=1
+	while [ "$page" -le 10 ]; do
+		fetch "$api&page=$page" >"$work/releases.json" || return 1
+		tr -d '\n' <"$work/releases.json" |
+			grep -oE '"(tag_name|draft|prerelease)": *("[^"]*"|true|false)' >"$work/fields" || true
+		tag="$(awk -v prefix="$tag_prefix" '
+			/^"tag_name"/ { sub(/^"tag_name": *"/, ""); sub(/"$/, ""); tag = $0; draft = 0; next }
+			/^"draft"/ { draft = /true$/; next }
+			/^"prerelease"/ { if (!draft && /false$/ && index(tag, prefix) == 1) { print tag; exit } }
+		' "$work/fields")"
+		if [ -n "$tag" ]; then
+			echo "$tag"
+			return
+		fi
+		# A full page leads to the next.
+		[ "$(grep -c '^"tag_name"' "$work/fields" || true)" -ge 100 ] || return 0
+		page=$((page + 1))
+	done
 }
 
 # has_webkit fails when the system's library cache has no WebKitGTK, which

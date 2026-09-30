@@ -86,7 +86,7 @@ Signed [auto-updates](updates.md). `publicKey` and one of `github` and
 |---|---|---|
 | `publicKey` | | the contents of `mygo-update.pub`, from `mygo keygen` |
 | `github` | | a public repository, `owner/name`, whose releases hold the updates |
-| `tagPrefix` | `v` | what precedes the version in release tags |
+| `tagPrefix` | `v` | what precedes the version in release tags; another prefix, such as `desktop-v`, makes apps find the newest release tagged with it rather than the repository's latest |
 | `url` | | instead of `github`, the HTTPS URL of a directory holding the updates |
 | `s3` | | the bucket that serves `url`, which `mygo build -upload` uploads to: `bucket`, and optionally `prefix`, its directory, `region` (default: `AWS_REGION`, else `us-east-1`), `endpoint`, of a compatible service such as Cloudflare R2, and `pathStyle` (see [publishing to S3](updates.md#publishing-to-s3)) |
 | `privateKey` | | the path of `mygo-update.key`, for `mygo build`; the `MYGO_UPDATER_PRIVATE_KEY` environment variable, holding the key, takes precedence |

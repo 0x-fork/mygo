@@ -41,6 +41,29 @@ func TestUpdatesConfig(t *testing.T) {
 	if got := c.updateFile("my-app-1.2.0-darwin-arm64.tar.gz", false); got != "https://github.com/me/my-app/releases/download/v1.2.0/my-app-1.2.0-darwin-arm64.tar.gz" {
 		t.Errorf("archive = %s", got)
 	}
+	// With a tag prefix, the repository may hold other releases: apps look
+	// for the newest release tagged with it.
+	c, err = load(`{"publicKey": "` + key + `", "github": "me/my-app", "tagPrefix": "desktop-v"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.updateFeed("windows-amd64"); got != "https://github.com/me/my-app/releases/download/desktop-v{version}/update-windows-amd64.json" {
+		t.Errorf("tagged feed = %s", got)
+	}
+	if got := c.updateFile("my-app-1.2.0-windows-amd64.tar.gz", false); got != "https://github.com/me/my-app/releases/download/desktop-v1.2.0/my-app-1.2.0-windows-amd64.tar.gz" {
+		t.Errorf("tagged archive = %s", got)
+	}
+	script := installScript(c)
+	for _, line := range []string{
+		"releases='https://github.com/me/my-app/releases/download/'\n",
+		"api='https://api.github.com/repos/me/my-app/releases?per_page=100'\n",
+		"tag_prefix='desktop-v'\n",
+		"#   curl -fsSL https://github.com/me/my-app/releases/download/desktop-v1.2.0/install.sh | sh\n",
+	} {
+		if !strings.Contains(script, line) {
+			t.Errorf("install.sh has no %q", line)
+		}
+	}
 	c, err = load(`{"publicKey": "` + key + `", "url": "https://dl.example.com/my-app/"}`)
 	if err != nil || c.updateFeed("linux-amd64") != "https://dl.example.com/my-app/update-linux-amd64.json" {
 		t.Errorf("url feed = %s, %v", c.updateFeed("linux-amd64"), err)
@@ -416,5 +439,16 @@ func TestPublishGitHub(t *testing.T) {
 	}
 	if !strings.HasSuffix(lines[3], "update-darwin-arm64.json") {
 		t.Errorf("the manifests must go last: %s", lines[3])
+	}
+
+	// Tagged releases leave the repository's latest release to the others.
+	os.Remove(calls)
+	c.Updates.TagPrefix = "desktop-v"
+	if err := publishGitHub(c, artifacts); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(calls)
+	if lines := strings.Split(strings.TrimSpace(string(b)), "\n"); len(lines) != 4 || !strings.HasPrefix(lines[1], "release create desktop-v1.2.0 --repo me/app --draft") || !strings.HasSuffix(lines[1], " --latest=false") {
+		t.Errorf("gh calls:\n%s", b)
 	}
 }

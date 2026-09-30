@@ -343,6 +343,10 @@ the update manifest of the machine names, so one line installs the app:
 curl -fsSL https://github.com/me/my-app/releases/latest/download/install.sh | sh
 ```
 
+With a [`tagPrefix`](updates.md#set-up) other than `v`, the script of any
+release, such as `…/releases/download/desktop-v1.2.0/install.sh`, installs
+the newest release tagged with the prefix.
+
 `-upload` publishes it with the archives; with `updates.url`, publish it
 next to the manifests. Next to the archive of its version, as in
 `build/linux-amd64/`, it installs that archive instead, and it installs

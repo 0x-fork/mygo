@@ -124,7 +124,12 @@ export interface UpdatesConfig {
   publicKey: string;
   /** A public GitHub repository, `owner/name`, whose releases hold the updates. */
   github?: string;
-  /** What precedes the version in release tags (default: `v`). */
+  /**
+   * What precedes the version in release tags (default: `v`). Another prefix,
+   * such as `desktop-v`, lets the repository hold other releases: apps find
+   * the newest release tagged with it through the GitHub API instead of
+   * reading the latest release.
+   */
   tagPrefix?: string;
   /** Instead of `github`, the HTTPS URL of a directory holding the updates. */
   url?: string;

@@ -33,8 +33,18 @@ export default defineConfig({
 });
 ```
 
-`github` is a public repository whose releases, tagged `v1.2.0` and so on
-(`tagPrefix` changes the `v`), hold the updates. For your own server or an
+`github` is a public repository whose releases, tagged `v1.2.0` and so on,
+hold the updates. Apps read the manifests of its latest release.
+
+A repository may hold other releases too, such as a command-line tool's
+that stays its latest release. Give the app's releases a `tagPrefix` of
+their own, such as `desktop-v` for tags like `desktop-v1.2.0`, and apps,
+`install.sh` and delta updates find the newest release with that prefix,
+neither a draft nor a prerelease, through the GitHub API instead: one
+request a check, within the API's 60 requests an hour for each address.
+`mygo build` uses `GH_TOKEN` or `GITHUB_TOKEN` for it when there is one.
+
+For your own server or an
 [S3 bucket](#publishing-to-s3), set `url` instead, an HTTPS URL of a
 directory:
 
@@ -80,7 +90,11 @@ Publish the files where `updates` points to:
 - **GitHub**: `mygo build -upload` uploads them, with the installers, to a
   draft release of the version. Publishing the release makes it the latest,
   which apps check: they read the manifests from
-  `https://github.com/you/my-app/releases/latest/download/`.
+  `https://github.com/you/my-app/releases/latest/download/`. With a
+  `tagPrefix` of their own, the draft is not to become the latest, which
+  stays the other releases': publish it with
+  `gh release edit desktop-v1.2.0 --draft=false --latest=false`, or untick
+  "Set as the latest release", and apps find it by its tag.
 - **S3**: `mygo build -upload` uploads them, with the installers, to the
   bucket of `updates.s3`; see [below](#publishing-to-s3).
 - **Your server**: upload the archives, deltas and manifests to the `url`

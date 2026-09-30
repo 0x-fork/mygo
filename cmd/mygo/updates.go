@@ -1,6 +1,8 @@
 package main
 
 import (
+	"cmp"
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -32,7 +34,9 @@ type Updates struct {
 	PublicKey string `json:"publicKey"`
 	// GitHub is the public repository ("owner/name") whose releases hold
 	// the updates: tagged TagPrefix+version, the latest release serving
-	// the manifests.
+	// the manifests. With a TagPrefix other than "v", the repository may
+	// hold other releases, such as a CLI's, and the newest release tagged
+	// TagPrefix serves them, found through the GitHub API.
 	GitHub    string `json:"github"`
 	TagPrefix string `json:"tagPrefix"`
 	// URL is where the update files are served from instead, e.g.
@@ -58,6 +62,12 @@ func (u *Updates) deltas() int {
 		return 3
 	}
 	return *u.Deltas
+}
+
+// tagged reports whether the manifests are those of the newest release
+// tagged TagPrefix on GitHub rather than of the latest release.
+func (u *Updates) tagged() bool {
+	return u.GitHub != "" && u.TagPrefix != "v"
 }
 
 func (u *Updates) validate() error {
@@ -101,12 +111,16 @@ func (c *Config) updateFeed(target string) string {
 }
 
 // updateFile returns the URL of a published update file; manifests come
-// from the latest release on GitHub, archives from the release of this
-// version.
+// from the latest release on GitHub, or with a tag prefix from the newest
+// release tagged with it (a feed that update.ResolveFeed resolves),
+// archives from the release of this version.
 func (c *Config) updateFile(name string, latest bool) string {
 	u := c.Updates
 	if u.GitHub == "" {
 		return strings.TrimSuffix(u.URL, "/") + "/" + url.PathEscape(name)
+	}
+	if latest && u.tagged() {
+		return update.TaggedFeed(u.GitHub, u.TagPrefix, name)
 	}
 	if latest {
 		return "https://github.com/" + u.GitHub + "/releases/latest/download/" + url.PathEscape(name)
@@ -360,8 +374,21 @@ func writeDelta(key ed25519.PrivateKey, base update.Archive, work, path, version
 
 var errNotPublished = errors.New("not published")
 
-// fetchManifest downloads a published manifest.
-func fetchManifest(u string) (*update.Manifest, error) {
+// fetchManifest downloads a published manifest, from its feed.
+func fetchManifest(feed string) (*update.Manifest, error) {
+	u, err := update.ResolveFeed(context.Background(), feed, func(_ context.Context, u string) (io.ReadCloser, error) {
+		resp, err := updateGet(u, 30*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		return resp.Body, nil
+	})
+	if errors.Is(err, update.ErrNotPublished) {
+		return nil, errNotPublished
+	}
+	if err != nil {
+		return nil, err
+	}
 	resp, err := updateGet(u, 30*time.Second)
 	if err != nil {
 		return nil, err
@@ -410,6 +437,10 @@ func updateGet(u string, timeout time.Duration) (*http.Response, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "mygo/"+version)
+	// A token, as CI has one, lifts the GitHub API's limit on requests.
+	if token := cmp.Or(os.Getenv("GH_TOKEN"), os.Getenv("GITHUB_TOKEN")); token != "" && req.URL.Host == "api.github.com" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
 		return nil, err
