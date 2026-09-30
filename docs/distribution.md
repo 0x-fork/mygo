@@ -41,7 +41,7 @@ systems only where [NSIS](#the-installer) is installed.
 |---|---|
 | macOS | `My App.app`, signed, and `My App 0.1.0.dmg` |
 | Windows | `My App.exe`, the files of the app, and the installer `My App Setup 0.1.0.exe` |
-| Linux | `my-app`, `my-app.desktop`, `my-app.png`, `my-app.xml` for the file types the app defines, the files of the app, their archive `my-app-0.1.0-linux-amd64.tar.gz` with [`install.sh`](#the-install-script), and `my-app_0.1.0_amd64.deb` when `linux.maintainer` is set |
+| Linux | `my-app`, `my-app.desktop`, `my-app.png`, `my-app.xml` for the file types the app defines, the files of the app, their archive `my-app-0.1.0-linux-amd64.tar.gz` with [`install.sh`](#the-install-script), and the Debian package `my-app_0.1.0_amd64.deb` |
 
 Other flags: `-debug` keeps development features such as the inspector,
 `-skip-dmg` and `-skip-notarize` skip those steps, `-sign` overrides the
@@ -301,9 +301,9 @@ export default defineConfig({
 ## Linux
 
 `mygo build` writes the executable, named after the app in lower case, a
-desktop entry and the icon. With a maintainer, it also makes a Debian
-package, which installs the app in `/opt/my-app` with a `my-app` command,
-its desktop entry, icons, URL schemes and file types:
+desktop entry and the icon, and a Debian package, which installs the app
+in `/opt/my-app` with a `my-app` command, its desktop entry, icons, URL
+schemes and file types:
 
 ```ts
 export default defineConfig({
@@ -317,6 +317,8 @@ export default defineConfig({
 ```
 
 The package depends on GTK 3 and WebKitGTK; `depends` adds more packages.
+`maintainer` defaults to the `author` of package.json, else the name of
+the app.
 `comment` describes the app in its desktop entry and package, and
 `categories` places it in application menus (`Utility` by default).
 

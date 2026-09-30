@@ -120,7 +120,7 @@ See [Windows](distribution.md#windows).
 
 | Field | Default | |
 |---|---|---|
-| `maintainer` | | `Name <email>`; makes `mygo build` create a Debian package |
+| `maintainer` | `author` in package.json, else `name` | `Name <email>`, the maintainer of the Debian package |
 | `comment` | | a short description, for the desktop entry and the package |
 | `categories` | `["Utility"]` | the categories of the desktop entry, which place it in application menus |
 | `depends` | | Debian packages the app needs besides GTK and WebKitGTK |

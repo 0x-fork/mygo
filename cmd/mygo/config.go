@@ -284,6 +284,12 @@ func (c *Config) applyDefaults() {
 	if c.MacOS.DMGTitle == "" {
 		c.MacOS.DMGTitle = c.Name
 	}
+	if c.Linux.Maintainer == "" {
+		c.Linux.Maintainer = packageAuthor(c.root)
+	}
+	if c.Linux.Maintainer == "" {
+		c.Linux.Maintainer = c.Name
+	}
 	if c.Bindings == "" {
 		switch {
 		case isDir(filepath.Join(c.root, "frontend")):
@@ -294,6 +300,39 @@ func (c *Config) applyDefaults() {
 			c.Bindings = "mygo.ts"
 		}
 	}
+}
+
+// packageAuthor returns the author in the package.json of root, which npm
+// writes as "Name <email> (url)" or {"name", "email", "url"}, as
+// "Name <email>", or "" without one.
+func packageAuthor(root string) string {
+	data, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil {
+		return ""
+	}
+	var pkg struct {
+		Author json.RawMessage `json:"author"`
+	}
+	if json.Unmarshal(data, &pkg) != nil || pkg.Author == nil {
+		return ""
+	}
+	var name, email string
+	var person struct{ Name, Email string }
+	if err := json.Unmarshal(pkg.Author, &name); err == nil {
+		name, _, _ = strings.Cut(name, "(")
+		name, email, _ = strings.Cut(name, "<")
+		email, _, _ = strings.Cut(email, ">")
+	} else if err := json.Unmarshal(pkg.Author, &person); err == nil {
+		name, email = person.Name, person.Email
+	}
+	name, email = strings.Join(strings.Fields(name), " "), strings.TrimSpace(email)
+	switch {
+	case name == "":
+		return ""
+	case email == "":
+		return name
+	}
+	return name + " <" + email + ">"
 }
 
 func (c *Config) path(p string) string {

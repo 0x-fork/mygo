@@ -179,7 +179,7 @@ export interface WindowsConfig {
 
 /** Linux packaging. */
 export interface LinuxConfig {
-  /** `Name <email>`: makes `mygo build` create a Debian package. */
+  /** `Name <email>`, the maintainer of the Debian package (default: `author` in package.json, else the app's name). */
   maintainer?: string;
   /** A short description, for the desktop entry and the package. */
   comment?: string;

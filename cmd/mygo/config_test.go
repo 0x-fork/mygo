@@ -138,3 +138,29 @@ func TestConfigTypes(t *testing.T) {
 		}
 	}
 }
+
+func TestLinuxMaintainer(t *testing.T) {
+	for _, tc := range []struct{ config, pkg, want string }{
+		{`{"name": "My App"}`, ``, "My App"},
+		{`{"name": "My App"}`, `{"name": "my-app"}`, "My App"},
+		{`{"name": "My App"}`, `{"author": "Jane Doe <jane@example.com> (https://jane.dev)"}`, "Jane Doe <jane@example.com>"},
+		{`{"name": "My App"}`, `{"author": "Jane Doe"}`, "Jane Doe"},
+		{`{"name": "My App"}`, `{"author": {"name": "Jane Doe", "email": "jane@example.com", "url": "https://jane.dev"}}`, "Jane Doe <jane@example.com>"},
+		{`{"name": "My App"}`, `{"author": "<jane@example.com>"}`, "My App"},
+		{`{"name": "My App"}`, `{"author": `, "My App"}, // not JSON
+		{`{"name": "My App", "linux": {"maintainer": "Acme <dev@acme.test>"}}`, `{"author": "Jane Doe"}`, "Acme <dev@acme.test>"},
+	} {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, jsonConfig), []byte(tc.config), 0o644)
+		if tc.pkg != "" {
+			os.WriteFile(filepath.Join(dir, "package.json"), []byte(tc.pkg), 0o644)
+		}
+		c, err := loadConfig(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Linux.Maintainer != tc.want {
+			t.Errorf("with package.json %s and %s, the maintainer is %q, want %q", tc.pkg, tc.config, c.Linux.Maintainer, tc.want)
+		}
+	}
+}

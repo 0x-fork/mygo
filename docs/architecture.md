@@ -926,8 +926,9 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   configuration reach it through the environment (`MYGO_SIGNER`,
   `MYGO_SIGN_SETTINGS`), since NSIS reads `$` in the script as its own
   syntax. Linux
-  gets a Debian package written in pure Go (`deb.go`) when
-  `linux.maintainer` is set: the app in `/opt/<name>`, a `/usr/bin` link,
+  gets a Debian package written in pure Go (`deb.go`), whose maintainer
+  is `linux.maintainer`, else the `author` of package.json, else the name
+  of the app: the app in `/opt/<name>`, a `/usr/bin` link,
   the desktop entry (categories, comment, URL schemes) and hicolor icons,
   depending on GTK 3 and WebKitGTK 4.1. Packages hold the same files as
   the update archive; apps installed by a package manager do not update

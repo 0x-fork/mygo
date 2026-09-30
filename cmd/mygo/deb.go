@@ -19,7 +19,8 @@ import (
 
 // Linux configures Linux packaging.
 type Linux struct {
-	// Maintainer ("Name <email>") enables the Debian package.
+	// Maintainer of the Debian package, "Name <email>" (default: the
+	// author in package.json, else the app's name).
 	Maintainer string `json:"maintainer"`
 	// Comment is a short description of the app, for its desktop entry and
 	// its package.
