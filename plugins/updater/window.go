@@ -11,6 +11,7 @@ import (
 	"html"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -33,12 +34,23 @@ func size(release bool) (width, height int) {
 	return statusWidth, statusHeight
 }
 
+// background returns the light and dark colors of the update window: the
+// gray of dialogs on macOS, and white elsewhere, where the title bar above
+// it is light.
+func background() (light, dark string) {
+	if runtime.GOOS == "darwin" {
+		return "#ececec", "#1e1e1e"
+	}
+	return "#fff", "#1e1e1e"
+}
+
 // openWindow creates the update window of s. It shows once its page is
 // ready, in front when the user asked for the check.
 func openWindow(s *session) {
 	v, _ := s.current()
 	t := s.u.text()
 	width, height := size(v.Release)
+	light, dark := background()
 	win := mygo.NewWindow(mygo.WindowOptions{
 		Title:             t.Title,
 		Width:             width,
@@ -48,7 +60,7 @@ func openWindow(s *session) {
 		DisableResize:     true,
 		DisableMaximize:   true,
 		DisableFullScreen: true,
-		BackgroundColor:   "light-dark(#ececec, #1e1e1e)",
+		BackgroundColor:   "light-dark(" + light + ", " + dark + ")",
 	})
 	// A menu of its own, empty, rather than the app's menu bar (Linux,
 	// Windows).
@@ -98,9 +110,12 @@ func page(t *text, icon string, v view) string {
 	if t.rtl {
 		dir = "rtl"
 	}
+	light, dark := background()
 	return strings.NewReplacer(
 		"{{lang}}", html.EscapeString(t.lang),
 		"{{dir}}", dir,
+		"{{background}}", light,
+		"{{darkBackground}}", dark,
 		"{{title}}", html.EscapeString(t.Title),
 		"{{releaseNotes}}", html.EscapeString(t.ReleaseNotes),
 		"{{automaticDownloads}}", html.EscapeString(t.AutomaticDownloads),
