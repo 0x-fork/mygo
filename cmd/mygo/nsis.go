@@ -20,10 +20,10 @@ import (
 
 // The Windows installer is built with NSIS: a per-user install in
 // %LOCALAPPDATA%\Programs, where the app can update itself, with a Start
-// menu shortcut and an uninstaller that Settings > Apps lists. Windows
-// rarely has NSIS installed, so there mygo build downloads it when it
-// needs it, as Tauri and electron-builder do; elsewhere makensis must be
-// installed.
+// menu shortcut, a desktop shortcut the finish page offers, and an
+// uninstaller that Settings > Apps lists. Windows rarely has NSIS
+// installed, so there mygo build downloads it when it needs it, as Tauri
+// and electron-builder do; elsewhere makensis must be installed.
 
 // nsisRelease is the NSIS that mygo build downloads: the official zip,
 // checked against its SHA-256 and unpacked into the user's cache
@@ -268,6 +268,7 @@ func writeInstaller(c *Config, stage, work, exe string, installed []string) (str
 		return "", err
 	}
 	uninstallKey := `Software\Microsoft\Windows\CurrentVersion\Uninstall\` + c.Identifier
+	shortcut := nsisEscape(fsName(c.Name)) + ".lnk"
 	register, unregister := nsisAssociations(c, exe)
 	script := `Unicode true
 ManifestDPIAware true
@@ -278,6 +279,9 @@ OutFile ` + nsisString(out) + `
 RequestExecutionLevel user
 BrandingText " "
 ` + icon + `!define MUI_FINISHPAGE_RUN "$INSTDIR\` + nsisEscape(exe) + `"
+!define MUI_FINISHPAGE_SHOWREADME
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "Create a desktop shortcut"
+!define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateDesktopShortcut
 !include "MUI2.nsh"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -289,7 +293,7 @@ BrandingText " "
 Section
   SetOutPath "$INSTDIR"
 ` + files.String() + `  WriteUninstaller "$INSTDIR\Uninstall.exe"
-  CreateShortCut "$SMPROGRAMS\` + nsisEscape(fsName(c.Name)) + `.lnk" "$INSTDIR\` + nsisEscape(exe) + `"
+  CreateShortCut "$SMPROGRAMS\` + shortcut + `" "$INSTDIR\` + nsisEscape(exe) + `"
   WriteRegStr HKCU ` + nsisString(uninstallKey) + ` "DisplayName" ` + nsisString(c.Name) + `
   WriteRegStr HKCU ` + nsisString(uninstallKey) + ` "DisplayVersion" ` + nsisString(c.Version) + `
   WriteRegStr HKCU ` + nsisString(uninstallKey) + ` "DisplayIcon" "$INSTDIR\` + nsisEscape(exe) + `"
@@ -300,8 +304,15 @@ Section
   WriteRegDWORD HKCU ` + nsisString(uninstallKey) + ` "NoRepair" 1
 ` + register + `SectionEnd
 
+; The finish page offers it, so silent installs (/S) make none.
+Function CreateDesktopShortcut
+  SetOutPath "$INSTDIR"
+  CreateShortCut "$DESKTOP\` + shortcut + `" "$INSTDIR\` + nsisEscape(exe) + `"
+FunctionEnd
+
 Section "Uninstall"
-  Delete "$SMPROGRAMS\` + nsisEscape(fsName(c.Name)) + `.lnk"
+  Delete "$SMPROGRAMS\` + shortcut + `"
+  Delete "$DESKTOP\` + shortcut + `"
   RMDir /r "$INSTDIR"
   DeleteRegKey HKCU ` + nsisString(uninstallKey) + `
 ` + unregister + `SectionEnd

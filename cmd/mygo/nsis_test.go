@@ -22,7 +22,9 @@ import (
 // NSIS that mygo build downloads when it is not installed, and elsewhere
 // where NSIS is installed. Its sign command lists the files it signs: the
 // executable, the uninstaller and the installer. On Windows, it installs
-// and uninstalls the app silently.
+// and uninstalls the app silently: the install makes the Start menu
+// shortcut but not the desktop one the finish page offers, and the
+// uninstall removes both.
 func TestWindowsInstaller(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles programs")
@@ -85,10 +87,34 @@ func TestWindowsInstaller(t *testing.T) {
 			t.Errorf("the installer did not register %s", key)
 		}
 	}
+	shortcut := func(folder string) string {
+		out, err := exec.Command("powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('"+folder+"')").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return filepath.Join(strings.TrimSpace(string(out)), "Setup Test.lnk")
+	}
+	startMenu, desktop := shortcut("Programs"), shortcut("Desktop")
+	if !fileExists(startMenu) {
+		t.Errorf("the installer made no %s", startMenu)
+	}
+	if fileExists(desktop) {
+		t.Errorf("the silent install made %s", desktop)
+	}
+	// Stands for the shortcut that the finish page makes.
+	if err := os.WriteFile(desktop, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(desktop) })
 	defer func() {
 		for _, key := range []string{`com.example.setuptest.setuptest`, `setuptest`} {
 			if registered(key) {
 				t.Errorf("the uninstaller left %s", key)
+			}
+		}
+		for _, f := range []string{startMenu, desktop} {
+			if fileExists(f) {
+				t.Errorf("the uninstaller left %s", f)
 			}
 		}
 	}()

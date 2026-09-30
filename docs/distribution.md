@@ -261,7 +261,9 @@ window. A `.syso` file of your own in the main package replaces them.
 the current user in `%LOCALAPPDATA%\Programs\My App`, which needs no
 administrator rights and lets the app [update itself](updates.md), adds a
 Start menu shortcut and an uninstaller listed in Settings, and registers
-the app's URL schemes and file associations.
+the app's URL schemes and file associations. Its last page offers to run
+the app and to create a desktop shortcut, which is checked; silent
+installs (`/S`) create none.
 
 The installer is made with [NSIS](https://nsis.sourceforge.io). On
 Windows, `mygo build` uses NSIS when it is installed, and otherwise

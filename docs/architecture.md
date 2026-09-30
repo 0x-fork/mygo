@@ -931,8 +931,10 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
 - Packages for the other platforms. Windows gets "<name> Setup
   <version>.exe", made with NSIS (`nsis.go`): a per-user install in
   `%LOCALAPPDATA%\Programs\<name>`, where the updater can write, a Start
-  menu shortcut and an uninstaller registered under
-  `HKCU\…\Uninstall\<identifier>`; `/S /D=<dir>` installs silently.
+  menu shortcut, a desktop shortcut that the finish page's second check
+  box (MUI's "show readme" one) creates, and an uninstaller registered
+  under `HKCU\…\Uninstall\<identifier>`; `/S /D=<dir>` installs
+  silently, without the desktop shortcut.
   `makensis` comes from an installation of NSIS or, on Windows, where NSIS
   is rarely installed, from the official zip of the release `nsisRelease`
   pins, which the CLI downloads once, checks against its SHA-256 and
