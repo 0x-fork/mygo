@@ -345,6 +345,9 @@ sh install.sh --uninstall   # keeps the settings and data of the app
 ```
 
 Running it again installs the version it finds over the installed one.
+The app needs WebKitGTK, which `install.sh` does not install: when the
+system's library cache has none, it says so after installing, with the
+command that installs it on Debian, Ubuntu, Fedora, Arch and openSUSE.
 When the app updates itself, it registers the desktop entry and file types
 of the new version, so a version that adds URL schemes or file types gets
 them. The Debian package suits people who want the system's package manager to

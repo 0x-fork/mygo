@@ -938,7 +938,11 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   `~/.local/<name>.app` (which updates can replace), links
   `~/.local/bin/<name>`, and registers the app's `<name>.desktop`, with
   absolute `Exec` and `Icon` paths, and `<name>.xml`, the shared-mime-info
-  package of the types it defines, under `$XDG_DATA_HOME`.
+  package of the types it defines, under `$XDG_DATA_HOME`. It then warns
+  when `ldconfig -p` lists no WebKitGTK (4.1 or 4.0, the libraries
+  `internal/linux` loads), with the command that installs it on the
+  distribution `/etc/os-release` names, and stays silent when it cannot
+  tell (no `ldconfig`, or a cache without libc, as on NixOS or musl).
   `Update.Install` registers them again from the new version
   (`update.RefreshDesktopEntry`, the same rewrite in Go, which a test
   compares with the script's) when the user's entry runs the app it
