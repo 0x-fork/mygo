@@ -257,38 +257,14 @@ func TestWindowsResources(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles programs")
 	}
-	repo, _ := filepath.Abs("../..")
-	mod, err := os.ReadFile(filepath.Join(repo, "go.mod"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	goLine := ""
-	for _, line := range strings.Split(string(mod), "\n") {
-		if strings.HasPrefix(line, "go ") {
-			goLine = line
-		}
-	}
 	dir := t.TempDir()
-	for name, content := range map[string]string{
-		"go.mod":  "module example.com/restest\n\n" + goLine + "\n",
-		"main.go": "package main\n\nfunc main() {}\n",
-	} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(dir, "icon.png"), defaultIcon(), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeFiles(t, dir, map[string]string{
+		"go.mod":   "module example.com/restest\n\n" + goDirective(t) + "\n",
+		"main.go":  "package main\n\nfunc main() {}\n",
+		"icon.png": string(defaultIcon()),
+	})
 	c := &Config{root: dir, Name: "Res Test", Version: "1.2.3", Identifier: "com.example.restest", Icon: "icon.png"}
 	c.applyDefaults()
-	utf16le := func(s string) []byte {
-		var b []byte
-		for _, r := range s {
-			b = append(b, byte(r), 0)
-		}
-		return b
-	}
 	for _, arch := range []string{"amd64", "arm64", "386"} {
 		cleanup, err := windowsResources(c, dir, arch)
 		if err != nil {
@@ -303,17 +279,7 @@ func TestWindowsResources(t *testing.T) {
 		if left := sysoFiles(dir); len(left) > 0 {
 			t.Errorf("%s: left %q in the package", arch, left)
 		}
-		f, err := pe.Open(exe)
-		if err != nil {
-			t.Fatal(err)
-		}
-		sec := f.Section(".rsrc")
-		if sec == nil {
-			f.Close()
-			t.Fatalf("%s: no .rsrc section", arch)
-		}
-		data, _ := sec.Data()
-		f.Close()
+		data := peResources(t, exe)
 		for what, want := range map[string][]byte{
 			"version":     utf16le("com.example.restest"),
 			"version key": utf16le("MyGoIdentifier"),
@@ -325,4 +291,50 @@ func TestWindowsResources(t *testing.T) {
 			}
 		}
 	}
+}
+
+// goDirective returns the go line of MyGo's go.mod, for the modules that
+// tests build.
+func goDirective(t *testing.T) string {
+	t.Helper()
+	repo, _ := filepath.Abs("../..")
+	mod, err := os.ReadFile(filepath.Join(repo, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(mod), "\n") {
+		if strings.HasPrefix(line, "go ") {
+			return strings.TrimSpace(line)
+		}
+	}
+	t.Fatal("go.mod has no go line")
+	return ""
+}
+
+// peResources returns the .rsrc section of a Windows executable.
+func peResources(t *testing.T, exe string) []byte {
+	t.Helper()
+	f, err := pe.Open(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	sec := f.Section(".rsrc")
+	if sec == nil {
+		t.Fatalf("%s has no .rsrc section", exe)
+	}
+	data, err := sec.Data()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// utf16le encodes ASCII text as Windows resources store strings.
+func utf16le(s string) []byte {
+	var b []byte
+	for _, r := range s {
+		b = append(b, byte(r), 0)
+	}
+	return b
 }

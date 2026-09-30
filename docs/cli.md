@@ -76,7 +76,9 @@ restarts the app.
 
 The development app is named `<name> Dev`, with the identifier
 `<identifier>.dev`, so that its data and preferences stay apart from the
-installed app's. On macOS it is a real app bundle, in `.mygo/dev`.
+installed app's. On macOS it is a real app bundle, in `.mygo/dev`; on
+Windows its executable carries the icon, manifest and version information
+that `mygo build` embeds.
 
 | Flag | |
 |---|---|

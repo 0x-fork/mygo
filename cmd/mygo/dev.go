@@ -25,8 +25,10 @@ func runDev(args []string) error {
 devCommand from mygo.json (such as a Vite dev server), waits for devUrl to
 answer, then builds a development app, which loads devUrl in place of its
 built frontend, and launches it. Without devUrl, the app serves
-frontendDist from disk. On macOS the development app is a real bundle,
-"<name> Dev" with the identifier "<identifier>.dev", in .mygo/dev.
+frontendDist from disk. The development app is "<name> Dev" with the
+identifier "<identifier>.dev", in .mygo/dev: a real bundle on macOS, and
+on Windows an executable with the icon, manifest and version information
+that mygo build embeds.
 
 Changes to the Go code, mygo.json or mygo.config.ts, the icon or the
 resources rebuild the app, regenerate the TypeScript client and relaunch
@@ -128,6 +130,8 @@ type devSession struct {
 	// Used by one build at a time.
 	iconKey  string
 	icns     []byte
+	mainFor  string // the Main that mainDir is the package directory of
+	mainDir  string
 	launches int
 
 	// Used by the run loop only.
@@ -300,7 +304,15 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 	} else {
 		logf("rebuilding")
 	}
-	if err := buildBinaryContext(ctx, c, bin, nil, "-ldflags", strings.TrimSpace(packageFlags(dc))); err != nil {
+	cleanup := func() {}
+	if runtime.GOOS == "windows" {
+		if cleanup, err = s.windowsResources(c, dc); err != nil {
+			return nil, sum, err
+		}
+	}
+	err = buildBinaryContext(ctx, c, bin, nil, "-ldflags", strings.TrimSpace(packageFlags(dc)))
+	cleanup()
+	if err != nil {
 		return nil, sum, err
 	}
 
@@ -424,6 +436,21 @@ func placeBuild(stage, dir string, res []resource) error {
 		}
 	}
 	return nil
+}
+
+// windowsResources puts the resources of the development app (icon,
+// manifest, version) in the main package for one build, as mygo build does:
+// its windows take the executable's icon. It returns the function that
+// removes them.
+func (s *devSession) windowsResources(c, dc *Config) (cleanup func(), err error) {
+	if c.Main != s.mainFor || s.mainDir == "" {
+		dir, err := packageDir(c)
+		if err != nil {
+			return nil, err
+		}
+		s.mainFor, s.mainDir = c.Main, dir
+	}
+	return windowsResources(dc, s.mainDir, runtime.GOARCH)
 }
 
 // icon returns the app icon as .icns, rendering it only when it changed.

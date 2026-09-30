@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"sync"
 )
 
 // pngToICNS renders the sizes macOS expects into an .icns file with PNG
@@ -43,8 +45,22 @@ func pngToICNS(src []byte) ([]byte, error) {
 // windowsIconSizes are the sizes of Windows icons, in pixels.
 var windowsIconSizes = []int{16, 24, 32, 48, 64, 128, 256}
 
+// renderedIcon holds the images iconImages rendered last, and the hash of
+// their source: mygo dev renders the icon of every Windows build.
+var renderedIcon struct {
+	sync.Mutex
+	sum    [32]byte
+	images [][]byte
+}
+
 // iconImages renders src at each of the windowsIconSizes as PNG.
 func iconImages(src []byte) ([][]byte, error) {
+	sum := sha256.Sum256(src)
+	renderedIcon.Lock()
+	defer renderedIcon.Unlock()
+	if renderedIcon.images != nil && renderedIcon.sum == sum {
+		return renderedIcon.images, nil
+	}
 	img, err := png.Decode(bytes.NewReader(src))
 	if err != nil {
 		return nil, err
@@ -57,6 +73,7 @@ func iconImages(src []byte) ([][]byte, error) {
 		}
 		images[i] = p.Bytes()
 	}
+	renderedIcon.sum, renderedIcon.images = sum, images
 	return images, nil
 }
 

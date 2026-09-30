@@ -275,6 +275,50 @@ func TestHashEntitlements(t *testing.T) {
 	}
 }
 
+// TestDevWindowsResources links the resources of the development app into
+// a Windows build of the package that Main names, and leaves no .syso there.
+func TestDevWindowsResources(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles a program")
+	}
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"go.mod":          "module example.com/devres\n\n" + goDirective(t) + "\n",
+		"cmd/app/main.go": "package main\n\nfunc main() {}\n",
+		"icon.png":        string(defaultIcon()),
+	})
+	c := &Config{root: dir, Name: "Res Test", Identifier: "com.example.restest", Icon: "icon.png", Main: "./cmd/app"}
+	c.applyDefaults()
+	s := &devSession{root: dir}
+	cleanup, err := s.windowsResources(c, devConfig(c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := filepath.Join(dir, "cmd", "app")
+	if files := sysoFiles(pkg); len(files) != 1 {
+		t.Errorf("the package has %q", files)
+	}
+	exe := filepath.Join(t.TempDir(), "app.exe")
+	err = buildBinary(c, exe, []string{"GOOS=windows", "GOARCH=" + runtime.GOARCH})
+	cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left := sysoFiles(pkg); len(left) > 0 {
+		t.Errorf("left %q in the package", left)
+	}
+	data := peResources(t, exe)
+	for what, want := range map[string][]byte{
+		"name":       utf16le("Res Test Dev"),
+		"identifier": utf16le("com.example.restest.dev"),
+		"icon":       []byte("\x89PNG"),
+	} {
+		if !bytes.Contains(data, want) {
+			t.Errorf("the resources lack the development app's %s", what)
+		}
+	}
+}
+
 func TestDevConfig(t *testing.T) {
 	c := &Config{Name: "Todo", Identifier: "dev.mygo.todo"}
 	d := devConfig(c)
