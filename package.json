@@ -6,7 +6,8 @@
     "packages/*",
     "packages/cli/npm/*",
     "plugins/*",
-    "examples/*"
+    "examples/*",
+    "website"
   ],
   "scripts": {
     "build": "bun run --filter './packages/*' --filter './plugins/*' build",

@@ -15,7 +15,7 @@ wire protocol, TypeScript generation, and the checklist for adding features.
 - **Bun is dev tooling only.** The repository is a Bun workspace
   (`packages/bridge`, `packages/runtime`, `packages/cli` with its platform
   packages, the plugins' packages in `plugins/`, and examples with a frontend, which keep it at their root like
-  the project template); Bun also installs and runs the template's scripts
+  the project template, and `website`); Bun also installs and runs the template's scripts
   (Vite, the mygo-cli package). Nothing in an app may need Bun at run time.
 - **Scope:** system webview on macOS, Linux and Windows (WebView2). The
   bundled CEF option is out of scope until asked. Other platforms must keep
@@ -42,6 +42,7 @@ bun run --cwd packages/cli binaries        # cross-compile the CLI into the mygo
 go run ./cmd/mygo generate examples/todo   # regenerate an example's TypeScript client
 go run ./cmd/mygo dev examples/todo        # live reload (dev bundle in examples/todo/.mygo)
 go run ./cmd/mygo build examples/todo      # .app + .dmg in examples/todo/build
+bun run --cwd website dev                  # the website, with docs/ at /docs (see website/README.md)
 ```
 
 Linux GUI tests cross-compile and run in a container with WebKitGTK and Xvfb;

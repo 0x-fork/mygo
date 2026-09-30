@@ -1,0 +1,17 @@
+# MyGo website
+
+The home page and, at `/docs`, the guides of [`../docs`](../docs), built with
+TanStack Start and shadcn/ui. Every page is prerendered at build time, and
+Cloudflare Workers serves the result as static assets, with no Worker code.
+
+```sh
+bun install                    # at the root of the repository
+bun run --cwd website dev      # http://localhost:3000
+bun run --cwd website build    # dist/client
+bun run --cwd website preview  # dist/client, served by wrangler as in production
+bun run --cwd website deploy   # build, then wrangler deploy
+```
+
+Pages of the docs are rendered from the markdown when the site is built:
+the order of the sidebar comes from the lists of `docs/README.md`, and links
+between pages, such as `bindings.md#events`, become links of the site.

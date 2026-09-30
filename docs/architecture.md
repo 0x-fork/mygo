@@ -8,8 +8,10 @@ before changing anything under `internal/`.
 ## Goals and constraints
 
 - **Low overhead.** A hello-world app is a ~7 MB binary with a ~35 MB
-  physical footprint on macOS (mostly AppKit/WebKit) and idles at 0% CPU.
-  Nothing polls: all work is driven by native events or explicit wake-ups.
+  physical footprint on macOS (mostly AppKit/WebKit), ~62 MB with the
+  processes WKWebView runs for its page, GPU and network, and idles at 0%
+  CPU. Nothing polls: all work is driven by native events or explicit
+  wake-ups.
 - **No cgo.** Everything builds with `CGO_ENABLED=0`, so any platform can be
   cross-compiled from any machine. Native APIs are called at run time through
   [purego](https://github.com/ebitengine/purego) (`dlopen` + assembly
@@ -69,7 +71,9 @@ before changing anything under `internal/`.
 │                       websocket; and updater, the update window, Go only
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native, vibrancy
-└── docs/               the user guides, and this architecture guide
+├── docs/               the user guides, and this architecture guide
+└── website/            the website, with these docs: TanStack Start, prerendered
+                        and served by Cloudflare Workers as static assets
 ```
 
 ## Layers
