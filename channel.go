@@ -137,7 +137,6 @@ type channel struct {
 	token  string
 	ctx    context.Context // the call's
 	cancel context.CancelFunc
-	stop   func() bool // stops closing it with ctx
 	// head and ackHead start its values' messages, the latter asking for
 	// an acknowledgment.
 	head, ackHead []byte
@@ -145,6 +144,9 @@ type channel struct {
 	mu     sync.Mutex
 	cond   sync.Cond
 	closed bool
+	// stop stops closing it with ctx. It is set once the page can close the
+	// channel, so a close may find it nil and leave it to newChannel.
+	stop func() bool
 	// Flow control, in bytes: sent, taken by the page as far as it said,
 	// and sent when an acknowledgment was last asked for, by seq.
 	seq, sent, taken, asked int64
@@ -182,7 +184,14 @@ func (w *Window) newChannel(page, ctx context.Context, cancel context.CancelFunc
 		c.closed = true
 	}
 	w.mu.Unlock()
-	c.stop = context.AfterFunc(ctx, func() { c.close(closedByLoss) })
+	stop := context.AfterFunc(ctx, func() { c.close(closedByLoss) })
+	c.mu.Lock()
+	c.stop = stop
+	closed := c.closed
+	c.mu.Unlock()
+	if closed { // the page closed it in the meantime
+		stop()
+	}
 	if early {
 		c.close(closedByPage)
 	}
@@ -264,11 +273,13 @@ func (c *channel) ack(seq int64) {
 }
 
 func (c *channel) close(by int) {
+	c.mu.Lock()
 	if by == closedByPage {
-		// First, so that the call's context is canceled once Send fails.
+		// Under the lock, before the channel closes: the call's context is
+		// canceled once Send fails, and a call that returns as soon as it is
+		// finds the channel closed, not one whose end the page is told.
 		c.cancel()
 	}
-	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
 		return
@@ -279,9 +290,12 @@ func (c *channel) close(by int) {
 		end := append(c.head[:len(c.head)-len(`,"p":`):len(c.head)-len(`,"p":`)], `,"end":true}`...)
 		c.w.enqueue(message{head: end}, false)
 	}
+	stop := c.stop
 	c.mu.Unlock()
 	c.cond.Broadcast()
-	c.stop()
+	if stop != nil {
+		stop()
+	}
 	c.w.mu.Lock()
 	if c.w.channels[c.id] == c {
 		delete(c.w.channels, c.id)

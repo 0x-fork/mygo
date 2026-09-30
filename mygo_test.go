@@ -724,6 +724,36 @@ func TestChannels(t *testing.T) {
 	}
 }
 
+func TestChannelsClosedAtOnce(t *testing.T) {
+	// The page closes each channel right after its call, which may be
+	// making it then: every call is canceled, whenever the close comes, and
+	// the page is told about no end.
+	const n = 200
+	s := &streamer{sent: make(chan error, n), stopped: make(chan error, n)}
+	bindForTest(t, "Stream", s)
+	_, fw := testWindow(t, WindowOptions{})
+	for id := 1; id <= n; id++ {
+		page(fw, fmt.Sprintf(`{"t":"call","id":%d,"k":"tok","m":"Stream.Wait","a":[%d]}`, id, id))
+		page(fw, fmt.Sprintf(`{"t":"chan-close","c":%d,"k":"tok"}`, id))
+	}
+	for range n {
+		select {
+		case <-s.stopped:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a call whose channel the page closed was not canceled")
+		}
+	}
+	// A channel ends before the reply of its call.
+	for id := 1; id <= n; id++ {
+		received(t, fw, func(m map[string]any) bool { return m["t"] == "reply" && m["id"] == float64(id) })
+	}
+	for _, m := range pageMessages(t, fw) {
+		if m["t"] == "chan" && m["end"] == true {
+			t.Fatalf("the page was told about the end of channel %v, which it closed", m["c"])
+		}
+	}
+}
+
 type badStreams struct{}
 
 func (badStreams) Result() *Channel[int]            { return nil }
