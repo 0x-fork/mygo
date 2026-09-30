@@ -1483,6 +1483,12 @@ func TestHiddenTitleBar(t *testing.T) {
 		t.Errorf("a window with its title bar: room = %q", r)
 	}
 
+	// Without any non-client area at its top, a window that is not maximized
+	// gets no snap layouts over its maximize button on Windows 11.
+	if px, ok := topNonClient(w); ok && px != 1 {
+		t.Errorf("non-client area at the top = %d px, want 1", px)
+	}
+
 	if names, ok := titleButtons(w); ok {
 		if runtime.GOOS == "windows" && !slices.Equal(names, []string{"minimize", "maximize", "close"}) {
 			t.Errorf("buttons = %q, want minimize, maximize and close", names)

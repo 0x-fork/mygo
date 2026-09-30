@@ -163,3 +163,13 @@ func captionButtonPoint(c *captionBar, i int) uintptr {
 	x, y := r.Left+int32(i)*bw+bw/2, r.Top+(r.Bottom-r.Top)/2
 	return uintptr(uint16(x)) | uintptr(uint16(y))<<16
 }
+
+// TestTopNonClient returns how many pixels at the top of a window are not
+// its client area.
+func TestTopNonClient(hwnd uintptr) int32 {
+	var r rect
+	procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
+	var origin point
+	procClientToScreen.Call(hwnd, uintptr(unsafe.Pointer(&origin)))
+	return origin.Y - r.Top
+}

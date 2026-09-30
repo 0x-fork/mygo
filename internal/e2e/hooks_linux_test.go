@@ -136,3 +136,5 @@ func pressTitleButton(w *mygo.Window, name string) (ok bool) {
 	mygo.RunOnMain(func() { ok = linux.TestPressTitleButton(w.NativeHandle(), name) })
 	return ok
 }
+
+func topNonClient(*mygo.Window) (int32, bool) { return 0, false }

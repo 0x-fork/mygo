@@ -352,6 +352,10 @@ func (w *window) captionless() bool { return w.frameless || w.hiddenTitleBar }
 // 10 and later draw invisible outside the window, so they still resize.
 // Maximized windows would overflow the screen by their borders: fit the
 // work area.
+//
+// A hidden title bar keeps a pixel of it, which the window's border covers:
+// without any non-client area at the top, Windows 11 opens no snap layouts
+// over the maximize button of a window that is not maximized.
 func (w *window) frameCalcSize(wp, lp uintptr) uintptr {
 	params := (*ncCalcSizeParams)(native(lp))
 	if w.IsMaximized() {
@@ -362,6 +366,9 @@ func (w *window) frameCalcSize(wp, lp uintptr) uintptr {
 		top := params.Rgrc[0].Top
 		procDefWindowProcW.Call(w.hwnd, wmNCCalcSize, wp, lp)
 		params.Rgrc[0].Top = top
+		if w.hiddenTitleBar {
+			params.Rgrc[0].Top++
+		}
 	}
 	return 0
 }

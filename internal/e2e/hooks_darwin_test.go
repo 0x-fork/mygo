@@ -93,3 +93,5 @@ func enterMenuBar(*mygo.Window, string) (bool, bool, bool)  { return false, fals
 // The traffic lights are AppKit's own.
 func titleButtons(*mygo.Window) ([]string, bool) { return nil, false }
 func pressTitleButton(*mygo.Window, string) bool { return false }
+
+func topNonClient(*mygo.Window) (int32, bool) { return 0, false }

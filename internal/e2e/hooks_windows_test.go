@@ -105,3 +105,10 @@ func pressTitleButton(w *mygo.Window, name string) (ok bool) {
 	mygo.RunOnMain(func() { ok = win.TestPressCaptionButton(w.NativeHandle(), name) })
 	return ok
 }
+
+// topNonClient returns how many pixels at the top of a window are not its
+// page's.
+func topNonClient(w *mygo.Window) (px int32, supported bool) {
+	mygo.RunOnMain(func() { px = win.TestTopNonClient(w.NativeHandle()) })
+	return px, true
+}
