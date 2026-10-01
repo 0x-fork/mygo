@@ -36,3 +36,6 @@ const items = await res.json();
   cannot hold.
 - URLs that are not http or https (the app's own pages, `data:`, `blob:`) go
   to the webview's `fetch`.
+
+[The documentation](https://github.com/egoist/mygo/blob/main/docs/plugins/fetch.md)
+covers streaming, errors and the options of the Go side.

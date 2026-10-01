@@ -33,7 +33,10 @@ export interface RenderedMarkdown {
 }
 
 export interface LinkOptions {
-  /** The directory of the docs: `x.md` there is `/docs/x`, README.md is `/docs`. */
+  /**
+   * The directory of the docs: `x.md` there is `/docs/x`, `plugins/x.md`
+   * is `/docs/plugins/x`, README.md is `/docs`.
+   */
   docsDir: string
   /** The repository: links to its other files go to GitHub. */
   repoDir: string
@@ -51,9 +54,17 @@ function getHighlighter() {
   return highlighter
 }
 
+/** The slug of a page by its path in the docs: "plugins/fetch.md" → "plugins/fetch", "README.md" → "". */
 export function slugOf(file: string) {
-  const name = path.basename(file, ".md")
+  const name = file.replace(/\.md$/, "").split(path.sep).join("/")
   return name === "README" ? "" : name
+}
+
+/** The slug of the page at an absolute path, or undefined outside the docs. */
+function docSlug(abs: string, docsDir: string) {
+  const rel = path.relative(docsDir, abs)
+  if (!abs.endsWith(".md") || rel.startsWith("..") || path.isAbsolute(rel)) return undefined
+  return slugOf(rel)
 }
 
 export async function renderMarkdown(source: string, file: string, links: LinkOptions): Promise<RenderedMarkdown> {
@@ -120,7 +131,7 @@ function transform(tree: Root, out: RenderedMarkdown, shiki: Highlighter, file: 
     }
   })
 
-  if (slugOf(file) === "") cardLists(tree)
+  cardLists(tree)
 }
 
 function headingDepth(node: Element) {
@@ -141,8 +152,8 @@ function rewriteLink(node: Element, href: string, file: string, links: LinkOptio
   const [target = "", hash] = href.split("#", 2)
   const abs = path.resolve(path.dirname(file), decodeURIComponent(target))
   const suffix = hash ? `#${hash}` : ""
-  if (path.dirname(abs) === links.docsDir && abs.endsWith(".md")) {
-    const slug = slugOf(abs)
+  const slug = docSlug(abs, links.docsDir)
+  if (slug !== undefined) {
     node.properties.href = (slug ? `/docs/${slug}` : "/docs") + suffix
     return
   }
@@ -209,7 +220,7 @@ export async function highlightCode(code: string, lang: string) {
   return unified().use(rehypeStringify).stringify({ type: "root", children: [pre] })
 }
 
-/** README's lists of pages become cards: `- [Title](page.md): what it covers`. */
+/** Lists of pages become cards: `- [Title](page.md): what it covers`. */
 function cardLists(tree: Root) {
   tree.children = tree.children.map((node) => {
     if (node.type !== "element" || node.tagName !== "ul") return node
@@ -228,7 +239,10 @@ function card(li: Element): Element | undefined {
   let title: ElementContent[]
   let description: ElementContent[]
   if (head?.type === "element" && head.tagName === "a") {
+    // A page of the docs, then what it covers.
     href = head.properties.href
+    if (typeof href !== "string" || !href.startsWith("/docs")) return
+    if (rest[0]?.type !== "text" || !rest[0].value.startsWith(":")) return
     title = head.children
     description = rest
   } else if (head?.type === "text" && head.value.includes(": ")) {

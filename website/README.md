@@ -13,5 +13,7 @@ bun run --cwd website deploy   # build, then wrangler deploy
 ```
 
 Pages of the docs are rendered from the markdown when the site is built:
-the order of the sidebar comes from the lists of `docs/README.md`, and links
-between pages, such as `bindings.md#events`, become links of the site.
+the order of the sidebar comes from the lists of `docs/README.md`, pages in
+directories keep their path (`plugins/fetch.md` is `/docs/plugins/fetch`),
+and links between pages, such as `bindings.md#events`, become links of the
+site. Lists of pages, `- [Title](page.md): what it covers`, become cards.

@@ -57,7 +57,7 @@ function Home() {
         </p>
         <div className="mt-10 flex flex-wrap items-center gap-3">
           <InstallCommand />
-          <Link to="/docs/$slug" params={{ slug: "getting-started" }} className={buttonVariants({ size: "lg", className: "h-11 px-5" })}>
+          <Link to="/docs/$" params={{ _splat: "getting-started" }} className={buttonVariants({ size: "lg", className: "h-11 px-5" })}>
             Get started <ArrowRightIcon />
           </Link>
         </div>
@@ -92,7 +92,7 @@ function Home() {
       <ul className="grid gap-px border-t bg-border sm:grid-cols-2">
         {features.map((feature) => (
           <li key={feature.title} className="bg-background">
-            <Link to="/docs/$slug" params={{ slug: feature.slug }} className="group flex h-full flex-col px-4 py-8 transition-colors hover:bg-code sm:px-10">
+            <Link to="/docs/$" params={{ _splat: feature.slug }} className="group flex h-full flex-col px-4 py-8 transition-colors hover:bg-code sm:px-10">
               <h2 className="flex items-center justify-between font-semibold tracking-tight">
                 {feature.title}
                 <ArrowRightIcon className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />

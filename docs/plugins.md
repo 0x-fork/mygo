@@ -6,15 +6,17 @@ package whose functions call them. The app uses the Go half with
 
 ## Official plugins
 
-| Plugin | Go | npm | Gives pages |
-|---|---|---|---|
-| fetch | `github.com/egoist/mygo/plugins/fetch` | `@mygo-plugins/fetch` | a `fetch` that makes HTTP requests from Go: no CORS, any header, streamed bodies, cancellation with `AbortSignal` |
-| websocket | `github.com/egoist/mygo/plugins/websocket` | `@mygo-plugins/websocket` | a `WebSocket` whose connections Go makes, with headers on the handshake |
+- [Fetch](plugins/fetch.md): a `fetch` that makes HTTP requests from Go,
+  with no CORS, any header, streamed bodies and cancellation.
+- [WebSocket](plugins/websocket.md): a `WebSocket` whose connections Go
+  makes, with headers on the handshake.
+- [Updater](plugins/updater.md): an update window in the manner of
+  Sparkle, which checks for updates and offers to install them. It is all
+  Go.
 
-The updater plugin, `github.com/egoist/mygo/plugins/updater`, is all Go:
-it gives the app an update window in the manner of Sparkle, which checks
-for updates in the background and offers to install them. See
-[the update window](updates.md#the-update-window).
+## Using plugins
+
+`mygo.Use` takes the plugins of the app, before `App.Run`:
 
 ```go
 import (
@@ -28,6 +30,8 @@ func main() {
 	// ...
 }
 ```
+
+and the frontend imports their packages:
 
 ```sh
 bun add @mygo-plugins/fetch @mygo-plugins/websocket
@@ -45,11 +49,10 @@ const ws = new WebSocket("wss://api.example.com/live", [], {
 });
 ```
 
-`fetch.Plugin` and `websocket.Plugin` use the default options; `fetch.New`
-and `websocket.New` take an `http.Client` (for proxies, cookies, TLS
-settings) and an `Allow` function that decides which requests pages may
-make. The packages' READMEs, in the repository's `plugins` directory, list
-the details, and `go doc` documents the options.
+The `Plugin` variable of an official plugin has the default options, and
+its `New` function takes options, such as the `http.Client` of the fetch
+and WebSocket plugins and an `Allow` function that decides which requests
+pages may make. Each plugin's page lists them.
 
 Using a plugin's JavaScript package without its Go half fails with an error
 that says to call `mygo.Use`.

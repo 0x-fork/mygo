@@ -36,8 +36,8 @@ document.body.textContent = await Greeter.greet("Ada");
   develop and build an app.
 - [Calling Go from the frontend](bindings.md): bound services, channels,
   typed events and the generated TypeScript client.
-- [Plugins](plugins.md): the official fetch and WebSocket plugins, which
-  run in Go, and writing your own.
+- [Plugins](plugins.md): features that come in a Go package and an npm
+  package, such as the official plugins, and writing your own.
 - [The frontend](frontend.md): how pages load during development and in
   builds, the `mygo-runtime` package, custom protocols, custom title bars
   and dropped files.
@@ -56,6 +56,15 @@ document.body.textContent = await Greeter.greet("Ada");
 - [Auto-updates](updates.md): signed updates from GitHub releases, an S3
   bucket or your own server, delta updates, and an update window in the
   manner of Sparkle.
+
+## Official plugins
+
+- [Fetch](plugins/fetch.md): a `fetch` that makes HTTP requests from Go,
+  with no CORS, any header, streamed bodies and cancellation.
+- [WebSocket](plugins/websocket.md): a `WebSocket` whose connections Go
+  makes, with headers on the handshake.
+- [Updater](plugins/updater.md): an update window in the manner of
+  Sparkle, which checks for updates and offers to install them.
 
 ## Reference
 

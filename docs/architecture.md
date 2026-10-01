@@ -71,7 +71,8 @@ before changing anything under `internal/`.
 │                       websocket; and updater, the update window, Go only
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native, vibrancy
-├── docs/               the user guides, and this architecture guide
+├── docs/               the user guides, the official plugins' pages
+│                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
                         and served by Cloudflare Workers as static assets
 ```

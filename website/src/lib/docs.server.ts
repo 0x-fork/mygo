@@ -17,7 +17,7 @@ const repoDir = path.resolve(process.cwd(), "..")
 const docsDir = path.join(repoDir, "docs")
 
 function fileOf(slug: string) {
-  if (slug !== "" && !/^[a-z0-9-]+$/.test(slug)) return undefined
+  if (slug !== "" && !/^[a-z0-9-]+(\/[a-z0-9-]+)*$/.test(slug)) return undefined
   return path.join(docsDir, slug ? `${slug}.md` : "README.md")
 }
 
@@ -51,7 +51,7 @@ export async function loadNav(): Promise<NavSection[]> {
   }
 
   const listed = new Set(sections.flatMap((s) => s.items.map((i) => i.slug)))
-  const files = (await fs.readdir(docsDir)).filter((f) => f.endsWith(".md")).sort()
+  const files = (await fs.readdir(docsDir, { recursive: true })).filter((f) => f.endsWith(".md")).sort()
   const rest: NavItem[] = []
   for (const file of files) {
     const slug = slugOf(file)

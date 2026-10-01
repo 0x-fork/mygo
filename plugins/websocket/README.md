@@ -31,3 +31,6 @@ written yet, and received messages wait in Go while the page is behind, so a
 fast server cannot fill the page's memory. Connections close (1001, going
 away) when their page navigates away or its window closes. No extensions
 (such as permessage-deflate) are negotiated.
+
+[The documentation](https://github.com/egoist/mygo/blob/main/docs/plugins/websocket.md)
+covers closing, failures and the options of the Go side.

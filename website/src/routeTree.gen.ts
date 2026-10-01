@@ -13,7 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as R404RouteImport } from './routes/404'
 import { Route as DocsRouteRouteImport } from './routes/docs/route'
 import { Route as DocsIndexRouteImport } from './routes/docs/index'
-import { Route as DocsSlugRouteImport } from './routes/docs/$slug'
+import { Route as DocsSplatRouteImport } from './routes/docs/$'
 import { Route as DocsSearchDotjsonRouteImport } from './routes/docs/search[.]json'
 
 const IndexRoute = IndexRouteImport.update({
@@ -36,9 +36,9 @@ const DocsIndexRoute = DocsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => DocsRouteRoute,
 } as any)
-const DocsSlugRoute = DocsSlugRouteImport.update({
-  id: '/$slug',
-  path: '/$slug',
+const DocsSplatRoute = DocsSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
   getParentRoute: () => DocsRouteRoute,
 } as any)
 const DocsSearchDotjsonRoute = DocsSearchDotjsonRouteImport.update({
@@ -51,14 +51,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/docs': typeof DocsRouteRouteWithChildren
   '/404': typeof R404Route
-  '/docs/$slug': typeof DocsSlugRoute
+  '/docs/$': typeof DocsSplatRoute
   '/docs/search.json': typeof DocsSearchDotjsonRoute
   '/docs/': typeof DocsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/404': typeof R404Route
-  '/docs/$slug': typeof DocsSlugRoute
+  '/docs/$': typeof DocsSplatRoute
   '/docs/search.json': typeof DocsSearchDotjsonRoute
   '/docs': typeof DocsIndexRoute
 }
@@ -67,22 +67,21 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/docs': typeof DocsRouteRouteWithChildren
   '/404': typeof R404Route
-  '/docs/$slug': typeof DocsSlugRoute
+  '/docs/$': typeof DocsSplatRoute
   '/docs/search.json': typeof DocsSearchDotjsonRoute
   '/docs/': typeof DocsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    '/' | '/docs' | '/404' | '/docs/$slug' | '/docs/search.json' | '/docs/'
+  fullPaths: '/' | '/docs' | '/404' | '/docs/$' | '/docs/search.json' | '/docs/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/404' | '/docs/$slug' | '/docs/search.json' | '/docs'
+  to: '/' | '/404' | '/docs/$' | '/docs/search.json' | '/docs'
   id:
     | '__root__'
     | '/'
     | '/docs'
     | '/404'
-    | '/docs/$slug'
+    | '/docs/$'
     | '/docs/search.json'
     | '/docs/'
   fileRoutesById: FileRoutesById
@@ -123,11 +122,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsIndexRouteImport
       parentRoute: typeof DocsRouteRoute
     }
-    '/docs/$slug': {
-      id: '/docs/$slug'
-      path: '/$slug'
-      fullPath: '/docs/$slug'
-      preLoaderRoute: typeof DocsSlugRouteImport
+    '/docs/$': {
+      id: '/docs/$'
+      path: '/$'
+      fullPath: '/docs/$'
+      preLoaderRoute: typeof DocsSplatRouteImport
       parentRoute: typeof DocsRouteRoute
     }
     '/docs/search.json': {
@@ -141,13 +140,13 @@ declare module '@tanstack/react-router' {
 }
 
 interface DocsRouteRouteChildren {
-  DocsSlugRoute: typeof DocsSlugRoute
+  DocsSplatRoute: typeof DocsSplatRoute
   DocsSearchDotjsonRoute: typeof DocsSearchDotjsonRoute
   DocsIndexRoute: typeof DocsIndexRoute
 }
 
 const DocsRouteRouteChildren: DocsRouteRouteChildren = {
-  DocsSlugRoute: DocsSlugRoute,
+  DocsSplatRoute: DocsSplatRoute,
   DocsSearchDotjsonRoute: DocsSearchDotjsonRoute,
   DocsIndexRoute: DocsIndexRoute,
 }

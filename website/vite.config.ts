@@ -1,17 +1,19 @@
 import fs from "node:fs"
+import path from "node:path"
 import tailwindcss from "@tailwindcss/vite"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import viteReact from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
-const repo = (path: string) => new URL(`../${path}`, import.meta.url)
+const repo = (file: string) => new URL(`../${file}`, import.meta.url)
 
-// The pages of the repository's docs. /docs itself, like every route without
-// parameters, is found without being listed.
+// The pages of the repository's docs, plugins/fetch.md at /docs/plugins/fetch.
+// /docs itself, like every route without parameters, is found without being
+// listed.
 const docs = fs
-  .readdirSync(repo("docs"))
+  .readdirSync(repo("docs"), { recursive: true, encoding: "utf8" })
   .filter((file) => file.endsWith(".md") && file !== "README.md")
-  .map((file) => `/docs/${file.slice(0, -3)}`)
+  .map((file) => `/docs/${file.slice(0, -3).split(path.sep).join("/")}`)
 
 const version = /const Version = "([^"]+)"/.exec(fs.readFileSync(repo("mygo.go"), "utf8"))?.[1]
 const goVersion = /^go (\S+)/m.exec(fs.readFileSync(repo("go.mod"), "utf8"))?.[1]
