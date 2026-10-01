@@ -2,9 +2,10 @@
 
 A GitHub Actions workflow can build the apps of every platform when you
 push a tag, sign them, and upload them with their [updates](updates.md) to
-a draft release, which you publish. MyGo needs no cgo, so one Ubuntu runner
-compiles and packages the Windows and Linux apps. A macOS runner makes the
-macOS app, because signing, notarization and disk images need macOS.
+a draft release, which you publish. Each platform builds on a runner of
+its own, at the same time. MyGo needs no cgo, so Ubuntu runners make the
+Windows apps as well as the Linux ones; the macOS app needs a macOS runner,
+because signing, notarization and disk images need macOS.
 
 ## The workflow
 
@@ -22,7 +23,7 @@ permissions:
   contents: write # the draft release, and the uploads to it
 
 jobs:
-  release:
+  draft-release:
     runs-on: ubuntu-latest
     steps:
       - name: Create the draft release
@@ -34,9 +35,17 @@ jobs:
               --draft --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
           fi
 
-  windows-linux:
-    needs: release
-    runs-on: ubuntu-latest
+  build:
+    needs: draft-release
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS, os: macos-latest, platform: darwin/universal }
+          - { name: Windows, os: ubuntu-latest, platform: "windows/amd64,windows/arm64" }
+          - { name: Linux, os: ubuntu-latest, platform: "linux/amd64,linux/arm64" }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -45,28 +54,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - name: Install NSIS, for the Windows installers
+        if: matrix.name == 'Windows' && runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y nsis
       - name: Build and upload
         env:
           GH_TOKEN: ${{ github.token }}
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
-        run: bun run build -- -platform windows/amd64,windows/arm64,linux/amd64,linux/arm64 -upload
-
-  macos:
-    needs: release
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Build and upload
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
-        run: bun run build -- -platform darwin/universal -upload
+        run: bun run build -- -platform "${{ matrix.platform }}" -upload
 ```
 
 Add the secret key that signs updates, the contents of `mygo-update.key`
@@ -83,11 +77,12 @@ git tag v1.2.0
 git push origin v1.2.0
 ```
 
-The release job creates the draft release `v1.2.0`. Then, at the same
-time, the Ubuntu job uploads the Windows installers, the Linux archives,
-Debian packages and install script, and their updates to it, and the macOS
-job the disk image and its updates. Review the draft and publish it: apps
-then update to it.
+The draft release job creates the draft release `v1.2.0`. Then the build
+job runs once for each row of its matrix, at the same time, and each
+uploads to the draft: the macOS disk image, the Windows installers, and
+the Linux archives, Debian packages and install script, each with their
+updates.
+Review the draft and publish it: apps then update to it.
 
 - `mygo build` uploads to the release of the configuration's version, with
   the `tagPrefix` of `updates` (`v` by default), whichever tag started the
@@ -95,6 +90,11 @@ then update to it.
 - The draft exists before the builds start, so they upload to it: without
   it, each `mygo build -upload` would create a draft of its own. Running
   the workflow again keeps the draft, and replaces its files.
+- With `fail-fast: false`, the other platforms finish when one fails. "Re-run
+  failed jobs" builds that one again, and it uploads to the same draft.
+- A row's `platform` may list several targets, which `mygo build` builds
+  one after the other. A row for each target, such as `windows/amd64` and
+  `windows/arm64`, builds them at the same time, on more runners.
 - The release page gets the notes that GitHub generates from the pull
   requests since the last release, which you can edit in the draft. The
   update window shows the version's section of `CHANGELOG.md`, which the
@@ -111,7 +111,7 @@ The next sections sign them.
 
 ## Signing and notarizing macOS apps
 
-The macOS job needs your Developer ID certificate and the credentials of
+The macOS row needs your Developer ID certificate and the credentials of
 Apple's notary service (see [signing and notarization](distribution.md#signing-and-notarization)).
 Export the "Developer ID Application" certificate, with its private key,
 from Keychain Access as a `.p12` file with a password, and add the
@@ -127,11 +127,12 @@ gh secret set APPLE_APP_PASSWORD           # an app-specific password of the App
 
 Create the app-specific password at
 [account.apple.com](https://account.apple.com), under Sign-In and Security.
-Then, before "Build and upload" in the macOS job, put them in a keychain of
-the runner:
+Then, before "Build and upload", put them in a keychain of the macOS
+runner:
 
 ```yaml
       - name: Import the certificate and the notary credentials
+        if: runner.os == 'macOS'
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -186,23 +187,26 @@ base64 -i code-signing.pfx | gh secret set WINDOWS_CERTIFICATE
 gh secret set WINDOWS_CERTIFICATE_PASSWORD
 ```
 
-In the Windows and Linux job, install `osslsigncode` with NSIS, write the
+For the Windows row, install `osslsigncode` with NSIS, write the
 certificate to a file, and give its path and password to the build:
 
 ```yaml
       - name: Install NSIS and osslsigncode
+        if: matrix.name == 'Windows' && runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y nsis osslsigncode
       - name: Write the certificate
+        if: matrix.name == 'Windows'
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-        run: echo "$WINDOWS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/code-signing.pfx"
+        run: |
+          echo "$WINDOWS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/code-signing.pfx"
+          echo "WINDOWS_CERTIFICATE_FILE=$RUNNER_TEMP/code-signing.pfx" >> "$GITHUB_ENV"
       - name: Build and upload
         env:
           GH_TOKEN: ${{ github.token }}
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
-          WINDOWS_CERTIFICATE_FILE: ${{ runner.temp }}/code-signing.pfx
           MYGO_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: bun run build -- -platform windows/amd64,windows/arm64,linux/amd64,linux/arm64 -upload
+        run: bun run build -- -platform "${{ matrix.platform }}" -upload
 ```
 
 ```ts
@@ -211,7 +215,8 @@ export default defineConfig({
 });
 ```
 
-Builds on your machine, without the variable, are not signed.
+The first step replaces the one that installs NSIS. Builds on your
+machine, without the variable, are not signed.
 
 ### Signing on Windows
 
@@ -219,30 +224,16 @@ Certificates whose keys stay in a hardware token or a cloud service, such
 as Azure Trusted Signing, sign with `signCommand` (see
 [code signing](distribution.md#code-signing)), which often needs
 `signtool`. Build the Windows apps on a Windows runner then, which has
-`signtool`, and where `mygo build` downloads NSIS itself:
+`signtool`, and where `mygo build` downloads NSIS itself; the step that
+installs NSIS is for Linux runners only:
 
 ```yaml
-  windows:
-    needs: release
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      # Sign in to the signing service here, as its documentation says.
-      - name: Build and upload
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
-        run: bun run build -- -platform windows/amd64,windows/arm64 -upload
+          - { name: Windows, os: windows-latest, platform: "windows/amd64,windows/arm64" }
 ```
 
-The Ubuntu job then builds `linux/amd64,linux/arm64` only, and the three
-jobs run at the same time. A job that [publishes](#publishing-the-release)
-the release needs all three.
+Sign in to the signing service in a step for the Windows row, before
+"Build and upload", as its documentation says. Steps run in PowerShell on
+Windows runners unless they set `shell: bash`.
 
 ## Checking the version
 
@@ -258,8 +249,8 @@ export default defineConfig({
 });
 ```
 
-and check it in the release job, before it creates the draft, so that a
-wrong tag builds nothing:
+and check it in the draft release job, before it creates the draft, so
+that a wrong tag builds nothing:
 
 ```yaml
       - uses: actions/checkout@v7
@@ -274,7 +265,7 @@ publish it once every job uploaded:
 
 ```yaml
   publish:
-    needs: [windows-linux, macos]
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - env:
@@ -301,9 +292,10 @@ bucket's credentials in place of `GH_TOKEN`:
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
 ```
 
-There is no draft release: leave out the release job, and the `needs` of
-the others. The update of each platform is out as soon as its job uploaded
-its manifest, and the workflow needs no `contents: write` permission.
+There is no draft release: leave out the draft release job, and the
+`needs` of the build job. The update of each platform is out as soon as
+its job uploaded its manifest, and the workflow needs no `contents: write`
+permission.
 
 ## Without a release
 
@@ -312,15 +304,15 @@ keep the installers as artifacts of the run, which works on every push too,
 to check that the apps build:
 
 ```yaml
-      - run: bun run build -- -platform windows/amd64,linux/amd64
+      - run: bun run build -- -platform "${{ matrix.platform }}"
       - uses: actions/upload-artifact@v7
         with:
-          name: windows-linux
+          name: ${{ matrix.name }}
           path: |
+            build/*/*.dmg
             build/*/*Setup*.exe
             build/*/*.deb
             build/*/*.tar.gz
 ```
 
-`build` is the `out` of new projects' configuration; macOS jobs upload
-`build/*/*.dmg`.
+`build` is the `out` of new projects' configuration.
