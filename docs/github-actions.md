@@ -43,7 +43,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: macOS, os: macos-latest, platform: darwin/universal }
+          - { name: macOS, os: macos-latest, platform: "darwin/arm64,darwin/amd64" }
           - { name: Windows, os: ubuntu-latest, platform: "windows/amd64,windows/arm64" }
           - { name: Linux, os: ubuntu-latest, platform: "linux/amd64,linux/arm64" }
     steps:
@@ -79,7 +79,7 @@ git push origin v1.2.0
 
 The draft release job creates the draft release `v1.2.0`. Then the build
 job runs once for each row of its matrix, at the same time, and each
-uploads to the draft: the macOS disk image, the Windows installers, and
+uploads to the draft: the macOS disk images, the Windows installers, and
 the Linux archives, Debian packages and install script, each with their
 updates.
 Review the draft and publish it: apps then update to it.
