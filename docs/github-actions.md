@@ -19,10 +19,23 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write # the release that mygo build -upload creates
+  contents: write # the draft release, and the uploads to it
 
 jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --draft --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+
   windows-linux:
+    needs: release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -40,8 +53,7 @@ jobs:
         run: bun run build -- -platform windows/amd64,windows/arm64,linux/amd64,linux/arm64 -upload
 
   macos:
-    # The first job created the draft release, which this one uploads to.
-    needs: windows-linux
+    needs: release
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -71,19 +83,22 @@ git tag v1.2.0
 git push origin v1.2.0
 ```
 
-The first job creates the draft release `v1.2.0`, with the version's
-section of `CHANGELOG.md` as its notes, and uploads the Windows
-installers, the Linux archives, Debian packages and install script, and
-their updates. The second adds the macOS disk image and its updates.
-Review the draft and publish it: apps then update to it.
+The release job creates the draft release `v1.2.0`. Then, at the same
+time, the Ubuntu job uploads the Windows installers, the Linux archives,
+Debian packages and install script, and their updates to it, and the macOS
+job the disk image and its updates. Review the draft and publish it: apps
+then update to it.
 
 - `mygo build` uploads to the release of the configuration's version, with
   the `tagPrefix` of `updates` (`v` by default), whichever tag started the
   workflow. A step can check that they agree, as [below](#checking-the-version).
-- The macOS job waits for the other: jobs that started together would each
-  create a draft release of the version. Once the draft exists, more jobs,
-  such as one [on Windows](#signing-on-windows), can upload to it at the
-  same time; they need only the first.
+- The draft exists before the builds start, so they upload to it: without
+  it, each `mygo build -upload` would create a draft of its own. Running
+  the workflow again keeps the draft, and replaces its files.
+- The release page gets the notes that GitHub generates from the pull
+  requests since the last release, which you can edit in the draft. The
+  update window shows the version's section of `CHANGELOG.md`, which the
+  update manifests carry.
 - The `GITHUB_TOKEN` of the workflow lets `gh`, which the runners have,
   create the release and upload to it. With a `tagPrefix`, it also lets
   `mygo build` find the earlier releases that
@@ -208,7 +223,7 @@ as Azure Trusted Signing, sign with `signCommand` (see
 
 ```yaml
   windows:
-    needs: linux
+    needs: release
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -225,9 +240,9 @@ as Azure Trusted Signing, sign with `signCommand` (see
         run: bun run build -- -platform windows/amd64,windows/arm64 -upload
 ```
 
-The first job, renamed `linux`, then builds `linux/amd64,linux/arm64`
-only, and the macOS job needs it too: the Windows and macOS jobs run at the
-same time.
+The Ubuntu job then builds `linux/amd64,linux/arm64` only, and the three
+jobs run at the same time. A job that [publishes](#publishing-the-release)
+the release needs all three.
 
 ## Checking the version
 
@@ -243,9 +258,11 @@ export default defineConfig({
 });
 ```
 
-and check it as the first step after checkout in the first job:
+and check it in the release job, before it creates the draft, so that a
+wrong tag builds nothing:
 
 ```yaml
+      - uses: actions/checkout@v7
       - name: Check the version
         run: test "$GITHUB_REF_NAME" = "v$(jq -r .version package.json)"
 ```
@@ -257,7 +274,7 @@ publish it once every job uploaded:
 
 ```yaml
   publish:
-    needs: macos
+    needs: [windows-linux, macos]
     runs-on: ubuntu-latest
     steps:
       - env:
@@ -267,8 +284,9 @@ publish it once every job uploaded:
 
 With a `tagPrefix` such as `desktop-v`, trigger the workflow on its tags
 (`tags: ["desktop-v*"]`), check them against `desktop-v` and the version,
-and publish with `--latest=false`, so the repository's latest release stays
-the other releases' (see [build and publish](updates.md#build-and-publish)).
+and create and publish the release with `--latest=false`, so the
+repository's latest release stays the other releases' (see
+[build and publish](updates.md#build-and-publish)).
 
 ## Publishing to S3
 
@@ -283,9 +301,9 @@ bucket's credentials in place of `GH_TOKEN`:
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
 ```
 
-There is no draft: the jobs need not wait for each other, and the update of
-each platform is out as soon as its job uploaded its manifest. The workflow
-needs no `contents: write` permission then.
+There is no draft release: leave out the release job, and the `needs` of
+the others. The update of each platform is out as soon as its job uploaded
+its manifest, and the workflow needs no `contents: write` permission.
 
 ## Without a release
 
