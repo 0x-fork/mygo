@@ -41,6 +41,9 @@ type Backend struct {
 	// wmName names its window manager.
 	onX11  bool
 	wmName func(screen ptr) ptr
+	// compositorDecorates reports a Wayland compositor that decorates
+	// windows itself, whose title bar shows no buttons of GTK's (titlebar.go).
+	compositorDecorates bool
 
 	// What the launcher entry shows (Window.SetProgressBar, badges).
 	launcher struct {
@@ -96,6 +99,13 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	var x11Type func() uintptr
 	b.onX11 = bind(libGDK, &x11Type, "gdk_x11_display_get_type") && gTypeCheckInstanceIsA(gdkDisplayGetDefault(), x11Type()) &&
 		bind(libGDK, &b.wmName, "gdk_x11_screen_get_window_manager_name")
+	// GTK has the compositor's default decoration mode once the display is
+	// open, and decides with it which windows it decorates.
+	var waylandType func() uintptr
+	var prefersSSD func(display ptr) bool
+	b.compositorDecorates = bind(libGDK, &waylandType, "gdk_wayland_display_get_type") &&
+		gTypeCheckInstanceIsA(gdkDisplayGetDefault(), waylandType()) &&
+		bind(libGDK, &prefersSSD, "gdk_wayland_display_prefers_ssd") && prefersSSD(gdkDisplayGetDefault())
 	initCallbacks()
 	return nil
 }

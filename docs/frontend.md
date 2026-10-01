@@ -193,8 +193,10 @@ the window:
 - On Linux, GTK's own title buttons, where the desktop's button layout puts
   them, centered in `TitleBarHeight` (by default the height of the
   desktop's header bars). The layout decides which buttons show, possibly
-  none, as tiling window managers are often set up. The outer pixels of
-  the page resize the window, as a frameless one's.
+  none, as tiling window managers are often set up. A Wayland compositor
+  that decorates windows itself, as KWin, Hyprland and Sway do, has none:
+  its own title bar holds the buttons, and a tiling one shows none. The
+  outer pixels of the page resize the window, as a frameless one's.
 
 ```go
 mygo.NewWindow(mygo.WindowOptions{

@@ -18,6 +18,14 @@ import (
 // header bars do, and only those the layout names show: GNOME, KDE and Xfce
 // keep it in step with their window managers, and users of tiling window
 // managers empty it to have none.
+//
+// A Wayland compositor that decorates windows itself gets no buttons at all.
+// KWin, Hyprland and Sway say so with the default mode of
+// org_kde_kwin_server_decoration_manager, and GTK then asks them to decorate
+// a window without decorations too. The compositor's title bar has the
+// buttons, and a tiling compositor, which draws none, wants none, whatever
+// the button layout says: GTK reads it from GNOME's settings on Wayland, and
+// their default shows close.
 
 // controlsCSS clears the bars around the buttons. With TitleBarHeight, the
 // bars take that height instead of the theme's.
@@ -57,6 +65,9 @@ func (w *window) newControls() {
 func (w *window) layoutControls() {
 	c := w.controls
 	start, end := buttonLayout()
+	if w.b.compositorDecorates {
+		start, end = "", ""
+	}
 	for side, buttons := range [2]string{start, end} {
 		bar := c.bars[side]
 		if buttons == "" {

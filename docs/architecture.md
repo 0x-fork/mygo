@@ -251,7 +251,12 @@ purego gives three primitives, used everywhere:
   toggle maximized, close. The bars are measured before the web view
   exists, from their natural size, for the script that tells the first
   page, then from their allocations; a change of the layout setting
-  rebuilds them.
+  rebuilds them. A Wayland compositor that decorates windows itself
+  (`gdk_wayland_display_prefers_ssd`: the default mode of
+  `org_kde_kwin_server_decoration_manager`, server on KWin, Hyprland and
+  Sway) gets no bars: GTK asks it to decorate a window without decorations
+  too, so its title bar, or a tiling compositor's lack of one, stands for
+  the buttons, whatever the layout says.
 - `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set unless the user set it, which
   avoids blank webviews on NVIDIA drivers, VMs and containers.
 - XDG desktop portal calls go through `portalCall` (`portal.go`), which
@@ -1104,7 +1109,7 @@ which npm allows only for packages that exist: the first release uses an
 | notifications | UserNotifications, packaged apps only | org.freedesktop.Notifications over D-Bus | notification-area balloons (toasts) |
 | vibrancy | all materials | ignored | Windows 11 Mica, Acrylic, Tabbed |
 | traffic lights, Dock | yes | ignored | ignored |
-| hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout` | caption buttons drawn in a layered child window; snap layouts; a top edge that resizes |
+| hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window; snap layouts; a top edge that resizes |
 | progress bar | Dock tile content view (NSBoxes: NSProgressIndicator does not draw there), app-wide | Unity launcher API over D-Bus (`com.canonical.Unity.LauncherEntry`), app-wide | `ITaskbarList3`, per window |
 | badge count | Dock tile label | Unity launcher API count | not shown |
 | skip taskbar | ignored | skip-taskbar hint | `ITaskbarList::DeleteTab` (the window style is untouched) |
