@@ -52,7 +52,22 @@ jobs:
             GOOS=$os go vet ./...
           done
           GOOS=freebsd go build ./...
+      # The installer tests download NSIS on Windows; keeping it in the cache
+      # spares them the download, and the hosts it comes from.
+      - name: Restore NSIS
+        id: nsis
+        if: runner.os == 'Windows'
+        uses: actions/cache/restore@v6
+        with:
+          path: ~\AppData\Local\mygo\nsis-*
+          key: nsis-${{ hashFiles('cmd/mygo/nsis.go') }}
       - run: go test ./...
+      - name: Save NSIS
+        if: always() && runner.os == 'Windows' && steps.nsis.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~\AppData\Local\mygo\nsis-*
+          key: ${{ steps.nsis.outputs.cache-primary-key }}
       - run: bun run test
       - run: bun run typecheck
       - name: GUI tests

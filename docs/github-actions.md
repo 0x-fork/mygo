@@ -235,6 +235,20 @@ Sign in to the signing service in a step for the Windows row, before
 "Build and upload", as its documentation says. Steps run in PowerShell on
 Windows runners unless they set `shell: bash`.
 
+`mygo build` downloads NSIS on every run of a fresh runner. A step before
+"Build and upload" keeps it in the Actions cache instead, so builds need
+neither the download nor the hosts it comes from. The lockfile pins
+mygo-cli, which pins NSIS:
+
+```yaml
+      - name: Cache NSIS
+        if: runner.os == 'Windows'
+        uses: actions/cache@v6
+        with:
+          path: ~\AppData\Local\mygo\nsis-*
+          key: nsis-${{ hashFiles('bun.lock') }}
+```
+
 ## Checking the version
 
 A tag that does not match the configuration's version would publish the

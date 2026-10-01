@@ -944,7 +944,14 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   `makensis` comes from an installation of NSIS or, on Windows, where NSIS
   is rarely installed, from the official zip of the release `nsisRelease`
   pins, which the CLI downloads once, checks against its SHA-256 and
-  unpacks into `<user cache>/mygo`, as Tauri does. Other systems skip the
+  unpacks into `<user cache>/mygo`, as Tauri does. It tries the copies of
+  the zip in `nsisRelease.urls` in order, until one answers with the right
+  SHA-256: the asset of this repository's `nsis-<version>` release, then
+  SourceForge, where NSIS publishes it. SourceForge's download host has
+  been down for hours at a time, and its mirrors then redirect to it, so
+  it is not the only source; a host that sends no response headers within
+  30 s gives way to the next. Updating NSIS means publishing the copy (see
+  [Releasing](#releasing)). Other systems skip the
   installer without NSIS: its zip holds Windows programs only. A signed
   app gets a signed uninstaller too, as with Tauri: `!uninstfinalize`
   (NSIS 3.08 and later) makes makensis run `mygo sign-uninstaller` on the
@@ -1066,6 +1073,23 @@ for the tag and creates the GitHub release.
 
 It does not run the tests again: `ci.yml` runs them on every push to main,
 for every platform, GUI tests included, so tag a commit whose CI passed.
+Its Windows job keeps the NSIS that the installer tests download in the
+Actions cache, under a key of `cmd/mygo/nsis.go`.
+
+The NSIS that `mygo build` downloads (`nsisRelease` in `cmd/mygo/nsis.go`)
+has a copy on a release of this repository, which a new version of NSIS
+needs before a MyGo release that pins it. Download the official zip,
+check that its SHA-256 is the one `nsisRelease` pins, and publish it,
+without making the release the latest:
+
+```sh
+curl -fLO https://downloads.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip
+sha256sum nsis-3.13.zip
+gh release create nsis-3.13 nsis-3.13.zip --latest=false --title "NSIS 3.13" \
+  --notes "The official NSIS 3.13 zip, which mygo build downloads on Windows."
+```
+
+The tag starts no workflow, and the Go module proxy ignores it.
 
 npm authenticates the workflow as a trusted publisher of each package
 (`release.yml` of this repository, set in the package's settings on npm),

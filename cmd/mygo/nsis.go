@@ -27,11 +27,21 @@ import (
 
 // nsisRelease is the NSIS that mygo build downloads: the official zip,
 // checked against its SHA-256 and unpacked into the user's cache
-// directory, where makensis runs as it does from an installation.
-var nsisRelease = struct{ version, url, sha256 string }{
+// directory, where makensis runs as it does from an installation. The
+// urls are copies of that zip, tried in order: the asset of the
+// nsis-<version> release of MyGo's repository first, since SourceForge,
+// where NSIS publishes it, has been down for hours at a time, its mirrors
+// redirecting to it.
+var nsisRelease = struct {
+	version, sha256 string
+	urls            []string
+}{
 	version: "3.13",
-	url:     "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip",
 	sha256:  "ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8",
+	urls: []string{
+		"https://github.com/egoist/mygo/releases/download/nsis-3.13/nsis-3.13.zip",
+		"https://downloads.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip",
+	},
 }
 
 // makensis finds the NSIS compiler: an installed one or, on Windows, the
@@ -103,8 +113,8 @@ func downloadNSIS(dir string) (string, error) {
 	defer os.RemoveAll(work)
 	logf("downloading NSIS %s for the Windows installer", nsisRelease.version)
 	archive := filepath.Join(work, "nsis.zip")
-	if err := download(nsisRelease.url, nsisRelease.sha256, archive); err != nil {
-		return "", fmt.Errorf("downloading NSIS %s (or install it: https://nsis.sourceforge.io): %w", nsisRelease.version, err)
+	if err := downloadAny(nsisRelease.urls, nsisRelease.sha256, archive); err != nil {
+		return "", fmt.Errorf("downloading NSIS %s (or install it: https://nsis.sourceforge.io):\n%w", nsisRelease.version, err)
 	}
 	unpacked := filepath.Join(work, "nsis")
 	if err := unzipTop(archive, unpacked); err != nil {
@@ -129,6 +139,25 @@ func downloadNSIS(dir string) (string, error) {
 	return nsisExecutable(dir), nil
 }
 
+// downloadAny fetches the first of urls, copies of one file, that answers
+// with a file whose SHA-256 is sum into the file path.
+func downloadAny(urls []string, sum, path string) error {
+	var errs []error
+	for _, url := range urls {
+		err := download(url, sum, path)
+		if err == nil {
+			return nil
+		}
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// downloadHeaderTimeout is how long download waits for a host to answer,
+// so that one that takes connections and never answers gives way to the
+// next copy.
+var downloadHeaderTimeout = 30 * time.Second
+
 // download fetches url into the file path and checks that its SHA-256 is
 // sum.
 func download(url, sum, path string) error {
@@ -137,7 +166,10 @@ func download(url, sum, path string) error {
 		return err
 	}
 	req.Header.Set("User-Agent", "mygo/"+version)
-	resp, err := (&http.Client{Timeout: 10 * time.Minute}).Do(req)
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = downloadHeaderTimeout
+	defer transport.CloseIdleConnections()
+	resp, err := (&http.Client{Transport: transport, Timeout: 10 * time.Minute}).Do(req)
 	if err != nil {
 		return err
 	}

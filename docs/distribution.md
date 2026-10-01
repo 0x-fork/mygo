@@ -267,8 +267,9 @@ installs (`/S`) create none.
 
 The installer is made with [NSIS](https://nsis.sourceforge.io). On
 Windows, `mygo build` uses NSIS when it is installed, and otherwise
-downloads it the first time it needs it: the official NSIS 3.13 zip,
-checked against its SHA-256 and kept in `%LOCALAPPDATA%\mygo`. On macOS and
+downloads it the first time it needs it: the official NSIS 3.13 zip, from
+a copy on MyGo's GitHub releases or else from SourceForge, checked against
+its SHA-256 and kept in `%LOCALAPPDATA%\mygo`. On macOS and
 Linux, install NSIS to make Windows installers (`brew install makensis`,
 `apt install nsis`); without it, `mygo build` skips the installer.
 
