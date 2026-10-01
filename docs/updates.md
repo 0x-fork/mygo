@@ -17,7 +17,8 @@ mygo keygen
 It writes `mygo-update.key`, the secret key, and `mygo-update.pub`, the
 public key, to `mygo/update-keys` in your configuration directory, and
 prints where (`-o` chooses another directory). Keep the secret key out of the repository, in a password
-manager and in the secrets of your CI: installed apps accept only updates
+manager and in the secrets of your CI (see
+[GitHub Actions](github-actions.md)): installed apps accept only updates
 signed with it, so losing it strands them, and anyone who has it can ship
 code to your users.
 

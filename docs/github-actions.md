@@ -1,0 +1,308 @@
+# GitHub Actions
+
+A GitHub Actions workflow can build the apps of every platform when you
+push a tag, sign them, and upload them with their [updates](updates.md) to
+a draft release, which you publish. MyGo needs no cgo, so one Ubuntu runner
+compiles and packages the Windows and Linux apps. A macOS runner makes the
+macOS app, because signing, notarization and disk images need macOS.
+
+## The workflow
+
+With `updates.github` in the configuration, save this as
+`.github/workflows/release.yml`:
+
+```yaml
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # the release that mygo build -upload creates
+
+jobs:
+  windows-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Install NSIS, for the Windows installers
+        run: sudo apt-get update && sudo apt-get install -y nsis
+      - name: Build and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+        run: bun run build -- -platform windows/amd64,windows/arm64,linux/amd64,linux/arm64 -upload
+
+  macos:
+    # The first job created the draft release, which this one uploads to.
+    needs: windows-linux
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Build and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+        run: bun run build -- -platform darwin/universal -upload
+```
+
+Add the secret key that signs updates, the contents of `mygo-update.key`
+(see [auto-updates](updates.md#set-up)), to the repository's secrets:
+
+```sh
+gh secret set MYGO_UPDATER_PRIVATE_KEY < path/to/mygo-update.key
+```
+
+Then bump `version` in the configuration, commit, and push its tag:
+
+```sh
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+The first job creates the draft release `v1.2.0`, with the version's
+section of `CHANGELOG.md` as its notes, and uploads the Windows
+installers, the Linux archives, Debian packages and install script, and
+their updates. The second adds the macOS disk image and its updates.
+Review the draft and publish it: apps then update to it.
+
+- `mygo build` uploads to the release of the configuration's version, with
+  the `tagPrefix` of `updates` (`v` by default), whichever tag started the
+  workflow. A step can check that they agree, as [below](#checking-the-version).
+- The macOS job waits for the other: jobs that started together would each
+  create a draft release of the version. Once the draft exists, more jobs,
+  such as one [on Windows](#signing-on-windows), can upload to it at the
+  same time; they need only the first.
+- The `GITHUB_TOKEN` of the workflow lets `gh`, which the runners have,
+  create the release and upload to it. With a `tagPrefix`, it also lets
+  `mygo build` find the earlier releases that
+  [delta updates](updates.md#delta-updates) start from.
+
+As it is, the workflow makes apps that work but are not signed for other
+machines: macOS apps signed ad hoc, which Gatekeeper blocks on other Macs,
+and Windows apps without a signature, for which SmartScreen warns users.
+The next sections sign them.
+
+## Signing and notarizing macOS apps
+
+The macOS job needs your Developer ID certificate and the credentials of
+Apple's notary service (see [signing and notarization](distribution.md#signing-and-notarization)).
+Export the "Developer ID Application" certificate, with its private key,
+from Keychain Access as a `.p12` file with a password, and add the
+secrets:
+
+```sh
+base64 -i certificate.p12 | gh secret set MACOS_CERTIFICATE
+gh secret set MACOS_CERTIFICATE_PASSWORD   # the password of the .p12
+gh secret set APPLE_ID                     # the Apple ID of your developer account
+gh secret set APPLE_TEAM_ID                # your team ID, as in the identity's (TEAMID)
+gh secret set APPLE_APP_PASSWORD           # an app-specific password of the Apple ID
+```
+
+Create the app-specific password at
+[account.apple.com](https://account.apple.com), under Sign-In and Security.
+Then, before "Build and upload" in the macOS job, put them in a keychain of
+the runner:
+
+```yaml
+      - name: Import the certificate and the notary credentials
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(openssl rand -base64 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain
+          xcrun notarytool store-credentials notary --keychain "$keychain" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          echo "NOTARY_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+```
+
+The keychain lives as long as the job, and codesign finds the certificate
+in it. The configuration signs with the certificate and notarizes with
+the profile, from that keychain in the workflow and from the login
+keychain on your Mac, where `NOTARY_KEYCHAIN` is not set:
+
+```ts
+export default defineConfig({
+  macos: {
+    signingIdentity: "Developer ID Application: Jane Doe (TEAMID)",
+    notarize: { keychainProfile: "notary", keychain: process.env.NOTARY_KEYCHAIN },
+  },
+});
+```
+
+`mygo build` then signs the app, submits the disk image to the notary
+service and waits for it, usually a few minutes, and staples the ticket.
+An App Store Connect API key works instead of the Apple ID: give
+`notarytool store-credentials` the key's file, ID and issuer with `--key`,
+`--key-id` and `--issuer`.
+
+## Signing Windows apps
+
+On the Ubuntu runner, `osslsigncode` signs the Windows apps and their
+installers with a `.pfx` certificate. Add it and its password to the
+secrets:
+
+```sh
+base64 -i code-signing.pfx | gh secret set WINDOWS_CERTIFICATE
+gh secret set WINDOWS_CERTIFICATE_PASSWORD
+```
+
+In the Windows and Linux job, install `osslsigncode` with NSIS, write the
+certificate to a file, and give its path and password to the build:
+
+```yaml
+      - name: Install NSIS and osslsigncode
+        run: sudo apt-get update && sudo apt-get install -y nsis osslsigncode
+      - name: Write the certificate
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+        run: echo "$WINDOWS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/code-signing.pfx"
+      - name: Build and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+          WINDOWS_CERTIFICATE_FILE: ${{ runner.temp }}/code-signing.pfx
+          MYGO_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: bun run build -- -platform windows/amd64,windows/arm64,linux/amd64,linux/arm64 -upload
+```
+
+```ts
+export default defineConfig({
+  windows: { certificate: process.env.WINDOWS_CERTIFICATE_FILE },
+});
+```
+
+Builds on your machine, without the variable, are not signed.
+
+### Signing on Windows
+
+Certificates whose keys stay in a hardware token or a cloud service, such
+as Azure Trusted Signing, sign with `signCommand` (see
+[code signing](distribution.md#code-signing)), which often needs
+`signtool`. Build the Windows apps on a Windows runner then, which has
+`signtool`, and where `mygo build` downloads NSIS itself:
+
+```yaml
+  windows:
+    needs: linux
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # Sign in to the signing service here, as its documentation says.
+      - name: Build and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+        run: bun run build -- -platform windows/amd64,windows/arm64 -upload
+```
+
+The first job, renamed `linux`, then builds `linux/amd64,linux/arm64`
+only, and the macOS job needs it too: the Windows and macOS jobs run at the
+same time.
+
+## Checking the version
+
+A tag that does not match the configuration's version would publish the
+build under another version. Keep the version in package.json, which the
+configuration reads (see [computed configuration](configuration.md#computed-configuration)):
+
+```ts
+import pkg from "./package.json" with { type: "json" };
+
+export default defineConfig({
+  version: pkg.version,
+});
+```
+
+and check it as the first step after checkout in the first job:
+
+```yaml
+      - name: Check the version
+        run: test "$GITHUB_REF_NAME" = "v$(jq -r .version package.json)"
+```
+
+## Publishing the release
+
+Publish the draft yourself after looking at it, or let the workflow
+publish it once every job uploaded:
+
+```yaml
+  publish:
+    needs: macos
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+```
+
+With a `tagPrefix` such as `desktop-v`, trigger the workflow on its tags
+(`tags: ["desktop-v*"]`), check them against `desktop-v` and the version,
+and publish with `--latest=false`, so the repository's latest release stays
+the other releases' (see [build and publish](updates.md#build-and-publish)).
+
+## Publishing to S3
+
+With `updates.s3`, `mygo build -upload` uploads to the bucket instead (see
+[publishing to S3](updates.md#publishing-to-s3)). Give the jobs the
+bucket's credentials in place of `GH_TOKEN`:
+
+```yaml
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+```
+
+There is no draft: the jobs need not wait for each other, and the update of
+each platform is out as soon as its job uploaded its manifest. The workflow
+needs no `contents: write` permission then.
+
+## Without a release
+
+Without `updates`, `-upload` has nowhere to upload to. Build without it and
+keep the installers as artifacts of the run, which works on every push too,
+to check that the apps build:
+
+```yaml
+      - run: bun run build -- -platform windows/amd64,linux/amd64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-linux
+          path: |
+            build/*/*Setup*.exe
+            build/*/*.deb
+            build/*/*.tar.gz
+```
+
+`build` is the `out` of new projects' configuration; macOS jobs upload
+`build/*/*.dmg`.

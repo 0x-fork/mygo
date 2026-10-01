@@ -393,3 +393,4 @@ sign, notarize and make the disk images; any runner compiles and packages
 Windows and Linux apps. Keep the signing secrets in CI secrets:
 `MYGO_WINDOWS_CERTIFICATE_PASSWORD`, `MYGO_UPDATER_PRIVATE_KEY`, and the
 notary credentials in a keychain of the macOS runner.
+[GitHub Actions](github-actions.md) has a workflow that does it all.

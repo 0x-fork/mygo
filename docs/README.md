@@ -56,6 +56,9 @@ document.body.textContent = await Greeter.greet("Ada");
 - [Auto-updates](updates.md): signed updates from GitHub releases, an S3
   bucket or your own server, delta updates, and an update window in the
   manner of Sparkle.
+- [GitHub Actions](github-actions.md): a workflow that builds, signs and
+  notarizes the apps of every platform, and publishes them with their
+  updates, when you push a tag.
 
 ## Official plugins
 
