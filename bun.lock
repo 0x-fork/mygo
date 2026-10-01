@@ -24,7 +24,7 @@
     },
     "packages/cli": {
       "name": "mygo-cli",
-      "version": "0.1.20",
+      "version": "0.1.21",
       "bin": {
         "mygo": "bin/mygo.js",
       },
@@ -39,50 +39,50 @@
     },
     "packages/cli/npm/darwin-arm64": {
       "name": "@egoist/mygo-cli-darwin-arm64",
-      "version": "0.1.20",
+      "version": "0.1.21",
     },
     "packages/cli/npm/darwin-x64": {
       "name": "@egoist/mygo-cli-darwin-x64",
-      "version": "0.1.20",
+      "version": "0.1.21",
     },
     "packages/cli/npm/linux-arm64": {
       "name": "@egoist/mygo-cli-linux-arm64",
-      "version": "0.1.20",
+      "version": "0.1.21",
     },
     "packages/cli/npm/linux-x64": {
       "name": "@egoist/mygo-cli-linux-x64",
-      "version": "0.1.20",
+      "version": "0.1.21",
     },
     "packages/cli/npm/win32-arm64": {
       "name": "@egoist/mygo-cli-win32-arm64",
-      "version": "0.1.20",
+      "version": "0.1.21",
     },
     "packages/cli/npm/win32-x64": {
       "name": "@egoist/mygo-cli-win32-x64",
-      "version": "0.1.20",
+      "version": "0.1.21",
     },
     "packages/runtime": {
       "name": "mygo-runtime",
-      "version": "0.1.20",
+      "version": "0.1.21",
     },
     "plugins/fetch": {
       "name": "@mygo-plugins/fetch",
-      "version": "0.1.20",
+      "version": "0.1.21",
       "devDependencies": {
-        "mygo-runtime": "^0.1.20",
+        "mygo-runtime": "^0.1.21",
       },
       "peerDependencies": {
-        "mygo-runtime": "^0.1.20",
+        "mygo-runtime": "^0.1.21",
       },
     },
     "plugins/websocket": {
       "name": "@mygo-plugins/websocket",
-      "version": "0.1.20",
+      "version": "0.1.21",
       "devDependencies": {
-        "mygo-runtime": "^0.1.20",
+        "mygo-runtime": "^0.1.21",
       },
       "peerDependencies": {
-        "mygo-runtime": "^0.1.20",
+        "mygo-runtime": "^0.1.21",
       },
     },
     "website": {
