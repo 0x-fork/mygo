@@ -5,6 +5,7 @@
 package windows
 
 import (
+	"sync"
 	"syscall"
 	"unicode/utf16"
 	"unsafe"
@@ -25,6 +26,7 @@ var (
 	shcore   = systemDLL("shcore.dll")
 	advapi32 = systemDLL("advapi32.dll")
 	versionD = systemDLL("version.dll")
+	ntdll    = systemDLL("ntdll.dll")
 )
 
 func systemDirectory() string {
@@ -40,6 +42,15 @@ func systemDLL(name string) *syscall.LazyDLL { return syscall.NewLazyDLL(sysDir 
 
 // has reports whether an optional API exists on this version of Windows.
 func has(p *syscall.LazyProc) bool { return p.Find() == nil }
+
+// windows11 reports Windows 11 (build 22000) or later. RtlGetVersion tells
+// the version whatever the executable's manifest declares.
+var windows11 = sync.OnceValue(func() bool {
+	var v osVersionInfo
+	v.Size = uint32(unsafe.Sizeof(v))
+	procRtlGetVersion.Call(uintptr(unsafe.Pointer(&v)))
+	return v.Major > 10 || v.Major == 10 && v.Build >= 22000
+})
 
 var (
 	// kernel32
@@ -193,6 +204,9 @@ var (
 	procRegSetValueExW   = advapi32.NewProc("RegSetValueExW")
 	procRegDeleteValueW  = advapi32.NewProc("RegDeleteValueW")
 	procRegDeleteTreeW   = advapi32.NewProc("RegDeleteTreeW")
+
+	// ntdll
+	procRtlGetVersion = ntdll.NewProc("RtlGetVersion")
 
 	// version
 	procGetFileVersionInfoSizeW = versionD.NewProc("GetFileVersionInfoSizeW")
@@ -445,6 +459,12 @@ type ncCalcSizeParams struct {
 }
 
 type margins struct{ Left, Right, Top, Bottom int32 }
+
+// osVersionInfo is RTL_OSVERSIONINFOW.
+type osVersionInfo struct {
+	Size, Major, Minor, Build, PlatformID uint32
+	CSDVersion                            [128]uint16
+}
 
 type flashWInfo struct {
 	Size    uint32

@@ -165,11 +165,15 @@ func captionButtonPoint(c *captionBar, i int) uintptr {
 }
 
 // TestTopNonClient returns how many pixels at the top of a window are not
-// its client area.
-func TestTopNonClient(hwnd uintptr) int32 {
+// its client area, and how many a hidden title bar keeps there on this
+// version of Windows: one on Windows 11, none on Windows 10.
+func TestTopNonClient(hwnd uintptr) (px, want int32) {
 	var r rect
 	procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
 	var origin point
 	procClientToScreen.Call(hwnd, uintptr(unsafe.Pointer(&origin)))
-	return origin.Y - r.Top
+	if windows11() {
+		want = 1
+	}
+	return origin.Y - r.Top, want
 }

@@ -325,7 +325,12 @@ purego gives three primitives, used everywhere:
   pixels and DIPs with the window's or monitor's DPI. Frameless windows, and
   those with a hidden title bar, drop the caption in `WM_NCCALCSIZE` but
   keep the side and bottom borders, which Windows 10+ draws invisibly
-  outside the window, so they still resize.
+  outside the window, so they still resize. On Windows 11 a hidden title
+  bar keeps one pixel of its top, under the window's border, without which
+  the maximize button opens no snap layouts while the window is not
+  maximized. Windows 10, which has no snap layouts, keeps none: over a
+  window that keeps any of its top it draws its whole title bar. The build
+  comes from `RtlGetVersion`, which no manifest changes.
 - A hidden title bar (`titlebar.go`) gets its controls from two child
   windows above the webview's. The buttons are a layered window
   (`UpdateLayeredWindow`, premultiplied BGRA): Segoe Fluent Icons glyphs

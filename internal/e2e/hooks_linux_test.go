@@ -137,4 +137,4 @@ func pressTitleButton(w *mygo.Window, name string) (ok bool) {
 	return ok
 }
 
-func topNonClient(*mygo.Window) (int32, bool) { return 0, false }
+func topNonClient(*mygo.Window) (int32, int32, bool) { return 0, 0, false }

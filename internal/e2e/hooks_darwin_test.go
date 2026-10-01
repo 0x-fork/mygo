@@ -94,4 +94,4 @@ func enterMenuBar(*mygo.Window, string) (bool, bool, bool)  { return false, fals
 func titleButtons(*mygo.Window) ([]string, bool) { return nil, false }
 func pressTitleButton(*mygo.Window, string) bool { return false }
 
-func topNonClient(*mygo.Window) (int32, bool) { return 0, false }
+func topNonClient(*mygo.Window) (int32, int32, bool) { return 0, 0, false }

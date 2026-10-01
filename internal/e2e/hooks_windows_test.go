@@ -107,8 +107,8 @@ func pressTitleButton(w *mygo.Window, name string) (ok bool) {
 }
 
 // topNonClient returns how many pixels at the top of a window are not its
-// page's.
-func topNonClient(w *mygo.Window) (px int32, supported bool) {
-	mygo.RunOnMain(func() { px = win.TestTopNonClient(w.NativeHandle()) })
-	return px, true
+// page's, and how many a hidden title bar keeps there.
+func topNonClient(w *mygo.Window) (px, want int32, supported bool) {
+	mygo.RunOnMain(func() { px, want = win.TestTopNonClient(w.NativeHandle()) })
+	return px, want, true
 }

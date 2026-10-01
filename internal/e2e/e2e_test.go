@@ -1627,9 +1627,10 @@ func TestHiddenTitleBar(t *testing.T) {
 	}
 
 	// Without any non-client area at its top, a window that is not maximized
-	// gets no snap layouts over its maximize button on Windows 11.
-	if px, ok := topNonClient(w); ok && px != 1 {
-		t.Errorf("non-client area at the top = %d px, want 1", px)
+	// gets no snap layouts over its maximize button on Windows 11, and
+	// Windows 10 draws its title bar over a window that keeps any.
+	if px, want, ok := topNonClient(w); ok && px != want {
+		t.Errorf("non-client area at the top = %d px, want %d", px, want)
 	}
 
 	if names, ok := titleButtons(w); ok {
