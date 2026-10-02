@@ -67,12 +67,12 @@ Develops the app with live reload. It writes the TypeScript client, runs
 place of its built frontend, and starts it. Without `devUrl` the app serves
 `frontendDist` from disk.
 
-Changes to the Go code, the configuration, the icon or the resources rebuild the
-app, regenerate the TypeScript client and restart the app. The new build
-replaces the running one once it has started, so a build that fails or
-crashes keeps the previous one. Frontend changes are the dev server's to
-handle. Quitting the app, or Ctrl+C, ends mygo dev, and `App.Relaunch`
-restarts the app.
+Changes to the Go code, the configuration, the icon or the resources rebuild
+the app, regenerate the TypeScript client and restart the app: the running
+build quits, then the new one starts, so the two never hold the same files,
+locks or web view profile at once. A build that fails to compile keeps the
+running one. Frontend changes are the dev server's to handle. Quitting the app, or
+Ctrl+C, ends mygo dev, and `App.Relaunch` restarts the app.
 
 The development app is named `<name> Dev`, with the identifier
 `<identifier>.dev`, so that its data and preferences stay apart from the

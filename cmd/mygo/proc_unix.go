@@ -20,6 +20,14 @@ func setProcessGroup(cmd *exec.Cmd) {
 // it started, to exit.
 func terminate(cmd *exec.Cmd) { signalGroup(cmd, syscall.SIGTERM) }
 
+// interrupt asks the command alone to exit, as quitting it would: an app
+// then ends the processes it started itself.
+func interrupt(cmd *exec.Cmd) {
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+	}
+}
+
 // kill stops them right away.
 func kill(cmd *exec.Cmd) { signalGroup(cmd, syscall.SIGKILL) }
 

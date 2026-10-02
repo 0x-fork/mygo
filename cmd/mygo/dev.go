@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -137,6 +138,31 @@ type devSession struct {
 	// Used by the run loop only.
 	app *devProcess // the running build
 	sum [32]byte    // fingerprint of the running build
+
+	// live is app, which a build stops before it starts.
+	liveMu sync.Mutex
+	live   *devProcess
+}
+
+// setApp makes p the running build.
+func (s *devSession) setApp(p *devProcess) {
+	s.app = p
+	s.liveMu.Lock()
+	s.live = p
+	s.liveMu.Unlock()
+}
+
+// stopLive stops the running build for the one about to start: builds
+// never overlap, so the single instance lock, the web view's profile and
+// any other state of the app's are free.
+func (s *devSession) stopLive() {
+	s.liveMu.Lock()
+	p := s.live
+	s.liveMu.Unlock()
+	if p != nil {
+		p.replaced.Store(true)
+		p.stop()
+	}
 }
 
 var errUnchanged = errors.New("unchanged")
@@ -202,8 +228,12 @@ func (s *devSession) run(ctx context.Context, c *Config) error {
 		case <-ctx.Done():
 			return nil
 		case <-exited:
+			if s.app.replaced.Load() {
+				s.setApp(nil) // stopped for the next build
+				continue
+			}
 			err, exe := s.app.err, s.app.exe
-			s.app = nil
+			s.setApp(nil)
 			var exit *exec.ExitError
 			if errors.As(err, &exit) && exit.ExitCode() == devRelaunchCode {
 				// mygo.App.Relaunch: start the same build again.
@@ -212,7 +242,7 @@ func (s *devSession) run(ctx context.Context, c *Config) error {
 					logf("%v; waiting for changes", err)
 					s.sum = [32]byte{}
 				} else {
-					s.app = p
+					s.setApp(p)
 				}
 				continue
 			}
@@ -238,12 +268,13 @@ func (s *devSession) run(ctx context.Context, c *Config) error {
 				logf("the build did not change")
 			case r.err != nil:
 				logf("%v", r.err)
-				if s.app != nil {
+				if s.app != nil && !s.app.replaced.Load() {
 					logf("keeping the previous build running")
 				}
 			default:
 				prev := s.app
-				s.app, s.sum = r.p, r.sum
+				s.setApp(r.p)
+				s.sum = r.sum
 				if prev != nil {
 					stopping.Add(1)
 					go func() {
@@ -378,6 +409,7 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 	}
 	built := time.Since(started)
 
+	s.stopLive()
 	p, err := s.launch(ctx, exe)
 	if err != nil {
 		return nil, sum, err
@@ -559,24 +591,28 @@ type devProcess struct {
 	cmd  *exec.Cmd
 	done chan struct{} // closed when the process exited
 	err  error         // how it exited, set before done is closed
+	// replaced is set when the build is stopped for the next one.
+	replaced atomic.Bool
 }
 
 // stopGrace is how long a stopped build may take to quit.
 var stopGrace = 3 * time.Second
 
 // stop asks the app to quit, like the Quit menu item, and kills it when it
-// has not exited after stopGrace.
+// has not exited after stopGrace. Only the app is asked: it ends the
+// processes it started, such as its web view's, which could lose what they
+// had not written yet if asked along with it. Those it leaves are killed.
 func (p *devProcess) stop() {
 	select {
 	case <-p.done:
 		return
 	default:
 	}
-	terminate(p.cmd)
+	interrupt(p.cmd)
 	select {
 	case <-p.done:
 	case <-time.After(stopGrace):
-		kill(p.cmd)
-		<-p.done
 	}
+	kill(p.cmd)
+	<-p.done
 }

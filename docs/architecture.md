@@ -874,13 +874,15 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
     show or failed to load, right after launch when there is no window, and
     at most 5 s after launch otherwise (`dev.go`). Nothing happens in
     production builds.
-  - *Blue-green reload.* A change (polling every 250 ms, debounced) rebuilds;
+  - *Reload.* A change (polling every 250 ms, debounced) rebuilds;
     when the executable, Info.plist and icon are unchanged nothing restarts.
-    Otherwise the new build is launched and only once it is ready is the old
-    one sent SIGTERM (quit sequence), then SIGKILL after 3 s. A build that
-    fails to compile, start or get ready within 20 s leaves the old one
-    running. A new instance takes over the single-instance lock, and the old
-    instance only removes the lock socket if it is still its own.
+    Otherwise the running build is sent SIGTERM (quit sequence), then
+    SIGKILL after 3 s, and the new one starts once it has exited: builds
+    never overlap, so the single-instance lock, the web view's profile and
+    the app's files are free. Only the app gets the SIGTERM, which lets it
+    end the processes it started; those left after it exits are killed. A
+    build that fails to compile leaves the old one running; one that fails
+    to start or get ready within 20 s leaves none until the next change.
   - *Watching.* Exactly what the build reads, from `go list -deps` after
     every build: the directories of the compiled packages outside GOROOT and
     the module cache (so local `replace` modules too), embedded files,
@@ -1017,7 +1019,7 @@ profile).
 
 | suite | command | covers |
 |---|---|---|
-| core | `go test .` | lifecycle, quit, IPC, channels, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance and its dev handover, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
+| core | `go test .` | lifecycle, quit, IPC, channels, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
 | CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, resources (platform directories, universal pairs, staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime, `mygo-runtime` and the plugins' packages (against a fake Go side on the real runtime, `plugins/fake-go.ts`) |

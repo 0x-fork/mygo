@@ -39,8 +39,6 @@ type secondInstanceMessage struct {
 //	}
 //
 // The lock is identified by the application name and released on quit.
-// Under `mygo dev`, a reload starts the new build while the previous one
-// still runs, so the new build takes the lock over.
 func (a *Application) RequestSingleInstanceLock() bool {
 	if os.Getenv("MYGO_GENERATE") != "" {
 		return true // Run will only write the TypeScript client.
@@ -51,9 +49,6 @@ func (a *Application) RequestSingleInstanceLock() bool {
 		return true
 	}
 	path := singleInstanceSocket(a.Name())
-	if launchedByDev() {
-		_ = os.Remove(path)
-	}
 	wd, _ := os.Getwd()
 	msg, _ := json.Marshal(secondInstanceMessage{Args: os.Args[1:], WorkingDir: wd})
 	for attempt := 0; attempt < 5; attempt++ {
@@ -75,8 +70,8 @@ func (a *Application) RequestSingleInstanceLock() bool {
 		ln, err := net.Listen("unix", path)
 		if err == nil {
 			// The socket file is removed on release, and only if it is
-			// still ours: an instance started by a `mygo dev` reload may
-			// have replaced it.
+			// still ours: an instance that found it stale may have
+			// replaced it.
 			ln.(*net.UnixListener).SetUnlinkOnClose(false)
 			singleInstance.socket, _ = os.Stat(path)
 			singleInstance.listener, singleInstance.path, singleInstance.locked = ln, path, true

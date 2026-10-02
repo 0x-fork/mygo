@@ -1656,36 +1656,6 @@ func TestSingleInstance(t *testing.T) {
 	}
 }
 
-func TestSingleInstanceDevHandover(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix sockets only")
-	}
-	if !App.RequestSingleInstanceLock() {
-		t.Fatal("first instance did not get the lock")
-	}
-	path := singleInstanceSocket(App.Name())
-	// An instance launched by a `mygo dev` reload takes the lock over.
-	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), "MYGO_TEST_SECOND_INSTANCE=1", "MYGO_READY_SOCKET=/nonexistent/ready.sock")
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(string(out)) != "locked" {
-		t.Fatalf("instance launched by mygo dev printed %q, want locked", out)
-	}
-	defer os.Remove(path)
-	replaced, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Quitting the previous instance must leave the new socket alone.
-	releaseSingleInstanceLock()
-	if fi, err := os.Stat(path); err != nil || !os.SameFile(fi, replaced) {
-		t.Error("releasing the lock removed the socket of the instance that took it over")
-	}
-}
-
 func TestDevReadySignal(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix sockets only")
