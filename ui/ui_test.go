@@ -73,8 +73,8 @@ func (d *demo) view(c *Context) {
 		Box(c).Padding(12).Radius(10).Background(t.Surface).Border(1, t.Border).Shadow(0, 2, 10, 0, RGBA(0, 0, 0, 0.12)).Children(func() {
 			Text(c, "A card with a shadow and a long text that wraps across lines when the window is narrow enough to need it.")
 		})
-		List(c, 1000, 28, func(i int) {
-			row := Row(c).Fill().PaddingX(8).Gap(8)
+		List(c, nil, 1000, func(i int) {
+			row := Row(c).Height(28).PaddingX(8).Gap(8)
 			if i == d.selected {
 				row.Background(t.Accent).TextColor(t.AccentText).Radius(4)
 			}
@@ -328,7 +328,7 @@ func TestAutoFocus(t *testing.T) {
 func listScroll(tt *Tester) (y, h float32) {
 	for _, s := range tt.rt.states {
 		if s.flags&flagScrollY != 0 && s.contentH > 1000*28-1 {
-			return s.scrollY, s.h
+			return float32(s.scrollY), s.h
 		}
 	}
 	return -1, 0

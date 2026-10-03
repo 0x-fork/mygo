@@ -539,7 +539,11 @@ func (p *Painter) scrollbars(e *Element) {
 		return
 	}
 	color := theme.Scrollbar
-	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.contentW, e.contentH, st.scrollX, st.scrollY, e.flags, theme.scrollbarWidth())
+	w, h := e.contentW, e.contentH
+	if dragging {
+		w, h = rt.scrollDrag.contentW, rt.scrollDrag.contentH
+	}
+	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, float32(w), float32(h), float32(st.scrollX), float32(st.scrollY), e.flags, theme.scrollbarWidth())
 	if g.vertical {
 		bar := g.v
 		if dragging && !rt.scrollDrag.horizontal {
@@ -597,7 +601,7 @@ func scrollThumb(pos, track, view, content, offset float32) Rect {
 	travel := inner - thumb
 	at := float32(0)
 	if content > view {
-		at = travel * offset / (content - view)
+		at = max(0, min(travel*offset/(content-view), travel))
 	}
 	return Rect{Y: pos + 2 + at, H: thumb}
 }

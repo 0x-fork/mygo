@@ -1,8 +1,9 @@
 // Gallery tours MyGo's own user interface toolkit: a window drawn on the
 // GPU from Go, without a web page. It shows layout, the widgets, text
-// editing, a list of ten thousand rows with context menus, styling (grids,
-// borders, gradients, text decorations, motion), custom drawing, overlays,
-// file drops and updates from other goroutines.
+// editing, a list of ten thousand rows with context menus, a chat of
+// messages of every height, styling (grids, borders, gradients, text
+// decorations, motion), custom drawing, overlays, file drops and updates
+// from other goroutines.
 //
 //	go run ./examples/gallery
 package main
@@ -52,9 +53,59 @@ type gallery struct {
 	pinned   bool
 	fruit    string
 	eased    bool
-	// places keeps where each page is scrolled, and rowsAt the list's.
+	// places keeps where each page is scrolled.
 	places map[string]*ui.ScrollState
-	rowsAt ui.ScrollState
+	// rows, chat and table keep the places of the lists of the List page.
+	rows     ui.ListState
+	chat     ui.ListState
+	table    ui.ListState
+	messages []message
+	draft    string
+}
+
+// message is a message of the chat on the List page; ids grow with time,
+// below zero for those loaded later from before.
+type message struct {
+	id   int
+	text string
+	mine bool
+}
+
+// day returns the day of a message, 12 a day, 0 for today's.
+func (m message) day() int {
+	if m.id < 0 {
+		return (m.id-11)/12 - 16
+	}
+	return m.id/12 - 16
+}
+
+// chatLines are what the messages of the chat say.
+var chatLines = []string{
+	"Did the list keep its place?",
+	"Yes.",
+	"It measures each message as it shows, and estimates the others from those it measured.",
+	"So a message of ten lines and one of a single word scroll the same.",
+	"Load the older ones: the messages in view stay where they are.",
+	"Nice!",
+	"Scroll up a little and the date of the day you are in stays at the top, until the next day pushes it away.",
+	"And at the end, new messages keep coming into view, unless you scrolled up to read.",
+	"Then a button takes you back to the latest.",
+	"What about a million messages?",
+	"Its offsets are float64, so they scroll by fractions of a DIP all the same.",
+	"👍",
+	"The rows it builds are only those in view, and a few beyond for Tab.",
+	"Lunch?",
+	"Sure, in ten minutes.",
+}
+
+// makeMessage makes up message id, of one to three lines of the chat.
+func makeMessage(id int) message {
+	r := uint32(id) * 2654435761
+	var lines []string
+	for k := range 1 + int((r>>3)%5)/2 {
+		lines = append(lines, chatLines[(int(r>>9)+k*4)%len(chatLines)])
+	}
+	return message{id: id, text: strings.Join(lines, " "), mine: r%3 == 0}
 }
 
 var pages = []string{"Overview", "Controls", "Text", "List", "Styling", "Drawing", "Overlays"}
@@ -381,26 +432,21 @@ func (g *gallery) list(c *ui.Context) {
 			rows = append(rows, i)
 		}
 	}
+	// The row of the number picked: the list chooses rows by their index,
+	// which the filter changes.
+	at := slices.Index(rows, g.picked)
 	ui.Row(c).Gap(12).Children(func() {
-		ui.Textf(c, "%d rows; only those in view are built. Right-click one for its menu.", len(rows)).TextColor(t.TextMuted).Grow(1)
-		at := slices.Index(rows, g.picked)
+		ui.Textf(c, "%d rows; only those in view are built. Pick one with a click or the arrows; right-click one for its menu.", len(rows)).TextColor(t.TextMuted).Grow(1)
 		if ui.Button(c, "Show picked").Disabled(at < 0).Clicked() {
-			// The row may not be built: scroll to where it is.
-			g.rowsAt.Y = float32(at) * 32
+			// The row may not be built: the list scrolls to it all the same.
+			g.rows.ScrollTo(at, ui.Center)
 		}
 	})
-	ui.List(c, len(rows), 32, func(i int) {
+	g.rows.Selected = &at
+	g.rows.Key = func(i int) any { return rows[i] }
+	list := ui.List(c, &g.rows, len(rows), func(i int) {
 		n := rows[i]
-		row := ui.Row(c).Fill().PaddingX(12).Gap(10).Radius(6)
-		switch {
-		case n == g.picked:
-			row.Background(t.Accent).TextColor(t.AccentText)
-		case row.Hovered():
-			row.Background(t.SurfaceHover)
-		}
-		if row.Clicked() {
-			g.picked = n
-		}
+		row := ui.Row(c).Height(32).PaddingX(12).Gap(10)
 		row.ContextMenu(func(m *ui.Menu) {
 			if m.Item("Pick").Chosen() {
 				g.picked = n
@@ -421,7 +467,11 @@ func (g *gallery) list(c *ui.Context) {
 			ui.Text(c, label).Grow(1)
 			ui.Textf(c, "%d²  =  %d", n, n*n).Font("monospace").FontSize(12)
 		})
-	}).TrackScroll(&g.rowsAt).Height(420).Border(1, t.Border).Radius(8).Padding(4)
+	}).Height(420).Border(1, t.Border).Radius(8).Padding(4)
+	if list.Changed() {
+		g.picked = rows[at]
+	}
+	g.chatCard(c)
 	ui.Row(c).Gap(18).AlignItems(ui.Stretch).Height(260).Children(func() {
 		card(c, "Tree", func() {
 			item := func(path, label string, children func()) {
@@ -448,7 +498,8 @@ func (g *gallery) list(c *ui.Context) {
 		files := []string{"report.pdf", "photo.jpg", "notes.md", "budget.xlsx", "slides.key", "song.mp3"}
 		card(c, "Table", func() {
 			cols := []ui.TableColumn{{Title: "Name"}, {Title: "Size", Width: 90, Align: ui.End}}
-			if ui.Table(c, cols, len(files), &g.file, func(row, col int) {
+			g.table.Selected = &g.file
+			if ui.Table(c, &g.table, cols, len(files), func(row, col int) {
 				if col == 0 {
 					ui.Text(c, files[row]).SingleLine()
 				} else {
@@ -458,6 +509,85 @@ func (g *gallery) list(c *ui.Context) {
 				c.Toast("Opened " + files[g.file])
 			}
 		}).Grow(1)
+	})
+}
+
+// chatCard shows a chat: messages of every height, which the list
+// measures as they show, the header of each day pinned at the top, older
+// messages loading above without moving those in view, and new ones
+// followed at the end.
+func (g *gallery) chatCard(c *ui.Context) {
+	t := c.Theme()
+	if g.messages == nil {
+		for id := range 200 {
+			g.messages = append(g.messages, makeMessage(id))
+		}
+	}
+	// The rows: a header before each day's messages.
+	type item struct {
+		header bool
+		day    int
+		msg    message
+	}
+	var items []item
+	for i, m := range g.messages {
+		if i == 0 || m.day() != g.messages[i-1].day() {
+			items = append(items, item{header: true, day: m.day()})
+		}
+		items = append(items, item{day: m.day(), msg: m})
+	}
+	g.chat.FollowEnd = true
+	g.chat.Key = func(i int) any {
+		if items[i].header {
+			return fmt.Sprint("day ", items[i].day)
+		}
+		return items[i].msg.id
+	}
+	g.chat.Header = func(i int) bool { return items[i].header }
+	card(c, "Chat", func() {
+		ui.Row(c).Gap(8).Children(func() {
+			ui.Textf(c, "%d messages of every height; older ones load above without moving those in view.", len(g.messages)).TextColor(t.TextMuted).Grow(1)
+			if ui.Button(c, "Load older").Clicked() {
+				older := make([]message, 0, 24)
+				for id := g.messages[0].id - 24; id < g.messages[0].id; id++ {
+					older = append(older, makeMessage(id))
+				}
+				g.messages = append(older, g.messages...)
+			}
+			if !g.chat.AtEnd() && ui.Button(c, "Jump to latest").Clicked() {
+				g.chat.ScrollToEnd()
+			}
+		})
+		ui.List(c, &g.chat, len(items), func(i int) {
+			it := items[i]
+			if it.header {
+				label := "Today"
+				if it.day < 0 {
+					label = time.Now().AddDate(0, 0, it.day).Format("Monday, January 2")
+				}
+				ui.Row(c).Justify(ui.Center).PaddingY(6).Children(func() {
+					ui.Text(c, label).FontSize(12).Bold().Padding(3, 10).Radius(999).Background(t.Surface).Border(1, t.Border)
+				})
+				return
+			}
+			m := it.msg
+			ui.Row(c).Padding(3, 12).Children(func() {
+				bubble := ui.Box(c).MaxWidthPercent(72).Padding(7, 12).Radius(14).Background(t.Surface)
+				if m.mine {
+					bubble.Margin(0, 0, 0, ui.Auto).Background(t.Accent).TextColor(t.AccentText)
+				}
+				bubble.Children(func() { ui.Text(c, m.text) })
+			})
+		}).Height(380).Justify(ui.End).PaddingY(4).Border(1, t.Border).Radius(8)
+		ui.Row(c).Gap(8).Children(func() {
+			input := ui.TextInput(c, &g.draft).Placeholder("Message").Label("Message").Grow(1)
+			send := ui.Button(c, "Send").Disabled(strings.TrimSpace(g.draft) == "")
+			if (send.Clicked() || input.Submitted()) && strings.TrimSpace(g.draft) != "" {
+				last := g.messages[len(g.messages)-1]
+				g.messages = append(g.messages, message{id: last.id + 1, text: strings.TrimSpace(g.draft), mine: true})
+				g.draft = ""
+			}
+		})
 	})
 }
 

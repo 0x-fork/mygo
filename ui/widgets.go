@@ -414,36 +414,6 @@ func ScrollBoth(c *Context) *Element {
 	return e
 }
 
-// List creates a vertical scroll container for n rows of rowHeight DIPs
-// that only builds the rows in view, with row(i).
-func List(c *Context, n int, rowHeight float32, row func(i int)) *Element {
-	e := Scroll(c)
-	e.widget, e.role = "List", RoleList
-	st := e.st
-	view := st.h
-	if view <= 0 {
-		view = c.h
-	}
-	// The offset the layout keeps, within the rows, as after a TrackScroll
-	// to the end or rows taken away.
-	top := max(0, min(st.scrollY, float32(n)*rowHeight-view))
-	first := max(0, int(top/rowHeight)-2)
-	last := min(n, int((top+view)/rowHeight)+3)
-	e.Children(func() {
-		if first > 0 {
-			Box(c).Height(float32(first) * rowHeight).Shrink(0)
-		}
-		for i := first; i < last; i++ {
-			r := Box(c).Key(i).Height(rowHeight).Shrink(0)
-			r.Children(func() { row(i) })
-		}
-		if last < n {
-			Box(c).Height(float32(n-last) * rowHeight).Shrink(0)
-		}
-	})
-	return e
-}
-
 // Bitmap is an image to show with Image. Create it once: converting an
 // image is not free.
 type Bitmap struct {

@@ -261,13 +261,20 @@ type Element struct {
 
 	// Layout results, in DIPs relative to the window.
 	x, y, w, h float32
-	contentW   float32
-	contentH   float32
-	tl         *text.Layout
-	measures   [4]measure
-	nmeasure   int
-	leaf       [2]float32 // the max-content and min-content widths of text
-	leafOK     bool
+	// contentW and contentH are the size of a scroll container's content.
+	contentW, contentH float64
+	// scrollBase is the offset of a List's content that its rows were
+	// placed at: placing moves them by how far the offset moved since.
+	scrollBase float64
+	// list is the List the element is, while it builds and lays out, and
+	// listRow is set on the elements holding its rows.
+	list     *listFrame
+	listRow  bool
+	tl       *text.Layout
+	measures [4]measure
+	nmeasure int
+	leaf     [2]float32 // the max-content and min-content widths of text
+	leafOK   bool
 }
 
 type measure struct {

@@ -162,15 +162,8 @@ the touchpad, their scroll bar and the keyboard: the arrow keys, Page Up
 and Page Down, Space, Home and End scroll the container around the focus,
 or under the pointer, unless the focused element takes those keys, as a
 text input does. `ui.ScrollBoth` scrolls both ways, as a canvas or a wide
-table does. Give them a size, or grow them in their parent. `ui.List`
-builds only the rows in view, so it shows millions of rows of a fixed
-height as fast as ten:
-
-```go
-ui.List(c, len(app.rows), 32, func(i int) {
-	ui.Text(c, app.rows[i].Name)
-}).Grow(1)
-```
+table does. Give them a size, or grow them in their parent. For rows of a
+collection, see [lists](#lists).
 
 A scroll container keeps its offset as it keeps its other state, by its
 place in the view or its `Key`. To read the offset, set it or keep it in
@@ -191,9 +184,112 @@ ui.Scroll(c).TrackScroll(&app.log).Grow(1).Children(app.lines)
 `ScrollIntoView` scrolls the containers around an element as little as
 shows it, once the frame is laid out, so that it works in the frame that
 adds the element: a new message, or the item the keys chose. Call it in
-that frame only, or the user could not scroll the element away. A `List`
-builds only the rows in view: to show row `i`, set its `ScrollState`'s `Y`
-to `float32(i) * rowHeight`.
+that frame only, or the user could not scroll the element away. Rows a
+`List` has not built scroll into view with its `ListState`.
+
+### Lists
+
+`ui.List` shows rows of a collection of any length: it builds only the
+rows in view, and a few beyond, so a list of millions of rows is as fast
+as one of ten. Rows take the height of their content, which may differ
+from row to row: the list measures rows as they show and estimates the
+others from them.
+
+```go
+ui.List(c, nil, len(app.files), func(i int) {
+	ui.Text(c, app.files[i].Name).Padding(6, 12)
+}).Grow(1)
+```
+
+`Gap` spaces the rows, `Padding` pads the content and scrolls with it, and
+`Justify(ui.End)` puts rows that do not fill the list at its bottom, as a
+chat's first messages. What else you build in a list shows while it has no
+rows, as a message that it is empty:
+
+```go
+ui.List(c, nil, len(results), func(i int) {
+	ui.Text(c, results[i].Title).Padding(6, 12)
+}).Grow(1).Children(func() {
+	if len(results) == 0 {
+		ui.Text(c, "No results").TextColor(c.Theme().TextMuted).Padding(12)
+	}
+})
+```
+
+A list without a size, or with only a `MaxHeight`, is as high as its rows.
+
+A list keeps its place by a row rather than by an offset, so the rows in
+view stay where they are while the rows around them are measured, grow,
+come and go, and its offsets count millions of rows to a fraction of a
+DIP. Give it a `ui.ListState` in your state, in place of `nil`, to say how
+it behaves and to move it:
+
+- `Key` returns an identity for the item of a row, such as its ID: the
+  state of a row (focus, text being edited, …) follows its item, and the
+  list keeps its place, and its choice, when rows are added or removed
+  above them, as when older messages load.
+- `FollowEnd` starts the list at its end, and keeps the end in view as rows
+  come or grow, until the user scrolls away from it, as a chat or a log
+  does; scrolling back to the end follows it again.
+- `Selected` lets a click, or Up, Down, Home and End while the list has the
+  keyboard focus, choose a row, which shows in the accent color; the list's
+  `Changed` reports a new choice, and `Submitted` a double click or Enter.
+- `Header` names the rows heading sections: the header of the section at
+  the top stays pinned there while its rows scroll under it, until the next
+  header pushes it away. Give headers a background.
+- `ScrollTo(row, align)` shows a row at the `ui.Start`, `ui.Center` or
+  `ui.End` of the list, `ScrollIntoView(row)` scrolls as little as shows it,
+  and `ScrollToEnd` scrolls to the end, rows not built yet included: the list
+  scrolls as the frame is laid out, to where the row is once measured.
+  `Visible` returns the first and last rows in view and `AtEnd` whether the
+  end shows, to load more as the list nears the end of what was loaded.
+
+A chat:
+
+```go
+app.chat.Key = func(i int) any { return app.messages[i].ID }
+app.chat.FollowEnd = true
+if first, _ := app.chat.Visible(); first < 5 && app.more {
+	app.loadOlder() // above the messages in view, which stay put
+}
+if !app.chat.AtEnd() && ui.Button(c, "Jump to latest").Clicked() {
+	app.chat.ScrollToEnd()
+}
+ui.List(c, &app.chat, len(app.messages), func(i int) {
+	message(c, app.messages[i])
+}).Grow(1).Justify(ui.End)
+```
+
+The row holding the keyboard focus stays built when it scrolls out of
+view, so that what is being edited in it stays, and Tab moves the focus
+from row to row, scrolling them into view.
+
+### Tables
+
+`ui.Table` puts a list's rows in columns, under a header of
+`ui.TableColumn`s, each with a title, a width (or 0 to share the room the
+others leave) and an alignment; `cell` builds the content of a row's
+column. Rows are as high as their tallest cell, so text that wraps makes
+its row taller. The table takes the same `ListState` as a list, or `nil`,
+and takes the keyboard focus for it: with `Selected`, a click or the keys
+choose a row, and `Submitted` reports a double click or Enter. A row
+`Header` names spans every column, which `cell` builds as column 0, and
+stays at the top while its section's rows scroll under it.
+
+```go
+cols := []ui.TableColumn{{Title: "Name"}, {Title: "Size", Width: 90, Align: ui.End}}
+app.files.Selected = &app.file
+if ui.Table(c, &app.files, cols, len(files), func(row, col int) {
+	switch col {
+	case 0:
+		ui.Text(c, files[row].Name).SingleLine()
+	case 1:
+		ui.Text(c, files[row].Size())
+	}
+}).Grow(1).Submitted() {
+	app.open(files[app.file])
+}
+```
 
 ### Grids
 
@@ -386,12 +482,13 @@ look of your own, build on the widgets' bases, which have none: see
 | `DateInput` | edits a `*time.Time` with a calendar, by click or with the arrow keys and Page Up and Down |
 | `Tabs` | a row of tabs choosing a `*int`, by click or with the arrow keys |
 | `Split`, `SplitVertical` | two panes with a divider between them that the user drags, or moves with the arrow keys, to resize them; the first's size is a `*float32` |
-| `Table` | rows under a header of `TableColumn`s, built only while in view, choosing a `*int` by click or with Up and Down; a double click or Enter reports `Submitted` |
+| `Table` | rows under a header of `TableColumn`s, as high as their tallest cell: a `List`'s rows, with its `ListState`, see [tables](#tables) |
 | `Tree`, `TreeItem` | items that open and close, built inside the items they belong to, with the arrow keys moving between them; `Clicked` and `Selected` choose one |
 | `Icon` | shows a `*ui.SVG` in the color of the text, as high as the font size, see [images and icons](#images-and-icons) |
 | `Image` | shows a `*ui.Bitmap`, or a `*ui.SVG` in its own colors |
 | `Divider`, `Spacer` | a line, and space that grows |
-| `Scroll`, `ScrollHorizontal`, `ScrollBoth`, `List` | scroll containers, see [layout](#layout) |
+| `Scroll`, `ScrollHorizontal`, `ScrollBoth` | scroll containers, see [layout](#layout) |
+| `List` | rows of any number and height, built only while in view, see [lists](#lists) |
 | `Grid` | a grid of cells, see [grids](#grids) |
 | `Modal`, `Popover`, `Overlay` | dialogs and panels above the window, see [overlays](#overlays) |
 

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math"
+	"slices"
 
 	"github.com/egoist/mygo/internal/text"
 )
@@ -67,10 +68,34 @@ func base(v float32) float32 {
 // layoutTree lays the frame out in a window of w×h DIPs and gives every
 // element its box relative to the window.
 func layoutTree(root *Element, w, h float32) {
+	rt := root.c.rt
+	rt.consumed = false
 	layoutBox(root, w, h)
-	if rt := root.c.rt; len(rt.revealIDs) > 0 {
+	// Lists build rows as they lay out, which may ask to come into view.
+	for _, e := range root.c.reveal {
+		if !slices.Contains(rt.revealIDs, e.id) {
+			rt.revealIDs = append(rt.revealIDs, e.id)
+		}
+	}
+	if len(rt.revealIDs) > 0 {
 		revealAll(root, rt.revealIDs)
 		rt.revealIDs = rt.revealIDs[:0]
+	}
+	if rt.late {
+		// Rows built as their lists laid out handled their input as the
+		// view's elements do, and the next frame shows what that changed;
+		// what they put above the window is laid out with it.
+		rt.late = false
+		rt.forgetInput()
+		if rt.consumed {
+			rt.animating = true
+		}
+		if ov := root.c.overlay; ov != nil {
+			if ov.parent == nil {
+				root.add(ov)
+			}
+			layoutAbsolute(root)
+		}
 	}
 	place(root, 0, 0)
 }
@@ -93,15 +118,15 @@ func place(e *Element, x, y float32) {
 			s.scrollTo(sx, sy)
 		}
 		if t := e.track; t != nil {
-			t.MaxX, t.MaxY = mx, my
+			t.MaxX, t.MaxY = float32(mx), float32(my)
 		}
 		if s.movedIn(e.c.rt.frame) {
 			// What was built read the old offset, as List's rows or the
 			// app from its ScrollState: build the next frame with the new.
 			e.c.rt.animating = true
 		}
-		cx -= s.scrollX
-		cy -= s.scrollY
+		cx -= float32(s.scrollX)
+		cy -= float32(s.scrollY - e.scrollBase)
 	}
 	for ch := e.first; ch != nil; ch = ch.next {
 		if ch.flags&flagAbsolute != 0 {
@@ -344,6 +369,12 @@ func contentHeight(e *Element, cw float32) float32 {
 	case kindInput:
 		return e.inputHeight()
 	}
+	if f := e.list; f != nil && f.n > 0 {
+		// A List is as high as all its rows, as far as the heights known
+		// tell, whichever it built.
+		s := f.s
+		return float32(s.heights.top(f.n, float64(max(e.gapY, 0))) - float64(max(e.gapY, 0)))
+	}
 	if e.first == nil {
 		return 0
 	}
@@ -378,6 +409,10 @@ func layoutBox(e *Element, w, h float32) {
 	case kindImage, kindIcon:
 		return
 	}
+	if e.list != nil {
+		e.layoutList(w, h)
+		return
+	}
 	lw, lh := cw, ch
 	if e.flags&flagScrollX != 0 {
 		lw = inf
@@ -387,8 +422,8 @@ func layoutBox(e *Element, w, h float32) {
 	}
 	uw, uh := boxLayout(e, lw, lh, true)
 	if e.scrolls() {
-		e.contentW = max(uw, cw) + e.padX()
-		e.contentH = max(uh, ch) + e.padY()
+		e.contentW = float64(max(uw, cw) + e.padX())
+		e.contentH = float64(max(uh, ch) + e.padY())
 	}
 	layoutAbsolute(e)
 }

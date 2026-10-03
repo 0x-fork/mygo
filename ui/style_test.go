@@ -419,7 +419,7 @@ func TestScrollBoth(t *testing.T) {
 	// Drag the horizontal thumb to the end.
 	tt.Move(50, 50)
 	st := sc.st
-	g := scrollBars(Rect{st.x, st.y, st.w, st.h}, st.contentW, st.contentH, st.scrollX, st.scrollY, st.flags, 6)
+	g := scrollBars(Rect{st.x, st.y, st.w, st.h}, float32(st.contentW), float32(st.contentH), float32(st.scrollX), float32(st.scrollY), st.flags, 6)
 	if !g.horizontal || !g.vertical {
 		t.Fatalf("scroll bars %+v", g)
 	}

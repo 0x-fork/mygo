@@ -961,6 +961,41 @@ either.
   frame that moved one builds another for what read the old one. Frames
   happen only when asked: input, `Invalidate`, `After`, or `AnimationFrame`
   while something moves.
+- **Lists** (`ui/list.go`) build only the rows in view and keep their
+  place by a row, the anchor, and how far its top is above where the
+  content starts, not by an offset into their content: rows are measured,
+  grow, come and go (found again by key, `ListState.Key`, within a
+  thousand rows of where they were), and those in view stay put. Building,
+  a list makes the rows its place shows as far as the heights it knows
+  tell, and the row holding the focus and the header it pinned; laying out
+  (`layoutList`, in place of flexbox), it measures them, places them from
+  the anchor, a request (`ScrollTo`) or the end it follows, builds the rows
+  still missing, so that no frame shows a gap, and keeps the content's
+  ends at the list's. Heights measured live in blocks of 64 rows, made as
+  rows are measured, and the others are estimated as their average; the
+  content's size, and its offset, are where those heights put the rows,
+  in float64, as all scroll offsets are, so that millions of rows scroll
+  by fractions of a DIP. Rows are placed relative to the list, the offset
+  they were placed at kept as `scrollBase` for placing and revealing. An
+  offset the wheel, the keys, the scroll bar or the app changed moves the
+  place by as much when it is a step (up to two views), so rows not
+  measured yet scroll by the step; a jump goes where the heights known put
+  it once the rows built are measured, and the end to the end. A reveal
+  (the focus, `ScrollIntoView`) lays a list out anew from the row it
+  shows, the window's ScrollState-set offset of a list built anew is a
+  jump, and each element remembers the `ListState` that placed it last. A
+  scroll bar's thumb keeps the content's size of when it was grabbed until
+  it is let go, as rows measured meanwhile change it, and a frame that
+  moved a list whose `Visible` or `AtEnd` the view read builds another.
+  Rows built as a list lays out handle their input as the view's do,
+  which `layoutTree` then forgets, asking for a frame if they changed
+  anything, and lays out what they put in the overlay. Rows a `ScrollTo`
+  shows at the top go below the header pinned over their section. A list
+  without a size is as high as its rows, as the heights known tell, and
+  one without rows lays out what else was built in it, as a scroll
+  container. `Table` is a header of columns over a list, whose rows are as
+  high as their tallest cell, and which takes the focus and the keys for
+  the list.
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
   menu key marks the element, from the states of the last frame, and the
   next frame runs its `ContextMenu` function to collect a `platform.Menu`;
@@ -1192,7 +1227,8 @@ either.
 - **Tests.** `ui.Tester` runs views against a host in memory
   (`ui/headless.go`) with the CPU renderer; the fake backend's surface lets
   the core's tests drive content windows through `package mygo`.
-  `BenchmarkFrame` in `ui` measures a frame of a large window on the CPU.
+  `BenchmarkFrame` in `ui` measures a frame of a large window on the CPU,
+  and `BenchmarkListScroll` the frames scrolling a list of a million rows.
   The GPU renderers' tests draw `gputest.Scene` and compare it with the
   CPU renderer's drawing: on Windows in a hidden window, on macOS into an
   offscreen texture, on Linux into a framebuffer of a context EGL makes

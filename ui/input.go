@@ -125,13 +125,13 @@ func (rt *engine) setHover(chain []uint64) {
 func (rt *engine) pointerMove(x, y float32) {
 	if d := &rt.scrollDrag; d.st != nil {
 		s := d.st
-		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.contentW, s.contentH, s.scrollX, s.scrollY, s.flags, rt.c.theme.scrollbarWidth())
+		g := d.bars(rt.c.theme.scrollbarWidth())
 		if d.horizontal {
 			if travel := g.hTrack.W - 4 - g.h.W; travel > 0 {
-				s.scrollTo(max(0, min(s.contentW-s.w, d.from+(x-d.start)*(s.contentW-s.w)/travel)), s.scrollY)
+				s.scrollTo(dragTo(d.from, x-d.start, travel, d.contentW-float64(s.w), s.contentW-float64(s.w)), s.scrollY)
 			}
 		} else if travel := g.vTrack.H - 4 - g.v.H; travel > 0 {
-			s.scrollTo(s.scrollX, max(0, min(s.contentH-s.h, d.from+(y-d.start)*(s.contentH-s.h)/travel)))
+			s.scrollTo(s.scrollX, dragTo(d.from, y-d.start, travel, d.contentH-float64(s.h), s.contentH-float64(s.h)))
 		}
 		rt.pointerX, rt.pointerY = x, y
 		rt.requestFrame()
@@ -269,15 +269,34 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers) {
 	}
 }
 
+// dragTo returns the offset of content whose thumb moved by moved DIPs
+// along a track with travel DIPs of room since the offset was from, the
+// content scrolling as far as reach when the drag started and as far as
+// now: the end of the track shows the end.
+func dragTo(from float64, moved, travel float32, reach, now float64) float64 {
+	off := from + float64(moved)*reach/float64(travel)
+	if off >= reach {
+		return max(now, 0)
+	}
+	return max(0, min(off, now))
+}
+
+// bars returns the scroll bars of the container being dragged, with the
+// content's size as the drag started.
+func (d *scrollDrag) bars(width float32) scrollGeometry {
+	s := d.st
+	return scrollBars(Rect{s.x, s.y, s.w, s.h}, float32(d.contentW), float32(d.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, width)
+}
+
 // scrollBy scrolls a container by dx, dy within its content, and reports
 // whether it moved.
 func scrollBy(s *state, dx, dy float32) bool {
 	x, y := s.scrollX, s.scrollY
 	if dy != 0 && s.flags&flagScrollY != 0 {
-		y = max(0, min(y+dy, s.contentH-s.h))
+		y = max(0, min(y+float64(dy), s.contentH-float64(s.h)))
 	}
 	if dx != 0 && s.flags&flagScrollX != 0 {
-		x = max(0, min(x+dx, s.contentW-s.w))
+		x = max(0, min(x+float64(dx), s.contentW-float64(s.w)))
 	}
 	if x == s.scrollX && y == s.scrollY {
 		return false
@@ -710,26 +729,29 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 {
 			continue
 		}
-		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.contentW, s.contentH, s.scrollX, s.scrollY, s.flags, rt.c.theme.scrollbarWidth())
+		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, rt.c.theme.scrollbarWidth())
 		d := &rt.scrollDrag
+		w, h := float64(s.w), float64(s.h)
 		switch {
 		case g.vertical && g.vTrack.Contains(x, y):
 			switch {
 			case y >= g.v.Y && y < g.v.Y+g.v.H:
 				d.st, d.start, d.from, d.horizontal = s, y, s.scrollY, false
+				d.contentW, d.contentH = s.contentW, s.contentH
 			case y < g.v.Y:
-				s.scrollTo(s.scrollX, max(0, s.scrollY-s.h*0.9))
+				s.scrollTo(s.scrollX, max(0, s.scrollY-h*0.9))
 			default:
-				s.scrollTo(s.scrollX, min(s.contentH-s.h, s.scrollY+s.h*0.9))
+				s.scrollTo(s.scrollX, min(s.contentH-h, s.scrollY+h*0.9))
 			}
 		case g.horizontal && g.hTrack.Contains(x, y):
 			switch {
 			case x >= g.h.X && x < g.h.X+g.h.W:
 				d.st, d.start, d.from, d.horizontal = s, x, s.scrollX, true
+				d.contentW, d.contentH = s.contentW, s.contentH
 			case x < g.h.X:
-				s.scrollTo(max(0, s.scrollX-s.w*0.9), s.scrollY)
+				s.scrollTo(max(0, s.scrollX-w*0.9), s.scrollY)
 			default:
-				s.scrollTo(min(s.contentW-s.w, s.scrollX+s.w*0.9), s.scrollY)
+				s.scrollTo(min(s.contentW-w, s.scrollX+w*0.9), s.scrollY)
 			}
 		default:
 			continue

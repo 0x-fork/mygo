@@ -166,10 +166,11 @@ func TestTable(t *testing.T) {
 		names[i] = "file" + string(rune('A'+i%26)) + string(rune('0'+i/26))
 	}
 	sel, opened := -1, -1
+	s := ListState{Selected: &sel}
 	cols := []TableColumn{{Title: "Name"}, {Title: "Size", Width: 80, Align: End}}
 	tt := NewTester(func(c *Context) {
 		Column(c).Fill().Padding(10).Children(func() {
-			if Table(c, cols, len(names), &sel, func(row, col int) {
+			if Table(c, &s, cols, len(names), func(row, col int) {
 				if col == 0 {
 					Text(c, names[row])
 				} else {
@@ -208,6 +209,58 @@ func TestTable(t *testing.T) {
 	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
 	if sel != 0 || opened != 0 {
 		t.Errorf("a double click on the first row: selected %d, opened %d", sel, opened)
+	}
+}
+
+func TestTableRows(t *testing.T) {
+	// Sections of a header and 9 rows; every seventh row says a lot.
+	header := func(i int) bool { return i%10 == 0 }
+	s := ListState{Header: header}
+	headerCols := 0
+	cols := []TableColumn{{Title: "Name"}, {Title: "Notes", Width: 120}}
+	tt := NewTester(func(c *Context) {
+		Table(c, &s, cols, 1000, func(row, col int) {
+			switch {
+			case header(row):
+				if col != 0 {
+					headerCols++
+				}
+				Textf(c, "Section %d", row/10)
+			case col == 0:
+				Textf(c, "Row %d", row)
+			case row%7 == 0:
+				Text(c, "A note long enough to wrap over a few lines of its column")
+			default:
+				Text(c, "Short")
+			}
+		}).Grow(1)
+	}, 400, 600)
+	row1, _ := rowBox(tt, &s, 1)
+	if row1.H != 32 {
+		t.Errorf("a row of one line is %v high", row1.H)
+	}
+	row7, _ := rowBox(tt, &s, 7)
+	if row7.H < 3*16 {
+		t.Errorf("a row of a cell wrapping over lines is %v high", row7.H)
+	}
+	if r, ok := tt.Find("Row 7"); !ok || r.Y+r.H/2 < row7.Y+row7.H/2-1 || r.Y+r.H/2 > row7.Y+row7.H/2+1 {
+		t.Errorf("the short cell of a tall row is at %v, not in the middle of %v", r, row7)
+	}
+	if top, _ := rowBox(tt, &s, 0); top.W != 400 || headerCols != 0 {
+		t.Errorf("a header row is %v wide and built %d other columns", top.W, headerCols)
+	}
+	// The state scrolls the rows, below the column headers; the header of
+	// the section they are in stays at the top.
+	s.ScrollTo(505, Start)
+	tt.Frame()
+	head, _ := tt.Find("Name")
+	r505, _ := rowBox(tt, &s, 505)
+	r500, ok := rowBox(tt, &s, 500)
+	if !ok || r500.Y < head.Y+head.H || r500.Y+r500.H > r505.Y {
+		t.Errorf("row 505 at %v under the column headers ending at %v; its section's header at %v (%v)", r505, head.Y+head.H, r500, ok)
+	}
+	if first, _ := s.Visible(); first > 505 || first < 503 {
+		t.Errorf("scrolled to row 505, the first row in view is %d", first)
 	}
 }
 

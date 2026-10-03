@@ -132,7 +132,7 @@ func TestTrackScrollPerPage(t *testing.T) {
 func TestTrackScrollList(t *testing.T) {
 	var s ScrollState
 	tt := NewTester(func(c *Context) {
-		List(c, 1000, 20, func(i int) { Textf(c, "Row %d", i) }).Fill().TrackScroll(&s)
+		List(c, nil, 1000, func(i int) { Textf(c, "Row %d", i).Height(20) }).Fill().TrackScroll(&s)
 	}, 200, 200)
 	// The frame that scrolls builds the rows it shows.
 	s.Y = 500 * 20

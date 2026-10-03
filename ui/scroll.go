@@ -26,8 +26,8 @@ type ScrollState struct {
 //	}
 //	ui.Scroll(c).TrackScroll(&app.log).Children(app.lines)
 //
-// Rows a List does not build cannot ScrollIntoView: set Y to
-// float32(i)*rowHeight to show row i at the top.
+// A List keeps its place by its rows instead, and scrolls to a row with
+// its ListState.
 func (e *Element) TrackScroll(s *ScrollState) *Element {
 	e.track = s
 	if e.adoptScroll() && e.first != nil {
@@ -52,32 +52,37 @@ func (e *Element) ScrollIntoView() *Element {
 func (e *Element) adoptScroll() bool {
 	st, t := e.st, e.track
 	st.track = t
-	if t == nil || t.X == st.scrollX && t.Y == st.scrollY {
+	if t == nil || t.X == float32(st.scrollX) && t.Y == float32(st.scrollY) {
 		return false
 	}
 	st.beginMove(e.c.rt.frame)
-	st.scrollX, st.scrollY = t.X, t.Y
+	if t.X != float32(st.scrollX) {
+		st.scrollX = float64(t.X)
+	}
+	if t.Y != float32(st.scrollY) {
+		st.scrollY = float64(t.Y)
+	}
 	return true
 }
 
 // maxScroll returns as far as the element scrolls its content, on the axes
 // it scrolls.
-func (e *Element) maxScroll() (x, y float32) {
+func (e *Element) maxScroll() (x, y float64) {
 	if e.flags&flagScrollX != 0 {
-		x = max(0, e.contentW-e.w)
+		x = max(0, e.contentW-float64(e.w))
 	}
 	if e.flags&flagScrollY != 0 {
-		y = max(0, e.contentH-e.h)
+		y = max(0, e.contentH-float64(e.h))
 	}
 	return x, y
 }
 
 // scrollTo moves the content of a scroll container, and the ScrollState
 // tracking it.
-func (s *state) scrollTo(x, y float32) {
+func (s *state) scrollTo(x, y float64) {
 	s.scrollX, s.scrollY = x, y
 	if t := s.track; t != nil {
-		t.X, t.Y = x, y
+		t.X, t.Y = float32(x), float32(y)
 	}
 }
 
@@ -139,14 +144,25 @@ func reveal(e *Element) {
 			p.adoptScroll()
 			st := p.st
 			mx, my := p.maxScroll()
-			sx := max(0, min(nearest(st.scrollX, x, w, p.border[3], p.w-p.border[1]), mx))
-			sy := max(0, min(nearest(st.scrollY, y, h, p.border[0], p.h-p.border[2]), my))
+			// Where the box is in the content: a List placed its rows
+			// from scrollBase.
+			cx, cy := float64(x), float64(y)+p.scrollBase
+			sx := max(0, min(nearest(st.scrollX, cx, w, p.border[3], p.w-p.border[1]), mx))
+			sy := max(0, min(nearest(st.scrollY, cy, h, p.border[0], p.h-p.border[2]), my))
 			if sx != st.scrollX || sy != st.scrollY {
 				st.beginMove(frame)
-				st.scrollTo(sx, sy)
+				if p.list != nil {
+					// A List places its rows anew from there, building
+					// those it lacked, which moves the row holding the box.
+					was := ch.y
+					p.relayoutList(ch, sy)
+					cy = float64(y+ch.y-was) + p.scrollBase
+				} else {
+					st.scrollTo(sx, sy)
+				}
 			}
-			x -= st.scrollX
-			y -= st.scrollY
+			x = float32(cx - st.scrollX)
+			y = float32(cy - st.scrollY)
 		}
 		x += p.x
 		y += p.y
@@ -156,13 +172,13 @@ func reveal(e *Element) {
 // nearest returns the offset that shows what spans [pos, pos+size) of a
 // container's content in its viewport [lo, hi), scrolled by off, moving as
 // little as it can: what is larger than the viewport shows from its start.
-func nearest(off, pos, size, lo, hi float32) float32 {
-	start, end := pos-off, pos+size-off
+func nearest(off, pos float64, size, lo, hi float32) float64 {
+	start, end := pos-off, pos+float64(size)-off
 	switch {
-	case start < lo:
-		return off - (lo - start)
-	case end > hi:
-		return off + min(end-hi, start-lo)
+	case start < float64(lo):
+		return off - (float64(lo) - start)
+	case end > float64(hi):
+		return off + min(end-float64(hi), start-float64(lo))
 	}
 	return off
 }
