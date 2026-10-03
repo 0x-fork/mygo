@@ -432,6 +432,37 @@ func TestScrollBoth(t *testing.T) {
 	}
 }
 
+func TestScrollContentShrinks(t *testing.T) {
+	long := true
+	var top *Element
+	tt := NewTester(func(c *Context) {
+		Column(c).Fill().Children(func() {
+			if Button(c, "Switch").Clicked() {
+				long = !long
+			}
+			Scroll(c).Grow(1).Children(func() {
+				top = Box(c).Height(20).Shrink(0)
+				if long {
+					Box(c).Height(1000).Shrink(0)
+				}
+			})
+		})
+	}, 200, 200)
+	r, _ := tt.Find("Switch")
+	start := top.y
+	tt.Move(100, 150)
+	tt.Scroll(100, 150, 0, 2000)
+	if top.y >= 0 {
+		t.Fatalf("scrolled to the end, the top is at %v", top.y)
+	}
+	// The content no longer reaches as far: the frame that shows it
+	// shows it from the top, not from where the long content was.
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	if top.y != start {
+		t.Errorf("the short content starts at %v, not %v", top.y, start)
+	}
+}
+
 func TestEasingAndLoop(t *testing.T) {
 	for name, e := range map[string]Easing{"linear": Linear, "in": EaseIn, "out": EaseOut, "in out": EaseInOut} {
 		if e(0) != 0 || e(1) != 1 || e(0.5) <= 0 || e(0.5) >= 1 {

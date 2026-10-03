@@ -78,8 +78,18 @@ func place(e *Element, x, y float32) {
 	e.y += y
 	cx, cy := e.x, e.y
 	if e.scrolls() {
-		cx -= e.st.scrollX
-		cy -= e.st.scrollY
+		// The content may no longer reach as far as the offset, as when a
+		// page gives way to a shorter one: keep the offset within it, and
+		// build the next frame with it, for what the build put where the
+		// old offset showed, as List's rows.
+		s := e.st
+		sx, sy := max(0, min(s.scrollX, e.contentW-e.w)), max(0, min(s.scrollY, e.contentH-e.h))
+		if sx != s.scrollX || sy != s.scrollY {
+			s.scrollX, s.scrollY = sx, sy
+			e.c.rt.animating = true
+		}
+		cx -= sx
+		cy -= sy
 	}
 	for ch := e.first; ch != nil; ch = ch.next {
 		if ch.flags&flagAbsolute != 0 {

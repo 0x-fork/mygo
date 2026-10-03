@@ -316,8 +316,6 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	s.cx, s.cw = e.x+e.contentX(), max(e.w-e.padX(), 0)
 	if e.flags&(flagScrollX|flagScrollY) != 0 {
 		s.contentW, s.contentH = e.contentW, e.contentH
-		s.scrollX = max(0, min(s.scrollX, e.contentW-e.w))
-		s.scrollY = max(0, min(s.scrollY, e.contentH-e.h))
 	}
 	// What is invisible keeps its box but takes neither the pointer nor
 	// the focus, and has no text to find.
