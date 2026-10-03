@@ -103,10 +103,6 @@ go tool mygo dev
 
 Read the [documentation](docs/README.md).
 
-## Status
-
-MyGo is at v0.1, on macOS 12+, Linux and Windows 10+ (x64 and arm64).
-
 ## License
 
 MIT
