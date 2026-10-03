@@ -12,6 +12,11 @@
   --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
   --color-gopher: var(--gopher);
   --color-gopher-ink: var(--gopher-ink);
+  --color-bang-1: var(--bang-1);
+  --color-bang-2: var(--bang-2);
+  --color-bang-3: var(--bang-3);
+  --color-bang-4: var(--bang-4);
+  --color-bang-5: var(--bang-5);
   --color-code: var(--code);
   --color-ring: var(--ring);
   --color-input: var(--input);
@@ -44,6 +49,13 @@
 :root {
   --gopher: oklch(0.69 0.13 224);
   --gopher-ink: oklch(0.5 0.11 228);
+  /* The "!" of the wordmark, in the colors of MyGO!!!!!'s members: Tomori,
+     Anon, Rāna, Soyo and Taki. Deeper on white, for 3:1. */
+  --bang-1: oklch(0.66 0.084 231);
+  --bang-2: oklch(0.69 0.145 12);
+  --bang-3: oklch(0.65 0.169 144);
+  --bang-4: oklch(0.67 0.111 88);
+  --bang-5: oklch(0.59 0.078 284);
   --code: oklch(0.985 0 0);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -69,6 +81,11 @@
 .dark {
   --gopher: oklch(0.76 0.12 222);
   --gopher-ink: oklch(0.8 0.11 222);
+  --bang-1: oklch(0.76 0.084 231);
+  --bang-2: oklch(0.76 0.145 12);
+  --bang-3: oklch(0.81 0.169 144);
+  --bang-4: oklch(0.91 0.111 88);
+  --bang-5: oklch(0.59 0.078 284);
   --code: oklch(0.165 0 0);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
