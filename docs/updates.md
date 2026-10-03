@@ -181,7 +181,8 @@ mygo.Use(updater.Plugin)
 ```
 
 Its page describes the "Check for Updates…" menu item, its options, the
-preferences it keeps and its languages.
+preferences it keeps, its languages, and `native.Plugin`, the same window
+in native UI for apps that show no web page.
 
 ## Your own update UI
 

@@ -309,3 +309,26 @@ func TestDateInput(t *testing.T) {
 		t.Error("Escape leaves the calendar open")
 	}
 }
+
+func TestProgressReverse(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		img := Render(func(c *Context) {
+			Column(c).Padding(10).Children(func() {
+				bar := Progress(c, 0.25).Height(10)
+				if reverse {
+					bar.Reverse()
+				}
+			})
+		}, 220, 30, 1)
+		accent := LightTheme().Accent
+		filled := func(x int) bool {
+			c := img.RGBAAt(x, 15)
+			return c.R == accent.R && c.G == accent.G && c.B == accent.B
+		}
+		// The fill takes a quarter of the 200 DIPs of the bar, from the
+		// left, or from the right when reversed.
+		if filled(20) == reverse || filled(200) != reverse || filled(110) {
+			t.Errorf("reverse %v: filled at 20 %v, at 110 %v, at 200 %v", reverse, filled(20), filled(110), filled(200))
+		}
+	}
+}

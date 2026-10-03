@@ -1,4 +1,9 @@
-package updater
+// Package markdown parses the release notes of the update window. It
+// knows what changelogs use: headings, paragraphs, nested lists, block
+// quotes, fenced code, rules, emphasis, code spans and links. Everything
+// else is text: raw HTML stays text, and links only go to http, https and
+// mailto URLs, so notes cannot run code in the window.
+package markdown
 
 import (
 	"html"
@@ -7,39 +12,72 @@ import (
 	"unicode/utf8"
 )
 
-// renderMarkdown turns release notes into HTML for the update window. It
-// knows what changelogs use: headings, paragraphs, nested lists, block
-// quotes, fenced code, rules, emphasis, code spans and links. Everything
-// else is text: raw HTML is escaped, and links only go to http, https and
-// mailto URLs, so notes cannot run code in the window.
-func renderMarkdown(src string) string {
-	src = strings.ReplaceAll(src, "\r\n", "\n")
-	src = strings.ReplaceAll(src, "\t", "    ")
-	var b strings.Builder
-	renderBlocks(&b, strings.Split(src, "\n"), false)
-	return b.String()
+// BlockKind is what a Block is.
+type BlockKind uint8
+
+const (
+	Paragraph BlockKind = iota
+	Heading
+	List
+	Quote
+	Code
+	Rule
+)
+
+// Block is a block of release notes.
+type Block struct {
+	Kind BlockKind
+	// Level is the level of a heading, from 1 to 6.
+	Level int
+	// Inlines are the text of a paragraph or heading.
+	Inlines []Inline
+	// Text is the text of fenced code.
+	Text string
+	// Ordered is set for a numbered list, whose Items hold the blocks of
+	// each item; Blocks are those of a quote.
+	Ordered bool
+	Items   [][]Block
+	Blocks  []Block
 }
 
-// renderBlocks renders lines as blocks. tight renders a lone paragraph
-// without <p>, as in the items of a list.
-func renderBlocks(b *strings.Builder, lines []string, tight bool) {
+// InlineKind is what an Inline is.
+type InlineKind uint8
+
+const (
+	Text InlineKind = iota
+	CodeSpan
+	Emphasis
+	Strong
+	Link
+)
+
+// Inline is a run of text in a paragraph or heading.
+type Inline struct {
+	Kind InlineKind
+	// Text is the text of a Text or CodeSpan.
+	Text string
+	// Children are the text of an Emphasis, Strong or Link.
+	Children []Inline
+	// URL is where a Link goes: an http, https or mailto URL.
+	URL string
+}
+
+// Parse parses release notes.
+func Parse(src string) []Block {
+	src = strings.ReplaceAll(src, "\r\n", "\n")
+	src = strings.ReplaceAll(src, "\t", "    ")
+	return parseBlocks(strings.Split(src, "\n"))
+}
+
+// parseBlocks parses lines as blocks.
+func parseBlocks(lines []string) []Block {
+	var blocks []Block
 	var para []string
-	paras := 0
 	flush := func() {
-		if len(para) == 0 {
-			return
+		if len(para) > 0 {
+			blocks = append(blocks, Block{Kind: Paragraph, Inlines: parseInline(strings.Join(para, "\n"))})
+			para = nil
 		}
-		text := renderInline(strings.Join(para, "\n"))
-		if tight {
-			if paras > 0 {
-				b.WriteString("<br>")
-			}
-			b.WriteString(text)
-		} else {
-			b.WriteString("<p>" + text + "</p>")
-		}
-		paras++
-		para = nil
 	}
 	for i := 0; i < len(lines); {
 		line := lines[i]
@@ -56,17 +94,16 @@ func renderBlocks(b *strings.Builder, lines []string, tight bool) {
 				code = append(code, lines[i])
 			}
 			i++
-			b.WriteString("<pre><code>" + html.EscapeString(strings.Join(code, "\n")) + "</code></pre>")
+			blocks = append(blocks, Block{Kind: Code, Text: strings.Join(code, "\n")})
 		case heading(trimmed) > 0:
 			flush()
 			n := heading(trimmed)
 			text := strings.TrimRight(strings.TrimSpace(trimmed[n:]), "#")
-			tag := "h" + strconv.Itoa(n)
-			b.WriteString("<" + tag + ">" + renderInline(strings.TrimSpace(text)) + "</" + tag + ">")
+			blocks = append(blocks, Block{Kind: Heading, Level: n, Inlines: parseInline(strings.TrimSpace(text))})
 			i++
 		case isRule(trimmed):
 			flush()
-			b.WriteString("<hr>")
+			blocks = append(blocks, Block{Kind: Rule})
 			i++
 		case strings.HasPrefix(trimmed, ">"):
 			flush()
@@ -75,13 +112,13 @@ func renderBlocks(b *strings.Builder, lines []string, tight bool) {
 				q := strings.TrimPrefix(strings.TrimSpace(lines[i]), ">")
 				quote = append(quote, strings.TrimPrefix(q, " "))
 			}
-			b.WriteString("<blockquote>")
-			renderBlocks(b, quote, false)
-			b.WriteString("</blockquote>")
+			blocks = append(blocks, Block{Kind: Quote, Blocks: parseBlocks(quote)})
 		default:
 			if _, _, ok := listMarker(line); ok && (len(para) == 0 || startsList(line)) {
 				flush()
-				i = renderList(b, lines, i)
+				var list Block
+				list, i = parseList(lines, i)
+				blocks = append(blocks, list)
 				continue
 			}
 			para = append(para, trimmed)
@@ -89,17 +126,14 @@ func renderBlocks(b *strings.Builder, lines []string, tight bool) {
 		}
 	}
 	flush()
+	return blocks
 }
 
-// renderList renders the list starting at lines[i] and returns the index
-// of the line after it.
-func renderList(b *strings.Builder, lines []string, i int) int {
+// parseList parses the list starting at lines[i] and returns it with the
+// index of the line after it.
+func parseList(lines []string, i int) (Block, int) {
 	indent, ordered, _ := listMarker(lines[i])
-	tag := "ul"
-	if ordered {
-		tag = "ol"
-	}
-	b.WriteString("<" + tag + ">")
+	list := Block{Kind: List, Ordered: ordered}
 	for i < len(lines) {
 		ind, ord, ok := listMarker(lines[i])
 		if !ok || ind != indent || ord != ordered {
@@ -136,12 +170,9 @@ func renderList(b *strings.Builder, lines []string, i int) int {
 		for len(item) > 0 && item[len(item)-1] == "" {
 			item = item[:len(item)-1]
 		}
-		b.WriteString("<li>")
-		renderBlocks(b, item, true)
-		b.WriteString("</li>")
+		list.Items = append(list.Items, parseBlocks(item))
 	}
-	b.WriteString("</" + tag + ">")
-	return i
+	return list, i
 }
 
 // listMarker reports whether line starts a list item, with the indentation
@@ -228,29 +259,56 @@ func isRule(t string) bool {
 	return n >= 3
 }
 
-// renderInline renders the text of a paragraph or heading.
-func renderInline(s string) string {
-	var b strings.Builder
+// inlines collects the inlines of a text, merging runs of text.
+type inlines []Inline
+
+func (in *inlines) text(s string) {
+	if n := len(*in); n > 0 && (*in)[n-1].Kind == Text {
+		(*in)[n-1].Text += s
+		return
+	}
+	*in = append(*in, Inline{Kind: Text, Text: s})
+}
+
+// link adds children linked to href, or the children alone when the URL is
+// not one the window opens.
+func (in *inlines) link(href string, children []Inline) {
+	if !SafeURL(href) {
+		for _, c := range children {
+			if c.Kind == Text {
+				in.text(c.Text)
+			} else {
+				*in = append(*in, c)
+			}
+		}
+		return
+	}
+	*in = append(*in, Inline{Kind: Link, URL: href, Children: children})
+}
+
+// parseInline parses the text of a paragraph or heading.
+func parseInline(s string) []Inline {
+	var in inlines
 	for i := 0; i < len(s); {
 		c := s[i]
 		switch {
 		case c == '\\' && i+1 < len(s) && isPunct(s[i+1]):
-			b.WriteString(html.EscapeString(s[i+1 : i+2]))
+			in.text(s[i+1 : i+2])
 			i += 2
 			continue
 		case c == '\n':
-			b.WriteByte(' ')
+			in.text(" ")
 			i++
 			continue
 		case c == '`':
 			n := run(s[i:], '`')
 			if end := strings.Index(s[i+n:], s[i:i+n]); end >= 0 {
 				code := strings.TrimSpace(strings.ReplaceAll(s[i+n:i+n+end], "\n", " "))
-				b.WriteString("<code>" + html.EscapeString(code) + "</code>")
+				in = append(in, Inline{Kind: CodeSpan, Text: code})
 				i += n + end + n
 				continue
 			}
-			b.WriteString(s[i : i+n])
+			in.text(s[i : i+n])
 			i += n
 			continue
 		case c == '[' || c == '!' && strings.HasPrefix(s[i:], "!["):
@@ -260,19 +318,20 @@ func renderInline(s string) string {
 				start++
 			}
 			if text, href, n, ok := parseLink(s[start:]); ok {
+				var children []Inline
 				if image {
-					text = html.EscapeString(text)
+					children = []Inline{{Kind: Text, Text: text}}
 				} else {
-					text = renderInline(text)
+					children = parseInline(text)
 				}
-				b.WriteString(anchor(href, text))
+				in.link(href, children)
 				i = start + n
 				continue
 			}
 		case c == '<':
 			if end := strings.IndexByte(s[i:], '>'); end > 0 {
-				if u := s[i+1 : i+end]; !strings.ContainsAny(u, " <") && safeURL(u) {
-					b.WriteString(anchor(u, html.EscapeString(u)))
+				if u := s[i+1 : i+end]; !strings.ContainsAny(u, " <") && SafeURL(u) {
+					in.link(u, []Inline{{Kind: Text, Text: u}})
 					i += end + 1
 					continue
 				}
@@ -286,16 +345,16 @@ func renderInline(s string) string {
 			rest := s[i+n:]
 			if rest != "" && rest[0] != ' ' && rest[0] != '\n' {
 				if end := closing(rest, delim); end > 0 {
-					tag := "em"
+					kind := Emphasis
 					if n == 2 {
-						tag = "strong"
+						kind = Strong
 					}
-					b.WriteString("<" + tag + ">" + renderInline(rest[:end]) + "</" + tag + ">")
+					in = append(in, Inline{Kind: kind, Children: parseInline(rest[:end])})
 					i += n + end + n
 					continue
 				}
 			}
-			b.WriteString(delim)
+			in.text(delim)
 			i += n
 			continue
 		case c == 'h' && (i == 0 || !isWord(s[i-1])) && (strings.HasPrefix(s[i:], "https://") || strings.HasPrefix(s[i:], "http://")):
@@ -307,15 +366,15 @@ func renderInline(s string) string {
 			if strings.Count(u, "(") > strings.Count(u, ")") && end > i+len(u) && s[i+len(u)] == ')' {
 				u += ")"
 			}
-			b.WriteString(anchor(u, html.EscapeString(u)))
+			in.link(u, []Inline{{Kind: Text, Text: u}})
 			i += len(u)
 			continue
 		}
-		r, size := utf8.DecodeRuneInString(s[i:])
-		b.WriteString(html.EscapeString(string(r)))
+		_, size := utf8.DecodeRuneInString(s[i:])
+		in.text(s[i : i+size])
 		i += size
 	}
-	return b.String()
+	return in
 }
 
 // parseLink parses "[text](url)" or `[text](url "title")` at the start of
@@ -350,16 +409,9 @@ func parseLink(s string) (text, href string, n int, ok bool) {
 	return s[1:end], dest, end + 2 + close + 1, true
 }
 
-// anchor links text to href, or returns the text when the URL is not one
-// the window opens.
-func anchor(href, text string) string {
-	if !safeURL(href) {
-		return text
-	}
-	return `<a href="` + html.EscapeString(href) + `">` + text + "</a>"
-}
-
-func safeURL(u string) bool {
+// SafeURL reports whether u is a URL the window opens: http, https or
+// mailto.
+func SafeURL(u string) bool {
 	l := strings.ToLower(u)
 	return strings.HasPrefix(l, "https://") || strings.HasPrefix(l, "http://") || strings.HasPrefix(l, "mailto:")
 }
@@ -402,4 +454,81 @@ func isPunct(c byte) bool { return strings.IndexByte("!\"#$%&'()*+,-./:;<=>?@[\\
 
 func isWord(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c >= 0x80
+}
+
+// HTML renders blocks as HTML, escaping all their text.
+func HTML(blocks []Block) string {
+	var b strings.Builder
+	writeBlocks(&b, blocks, false)
+	return b.String()
+}
+
+// writeBlocks renders blocks. tight renders paragraphs without <p>, apart
+// by <br>, as in the items of a list.
+func writeBlocks(b *strings.Builder, blocks []Block, tight bool) {
+	paras := 0
+	for _, bl := range blocks {
+		switch bl.Kind {
+		case Paragraph:
+			if !tight {
+				b.WriteString("<p>")
+				writeInlines(b, bl.Inlines)
+				b.WriteString("</p>")
+			} else {
+				if paras > 0 {
+					b.WriteString("<br>")
+				}
+				writeInlines(b, bl.Inlines)
+			}
+			paras++
+		case Heading:
+			tag := "h" + strconv.Itoa(bl.Level)
+			b.WriteString("<" + tag + ">")
+			writeInlines(b, bl.Inlines)
+			b.WriteString("</" + tag + ">")
+		case List:
+			tag := "ul"
+			if bl.Ordered {
+				tag = "ol"
+			}
+			b.WriteString("<" + tag + ">")
+			for _, item := range bl.Items {
+				b.WriteString("<li>")
+				writeBlocks(b, item, true)
+				b.WriteString("</li>")
+			}
+			b.WriteString("</" + tag + ">")
+		case Quote:
+			b.WriteString("<blockquote>")
+			writeBlocks(b, bl.Blocks, false)
+			b.WriteString("</blockquote>")
+		case Code:
+			b.WriteString("<pre><code>" + html.EscapeString(bl.Text) + "</code></pre>")
+		case Rule:
+			b.WriteString("<hr>")
+		}
+	}
+}
+
+func writeInlines(b *strings.Builder, inlines []Inline) {
+	for _, in := range inlines {
+		switch in.Kind {
+		case Text:
+			b.WriteString(html.EscapeString(in.Text))
+		case CodeSpan:
+			b.WriteString("<code>" + html.EscapeString(in.Text) + "</code>")
+		case Emphasis, Strong:
+			tag := "em"
+			if in.Kind == Strong {
+				tag = "strong"
+			}
+			b.WriteString("<" + tag + ">")
+			writeInlines(b, in.Children)
+			b.WriteString("</" + tag + ">")
+		case Link:
+			b.WriteString(`<a href="` + html.EscapeString(in.URL) + `">`)
+			writeInlines(b, in.Children)
+			b.WriteString("</a>")
+		}
+	}
 }

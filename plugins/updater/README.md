@@ -23,6 +23,10 @@ and "Check for Updates…" in the app's menu:
 }},
 ```
 
+Apps whose windows all show native UI use `native.Plugin` (package
+`github.com/egoist/mygo/plugins/updater/native`) instead: the same window
+drawn in native UI, with no webview.
+
 It speaks the user's language (English, Chinese, Dutch, French, German,
 Italian, Japanese, Korean, Polish, Portuguese, Russian, Spanish, Turkish,
 Ukrainian), and `Options.Strings` changes its texts or adds languages.

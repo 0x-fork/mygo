@@ -86,7 +86,8 @@ framework safely. Read it before changing anything under `internal/`.
 │                       per-platform binary packages
 ├── plugins/            official plugins, each a Go package and its npm
 │                       package (@mygo-plugins/<name>) side by side: fetch,
-│                       websocket; and updater, the update window, Go only
+│                       websocket; and updater, the update window, Go only,
+│                       a web page or native UI (updater/native)
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native, vibrancy; counter-native
@@ -610,7 +611,7 @@ build` like mygo-runtime and released with the same version.
 - **updater** is the update window, in the manner of Sparkle, built on
   `mygo.Updater` alone. A *session* is a check and what follows it (the
   release notes, the download, the offer to relaunch): a goroutine that
-  sets the session's *view* (title, message, progress, rendered notes,
+  sets the session's *view* (title, message, progress, release notes,
   buttons) and waits for responses, whether or not the window shows, so
   that a background check shows it only when it has something to offer and
   a "Check for Updates…" during one just shows it. The window's page, one
@@ -619,14 +620,25 @@ build` like mygo-runtime and released with the same version.
   with `Respond`; each set of buttons has a prompt number and only the
   first answer to the current prompt counts, so a double click cannot
   answer the next view. The plugin's service rejects calls from other
-  windows. Release notes are Markdown rendered in Go (`markdown.go`), which
-  escapes all HTML and only links http(s) and mailto URLs, and a
-  Content Security Policy with a nonce runs only the page's own script:
-  the page may call Go, and the notes come from the unsigned manifest.
-  Links open in the browser (`OnWillNavigate`). Views with release notes
-  have a fixed size; status views ask for the height of their text
-  (`Fit`). The window gets an empty menu of its own, so it has no menu bar
-  on Linux and Windows. `updater.json` in `PathUserData` keeps the
+  windows. Release notes are Markdown parsed in Go (`internal/markdown`),
+  which keeps all HTML as text and only links http(s) and mailto URLs; the
+  page gets them rendered as escaped HTML, and a Content Security Policy
+  with a nonce runs only the page's own script: the page may call Go, and
+  the notes come from the unsigned manifest. Links open in the browser
+  (`OnWillNavigate`). Views with release notes have a fixed size; status
+  views ask for the height of their text (`Fit`). The window gets an empty
+  menu of its own, so it has no menu bar on Linux and Windows.
+  A window sees its session through `internal/frontend`: the session
+  creates it (`NewWindow`: its size, its menu, the session canceled when
+  it closes), and the window shows the views (`Current`), answers
+  (`Respond`) and asks for a size (`Fit`). `plugins/updater/native` is
+  the same window in native UI: `native.New` builds the plugin with a
+  window of its own through a hook package updater sets
+  (`frontend.Plugin`), so package updater links no native UI and has no
+  API for other windows. Its view rebuilds when the session's view
+  changes, measures the boxes of a layout in the next frame (`Bounds`) to
+  ask for the size the page's script would, and builds the notes'
+  paragraphs of inline text elements, their links of `ui.Link`. `updater.json` in `PathUserData` keeps the
   preferences, the skipped version and the time of the last check, and
   a change that alters them calls the functions of `OnChange` on the main
   thread, from a goroutine of its own so that no caller waits for the main
@@ -993,6 +1005,14 @@ either.
   between byte indices. `Params.Spans` holds them encoded as a string, so
   `Params` stays a key of the layout cache. Colors, underlines and
   strikethroughs of spans only paint, by the rune each glyph starts.
+  Text elements built inside a text (`ui/inline.go`) are inline: the
+  paragraph takes their text when its `Children` returns, and their
+  styles as spans over its own when it lays out. At commit, each gets the
+  boxes of its runes in the paragraph's layout (`Selection`), one hit
+  each, so the pointer, the focus order, tooltips and menus work as for
+  any element; they paint only their focus ring, and assistive
+  technology sees those that are more than text, such as links, as nodes
+  inside the paragraph's.
   Fontconfig knows no desktop's interface font, so on Linux `system-ui`
   stands for the family of GTK's `gtk-font-name` first
   (`platform.Theme.UIFont`, which package ui gives `SetUIFamily` with each

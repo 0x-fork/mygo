@@ -336,3 +336,38 @@ func TestPopupsOpenWhereTheyFit(t *testing.T) {
 		}
 	}
 }
+
+func TestEnterWithWindowShortcut(t *testing.T) {
+	window, button, checked := 0, 0, false
+	tt := NewTester(func(c *Context) {
+		if c.Shortcut(0, KeyEnter) {
+			window++
+		}
+		Column(c).Children(func() {
+			if Button(c, "Other").Clicked() {
+				button++
+			}
+			Checkbox(c, &checked, "Agree")
+		})
+	}, 300, 200)
+	tt.Key(0, KeyEnter)
+	if window != 1 || button != 0 {
+		t.Fatalf("Enter without a focus: window %d, button %d", window, button)
+	}
+	// A focused button takes Enter before the window.
+	tt.Key(0, KeyTab)
+	tt.Key(0, KeyEnter)
+	if window != 1 || button != 1 {
+		t.Fatalf("Enter on a focused button: window %d, button %d", window, button)
+	}
+	// A focused check box leaves Enter to the window and takes Space.
+	tt.Key(0, KeyTab)
+	tt.Key(0, KeyEnter)
+	if window != 2 || checked {
+		t.Fatalf("Enter on a focused check box: window %d, checked %v", window, checked)
+	}
+	tt.Key(0, KeySpace)
+	if window != 2 || !checked {
+		t.Fatalf("Space on a focused check box: window %d, checked %v", window, checked)
+	}
+}

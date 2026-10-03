@@ -44,7 +44,7 @@ func SwitchBase(c *Context, on *bool) *Element { return toggle(c, on, RoleSwitch
 
 func toggle(c *Context, on *bool, role Role, widget string) *Element {
 	e := Row(c).Focusable().Shrink(0)
-	e.flags |= flagClickable | flagHover
+	e.flags |= flagClickable | flagHover | flagToggle
 	e.widget, e.role = widget, role
 	if e.Clicked() {
 		*on = !*on
@@ -61,7 +61,7 @@ func toggle(c *Context, on *bool, role Role, widget string) *Element {
 // theme's look.
 func RadioBase[T comparable](c *Context, selected *T, value T) *Element {
 	e := Row(c).Focusable().Shrink(0)
-	e.flags |= flagClickable | flagHover
+	e.flags |= flagClickable | flagHover | flagToggle
 	e.widget, e.role = "Radio", RoleRadio
 	if e.Clicked() && *selected != value {
 		*selected = value

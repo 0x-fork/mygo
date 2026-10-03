@@ -97,6 +97,9 @@ const (
 	flagSelectable
 	flagInvisible
 	flagDebug
+	// flagToggle marks check boxes, switches and radio buttons, which
+	// leave Enter to the window's shortcuts and take Space.
+	flagToggle
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY
@@ -214,17 +217,26 @@ type Element struct {
 	text     string
 	spans    []Span // of a RichText
 	spansKey string // their styles, for the layout
-	ts       textStyle
-	maxLines int
-	single   bool
-	noWrap   bool
-	ellipsis string
-	image    *Bitmap
-	svg      *SVG // of an Icon, or an Image in its own colors
-	fit      Fit
-	gray     bool
-	rotate   float32 // of an Icon, in degrees
-	label    string
+	// A text holding inline elements (inline.go) keeps its own text, and
+	// merges the styles of theirs into its spans once a frame. An inline
+	// element has the range of its text in its parent's, in runes, and the
+	// boxes of that text in the paragraph's layout.
+	ownText   string
+	paragraph bool
+	merged    bool
+	runes     [2]int
+	frags     []Rect
+	ts        textStyle
+	maxLines  int
+	single    bool
+	noWrap    bool
+	ellipsis  string
+	image     *Bitmap
+	svg       *SVG // of an Icon, or an Image in its own colors
+	fit       Fit
+	gray      bool
+	rotate    float32 // of an Icon, in degrees
+	label     string
 	// widget names the widget that used the element's state as it created
 	// it, which Key would then lose.
 	widget string
@@ -333,6 +345,9 @@ func (e *Element) Children(fn func()) *Element {
 	c.parent = e
 	fn()
 	c.parent = saved
+	if e.kind == kindText && e.first != nil {
+		e.inlineText()
+	}
 	return e
 }
 

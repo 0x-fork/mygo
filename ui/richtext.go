@@ -42,6 +42,21 @@ type Span struct {
 //	)
 //
 // The spans wrap together as one paragraph, or several at newlines.
+//
+// Text elements built in its Children (Text, Link, RichText) continue the
+// paragraph after its spans, as HTML's inline elements do: each styles its
+// own text over the paragraph's, and keeps its interaction (Clicked,
+// Hovered, the focus, a Tooltip, assistive technology) with its words as
+// its area. A link in a sentence:
+//
+//	ui.RichText(c).Children(func() {
+//		ui.Text(c, "Read ")
+//		ui.Link(c, "the guide", url)
+//		ui.Text(c, " to get started.")
+//	})
+//
+// Only text elements go inside a text, and their sizes, padding, borders
+// and corners do not apply; a background highlights their text.
 func RichText(c *Context, spans ...Span) *Element {
 	e := c.newElement(kindText)
 	n := 0
@@ -59,8 +74,11 @@ func RichText(c *Context, spans ...Span) *Element {
 }
 
 // textSpans encodes the styles of an element's spans for its layout, once
-// a frame.
+// a frame, with those of the elements inside it, once it is built.
 func (e *Element) textSpans() string {
+	if e.first != nil && !e.merged {
+		e.spans, e.merged = e.inlineSpans(), true
+	}
 	if e.spans == nil || e.spansKey != "" {
 		return e.spansKey
 	}

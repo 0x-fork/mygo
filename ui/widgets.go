@@ -199,7 +199,10 @@ func styleButton(c *Context, b *Element, primary bool) {
 	}
 }
 
-// Link creates a text that opens url in the browser when clicked.
+// Link creates a text that opens url in the browser when clicked, or
+// Enter while it has the focus. Inside a RichText it is a link within the
+// paragraph; give it an empty label and Children to style parts of its
+// text.
 func Link(c *Context, label, url string) *Element {
 	t := c.theme
 	e := Text(c, label).TextColor(t.Accent).Cursor(CursorPointer).Focusable()
@@ -329,7 +332,8 @@ func Slider(c *Context, value *float64, lo, hi float64) *Element {
 }
 
 // Progress creates a progress bar filled to value between 0 and 1; a
-// negative value shows activity of unknown length.
+// negative value shows activity of unknown length. Reverse fills it from
+// the right, for interfaces laid out from right to left.
 func Progress(c *Context, value float64) *Element {
 	t := c.theme
 	rad := t.Space(0.75)
@@ -341,12 +345,20 @@ func Progress(c *Context, value float64) *Element {
 	}
 	e.Draw(func(p *Painter, r Rect) {
 		if value >= 0 {
-			p.Fill(Rect{r.X, r.Y, r.W * float32(math.Min(value, 1)), r.H}, t.Accent, rad)
+			w := r.W * float32(math.Min(value, 1))
+			x := r.X
+			if e.reverse {
+				x = r.X + r.W - w
+			}
+			p.Fill(Rect{x, r.Y, w, r.H}, t.Accent, rad)
 			return
 		}
 		phase := float32(now.UnixMilli()%1400) / 1400
 		w := r.W * 0.3
 		x := r.X - w + (r.W+w)*phase
+		if e.reverse {
+			x = r.X + r.W - (r.W+w)*phase
+		}
 		p.Clip(r, rad, func() { p.Fill(Rect{x, r.Y, w, r.H}, t.Accent, rad) })
 	})
 	return e

@@ -10,9 +10,11 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/plugins/updater/internal/markdown"
 )
 
-// harness runs the updater without windows: present records the sessions
+// harness runs the updater without windows: its open function records the sessions
 // that would show one.
 type harness struct {
 	t          *testing.T
@@ -33,7 +35,6 @@ func newHarness(t *testing.T, opts Options) *harness {
 		func(r func()) func() { return func() { relaunch = r } }(relaunch),
 		func(v func() string) func() { return func() { appVersion = v } }(appVersion),
 		func(l func() string) func() { return func() { locale = l } }(locale),
-		func(p func(*session)) func() { return func() { present = p } }(present),
 		func(d func() (string, error)) func() { return func() { stateDir = d } }(stateDir),
 		func(r func(func())) func() { return func() { runOnMain = r } }(runOnMain),
 	}
@@ -51,10 +52,9 @@ func newHarness(t *testing.T, opts Options) *harness {
 	relaunch = func() { h.relaunches.Add(1) }
 	appVersion = func() string { return "1.0.0" }
 	locale = func() string { return "en-US" }
-	present = func(s *session) { h.presented <- s }
 	stateDir = func() (string, error) { return h.dir, nil }
 	runOnMain = func(fn func()) { fn() }
-	h.u = newUpdater(opts)
+	h.u = newUpdater(opts, func(s *session) { h.presented <- s })
 	return h
 }
 
@@ -84,7 +84,7 @@ func (h *harness) noWindow() {
 	h.t.Helper()
 	select {
 	case s := <-h.presented:
-		v, _ := s.current()
+		v, _ := s.Current()
 		h.t.Fatalf("a window was shown: %q", v.Title)
 	default:
 	}
@@ -95,7 +95,7 @@ func waitView(t *testing.T, s *session, title string) view {
 	t.Helper()
 	deadline := time.After(5 * time.Second)
 	for {
-		v, changed := s.current()
+		v, changed := s.Current()
 		if strings.HasPrefix(v.Title, title) {
 			return v
 		}
@@ -144,7 +144,7 @@ func TestUpToDate(t *testing.T) {
 	if !strings.Contains(v.Message, "1.0.0 is currently the newest version") {
 		t.Errorf("message %q", v.Message)
 	}
-	s.respond(v.Prompt, actionOK, false)
+	s.Respond(v.Prompt, actionOK, false)
 	waitDone(t, done)
 	if h.u.session != nil {
 		t.Error("the session was not cleared")
@@ -168,7 +168,7 @@ func TestInstallAndRelaunch(t *testing.T) {
 	done := h.begin(true)
 	s := h.shown()
 	v := waitView(t, s, "A new version of")
-	if !v.Release || !v.Checkbox || v.Checked || !strings.Contains(v.Notes, "<li>A <strong>bug</strong></li>") {
+	if !v.Release || !v.Checkbox || v.Checked || !strings.Contains(markdown.HTML(v.Notes), "<li>A <strong>bug</strong></li>") {
 		t.Errorf("available view: %+v", v)
 	}
 	if !strings.Contains(v.Message, "2.0.0 is now available—you have 1.0.0") {
@@ -177,13 +177,13 @@ func TestInstallAndRelaunch(t *testing.T) {
 	if len(v.Buttons) != 3 || v.Buttons[0].Action != actionSkip || !v.Buttons[0].Aside || !v.Buttons[2].Default {
 		t.Errorf("buttons %+v", v.Buttons)
 	}
-	s.respond(v.Prompt, actionInstall, true)
+	s.Respond(v.Prompt, actionInstall, true)
 
 	v = waitView(t, s, "Downloading update…")
 	for v.Progress != 0.25 {
-		_, changed := s.current()
+		_, changed := s.Current()
 		<-changed
-		v, _ = s.current()
+		v, _ = s.Current()
 	}
 	if v.Message != "5.0 MB of 20.0 MB" || !v.Bar || v.Release {
 		t.Errorf("downloading view: %+v", v)
@@ -193,7 +193,7 @@ func TestInstallAndRelaunch(t *testing.T) {
 	if !strings.Contains(v.Message, "2.0.0 is installed") {
 		t.Errorf("message %q", v.Message)
 	}
-	s.respond(v.Prompt, actionRelaunch, false)
+	s.Respond(v.Prompt, actionRelaunch, false)
 	waitDone(t, done)
 	if h.relaunches.Load() != 1 {
 		t.Error("the app did not relaunch")
@@ -209,7 +209,7 @@ func TestInstallAndRelaunch(t *testing.T) {
 	done = h.begin(true)
 	s = h.shown()
 	v = waitView(t, s, "Ready to Relaunch")
-	s.respond(v.Prompt, actionLater, false)
+	s.Respond(v.Prompt, actionLater, false)
 	waitDone(t, done)
 	if h.checks.Load() != checks {
 		t.Error("checked again after installing")
@@ -224,11 +224,11 @@ func TestSkipVersion(t *testing.T) {
 	h.result = func(context.Context) (*release, error) { return newRelease("2.0.0", nil), nil }
 	done := h.begin(false)
 	s := h.shown()
-	if s.isUser() {
+	if s.User() {
 		t.Error("a background check counts as the user's")
 	}
 	v := waitView(t, s, "A new version of")
-	s.respond(v.Prompt, actionSkip, false)
+	s.Respond(v.Prompt, actionSkip, false)
 	waitDone(t, done)
 	if got := h.saved().SkippedVersion; got != "2.0.0" {
 		t.Fatalf("skipped %q", got)
@@ -241,7 +241,7 @@ func TestSkipVersion(t *testing.T) {
 	done = h.begin(true)
 	s = h.shown()
 	v = waitView(t, s, "A new version of")
-	s.respond(v.Prompt, actionLater, false)
+	s.Respond(v.Prompt, actionLater, false)
 	waitDone(t, done)
 	// and a newer version is offered again.
 	h.result = func(context.Context) (*release, error) { return newRelease("2.0.1", nil), nil }
@@ -271,7 +271,7 @@ func TestAutomaticDownloads(t *testing.T) {
 	done := h.begin(true)
 	s := h.shown()
 	v := waitView(t, s, "Ready to Relaunch")
-	s.respond(v.Prompt, actionRelaunch, false)
+	s.Respond(v.Prompt, actionRelaunch, false)
 	waitDone(t, done)
 	if h.relaunches.Load() != 1 || h.checks.Load() != 1 {
 		t.Errorf("relaunches %d, checks %d", h.relaunches.Load(), h.checks.Load())
@@ -292,9 +292,9 @@ func TestCancelDownload(t *testing.T) {
 	done := h.begin(true)
 	s := h.shown()
 	v := waitView(t, s, "A new version of")
-	s.respond(v.Prompt, actionInstall, false)
+	s.Respond(v.Prompt, actionInstall, false)
 	v = waitView(t, s, "Downloading update…")
-	s.respond(v.Prompt, actionCancel, false)
+	s.Respond(v.Prompt, actionCancel, false)
 	waitDone(t, done)
 	if err := <-canceled; !errors.Is(err, context.Canceled) {
 		t.Errorf("install ended with %v", err)
@@ -319,7 +319,7 @@ func TestCheckErrors(t *testing.T) {
 	if v.Detail != "offline" {
 		t.Errorf("detail %q", v.Detail)
 	}
-	s.respond(v.Prompt, actionOK, false)
+	s.Respond(v.Prompt, actionOK, false)
 	waitDone(t, done)
 
 	h.result = func(context.Context) (*release, error) {
@@ -330,12 +330,12 @@ func TestCheckErrors(t *testing.T) {
 	done = h.begin(true)
 	s = h.shown()
 	v = waitView(t, s, "A new version of")
-	s.respond(v.Prompt, actionInstall, false)
+	s.Respond(v.Prompt, actionInstall, false)
 	v = waitView(t, s, "Update Error!")
 	if v.Detail != "bad signature" || !strings.Contains(v.Message, "installing") {
 		t.Errorf("error view %+v", v)
 	}
-	s.respond(v.Prompt, actionOK, false)
+	s.Respond(v.Prompt, actionOK, false)
 	waitDone(t, done)
 }
 
@@ -345,7 +345,7 @@ func TestUnavailable(t *testing.T) {
 	done := h.begin(true)
 	s := h.shown()
 	v := waitView(t, s, "Updates Unavailable")
-	s.respond(v.Prompt, actionOK, false)
+	s.Respond(v.Prompt, actionOK, false)
 	waitDone(t, done)
 	if h.checks.Load() != 0 {
 		t.Error("checked for updates")
@@ -358,10 +358,10 @@ func TestResponses(t *testing.T) {
 	done := h.begin(true)
 	s := h.shown()
 	v := waitView(t, s, "A new version of")
-	s.respond(v.Prompt-1, actionSkip, false)   // an earlier prompt
-	s.respond(v.Prompt, actionRelaunch, false) // no such button
-	s.respond(v.Prompt, actionLater, false)    // counts
-	s.respond(v.Prompt, actionSkip, false)     // a second response
+	s.Respond(v.Prompt-1, actionSkip, false)   // an earlier prompt
+	s.Respond(v.Prompt, actionRelaunch, false) // no such button
+	s.Respond(v.Prompt, actionLater, false)    // counts
+	s.Respond(v.Prompt, actionSkip, false)     // a second response
 	waitDone(t, done)
 	if st := h.saved(); st.SkippedVersion != "" {
 		t.Errorf("skipped %q", st.SkippedVersion)
@@ -385,7 +385,7 @@ func TestPromote(t *testing.T) {
 	waitView(t, s, "Checking for updates…")
 	close(proceed)
 	v := waitView(t, s, "You’re up to date!")
-	s.respond(v.Prompt, actionOK, false)
+	s.Respond(v.Prompt, actionOK, false)
 	waitDone(t, done)
 	if h.checks.Load() != 1 {
 		t.Errorf("%d checks", h.checks.Load())
@@ -401,7 +401,7 @@ func TestCancelCheck(t *testing.T) {
 	done := h.begin(true)
 	s := h.shown()
 	v := waitView(t, s, "Checking for updates…")
-	s.respond(v.Prompt, actionCancel, false)
+	s.Respond(v.Prompt, actionCancel, false)
 	waitDone(t, done)
 	if !h.u.failed.IsZero() {
 		t.Error("canceling counts as a failure")
@@ -421,12 +421,12 @@ func TestPreferences(t *testing.T) {
 		t.Fatal("not set")
 	}
 	// Another run reads them back.
-	u := newUpdater(Options{DisableAutomaticChecks: true})
+	u := newUpdater(Options{DisableAutomaticChecks: true}, nil)
 	u.load()
 	if !u.automaticChecks() || !u.state.AutomaticDownloads {
 		t.Errorf("state %+v", u.state)
 	}
-	if u := newUpdater(Options{}); u.opts.Interval != 24*time.Hour {
+	if u := newUpdater(Options{}, nil); u.opts.Interval != 24*time.Hour {
 		t.Errorf("interval %v", u.opts.Interval)
 	}
 }
@@ -471,7 +471,7 @@ func TestOnChange(t *testing.T) {
 	s := h.shown()
 	told(true, "the user's check")
 	v := waitView(t, s, "A new version of")
-	s.respond(v.Prompt, actionSkip, true)
+	s.Respond(v.Prompt, actionSkip, true)
 	waitDone(t, done)
 	told(true, "Skip This Version")
 
@@ -518,7 +518,8 @@ func TestNextCheck(t *testing.T) {
 
 func TestPage(t *testing.T) {
 	fr := newText("fr-FR", map[string]Strings{"fr": {ReleaseNotes: "<b>Notes</b>"}})
-	p := page(fr, "data:image/png;base64,AAAA", view{Title: "</script><script>alert(1)</script>", Buttons: fr.ok()})
+	v := view{Title: "</script><script>alert(1)</script>", Notes: markdown.Parse("A **bug**"), Buttons: fr.ok()}
+	p := page(fr.texts(), "data:image/png;base64,AAAA", v)
 	if strings.Contains(p, "{{") {
 		t.Error("a placeholder was left")
 	}
@@ -533,7 +534,10 @@ func TestPage(t *testing.T) {
 	if !strings.Contains(p, `src="data:image/png;base64,AAAA"`) {
 		t.Error("no icon")
 	}
-	for _, want := range []string{`<html lang="fr" dir="ltr">`, "<title>Mise à jour de logiciels</title>", "&lt;b&gt;Notes&lt;/b&gt;"} {
+	for _, want := range []string{
+		`<html lang="fr" dir="ltr">`, "<title>Mise à jour de logiciels</title>", "&lt;b&gt;Notes&lt;/b&gt;",
+		`"notes":"\u003cp\u003eA \u003cstrong\u003ebug\u003c/strong\u003e\u003c/p\u003e"`, // the notes in HTML, escaped
+	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("the page lacks %s", want)
 		}

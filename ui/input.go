@@ -354,14 +354,21 @@ func (rt *engine) focusChain() []uint64 {
 
 // claimed reports whether an element around the focus, or the window,
 // handles the key as a shortcut.
-func (rt *engine) claimed(k keyEvent) bool {
+func (rt *engine) claimed(k keyEvent) bool { return rt.claimedBy(k, true) }
+
+// claimedBy reports whether an element around the focus handles the key as
+// a shortcut, or, when window is set, the window.
+func (rt *engine) claimedBy(k keyEvent, window bool) bool {
 	var chain []uint64
 	for _, r := range rt.regs {
 		if r.mods != k.mods || r.key != k.key {
 			continue
 		}
 		if r.id == 0 {
-			return true
+			if window {
+				return true
+			}
+			continue
 		}
 		if chain == nil {
 			chain = rt.focusChain()
@@ -389,8 +396,13 @@ func (rt *engine) keyDown(mods Modifiers, key Key) {
 		rt.requestFrame()
 		return
 	}
-	if (key == KeyEnter || key == KeySpace) && mods == 0 && !rt.claimed(k) {
-		if s := rt.states[rt.focused]; s != nil && s.flags&flagClickable != 0 && s.flags&flagDisabled == 0 {
+	if (key == KeyEnter || key == KeySpace) && mods == 0 {
+		// A focused button or link takes them before the window's
+		// shortcuts, such as a dialog's default button; a toggle takes
+		// Space before them, and Enter after.
+		s := rt.states[rt.focused]
+		window := s != nil && key == KeyEnter && s.flags&flagToggle != 0
+		if s != nil && !rt.claimedBy(k, window) && s.flags&flagClickable != 0 && s.flags&flagDisabled == 0 {
 			s.clicks++
 			rt.focusVisible = true
 			rt.requestFrame()

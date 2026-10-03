@@ -295,6 +295,10 @@ func (rt *engine) commit(root *Element) {
 }
 
 func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
+	inline := e.isInline()
+	if e.kind == kindText && e.first != nil && !inline {
+		placeInline(e, e, 0)
+	}
 	s := e.st
 	s.x, s.y, s.w, s.h = e.x, e.y, e.w, e.h
 	if e.parent != nil {
@@ -324,14 +328,27 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 			rt.focused = 0
 		}
 	}
-	if e.flags&flagPassThrough == 0 && !invisible {
+	switch {
+	case e.flags&flagPassThrough != 0 || invisible:
+	case inline:
+		// Inline elements take the pointer over their words.
+		for _, r := range e.frags {
+			rt.hits = append(rt.hits, hit{s, intersect(r, clip), e.flags})
+		}
+	default:
 		rt.hits = append(rt.hits, hit{s, v, e.flags})
 	}
 	if label := e.label; (label != "" || e.kind == kindText) && !invisible {
 		if label == "" {
 			label = e.text
 		}
-		rt.labels = append(rt.labels, labelNode{e.id, label, v})
+		switch {
+		case !inline:
+			rt.labels = append(rt.labels, labelNode{e.id, label, v})
+		case len(e.frags) > 0 && (e.label != "" || e.flags&interactive != 0):
+			// Their paragraph shows the text of the others.
+			rt.labels = append(rt.labels, labelNode{e.id, label, intersect(e.frags[0], clip)})
+		}
 	}
 	if e.flags&flagFocusable != 0 && !e.IsDisabled() && !invisible {
 		rt.focusOrder = append(rt.focusOrder, e.id)

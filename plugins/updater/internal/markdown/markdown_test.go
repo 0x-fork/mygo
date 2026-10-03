@@ -1,8 +1,11 @@
-package updater
+package markdown
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
-func TestRenderMarkdown(t *testing.T) {
+func TestHTML(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"", ""},
 		{"Hello\nworld", "<p>Hello world</p>"},
@@ -44,8 +47,33 @@ func TestRenderMarkdown(t *testing.T) {
 		{"**unclosed", "<p>**unclosed</p>"},
 		{"[unclosed](https://x", "<p>[unclosed](<a href=\"https://x\">https://x</a></p>"},
 	} {
-		if got := renderMarkdown(tc.in); got != tc.want {
-			t.Errorf("renderMarkdown(%q)\n got %s\nwant %s", tc.in, got, tc.want)
+		if got := HTML(Parse(tc.in)); got != tc.want {
+			t.Errorf("HTML(Parse(%q))\n got %s\nwant %s", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestParse(t *testing.T) {
+	got := Parse("## Fixed\n\n- A **bold [link](https://example.com)** fix\n  1. nested\n\n> `code`")
+	want := []Block{
+		{Kind: Heading, Level: 2, Inlines: []Inline{{Kind: Text, Text: "Fixed"}}},
+		{Kind: List, Items: [][]Block{{
+			{Kind: Paragraph, Inlines: []Inline{
+				{Kind: Text, Text: "A "},
+				{Kind: Strong, Children: []Inline{
+					{Kind: Text, Text: "bold "},
+					{Kind: Link, URL: "https://example.com", Children: []Inline{{Kind: Text, Text: "link"}}},
+				}},
+				{Kind: Text, Text: " fix"},
+			}},
+			{Kind: List, Ordered: true, Items: [][]Block{{{Kind: Paragraph, Inlines: []Inline{{Kind: Text, Text: "nested"}}}}}},
+		}}},
+		{Kind: Quote, Blocks: []Block{{Kind: Paragraph, Inlines: []Inline{{Kind: CodeSpan, Text: "code"}}}}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Parse\n got %+v\nwant %+v", got, want)
+	}
+	if blocks := Parse(" \n\n"); len(blocks) != 0 {
+		t.Errorf("Parse of blank notes = %+v, want none", blocks)
 	}
 }

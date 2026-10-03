@@ -3,16 +3,22 @@ package updater
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater/internal/frontend"
+	"github.com/egoist/mygo/plugins/updater/internal/markdown"
 )
 
 // session is a check for updates and what follows it: the update window,
 // the download, the offer to relaunch. The window shows the session's
 // current view, which the session keeps up to date even while the window
-// is not shown, so that it can show at any point.
+// is not shown, so that it can show at any point. It is the
+// frontend.Session of the window, which the updater's open function
+// creates.
 type session struct {
 	u *updater
 	// ctx is canceled when the session ends, the user cancels or the
@@ -45,7 +51,8 @@ func newSession(u *updater, user bool) *session {
 	}
 }
 
-func (s *session) isUser() bool {
+// User reports whether the user asked for the check.
+func (s *session) User() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.user
@@ -57,12 +64,15 @@ func (s *session) isShown() bool {
 	return s.shown
 }
 
-// current returns the view and a channel closed when it changes.
-func (s *session) current() (view, <-chan struct{}) {
+// Current returns the view and a channel closed when it changes.
+func (s *session) Current() (view, <-chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.view, s.changed
 }
+
+// Done is closed when the session ends or its window closes.
+func (s *session) Done() <-chan struct{} { return s.ctx.Done() }
 
 // set changes the view, and the window's size when the view needs another.
 func (s *session) set(v view) {
@@ -85,6 +95,86 @@ func (s *session) set(v view) {
 	}
 }
 
+// NewWindow creates the window of the session, hidden, showing content or,
+// when it is nil, a web page.
+func (s *session) NewWindow(content mygo.Content) *mygo.Window {
+	v, _ := s.Current()
+	width, height := frontend.Size(v.Release)
+	light, dark := frontend.Background()
+	win := mygo.NewWindow(mygo.WindowOptions{
+		Title:             s.u.text().Title,
+		Width:             width,
+		Height:            height,
+		UseContentSize:    true,
+		Hidden:            true,
+		DisableResize:     true,
+		DisableMaximize:   true,
+		DisableFullScreen: true,
+		BackgroundColor:   "light-dark(" + light + ", " + dark + ")",
+		Content:           content,
+	})
+	// A menu of its own, empty, rather than the app's menu bar (Linux,
+	// Windows).
+	win.SetMenu(mygo.NewMenu(nil))
+	s.mu.Lock()
+	s.win = win
+	s.release = s.view.Release // the view may have changed since
+	resize := s.release != v.Release
+	release := s.release
+	s.mu.Unlock()
+	if resize {
+		fit(win, release)
+	}
+	win.OnClosed(s.cancel)
+	return win
+}
+
+// fit gives the window the size of a status or release view.
+func fit(win *mygo.Window, release bool) {
+	win.SetContentSize(frontend.Size(release))
+	win.Center()
+}
+
+// Fit gives the window the width its buttons need, when they need more
+// than the usual width, and a status view the height of its content.
+func (s *session) Fit(width, height int) {
+	s.mu.Lock()
+	win, release := s.win, s.release
+	s.mu.Unlock()
+	if win == nil {
+		return
+	}
+	w, h := frontend.Size(release)
+	w = max(w, min(width, 1000))
+	if !release {
+		h = min(max(height, 80), 600)
+	}
+	win.SetContentSize(w, h)
+}
+
+// Texts returns the texts of the window around its views.
+func (s *session) Texts() frontend.Texts { return s.u.text().texts() }
+
+// Icon returns the icon of the window, or nil.
+func (s *session) Icon() []byte { return s.u.icon() }
+
+// icon returns the PNG image of the update window: Options.Icon, else
+// icon.png among the app's resources, or nil.
+func (u *updater) icon() []byte {
+	if u.opts.Icon != nil {
+		return u.opts.Icon
+	}
+	dir, err := resourcesDir()
+	if err != nil {
+		return nil
+	}
+	png, err := os.ReadFile(filepath.Join(dir, "icon.png"))
+	if err != nil {
+		return nil
+	}
+	return png
+}
+
 // show shows the window, bringing it to the front when the user asked for
 // the check.
 func (s *session) show() {
@@ -97,7 +187,7 @@ func (s *session) show() {
 	switch {
 	case ended:
 	case !shown:
-		present(s)
+		s.u.open(s)
 	case user && win != nil:
 		win.Show()
 		win.Focus()
@@ -122,9 +212,9 @@ func (s *session) wait() response {
 	}
 }
 
-// respond takes the user's response to the prompt of a view. Only one
+// Respond takes the user's response to the prompt of a view. Only one
 // response to a prompt counts, and only with one of its buttons.
-func (s *session) respond(prompt int, a action, automaticDownloads bool) {
+func (s *session) Respond(prompt int, a action, automaticDownloads bool) {
 	s.mu.Lock()
 	ok := prompt == s.view.Prompt && slices.ContainsFunc(s.view.Buttons, func(b button) bool {
 		return b.Action == a && !b.Disabled
@@ -159,58 +249,26 @@ func (s *session) close() {
 	}
 }
 
-// action is a button of the update window.
-type action string
+// The views of the update window and their buttons, as frontend has them.
+type (
+	view   = frontend.View
+	button = frontend.Button
+	action = frontend.Action
+)
 
 const (
-	actionOK       action = "ok"
-	actionCancel   action = "cancel"
-	actionSkip     action = "skip"
-	actionLater    action = "later"
-	actionInstall  action = "install"
-	actionRelaunch action = "relaunch"
-	// actionClose is the window closing, not a button.
-	actionClose action = "close"
+	actionOK       = frontend.OK
+	actionCancel   = frontend.Cancel
+	actionSkip     = frontend.Skip
+	actionLater    = frontend.Later
+	actionInstall  = frontend.Install
+	actionRelaunch = frontend.Relaunch
+	actionClose    = frontend.Close
 )
 
 type response struct {
 	action             action
 	automaticDownloads bool
-}
-
-// view is what the update window shows.
-type view struct {
-	// Prompt changes with the buttons: responses name the prompt they
-	// answer, so that none answers a later one.
-	Prompt int `json:"prompt"`
-	// Release views show release notes, in a larger window.
-	Release bool   `json:"release,omitzero"`
-	Title   string `json:"title"`
-	Message string `json:"message,omitzero"`
-	// Detail is the error of a failure.
-	Detail string `json:"detail,omitzero"`
-	// Notes are the release notes, in HTML.
-	Notes string `json:"notes,omitzero"`
-	// Bar shows a progress bar with Progress, between 0 and 1, or -1 when
-	// the progress is unknown.
-	Bar      bool    `json:"bar,omitzero"`
-	Progress float64 `json:"progress,omitzero"`
-	// Checkbox offers to download and install updates automatically,
-	// Checked or not.
-	Checkbox bool     `json:"checkbox,omitzero"`
-	Checked  bool     `json:"checked,omitzero"`
-	Buttons  []button `json:"buttons"`
-}
-
-type button struct {
-	Action action `json:"action"`
-	Label  string `json:"label"`
-	// Default is the button of Enter, Cancel the one of Escape.
-	Default bool `json:"default,omitzero"`
-	Cancel  bool `json:"cancel,omitzero"`
-	// Aside sets the button apart, on the left.
-	Aside    bool `json:"aside,omitzero"`
-	Disabled bool `json:"disabled,omitzero"`
 }
 
 func (t *text) ok() []button {
@@ -247,9 +305,9 @@ func (t *text) errorView(msg string, err error) view {
 
 func (t *text) availableView(r *release, automaticDownloads bool) view {
 	name := mygo.App.Name()
-	notes := renderMarkdown(r.notes)
+	notes := markdown.Parse(r.notes)
 	return view{
-		Release:  notes != "",
+		Release:  len(notes) > 0,
 		Title:    fmt.Sprintf(t.Available, name),
 		Message:  fmt.Sprintf(t.AvailableMessage, name, r.version, appVersion()),
 		Notes:    notes,

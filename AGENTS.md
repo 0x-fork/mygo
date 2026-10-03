@@ -65,7 +65,8 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   temporary objects in `withPool`; copy blocks you call later.
 - Official plugins live in `plugins/<name>`: the Go package and its npm
   package (`@mygo-plugins/<name>`) side by side, released with
-  mygo-runtime's version. The updater plugin is Go only.
+  mygo-runtime's version. The updater plugin is Go only; its `native`
+  package draws the update window in native UI.
 - The `dist/` of npm packages is not committed: run `bun run build` after
   `bun install` (CI and releases do). Commit `internal/bridge/bridge.js`
   whenever its sources change, and keep the generated clients of examples

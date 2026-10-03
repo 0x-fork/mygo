@@ -9,110 +9,54 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"html"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater/internal/frontend"
+	"github.com/egoist/mygo/plugins/updater/internal/markdown"
 )
 
 //go:embed page.html
 var pageHTML string
 
-// The size of the update window's page, for status views and for views
-// with release notes.
-const (
-	statusWidth, statusHeight   = 480, 148
-	releaseWidth, releaseHeight = 620, 440
-)
-
-func size(release bool) (width, height int) {
-	if release {
-		return releaseWidth, releaseHeight
-	}
-	return statusWidth, statusHeight
-}
-
-// background returns the light and dark colors of the update window: the
-// gray of dialogs on macOS, and white elsewhere, where the title bar above
-// it is light.
-func background() (light, dark string) {
-	if runtime.GOOS == "darwin" {
-		return "#ececec", "#1e1e1e"
-	}
-	return "#fff", "#1e1e1e"
-}
-
-// openWindow creates the update window of s. It shows once its page is
-// ready, in front when the user asked for the check.
+// openWindow creates the update window of s as a web page. It shows once
+// its page is ready, in front when the user asked for the check.
 func openWindow(s *session) {
-	v, _ := s.current()
-	t := s.u.text()
-	width, height := size(v.Release)
-	light, dark := background()
-	win := mygo.NewWindow(mygo.WindowOptions{
-		Title:             t.Title,
-		Width:             width,
-		Height:            height,
-		UseContentSize:    true,
-		Hidden:            true,
-		DisableResize:     true,
-		DisableMaximize:   true,
-		DisableFullScreen: true,
-		BackgroundColor:   "light-dark(" + light + ", " + dark + ")",
-	})
-	// A menu of its own, empty, rather than the app's menu bar (Linux,
-	// Windows).
-	win.SetMenu(mygo.NewMenu(nil))
-	s.mu.Lock()
-	s.win = win
-	s.release = s.view.Release // the view may have changed since
-	resize := s.release != v.Release
-	user := s.user
-	v = s.view
-	s.mu.Unlock()
-	if resize {
-		fit(win, v.Release)
-	}
-	win.OnClosed(s.cancel)
+	win := s.NewWindow(nil)
 	win.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
 		// Links of the release notes open in the browser.
 		e.PreventDefault()
-		if e.UserInitiated && safeURL(e.URL) {
+		if e.UserInitiated && markdown.SafeURL(e.URL) {
 			go mygo.Shell.OpenExternal(e.URL)
 		}
 	})
-	win.OnReadyToShow(func() {
-		if user {
-			win.Show()
-			win.Focus()
-		} else {
-			win.ShowInactive()
-		}
-	})
-	win.Page().LoadHTML(page(t, s.u.iconURL(), v), "")
+	user := s.User()
+	win.OnReadyToShow(func() { frontend.Show(win, user) })
+	v, _ := s.Current()
+	win.Page().LoadHTML(page(s.Texts(), s.u.iconURL(), v), "")
 }
 
-// fit gives the window the size of a status or release view.
-func fit(win *mygo.Window, release bool) {
-	win.SetContentSize(size(release))
-	win.Center()
+// pageView is a view as the page gets it, with the notes in HTML.
+type pageView struct {
+	view
+	Notes string `json:"notes,omitzero"`
 }
 
-// page returns the page of the update window in the language of t,
-// showing v until the page watches the session.
-func page(t *text, icon string, v view) string {
+func newPageView(v view) pageView { return pageView{v, markdown.HTML(v.Notes)} }
+
+// page returns the page of the update window with the texts t, showing v
+// until the page watches the session.
+func page(t frontend.Texts, icon string, v view) string {
 	nonce := make([]byte, 16)
 	rand.Read(nonce)
-	initial, _ := json.Marshal(v, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
+	initial, _ := json.Marshal(newPageView(v), jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
 	dir := "ltr"
-	if t.rtl {
+	if t.RTL {
 		dir = "rtl"
 	}
-	light, dark := background()
+	light, dark := frontend.Background()
 	return strings.NewReplacer(
-		"{{lang}}", html.EscapeString(t.lang),
+		"{{lang}}", html.EscapeString(t.Lang),
 		"{{dir}}", dir,
 		"{{background}}", light,
 		"{{darkBackground}}", dark,
@@ -127,15 +71,9 @@ func page(t *text, icon string, v view) string {
 
 // iconURL returns the icon of the update window as a data URL, or "".
 func (u *updater) iconURL() string {
-	png := u.opts.Icon
+	png := u.icon()
 	if png == nil {
-		dir, err := resourcesDir()
-		if err != nil {
-			return ""
-		}
-		if png, err = os.ReadFile(filepath.Join(dir, "icon.png")); err != nil {
-			return ""
-		}
+		return ""
 	}
 	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)
 }
@@ -163,14 +101,14 @@ func (sv *service) session(ctx context.Context) (*session, error) {
 }
 
 // Watch streams the views of the session to the update window.
-func (sv *service) Watch(ctx context.Context, views *mygo.Channel[view]) error {
+func (sv *service) Watch(ctx context.Context, views *mygo.Channel[pageView]) error {
 	s, err := sv.session(ctx)
 	if err != nil {
 		return err
 	}
 	for {
-		v, changed := s.current()
-		if err := views.Send(v); err != nil {
+		v, changed := s.Current()
+		if err := views.Send(newPageView(v)); err != nil {
 			return nil // the page went away
 		}
 		select {
@@ -189,15 +127,7 @@ func (sv *service) Fit(ctx context.Context, width, height int) error {
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	win, release := s.win, s.release
-	s.mu.Unlock()
-	w, h := size(release)
-	w = max(w, min(width, 1000))
-	if !release {
-		h = min(max(height, 80), 600)
-	}
-	win.SetContentSize(w, h)
+	s.Fit(width, height)
 	return nil
 }
 
@@ -208,6 +138,6 @@ func (sv *service) Respond(ctx context.Context, prompt int, a action, automaticD
 	if err != nil {
 		return err
 	}
-	s.respond(prompt, a, automaticDownloads)
+	s.Respond(prompt, a, automaticDownloads)
 	return nil
 }

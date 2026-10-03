@@ -5,9 +5,9 @@ Sparkle, on every platform: it checks for updates in the background, shows
 the release notes of a new version and offers to install it, skip it or
 remind the user later, then downloads it with a progress bar and relaunches
 the app into it. It is all Go, with no npm package, and works in apps of
-web pages and of [native UI](../ui.md) alike; its window is a web page,
-though, so it needs WebKitGTK on Linux and the WebView2 Runtime on Windows
-10 even in an app whose own windows all show native UI.
+web pages and of [native UI](../ui.md) alike. Its window is a web page, or
+native UI with [`native.Plugin`](#native-ui), for apps that show no web
+page at all.
 
 It is built on `mygo.Updater`, so the app must be built with updates: see
 [auto-updates](../updates.md) to sign and publish them.
@@ -144,6 +144,33 @@ the texts and the arguments of the formats.
 Languages written from right to left, such as Arabic and Hebrew, get a
 mirrored window, and release notes take the direction of the language
 they are written in.
+
+## Native UI
+
+The window of `updater.Plugin` is a web page, so it needs WebKitGTK on
+Linux and the WebView2 Runtime on Windows 10 even in an app whose own
+windows all show [native UI](../ui.md). Package `native` draws the same
+window in native UI instead, and needs no webview:
+
+```go
+import (
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
+	"github.com/egoist/mygo/plugins/updater/native"
+)
+
+func main() {
+	mygo.Use(native.Plugin) // or native.New(updater.Options{...})
+	// ...
+}
+```
+
+It takes the same options and speaks the same languages, and everything
+else is package `updater`'s: `updater.MenuItem()`,
+`updater.CheckForUpdates()` and the preferences work as with
+`updater.Plugin`. Use one of the two plugins only. The window looks the
+same; its release notes are the same Markdown, with text to select and
+links that open in the browser.
 
 ## Your own update UI
 

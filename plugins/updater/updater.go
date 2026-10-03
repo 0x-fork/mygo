@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater/internal/frontend"
 )
 
 // Options configure the plugin.
@@ -76,8 +77,18 @@ type Options struct {
 var Plugin = New(Options{})
 
 // New returns the plugin with options. Use one of them only.
-func New(opts Options) mygo.Plugin {
-	u := newUpdater(opts)
+func New(opts Options) mygo.Plugin { return newPlugin(opts, openWindow) }
+
+func init() {
+	// Package native shows the window in native UI.
+	frontend.Plugin = func(opts any, open frontend.Open) mygo.Plugin {
+		return newPlugin(opts.(Options), func(s *session) { open(s) })
+	}
+}
+
+// newPlugin returns the plugin whose windows open creates.
+func newPlugin(opts Options, open func(*session)) mygo.Plugin {
+	u := newUpdater(opts, open)
 	return mygo.Plugin{
 		Name:    "updater",
 		Service: &service{u},
@@ -184,7 +195,6 @@ var (
 	appVersion     = mygo.App.Version
 	locale         = mygo.App.Locale
 	now            = time.Now
-	present        = openWindow
 	stateDir       = func() (string, error) { return mygo.App.Path(mygo.PathUserData) }
 	resourcesDir   = func() (string, error) { return mygo.App.Path(mygo.PathResources) }
 	runOnMain      = mygo.RunOnMain
@@ -230,6 +240,8 @@ const stateFile = "updater.json"
 
 type updater struct {
 	opts Options
+	// open creates the window of a session and shows it.
+	open func(*session)
 
 	textOnce sync.Once
 	txt      *text
@@ -253,11 +265,11 @@ type updater struct {
 	installed *release
 }
 
-func newUpdater(opts Options) *updater {
+func newUpdater(opts Options, open func(*session)) *updater {
 	if opts.Interval <= 0 {
 		opts.Interval = 24 * time.Hour
 	}
-	return &updater{opts: opts}
+	return &updater{opts: opts, open: open}
 }
 
 // text returns the texts of the window, in the language chosen once.
@@ -457,7 +469,7 @@ func (u *updater) run(s *session) {
 	}
 
 	s.set(t.checkingView())
-	if s.isUser() {
+	if s.User() {
 		s.show()
 	}
 	r, err := check(s.ctx)
@@ -467,13 +479,13 @@ func (u *updater) run(s *session) {
 	u.checked(err)
 	switch {
 	case err != nil:
-		if s.isUser() {
+		if s.User() {
 			s.set(t.errorView(t.CheckError, err))
 			s.wait()
 		}
 		return
 	case r == nil:
-		if s.isUser() {
+		if s.User() {
 			s.set(t.upToDateView())
 			s.wait()
 		}
@@ -484,7 +496,7 @@ func (u *updater) run(s *session) {
 	skipped := u.state.SkippedVersion == r.version
 	automatic := u.state.AutomaticDownloads
 	u.mu.Unlock()
-	if !s.isUser() {
+	if !s.User() {
 		if skipped {
 			return
 		}
@@ -526,7 +538,7 @@ func (u *updater) install(s *session, r *release) {
 		return // canceled
 	}
 	if err != nil {
-		if s.isUser() || s.isShown() {
+		if s.User() || s.isShown() {
 			s.set(t.errorView(t.InstallError, err))
 			s.show()
 			s.wait()
@@ -536,7 +548,7 @@ func (u *updater) install(s *session, r *release) {
 	u.mu.Lock()
 	u.installed = r
 	u.mu.Unlock()
-	if s.isUser() || s.isShown() {
+	if s.User() || s.isShown() {
 		u.offerRelaunch(s, r)
 	}
 }

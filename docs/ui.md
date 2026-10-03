@@ -245,6 +245,29 @@ ui.RichText(c,
 )
 ```
 
+Text elements built in a text's `Children` continue its paragraph, as
+HTML's inline elements do: each styles its own text over the paragraph's,
+and keeps what elements do (`Clicked`, `Hovered`, the keyboard focus, a
+`Tooltip`, a `ContextMenu`), with its words, on every line they take, as
+its area. A `ui.Link` inside is a link within the sentence, which Tab
+reaches and assistive technology reads as a link:
+
+```go
+ui.RichText(c).Children(func() {
+	ui.Text(c, "Read ")
+	ui.Link(c, "the guide", "https://example.com/guide")
+	ui.Text(c, " or ")
+	if ui.Text(c, "show an example").TextColor(t.Accent).Clicked() {
+		app.example = true
+	}
+	ui.Text(c, ".")
+})
+```
+
+Only text elements (`Text`, `Link`, `RichText`) go inside a text; their
+sizes, padding, borders and corners do not apply, and a `Background`
+highlights their text.
+
 Text is laid out and drawn by the system's own text engine (DirectWrite on
 Windows, Core Text on macOS, Pango on Linux) in the system's font (Segoe UI,
 SF, the desktop's interface font, as GTK apps have it), falling back to the
@@ -331,7 +354,7 @@ look of your own, build on the widgets' bases, which have none: see
 | `Radio` | sets a `*T` to its value |
 | `Select` | picks one of a list of strings, from a popup |
 | `Slider` | sets a `*float64` within a range, by dragging or with the arrow keys |
-| `Progress` | a bar filled from 0 to 1, or sliding across for a negative value, for work of unknown length |
+| `Progress` | a bar filled from 0 to 1, or sliding across for a negative value, for work of unknown length; `Reverse` fills it from the right |
 | `TextInput`, `TextArea` | edit a `*string` on one line or several, with selection, undo, the clipboard and input methods; `Placeholder`, `Password`, `Submitted` (Enter) and `Changed` |
 | `NumberInput` | edits a `*float64` within a range, typed or stepped with Up, Down and its buttons |
 | `DateInput` | edits a `*time.Time` with a calendar, by click or with the arrow keys and Page Up and Down |
@@ -445,10 +468,14 @@ func Disclosure(c *ui.Context, title string, body func()) {
   by keyboard. `AutoFocus` gives an element the focus when it appears, such
   as the first field of a dialog, and `Focus` keeps it there while you call
   it; `Focused`, `FocusVisible` and `FocusWithin` report it. Enter and Space
-  press a focused button.
+  press a focused button or link, and Space toggles a focused check box,
+  switch or radio button.
 - **Shortcuts.** `c.Shortcut(ui.Cmd, ui.KeyS)` reports a key pressed with
   exactly those modifiers anywhere in the window, and `Element.Shortcut`
   only while the element or one inside it has the focus, which comes first.
+  A focused button or link keeps Enter and Space, and a toggle Space, so
+  `c.Shortcut(0, ui.KeyEnter)` presses a dialog's default button wherever
+  else the focus is.
   `ui.Cmd` is Command on macOS and Ctrl elsewhere. Shortcuts of
   [menus](menus.md) still work, and the Edit menu's roles (cut, copy, paste,
   select all, undo, redo) act on the focused text input. A focused text

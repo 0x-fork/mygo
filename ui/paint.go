@@ -56,6 +56,10 @@ func (p *Painter) element(e *Element) {
 	if e.flags&flagInvisible != 0 {
 		return
 	}
+	if e.isInline() {
+		p.paintInline(e)
+		return
+	}
 	saved := p.opacity
 	if e.flags&flagDisabled != 0 {
 		p.opacity *= 0.5
@@ -143,7 +147,7 @@ func (p *Painter) element(e *Element) {
 	if e.flags&flagDebug != 0 && (e.parent == nil || e.parent.flags&flagDebug == 0) {
 		p.debug(e)
 	}
-	if own && e.flags&(flagFocusable|flagOwnRing) == flagFocusable && e.kind != kindInput && e.c.rt.focused == e.id && e.c.rt.focusVisible && e.c.rt.windowFocused {
+	if own && e.kind != kindInput && e.ringShown() {
 		p.FocusRing(box, e.radius)
 	}
 	p.opacity = saved

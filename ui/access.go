@@ -107,11 +107,14 @@ func (e *Element) innerText() string {
 		if e.flags&flagInvisible != 0 {
 			return
 		}
-		if e.kind == kindText && e.text != "" {
-			if b.Len() > 0 {
-				b.WriteByte(' ')
+		if e.kind == kindText {
+			if e.text != "" {
+				if b.Len() > 0 {
+					b.WriteByte(' ')
+				}
+				b.WriteString(e.text)
 			}
-			b.WriteString(e.text)
+			return // its text holds that of the elements inside it
 		}
 		for ch := e.first; ch != nil; ch = ch.next {
 			walk(ch)
@@ -149,10 +152,14 @@ func (rt *engine) accessElement(t *platform.AccessTree, e *Element, parent int) 
 		}
 		rt.accessDetails(e, &n)
 		t.Nodes = append(t.Nodes, n)
+		parent = len(t.Nodes) - 1
+		if e.kind == kindText {
+			rt.accessInline(t, e, parent)
+			return
+		}
 		if leafRole(role) {
 			return
 		}
-		parent = len(t.Nodes) - 1
 	}
 	// Children in flow first, absolute ones above them, as they paint.
 	for ch := e.first; ch != nil; ch = ch.next {

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/egoist/mygo/plugins/updater/internal/frontend"
 )
 
 // Strings are the texts of the update window in one language. The plugin
@@ -119,6 +121,17 @@ type text struct {
 	// comma is set for languages whose decimal mark is a comma, rtl for
 	// those written from right to left.
 	comma, rtl bool
+}
+
+// texts returns the texts of the window around its views.
+func (t *text) texts() frontend.Texts {
+	return frontend.Texts{
+		Title:              t.Title,
+		ReleaseNotes:       t.ReleaseNotes,
+		AutomaticDownloads: t.AutomaticDownloads,
+		Lang:               t.lang,
+		RTL:                t.rtl,
+	}
 }
 
 // newText returns the strings of the language the plugin has, or the app

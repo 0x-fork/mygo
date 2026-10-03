@@ -37,9 +37,9 @@ func (c *Context) alloc() *Element {
 	}
 	c.used++
 	e := &c.chunks[ci][ei]
-	shadows, cols, rows := e.shadows[:0], e.cols[:0], e.rows[:0]
+	shadows, cols, rows, frags := e.shadows[:0], e.cols[:0], e.rows[:0], e.frags[:0]
 	*e = Element{}
-	e.shadows, e.cols, e.rows = shadows, cols, rows
+	e.shadows, e.cols, e.rows, e.frags = shadows, cols, rows, frags
 	e.shrink = 1
 	e.justify, e.align, e.self, e.alignContent = alignAuto, alignAuto, alignAuto, alignAuto
 	e.justifyItems, e.justifySelf = alignAuto, alignAuto
@@ -87,6 +87,9 @@ func (c *Context) overlayRoot() *Element {
 func (c *Context) newElement(k kind) *Element {
 	if c.parent == nil {
 		panic("ui: element created outside of a view function")
+	}
+	if c.parent.kind == kindText && k != kindText {
+		panic("ui: only text elements (Text, Link, RichText) go inside a text")
 	}
 	e := c.alloc()
 	e.c = c
@@ -185,7 +188,9 @@ func (c *Context) After(d time.Duration) { c.rt.scheduleAt(c.now.Add(d)) }
 
 // Shortcut reports whether the key with exactly the modifiers mods was
 // pressed, wherever the keyboard focus is, unless a focused element
-// handled it first.
+// handled it first: a focused button or link takes Enter and Space, and a
+// check box, switch or radio button Space, so that Enter can press a
+// dialog's default button.
 func (c *Context) Shortcut(mods Modifiers, key Key) bool {
 	return c.rt.shortcut(0, mods, key)
 }
