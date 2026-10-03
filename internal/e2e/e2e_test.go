@@ -361,7 +361,10 @@ func TestEarlyWindow(t *testing.T) {
 	}
 }
 
-// waitFor polls the page until expr is truthy.
+// waitFor polls the page until expr is truthy. Until a page being loaded
+// commits, expr runs in the previous one, such as the empty document a new
+// window starts with, which is complete already: wait for something of the
+// page itself.
 func waitFor(t *testing.T, w *mygo.Window, expr string) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -464,7 +467,7 @@ func TestChannels(t *testing.T) {
 func TestEvalForms(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	w.LoadHTML("<p>eval</p>", "")
-	waitFor(t, w, "document.readyState === 'complete'")
+	waitFor(t, w, "document.querySelector('p')")
 	cases := []struct{ code, want string }{
 		{"1 + 1", "2"},
 		{"document.querySelector('p').textContent;", "eval"},
@@ -1677,7 +1680,7 @@ func expectClick(t *testing.T, clicks chan string, want string) {
 func TestJavaScriptAlert(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300})
 	w.LoadHTML("<p>alert</p>", "")
-	waitFor(t, w, "document.readyState === 'complete'")
+	waitFor(t, w, "document.querySelector('p')")
 	if _, ok := endSheet(w); !ok {
 		t.Skip("dialog automation not available on this platform")
 	}
@@ -1751,7 +1754,7 @@ func TestWindowOpenAllowed(t *testing.T) {
 func TestClick(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300})
 	w.LoadHTML(`<body style="margin:0"><button id="b" style="width:200px;height:100px" onclick="window.clicked=(window.clicked||0)+1">x</button></body>`, "")
-	waitFor(t, w, "document.readyState === 'complete'")
+	waitFor(t, w, "document.getElementById('b')")
 	if !click(w, 50, 50) {
 		t.Skip("click automation not available on this platform")
 	}
@@ -1761,7 +1764,7 @@ func TestClick(t *testing.T) {
 	// Clicking a drag region of a frameless window starts a native drag.
 	f := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, Frameless: true})
 	f.LoadHTML(`<body style="margin:0"><div id="bar" style="--app-region:drag;height:40px" onmousedown="window.pressed=true"></div></body>`, "")
-	waitFor(t, f, "document.readyState === 'complete'")
+	waitFor(t, f, "document.getElementById('bar')")
 	click(f, 100, 20)
 	waitFor(t, f, "window.pressed === true")
 	if !f.IsVisible() {
