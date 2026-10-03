@@ -75,6 +75,11 @@ type window struct {
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
+	if !o.Surface {
+		if err := b.startEnvironment(); err != nil {
+			return nil, err
+		}
+	}
 	w := &window{
 		b: b, h: h, opts: o,
 		movable: o.Movable, closable: o.Closable, frameless: o.Frameless,

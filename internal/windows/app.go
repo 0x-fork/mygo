@@ -28,9 +28,11 @@ type Backend struct {
 	windows map[uintptr]*window // by HWND
 	appMenu *platform.Menu
 
-	// The WebView2 environment is created asynchronously; windows wait.
+	// The WebView2 environment is created asynchronously, when the first
+	// window that shows a web page needs it; windows wait.
 	env        uintptr
 	envErr     error
+	envStarted bool
 	envWaiters []func()
 
 	menus menuTable
@@ -103,14 +105,24 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	}
 	b.taskbarCreated = registerWindowMessage("TaskbarCreated")
 	b.taskbarButtonCreated = registerWindowMessage("TaskbarButtonCreated")
+	return nil
+}
 
+// startEnvironment starts creating the WebView2 environment, the first time
+// a window that shows a web page is created, and returns why it cannot,
+// such as a missing WebView2 Runtime. Windows that show native UI need
+// none: an app whose windows all do runs without the runtime.
+func (b *Backend) startEnvironment() error {
+	if b.envStarted {
+		return nil
+	}
 	dir := os.Getenv("LOCALAPPDATA")
 	if dir == "" {
 		dir = os.TempDir()
 	}
 	userData := filepath.Join(dir, sanitize(b.name), "WebView2")
 	_ = os.MkdirAll(userData, 0o755)
-	return createEnvironment(userData, func(env uintptr, err error) {
+	err := createEnvironment(userData, func(env uintptr, err error) {
 		b.env, b.envErr = env, err
 		if err != nil {
 			log.Print(err)
@@ -121,9 +133,13 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 			fn()
 		}
 	})
+	// A runtime installed later is found by the next window.
+	b.envStarted = err == nil
+	return err
 }
 
-// whenEnvironment runs fn once the WebView2 environment exists (or failed).
+// whenEnvironment runs fn once the WebView2 environment, which
+// startEnvironment started, exists (or failed).
 func (b *Backend) whenEnvironment(fn func()) {
 	if b.env != 0 || b.envErr != nil {
 		fn()
