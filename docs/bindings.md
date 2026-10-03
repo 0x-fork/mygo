@@ -6,6 +6,9 @@ methods pages can call, and which may stream values back through
 them into a TypeScript client, so calls, channels and events are checked by
 the compiler on both sides and documented in your editor.
 
+This is how web pages reach Go. [Native UI](ui.md) is Go already: its view
+calls your code directly, and needs none of this.
+
 ## Bind a service
 
 Pass a value to `mygo.Bind` before `App.Run`:

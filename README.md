@@ -1,23 +1,35 @@
 # MyGo
 
-Desktop apps with Go and a web frontend, on the system webview.
+Desktop apps in Go, with a web frontend or a native UI.
 
-MyGo apps show their UI in the webview the OS already has: WKWebView on
-macOS, WebKitGTK on Linux, WebView2 on Windows. An app is a single Go
-binary of a few megabytes, focused on low memory and CPU use.
+Each MyGo window shows one of two kinds of interface, and one app can mix
+them:
+
+- **A web page**, in the webview the OS already has: WKWebView on macOS,
+  WebKitGTK on Linux, WebView2 on Windows. Build the frontend with any web
+  tools; it calls your Go code through a TypeScript client generated from it.
+- **Native UI**, written in Go alone with package `ui` and
+  drawn by MyGo itself on the GPU: no HTML, no JavaScript and no webview, so
+  the window opens at once and takes little memory.
+
+Either way, an app is a single Go binary of a few megabytes, focused on low
+memory and CPU use.
 
 - **Pure Go, no cgo**: build for every platform from any machine.
-- **Typed IPC**: bind Go services, stream values through channels and send
-  typed events; the TypeScript client is generated from your Go code.
-- **Desktop APIs**: windows, menus, tray, dialogs, notifications, global
-  shortcuts, deep links, file associations and more.
-- **Native UI** (experimental): windows can also show an interface MyGo
-  draws itself on the GPU, written in Go alone with flexbox layout, widgets,
-  text editing and SVG icons, instead of a web page.
+- **Typed IPC** for pages: bind Go services, stream values through channels
+  and send typed events; the TypeScript client is generated from your Go
+  code.
+- **A Go UI toolkit** for native UI: flexbox layout, widgets, text editing
+  with input methods, virtualized lists, SVG icons, animations, screen
+  reader support, and views you test without a window.
+- **Desktop APIs** for both: windows, menus, tray, dialogs, notifications,
+  global shortcuts, deep links, file associations and more.
 - **Ready to ship**: app bundles and disk images, Windows installers, Debian
   packages and a Linux install script, code signing, notarization, and signed
   auto-updates with delta updates and an update window in the manner of
   Sparkle.
+
+A window with a web page, whose frontend calls Go:
 
 ```go
 type Greeter struct{}
@@ -42,9 +54,38 @@ import { Greeter } from "./mygo"; // generated
 document.body.textContent = await Greeter.greet("Ada");
 ```
 
+A window with native UI, whose view is a Go function of the app's state:
+
+```go
+type counter struct{ n int }
+
+func (s *counter) view(c *ui.Context) {
+	ui.Column(c).Fill().Center().Gap(12).Children(func() {
+		ui.Text(c, fmt.Sprint(s.n)).FontSize(40).Bold()
+		if ui.PrimaryButton(c, "Increment").Clicked() {
+			s.n++
+		}
+	})
+}
+
+func main() {
+	s := &counter{}
+	mygo.App.WhenReady(func() {
+		mygo.NewWindow(mygo.WindowOptions{
+			Title:   "Counter",
+			Content: ui.View(s.view),
+		})
+	})
+	if err := mygo.App.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
 ## Getting started
 
-With [Go](https://go.dev/dl/) 1.27+ and [Bun](https://bun.sh):
+With [Go](https://go.dev/dl/) 1.27+ and [Bun](https://bun.sh), create an app
+with a web frontend:
 
 ```sh
 bunx mygo-cli init my-app      # or: npx mygo-cli init my-app
@@ -52,20 +93,19 @@ cd my-app
 bun run dev
 ```
 
-Or, without npm — the CLI is a Go program, which Go runs too:
+An app of native UI needs Go alone:
 
 ```sh
-go run github.com/egoist/mygo/cmd/mygo@latest init my-app
+go run github.com/egoist/mygo/cmd/mygo@latest init -template native my-app
 cd my-app
-bun run dev
+go tool mygo dev
 ```
 
 Read the [documentation](docs/README.md).
 
 ## Status
 
-MyGo is at v0.1: the system webview on macOS 12+, Linux and Windows 10+
-(x64 and arm64). v0.2 will add a bundled CEF option.
+MyGo is at v0.1, on macOS 12+, Linux and Windows 10+ (x64 and arm64).
 
 ## License
 

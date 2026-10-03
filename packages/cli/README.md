@@ -1,8 +1,9 @@
 # mygo-cli
 
 The `mygo` command line tool of [MyGo](https://github.com/egoist/mygo), the
-desktop app framework for Go on the system webview, as prebuilt binaries for
-macOS, Linux and Windows (arm64 and x64).
+desktop app framework for Go whose windows show web pages, in the system
+webview, or native UI written in Go, as prebuilt binaries for macOS, Linux
+and Windows (arm64 and x64).
 
 Create a project, which depends on mygo-cli and runs it from its scripts:
 

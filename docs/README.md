@@ -1,12 +1,22 @@
 # MyGo documentation
 
-MyGo builds desktop apps with Go and a web frontend. Windows show your pages
-in the webview of the operating system (WKWebView on macOS, WebKitGTK on
-Linux, WebView2 on Windows) instead of a bundled browser, so an app is a
-single Go program of a few megabytes. The frontend calls your Go code
-through a TypeScript client that MyGo generates from it, with the types of
-your Go structs and the documentation of your methods. Windows can also
-show a [native UI](ui.md) that MyGo draws itself, written in Go alone.
+MyGo builds desktop apps in Go. Each window shows one of two kinds of
+interface, and one app can have windows of both:
+
+- **A web page**, in the webview of the operating system (WKWebView on
+  macOS, WebKitGTK on Linux, WebView2 on Windows) instead of a bundled
+  browser. The frontend is HTML, CSS and JavaScript built with any tools,
+  and calls your Go code through a TypeScript client that MyGo generates
+  from it, with the types of your Go structs and the documentation of your
+  methods.
+- **Native UI**, which MyGo draws itself on the GPU, written in Go alone
+  with package `ui`: there is no HTML, no JavaScript and no webview to
+  start, so the window opens at once and takes little memory.
+
+Windows of both kinds share the window options and events, the menus and
+the desktop APIs, and the app is a single Go program of a few megabytes.
+
+A window with a web page, whose frontend calls a Go service:
 
 ```go
 type Greeter struct{}
@@ -31,29 +41,51 @@ import { Greeter } from "./mygo"; // generated
 document.body.textContent = await Greeter.greet("Ada");
 ```
 
+A window with native UI, whose view is a Go function of the app's state:
+
+```go
+type counter struct{ n int }
+
+func (s *counter) view(c *ui.Context) {
+	ui.Column(c).Fill().Center().Gap(12).Children(func() {
+		ui.Text(c, fmt.Sprint(s.n)).FontSize(40).Bold()
+		if ui.PrimaryButton(c, "Increment").Clicked() {
+			s.n++
+		}
+	})
+}
+
+func main() {
+	s := &counter{}
+	mygo.App.WhenReady(func() {
+		mygo.NewWindow(mygo.WindowOptions{
+			Title:   "Counter",
+			Content: ui.View(s.view),
+		})
+	})
+	if err := mygo.App.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+Web pages suit rich documents, existing web code and what only a browser
+does; native UI suits tools, settings, inspectors and utilities, and apps
+that must start instantly.
+
 ## Guides
 
 - [Getting started](getting-started.md): install the tools, then create,
-  develop and build an app.
-- [Calling Go from the frontend](bindings.md): bound services, channels,
-  typed events and the generated TypeScript client.
-- [Plugins](plugins.md): features that come in a Go package and an npm
-  package, such as the official plugins, and writing your own.
-- [The frontend](frontend.md): how pages load during development and in
-  builds, the `mygo-runtime` package, custom protocols, custom title bars
-  and dropped files.
-- [Windows](windows.md): creating and arranging windows, their events, and
-  what they do with their pages: navigation, downloads, permissions,
-  printing.
-- [Native UI](ui.md) (experimental): windows whose interface MyGo draws
-  itself, on the GPU, written in Go with package `ui` instead of a web
-  page.
+  develop and build an app, with a web frontend or native UI.
+- [Windows](windows.md): creating and arranging windows of both kinds,
+  their events, and what windows showing web pages do with them:
+  navigation, downloads, permissions, printing.
 - [The application](app.md): the lifecycle, quitting, a single instance,
   deep links, file associations, starting at login and well-known
   directories.
 - [Menus and the tray](menus.md): application, context and Dock menus,
   keyboard shortcuts and tray icons.
-- [Native APIs](native.md): dialogs, notifications, the clipboard, the
+- [Desktop APIs](native.md): dialogs, notifications, the clipboard, the
   shell, displays, dark mode, power and global shortcuts.
 - [Building and distributing](distribution.md): packaged apps for macOS,
   Windows and Linux, signing, installers and disk images.
@@ -63,6 +95,22 @@ document.body.textContent = await Greeter.greet("Ada");
 - [GitHub Actions](github-actions.md): a workflow that builds, signs and
   notarizes the apps of every platform, and publishes them with their
   updates, when you push a tag.
+
+## Web frontends
+
+- [The frontend](frontend.md): how pages load during development and in
+  builds, the `mygo-runtime` package, custom protocols, custom title bars
+  and dropped files.
+- [Calling Go from the frontend](bindings.md): bound services, channels,
+  typed events and the generated TypeScript client.
+- [Plugins](plugins.md): features that come in a Go package and an npm
+  package, such as the official plugins, and writing your own.
+
+## Native UI
+
+- [The ui package](ui.md): views, layout, text, widgets, input, overlays,
+  accessibility, drawing, images and icons, and testing views without a
+  window.
 
 ## Official plugins
 
@@ -85,16 +133,20 @@ document.body.textContent = await Greeter.greet("Ada");
 ## Requirements
 
 To develop apps you need [Go](https://go.dev/dl/) 1.27 or later and, for
-the frontend tooling of new projects, [Bun](https://bun.sh). MyGo uses no
+the frontend tooling of projects with a web frontend,
+[Bun](https://bun.sh); projects of native UI need Go alone. MyGo uses no
 cgo, so there is no C toolchain to install, and any machine can compile the
 apps of every platform; signing and disk images of macOS apps need a Mac.
 
 Apps run on:
 
-| Platform | Needs |
-|---|---|
-| macOS 12 or later | nothing: WKWebView is part of macOS |
-| Linux (x64, arm64) | GTK 3 and WebKitGTK 4.1 (or 4.0): `libwebkit2gtk-4.1-0` on Debian and Ubuntu, `webkit2gtk4.1` on Fedora; apps whose windows all show [native UI](ui.md) need GTK 3 alone. Tray icons also need `libayatana-appindicator3`. |
-| Windows 10 and 11 (x64, arm64) | the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/), which Windows 11 includes |
+| Platform | Windows with web pages need | Windows of native UI need |
+|---|---|---|
+| macOS 12 or later | nothing: WKWebView is part of macOS | nothing: they draw with Metal |
+| Linux (x64, arm64) | GTK 3 and WebKitGTK 4.1 (or 4.0): `libwebkit2gtk-4.1-0` on Debian and Ubuntu, `webkit2gtk4.1` on Fedora | GTK 3 alone |
+| Windows 10 and 11 (x64, arm64) | the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/), which Windows 11 includes | nothing: they draw with Direct3D 11 |
+
+An app whose windows all show native UI needs neither WebKitGTK nor the
+WebView2 Runtime. Tray icons on Linux also need `libayatana-appindicator3`.
 
 `mygo doctor` checks a development machine.

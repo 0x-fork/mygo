@@ -1,7 +1,7 @@
 # Plugins
 
-A plugin adds a feature in two halves: Go services, and a JavaScript
-package whose functions call them. The app uses the Go half with
+A plugin adds a feature to web pages in two halves: Go services, and a
+JavaScript package whose functions call them. The app uses the Go half with
 `mygo.Use` and imports the JavaScript half from npm.
 
 ## Official plugins
@@ -12,7 +12,7 @@ package whose functions call them. The app uses the Go half with
   makes, with headers on the handshake.
 - [Updater](plugins/updater.md): an update window in the manner of
   Sparkle, which checks for updates and offers to install them. It is all
-  Go.
+  Go, and works in apps of native UI too.
 
 ## Using plugins
 

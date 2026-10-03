@@ -22,7 +22,9 @@ manager and in the secrets of your CI (see
 signed with it, so losing it strands them, and anyone who has it can ship
 code to your users.
 
-Add the public key to mygo.config.ts, with where releases are published:
+Add the public key to the configuration, with where releases are
+published, here in mygo.config.ts (in [mygo.json](configuration.md#mygojson),
+the same fields in JSON):
 
 ```ts
 export default defineConfig({
@@ -61,11 +63,12 @@ export default defineConfig({
 ## Build and publish
 
 Give `mygo build` the secret key, in the `MYGO_UPDATER_PRIVATE_KEY`
-environment variable or as a file with `updates.privateKey` in mygo.config.ts
-(a path, which may start with `~/`):
+environment variable or as a file with `updates.privateKey` in the
+configuration (a path, which may start with `~/`):
 
 ```sh
-MYGO_UPDATER_PRIVATE_KEY="$(cat path/to/mygo-update.key)" bun run build
+MYGO_UPDATER_PRIVATE_KEY="$(cat path/to/mygo-update.key)" bun run build        # a web frontend
+MYGO_UPDATER_PRIVATE_KEY="$(cat path/to/mygo-update.key)" go tool mygo build   # native UI
 ```
 
 Next to the installers of each platform it writes:

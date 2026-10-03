@@ -1,25 +1,37 @@
 # Getting started
 
+A MyGo app shows its windows with a web frontend, in the system's webview,
+or with [native UI](ui.md) that MyGo draws itself, written in Go. `mygo
+init` starts a project of either kind, and an app can add windows of the
+other kind later.
+
 ## Install
 
-Install [Go](https://go.dev/dl/) 1.27 or later and [Bun](https://bun.sh).
-On Linux, also install GTK 3 and WebKitGTK 4.1, e.g.
-`sudo apt install libwebkit2gtk-4.1-0` on Debian and Ubuntu; on Windows,
-the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
-unless you run Windows 11, which includes it.
+Install [Go](https://go.dev/dl/) 1.27 or later. A project with a web
+frontend also needs [Bun](https://bun.sh), which runs its tools, and apps
+with web pages need the system's webview:
 
-The `mygo` command line tool creates, runs and packages apps. New projects
-depend on it through npm, as the `mygo-cli` package, so you can create one
-without installing anything else:
+- on Linux, GTK 3 and WebKitGTK 4.1, e.g.
+  `sudo apt install libwebkit2gtk-4.1-0` on Debian and Ubuntu;
+- on Windows 10, the
+  [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/),
+  which Windows 11 includes.
 
-```sh
-bunx mygo-cli init my-app      # or: npx mygo-cli init my-app
-```
+Native UI needs nothing more: Go builds the app, and it runs on what the
+system has (GTK 3 on Linux).
 
-The CLI is a Go program, which Go runs too, without installing it:
+The `mygo` command line tool creates, runs and packages apps. It is a Go
+program, which Go runs without installing it:
 
 ```sh
 go run github.com/egoist/mygo/cmd/mygo@latest init my-app
+```
+
+Projects with a web frontend also depend on it through npm, as the
+`mygo-cli` package, so Bun or npm create one too:
+
+```sh
+bunx mygo-cli init my-app      # or: npx mygo-cli init my-app
 ```
 
 You can also install the CLI with Go, which puts `mygo` on your `PATH`:
@@ -31,7 +43,9 @@ mygo init my-app
 
 `mygo doctor` checks that the machine has what MyGo needs.
 
-## The project
+## Create a project
+
+### A web frontend
 
 `mygo init my-app` creates a Go module and a TypeScript frontend built with
 [Vite](https://vite.dev), side by side, and installs their dependencies:
@@ -57,11 +71,10 @@ Builds go to `dist/` (the frontend) and `build/` (the packaged apps), and
 the development app to `.mygo/`; `.gitignore` leaves them out. See
 [configuration](configuration.md) for the fields of `mygo.config.ts`.
 
-### A project of native UI
+### Native UI
 
 `mygo init -template native my-app` creates an app whose window shows
-[native UI](ui.md), a user interface written in Go that MyGo draws itself:
-no frontend, no Bun.
+[native UI](ui.md): a Go module alone, with no frontend and no Bun.
 
 ```
 my-app/
@@ -70,45 +83,40 @@ my-app/
 ├── go.mod           with the CLI as a tool
 ├── mygo.json        the app's name, identifier and version
 └── resources/
-    └── icon.png
+    └── icon.png     the app icon, a 1024×1024 PNG
 ```
 
-```sh
-cd my-app
-go tool mygo dev      # develop with live reload
-go test               # test the view
-go tool mygo build    # package the app
-```
-
-`go tool mygo` runs the CLI at the version `go.mod` pins, which
+The module has the CLI as a
+[tool](https://go.dev/doc/modules/managing-dependencies#tools): `go tool
+mygo` runs it at the version `go.mod` pins, which
 `go get -tool github.com/egoist/mygo/cmd/mygo@latest` updates with MyGo.
 
 ## Develop
 
 ```sh
 cd my-app
-bun run dev
+bun run dev        # a web frontend: runs mygo dev
+go tool mygo dev   # native UI
 ```
 
-`bun run dev` runs `mygo dev`. It writes `src/mygo.ts`, starts the Vite dev
-server, builds a development version of the app, which loads its pages from
-the dev server, and starts it:
+`mygo dev` builds a development version of the app and starts it, then
+rebuilds and restarts it when you edit a `.go` file, the configuration, the
+icon or a resource. A build that fails, or crashes on start, keeps the
+previous one running. Quit the app, or press Ctrl+C, to stop.
 
-- Edit `src/main.ts` or `src/style.css` and Vite updates the page right
-  away.
-- Edit a `.go` file, `mygo.config.ts`, the icon or a resource and mygo dev
-  rebuilds the app, regenerates `src/mygo.ts` and restarts the app. A build
-  that fails, or crashes on start, keeps the previous one running.
-
-Quit the app, or press Ctrl+C, to stop. Development builds have the web
-inspector: right-click the page and choose Inspect Element (Inspect on
-Windows), or call `win.Page().OpenDevTools()`.
+With a web frontend, it also writes `src/mygo.ts` and starts the Vite dev
+server, from which the development app loads its pages: edit `src/main.ts`
+or `src/style.css` and Vite updates the page right away. Development builds
+have the web inspector: right-click the page and choose Inspect Element
+(Inspect on Windows), or call `win.Page().OpenDevTools()`.
 
 On macOS the development app is a real app bundle, `My App Dev` with the
 identifier of the app plus `.dev`, so that it keeps its data, preferences
 and permissions apart from the installed app.
 
-## Call Go from the page
+## Call Go
+
+### From the page
 
 `main.go` binds a Go value, whose exported methods the page can call:
 
@@ -148,15 +156,38 @@ Add a method to `Greeter`, save, and it is there to call once the app has
 restarted. [Calling Go from the frontend](bindings.md) covers what methods
 can take and return, errors, events and security.
 
+### From native UI
+
+Native UI is Go, so it calls your code directly, with no bindings. The view
+is a function of your app's state that MyGo calls to build each frame; it
+asks its elements what happened since the last one:
+
+```go
+func (a *app) view(c *ui.Context) {
+	ui.Column(c).Fill().Center().Gap(16).Children(func() {
+		ui.TextInput(c, &a.name).Placeholder("Your name").Width(240)
+		if ui.PrimaryButton(c, "Greet").Clicked() {
+			a.greeting = greet(a.name) // your Go code
+		}
+		ui.Text(c, a.greeting)
+	})
+}
+```
+
+`main_test.go` clicks and types into the view without a window, as fast as
+a unit test: run `go test`. [Native UI](ui.md) covers layout, widgets,
+text, input, drawing and changing the state from other goroutines.
+
 ## Build
 
 ```sh
-bun run build
+bun run build        # a web frontend: runs mygo build
+go tool mygo build   # native UI
 ```
 
-`bun run build` runs `mygo build`, which builds the frontend with Vite,
-compiles the app with the frontend embedded in it, and packages it for the
-machine's platform in `build/<os>-<arch>/`:
+`mygo build` compiles the app, with the frontend built by Vite embedded in
+it when there is one, and packages it for the machine's platform in
+`build/<os>-<arch>/`:
 
 | Platform | Output |
 |---|---|
@@ -168,6 +199,7 @@ MyGo needs no cgo, so any machine builds for every platform:
 
 ```sh
 bun run build -- -platform darwin/universal,windows/amd64,linux/amd64
+go tool mygo build -platform darwin/universal,windows/amd64,linux/amd64
 ```
 
 The apps run where they are, but to ship them to users, sign them: see
@@ -176,10 +208,16 @@ The apps run where they are, but to ship them to users, sign them: see
 ## Next steps
 
 - [Windows](windows.md) and [the application](app.md), to shape the app.
-- [Menus and the tray](menus.md) and the [native APIs](native.md).
-- The examples in the repository: `examples/hello` (the smallest app),
-  `examples/todo` (typed services and events, persistence, dialogs, menus,
-  several windows), `examples/frameless` (a custom title bar),
-  `examples/vibrancy` (a translucent sidebar under an inset title bar) and
-  `examples/native` (menus, a tray icon, dialogs, notifications, a global
-  shortcut, the clipboard and dark mode).
+- [Native UI](ui.md), to build interfaces in Go, or
+  [the frontend](frontend.md), for web pages.
+- [Menus and the tray](menus.md) and the [desktop APIs](native.md).
+- The examples in the repository:
+  - with web pages: `examples/hello` (the smallest app), `examples/todo`
+    (typed services and events, persistence, dialogs, menus, several
+    windows), `examples/frameless` (a custom title bar),
+    `examples/vibrancy` (a translucent sidebar under an inset title bar)
+    and `examples/native` (menus, a tray icon, dialogs, notifications, a
+    global shortcut, the clipboard and dark mode);
+  - with native UI: `examples/counter-native` (a counter with a test of its
+    view) and `examples/gallery` (a tour of the toolkit: layout, widgets,
+    text editing, a list of ten thousand rows, drawing and overlays).

@@ -29,7 +29,4 @@
 // focus and accessibility: style its elements for a design of your own.
 //
 // Tester runs views in tests, without a window.
-//
-// The package is experimental: its API may change in any release, without
-// deprecations.
 package ui

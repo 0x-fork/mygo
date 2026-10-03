@@ -1,41 +1,48 @@
 # MyGo architecture
 
 This guide explains how MyGo is put together: the layers, the threading
-model, how Go talks to the native toolkits without cgo, how the page and Go
-exchange typed messages, and how to extend the framework safely. Read it
-before changing anything under `internal/`.
+model, how Go talks to the native toolkits without cgo, how pages and Go
+exchange typed messages, how MyGo draws native UI, and how to extend the
+framework safely. Read it before changing anything under `internal/`.
 
 ## Goals and constraints
 
 - **Low overhead.** A hello-world app is a ~7 MB binary with a ~35 MB
   physical footprint on macOS (mostly AppKit/WebKit), ~62 MB with the
   processes WKWebView runs for its page, GPU and network, and idles at 0%
-  CPU. Nothing polls: all work is driven by native events or explicit
-  wake-ups.
+  CPU. A window of native UI starts no webview process: idle, a small one
+  takes 44 MB on macOS, and the counter example 52 MB on Linux. Nothing
+  polls: all work is driven by native events or explicit wake-ups.
 - **No cgo.** Everything builds with `CGO_ENABLED=0`, so any platform can be
   cross-compiled from any machine. Native APIs are called at run time through
   [purego](https://github.com/ebitengine/purego) (`dlopen` + assembly
   trampolines) on macOS and Linux and through the `syscall` package on
   Windows, never through `import "C"`.
-- **The system webview.** WKWebView on macOS, WebKitGTK 4.1 (4.0 as a
-  fallback) on Linux, WebView2 on Windows (amd64 and arm64). No browser engine
-  is bundled. The bundled CEF option is planned but not implemented; on
-  unsupported platforms the `internal/unsupported` backend makes `App.Run`
-  fail with a clear error while everything still compiles.
+- **Two kinds of windows.** Web pages show in the system webview:
+  WKWebView on macOS, WebKitGTK 4.1 (4.0 as a fallback) on Linux, WebView2
+  on Windows (amd64 and arm64); no browser engine is bundled. Native UI is
+  drawn by MyGo itself, in Go, with Metal, Direct3D 11 or OpenGL, or on the
+  CPU, and text from the system's own engines (see [Native UI](#native-ui-ui));
+  an app whose windows all show it needs no webview at all. On unsupported
+  platforms the `internal/unsupported` backend makes `App.Run` fail with a
+  clear error while everything still compiles.
 - **Bun is dev tooling only.** It builds and tests the TypeScript bridge, and
-  installs and runs the template's tools (Vite, TypeScript, the mygo-cli
-  package). Nothing Bun-related ships in an app.
+  installs and runs the web template's tools (Vite, TypeScript, the
+  mygo-cli package); projects of native UI need none. Nothing Bun-related
+  ships in an app.
 - **Great DX over API parity.** The API has the feel of Electron (app
   lifecycle, windows, menus, dialogs) but is Go-first: typed IPC with a
   generated TypeScript client, `http.Handler` for custom protocols, typed
-  event structs, blocking calls that are safe from any goroutine.
+  event structs, blocking calls that are safe from any goroutine, and native
+  UI written in Go alone.
 
 ## Repository layout
 
 ```
 .                       package mygo: the public API
 ├── app.go              lifecycle, quit sequence, Dock, paths (paths.go)
-├── window.go           Window: native window + its page, events, Eval
+├── window.go           Window: the native window, its options, state and events
+├── page.go             Page: the web page a window shows, its loading, Eval and events
 ├── content.go          Content: windows showing native UI instead of a page
 ├── ipc.go              Bind/BindAs, method calls, Event[T], CallerWindow
 ├── plugin.go           Plugin and Use: services bound as "plugin:<name>"
@@ -66,6 +73,8 @@ before changing anything under `internal/`.
 │   ├── gpu/            the instances GPU renderers draw, and gputest/ for their tests
 │   ├── gpu/d3d11/      the Direct3D 11 renderer of scenes
 │   ├── gpu/metal/      the Metal renderer of scenes
+│   ├── gpu/gl/         the OpenGL renderer of scenes
+│   ├── svg/            SVG parsing and drawing, for icons and images
 │   ├── tsgen/          TypeScript client generator
 │   ├── accelerator/    parses "CmdOrCtrl+Shift+K"
 │   ├── update/         update manifests, signatures, archives and delta updates
@@ -91,7 +100,7 @@ before changing anything under `internal/`.
 ## Layers
 
 ```
- user code ──► package mygo ──► platform.Backend ──► darwin | linux | unsupported
+ user code ──► package mygo ──► platform.Backend ──► darwin | linux | windows | unsupported
                  ▲    │               ▲                  │
                  │    └─ handlers ────┘ (AppHandler,     └─ purego ─► AppKit/WebKit, GTK/WebKitGTK
                  │                       WindowHandler)
@@ -870,7 +879,7 @@ provides a surface to draw on and its input, and renderers know nothing of
 either.
 
 ```
- view (Go) ──► ui: build, layout, paint ──► internal/scene ──► internal/gpu/d3d11 | internal/raster
+ view (Go) ──► ui: build, layout, paint ──► internal/scene ──► internal/gpu: d3d11 | metal | gl, or internal/raster
                  ▲       └─ internal/text: DirectWrite | Core Text | Pango, glyph and mask atlases
                  │
  internal/surface.Conn ◄── content.go (package mygo) ◄── platform.Surface: darwin | linux | windows | fake

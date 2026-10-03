@@ -4,7 +4,10 @@ The updater plugin gives an app the update window that Mac users know from
 Sparkle, on every platform: it checks for updates in the background, shows
 the release notes of a new version and offers to install it, skip it or
 remind the user later, then downloads it with a progress bar and relaunches
-the app into it. It is all Go, with no npm package.
+the app into it. It is all Go, with no npm package, and works in apps of
+web pages and of [native UI](../ui.md) alike; its window is a web page,
+though, so it needs WebKitGTK on Linux and the WebView2 Runtime on Windows
+10 even in an app whose own windows all show native UI.
 
 It is built on `mygo.Updater`, so the app must be built with updates: see
 [auto-updates](../updates.md) to sign and publish them.

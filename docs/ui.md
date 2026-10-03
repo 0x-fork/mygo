@@ -6,9 +6,6 @@ and no frontend build, and the window starts no webview, so it opens at
 once and uses little memory. MyGo draws it on the GPU, with Metal on macOS,
 Direct3D 11 on Windows and OpenGL on Linux.
 
-Native UI is experimental: the API of package `ui` may change in any
-release, without deprecations.
-
 ```go
 package main
 
@@ -601,10 +598,10 @@ are, unless `Label` names them. In `Draw` callbacks, `Painter.Icon` and
 
 A window with `Content` takes the [window options](windows.md#options) of
 any window, such as its size, `StateKey`, `Frameless` and `Parent`, as well
-as menus, dialogs and the other native APIs. It has no page: `Page()` is
-nil, and it ignores `URL` and `WindowOptions.Page`. Its Go code needs no
-bindings: the view calls it
-directly. `CapturePage` returns a PNG of what it shows.
+as menus, dialogs and the other [desktop APIs](native.md). It has no page:
+`Page()` is nil, and it ignores `URL` and `WindowOptions.Page`. Its Go code
+needs no bindings: the view calls it directly. `CapturePage` returns a PNG
+of what it shows.
 
 With `TitleBarStyle: mygo.TitleBarHidden`, the view draws the title bar
 under the window controls, as a page does with the `--mygo-titlebar-*` CSS
@@ -632,8 +629,8 @@ ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 })
 ```
 
-On Linux, an app whose windows all show native UI needs GTK 3 alone, not
-WebKitGTK.
+An app whose windows all show native UI needs no webview: on Linux it
+needs GTK 3 alone, not WebKitGTK, and on Windows no WebView2 Runtime.
 
 ## Testing
 

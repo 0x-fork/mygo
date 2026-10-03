@@ -63,6 +63,14 @@ jobs:
         run: bun run build -- -platform "${{ matrix.platform }}" -upload
 ```
 
+A project of [native UI](ui.md) has no frontend, so no Bun: leave out the
+`setup-bun` and `bun install` steps, and build with the CLI that `go.mod`
+pins as a tool:
+
+```yaml
+        run: go tool mygo build -platform "${{ matrix.platform }}" -upload
+```
+
 Add the secret key that signs updates, the contents of `mygo-update.key`
 (see [auto-updates](updates.md#set-up)), to the repository's secrets:
 
@@ -249,6 +257,9 @@ mygo-cli, which pins NSIS:
           key: nsis-${{ hashFiles('bun.lock') }}
 ```
 
+In a project of native UI, `go.mod` pins the CLI: key the cache on
+`hashFiles('go.sum')`.
+
 ## Checking the version
 
 A tag that does not match the configuration's version would publish the
@@ -271,6 +282,9 @@ that a wrong tag builds nothing:
       - name: Check the version
         run: test "$GITHUB_REF_NAME" = "v$(jq -r .version package.json)"
 ```
+
+A project of native UI has the version in `mygo.json`: check
+`jq -r .version mygo.json` instead.
 
 ## Publishing the release
 

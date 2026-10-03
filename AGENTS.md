@@ -1,7 +1,9 @@
 # AGENTS.md
 
-MyGo is a desktop application framework in Go built on the system webview
-(WKWebView on macOS, WebKitGTK on Linux), with typed Go ↔ TypeScript IPC.
+MyGo is a desktop application framework in Go. Windows show web pages in the
+system webview (WKWebView on macOS, WebKitGTK on Linux, WebView2 on Windows),
+with typed Go ↔ TypeScript IPC, or native UI that MyGo draws itself (package
+`ui`).
 
 **Read [docs/architecture.md](docs/architecture.md) before changing code.** It
 describes the layers, the threading model, native interop without cgo, the IPC

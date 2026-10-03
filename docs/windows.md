@@ -1,7 +1,8 @@
 # Windows
 
-A window is a native window showing a web page. Create windows with
-`mygo.NewWindow` once the app is ready:
+A window is a native window that shows a web page, loaded from its `URL`,
+or [native UI](ui.md) that MyGo draws, from its `Content`. Create windows
+with `mygo.NewWindow` once the app is ready:
 
 ```go
 mygo.App.WhenReady(func() {
@@ -18,8 +19,17 @@ mygo.App.WhenReady(func() {
 })
 ```
 
-Like every MyGo API, windows can be created and changed from any goroutine;
-calls hop to the main thread, which drives the UI.
+A window of native UI takes `Content` in place of `URL`:
+
+```go
+mygo.NewWindow(mygo.WindowOptions{Title: "Inspector", Content: ui.View(app.view)})
+```
+
+Everything in this guide applies to windows of both kinds, apart from
+[pages](#pages), which only windows showing web pages have, and the
+options about them. Like every MyGo API, windows can be created and
+changed from any goroutine; calls hop to the main thread, which drives the
+UI.
 
 ## Options
 
@@ -28,20 +38,20 @@ on the screen. Sizes and positions are in device-independent pixels.
 
 | Option | |
 |---|---|
-| `Title` | the window title; defaults to the app name, then follows the page's `<title>` |
+| `Title` | the window title; defaults to the app name, and a page's `<title>` replaces it |
 | `URL` | loaded once the window exists; `/` and other URLs without a scheme are pages of the [frontend](frontend.md#how-pages-load) |
-| `Content` | shows a [native UI](ui.md) that MyGo draws, instead of a page |
-| `Width`, `Height` | the size of the window, or of its page with `UseContentSize` |
+| `Content` | shows [native UI](ui.md) that MyGo draws, instead of a page |
+| `Width`, `Height` | the size of the window, or of what it shows with `UseContentSize` |
 | `X`, `Y` | the top-left corner; the window is centered when both are 0 |
 | `MinWidth`, `MinHeight`, `MaxWidth`, `MaxHeight` | limits of resizing; 0 means none |
 | `StateKey` | remembers the window's bounds and state under this key, see [below](#remember-where-windows-were) |
 | `Hidden` | creates the window without showing it |
 | `Maximized`, `FullScreen` | creates it maximized or in full screen |
-| `Frameless` | no title bar and borders: the page draws them, see [custom title bars](frontend.md#custom-title-bars) |
+| `Frameless` | no title bar and borders: the page draws them, see [custom title bars](frontend.md#custom-title-bars), or the [native UI](ui.md#windows-with-native-ui) |
 | `TitleBarStyle` | hides the title bar but keeps the window buttons over the page, see [custom title bars](frontend.md#custom-title-bars), or over [native UI](ui.md#windows-with-native-ui) |
 | `TrafficLightPosition` | moves the window buttons of a hidden title bar (macOS) |
 | `TitleBarHeight` | the height of the title bar the page draws under the window buttons (Linux, Windows) |
-| `Transparent`, `Vibrancy` | a transparent window, and the material behind a transparent page (macOS, Windows 11) |
+| `Transparent`, `Vibrancy` | a transparent window, and the material behind a transparent page (macOS, Windows 11) or [native UI](ui.md#windows-with-native-ui) (macOS) |
 | `BackgroundColor` | fills the window until the page paints, in CSS syntax such as `"#1e1e1e"`, or `"light-dark(#f5f5f7, #1e1e1e)"` to follow the appearance |
 | `Opacity` | between 0 and 1 |
 | `DisableResize`, `DisableMove`, `DisableMinimize`, `DisableMaximize`, `DisableClose`, `DisableFullScreen`, `DisableShadow` | take abilities away |
@@ -53,8 +63,8 @@ on the screen. Sizes and positions are in device-independent pixels.
 
 ## Show windows without flashing
 
-A window shows its `BackgroundColor`, white by default, until the page
-paints, so make it the page's background. When the page follows dark mode,
+A window showing a web page shows its `BackgroundColor`, white by
+default, until the page paints, so make it the page's background. When the page follows dark mode,
 give both colors with `light-dark(<light>, <dark>)`: the window switches
 with the appearance. To show windows only once their page is ready, create
 them hidden and show them from `OnReadyToShow`:
@@ -63,6 +73,9 @@ them hidden and show them from `OnReadyToShow`:
 win := mygo.NewWindow(mygo.WindowOptions{URL: "/", Hidden: true, BackgroundColor: "#1e1e1e"})
 win.OnReadyToShow(win.Show)
 ```
+
+Windows of native UI need neither: they have no page to load, and draw
+their first frame as they show.
 
 ## Remember where windows were
 
@@ -155,8 +168,8 @@ slow work. Each `On…` method returns a function that removes the listener.
 | `OnResize`, `OnMove` | it was resized or moved |
 | `OnMaximize`, `OnUnmaximize`, `OnMinimize`, `OnRestore` | its state changed |
 | `OnEnterFullScreen`, `OnLeaveFullScreen` | it entered or left full screen |
-| `OnReadyToShow` | its first page is ready to be displayed |
-| `OnFileDrop` | files were dropped on its page, see [dropped files](frontend.md#dropped-files) |
+| `OnReadyToShow` | its first page is ready to be displayed (windows showing a web page) |
+| `OnFileDrop` | files were dropped on its page, see [dropped files](frontend.md#dropped-files), or on native UI that did not take them, see [input](ui.md#input) |
 
 Ask before closing a window with unsaved changes:
 

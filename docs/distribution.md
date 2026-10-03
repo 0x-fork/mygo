@@ -6,21 +6,21 @@ executable, a desktop entry, an archive with its install script and a Debian
 package on Linux.
 
 ```sh
-bun run build     # mygo build
+bun run build        # mygo build, in a project with a web frontend
+go tool mygo build   # in a project of native UI
 ```
 
 It:
 
-1. writes the TypeScript client, so the frontend builds against the Go
-   code;
-2. runs `buildCommand` from the configuration, which builds the frontend into
-   `frontendDist`;
-3. compiles the app with the frontend embedded, for production: without
-   the web inspector, and with the name, identifier and version of
-   the configuration linked in;
-4. packages it for each platform in `build/<os>-<arch>/` (`out` in
+1. with a web frontend, writes the TypeScript client, so the frontend
+   builds against the Go code, and runs `buildCommand` from the
+   configuration, which builds the frontend into `frontendDist`;
+2. compiles the app, with the frontend embedded when there is one, for
+   production: without the web inspector, and with the name, identifier
+   and version of the configuration linked in;
+3. packages it for each platform in `build/<os>-<arch>/` (`out` in
    the configuration);
-5. signs what it can, and with [updates](updates.md) configured, writes the
+4. signs what it can, and with [updates](updates.md) configured, writes the
    signed update archives, and delta updates from the published versions.
 
 ## Platforms

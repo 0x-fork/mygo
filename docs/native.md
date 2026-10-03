@@ -1,7 +1,8 @@
-# Native APIs
+# Desktop APIs
 
-MyGo wraps the parts of the operating system desktop apps use most. Like
-the rest of MyGo, each can be called from any goroutine.
+MyGo wraps the parts of the operating system desktop apps use most, for
+apps whose windows show web pages, native UI or both. Like the rest of
+MyGo, each can be called from any goroutine.
 
 ## Dialogs
 

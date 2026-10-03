@@ -33,7 +33,9 @@ export default defineConfig({
 ```
 
 Every field is optional. The configuration can also be JSON, in
-[mygo.json](#mygojson).
+[mygo.json](#mygojson), as projects of [native UI](ui.md) have it: they
+have no JavaScript, and no frontend to develop or build, so they leave out
+the fields of [the frontend](#development-and-the-frontend).
 
 ## The app
 
@@ -161,7 +163,7 @@ reloads the app when the file changes, but not when files it imports do.
 ## mygo.json
 
 The configuration can be JSON instead, in `mygo.json`, which needs no
-JavaScript runtime to read:
+JavaScript runtime to read; `mygo init -template native` makes one:
 
 ```json
 {

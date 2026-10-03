@@ -4,9 +4,9 @@
 
 ## Install
 
-Projects depend on the CLI as the `mygo-cli` npm package, which holds a
-prebuilt binary for macOS, Linux and Windows on arm64 and x64, and run it
-from their scripts:
+Projects with a web frontend depend on the CLI as the `mygo-cli` npm
+package, which holds a prebuilt binary for macOS, Linux and Windows on
+arm64 and x64, and run it from their scripts:
 
 ```sh
 bun add -d mygo-cli    # or: npm install -D mygo-cli
@@ -19,6 +19,10 @@ Outside a project, run `bunx mygo-cli` or `npx mygo-cli`, e.g.
 `bunx mygo` would run it where mygo-cli is not installed. `npm install -g
 mygo-cli` puts `mygo` on your `PATH`. `MYGO_CLI_BINARY` makes the package
 run another build of the CLI.
+
+Projects of [native UI](ui.md) have no npm packages: their `go.mod` has
+the CLI as a [tool](https://go.dev/doc/modules/managing-dependencies#tools),
+which `go tool mygo` runs at the version it pins.
 
 The CLI is a Go program, which Go runs too, without installing it:
 
@@ -47,13 +51,13 @@ Creates a project in a new or empty directory: a Go module and a
 TypeScript frontend built with Vite, side by side, a default icon in
 `resources/icon.png`, and a package.json with the scripts `dev`, `build`
 and `generate`. It installs the dependencies with Bun and generates the
-TypeScript client. See [the project](getting-started.md#the-project).
+TypeScript client. See [a web frontend](getting-started.md#a-web-frontend).
 
 With `-template native` the project is a Go module alone, whose window
 shows [native UI](ui.md): `main.go`, a test of its view, `mygo.json` and the
 icon. The module has the CLI as a [tool](https://go.dev/doc/modules/managing-dependencies#tools),
 so `go tool mygo dev` and `go tool mygo build` run the version it pins,
-without Bun. See [a project of native UI](getting-started.md#a-project-of-native-ui).
+without Bun. See [native UI](getting-started.md#native-ui).
 
 | Flag | |
 |---|---|
@@ -142,11 +146,11 @@ to the configuration.
 
 ## mygo doctor
 
-Checks the development machine: Go, Bun, the webview of the platform, and
-the tools of optional features: NSIS for Windows installers (which
-`mygo build` downloads on Windows), `signtool` or
-`osslsigncode` for signing Windows apps, `gh` for `-upload`, and Developer
-ID identities for signing macOS apps.
+Checks the development machine: Go, Bun and the webview of the platform,
+which projects with a web frontend need, and the tools of optional
+features: NSIS for Windows installers (which `mygo build` downloads on
+Windows), `signtool` or `osslsigncode` for signing Windows apps, `gh` for
+`-upload`, and Developer ID identities for signing macOS apps.
 
 ## mygo version
 
