@@ -77,12 +77,16 @@ func (p *Painter) element(e *Element) {
 		margin = max(margin, abs32(sh.x)+abs32(sh.y)+sh.blur+sh.spread)
 	}
 	clips := e.flags&(flagClipX|flagClipY|flagScrollX|flagScrollY) != 0
+	// What an element clips meets its border where both are smoothed, on
+	// rounded corners: painted over it there, it would thin the border. The
+	// border goes over them instead.
+	borderOver := clips && e.first != nil && scene.HasBorder(e.border) && e.borderC.A > 0
 	own := p.visible(box, margin+4)
 	if own {
 		for _, sh := range e.shadows {
 			p.shadow(box, e.radius, sh)
 		}
-		p.background(e, box)
+		p.background(e, box, !borderOver)
 		if e.paintFn != nil {
 			e.paintFn(p, box)
 		}
@@ -133,6 +137,9 @@ func (p *Painter) element(e *Element) {
 	}
 	if e.scrolls() && own {
 		p.scrollbars(e)
+	}
+	if own && borderOver {
+		p.border(e, box)
 	}
 	if own && e.paintAfterFn != nil {
 		e.paintAfterFn(p, box)
@@ -189,9 +196,10 @@ func (p *Painter) fill(r Rect, radius [4]float32, bg Color, bw float32, bc Color
 	p.s.Ops = append(p.s.Ops, op)
 }
 
-// background paints the background and the border of an element.
-func (p *Painter) background(e *Element, box Rect) {
-	border := scene.HasBorder(e.border) && e.borderC.A > 0
+// background paints the background of an element, and its border with it
+// unless withBorder is false.
+func (p *Painter) background(e *Element, box Rect, withBorder bool) {
+	border := withBorder && scene.HasBorder(e.border) && e.borderC.A > 0
 	var visible bool
 	switch e.fill {
 	case fillColor:
@@ -219,6 +227,12 @@ func (p *Painter) background(e *Element, box Rect) {
 		op.Gradient = [4]float32{float32(math.Cos(a)), float32(math.Sin(a)), w, w + max(st.gap*p.scale, 0)}
 	}
 	p.s.Ops = append(p.s.Ops, op)
+}
+
+// border paints e's border alone.
+func (p *Painter) border(e *Element, box Rect) {
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: p.snap(box), Radii: p.radii(e.radius), Opacity: p.opacity,
+		Border: p.borders(e.border), BorderColor: e.borderC.scene(), Dashed: e.borderStyle == BorderDashed})
 }
 
 // gradient sets the paint of op to g, across its rectangle.

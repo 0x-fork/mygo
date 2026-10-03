@@ -150,8 +150,8 @@ Elements lay out their children with flexbox, as in CSS, or in a
   layout put it, without moving its siblings, as CSS's relative
   positioning does: a badge raised a little above its text.
 - `AspectRatio` keeps an element's proportions; `Clip` cuts its children
-  to its rounded box, `ClipX` and `ClipY` only on the sides or above and
-  below.
+  to its rounded box, inside its border, which it draws over them;
+  `ClipX` and `ClipY` clip only on the sides or above and below.
 - `Invisible` hides an element and its children, which keep their room
   but draw nothing and take neither the pointer nor the focus.
 - `Debug` outlines an element and everything inside it, with their padding
