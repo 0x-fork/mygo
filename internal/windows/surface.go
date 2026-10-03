@@ -210,6 +210,15 @@ func cursorHandle(c platform.Cursor) uintptr {
 		platform.CursorMove: 32646, platform.CursorResizeEW: 32644, platform.CursorResizeNS: 32645,
 		platform.CursorResizeNWSE: 32642, platform.CursorResizeNESW: 32643, platform.CursorNotAllowed: 32648,
 		platform.CursorCrosshair: 32515, platform.CursorGrab: 32649, platform.CursorGrabbing: 32646,
+		// Windows has no cursors of one direction, of columns and rows, or
+		// for vertical text: those of both directions and the I-beam.
+		platform.CursorResizeN: 32645, platform.CursorResizeS: 32645, platform.CursorResizeE: 32644,
+		platform.CursorResizeW: 32644, platform.CursorResizeColumn: 32644, platform.CursorResizeRow: 32645,
+		platform.CursorVerticalText: 32513,
+	}
+	if c == platform.CursorNone {
+		surfaceCursors[c] = 0 // SetCursor(NULL) hides it
+		return 0
 	}
 	id, ok := ids[c]
 	if !ok {

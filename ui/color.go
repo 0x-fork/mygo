@@ -66,6 +66,12 @@ func (c Color) Alpha(a float32) Color {
 	return c
 }
 
+// gray returns the color in shades of gray, of the same luminance.
+func (c Color) gray() Color {
+	l := uint8(0.2126*float32(c.R) + 0.7152*float32(c.G) + 0.0722*float32(c.B) + 0.5)
+	return Color{l, l, l, c.A}
+}
+
 // Mix returns the color t of the way from c to o.
 func (c Color) Mix(o Color, t float32) Color {
 	t = max(0, min(t, 1))

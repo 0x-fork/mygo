@@ -114,36 +114,57 @@ one after a delay, such as a clock's next second.
 
 ## Layout
 
-Elements lay out their children with flexbox, as in CSS, in
-device-independent pixels (DIPs):
+Elements lay out their children with flexbox, as in CSS, or in a
+[grid](#grids), in device-independent pixels (DIPs):
 
 - `ui.Column` stacks its children from top to bottom and stretches them to
   its width; `ui.Box` is a column too. `ui.Row` places them from left to
-  right and centers them vertically.
+  right and centers them vertically. `Reverse` lays them out the other
+  way, from the right or the bottom, as CSS's `row-reverse` and
+  `column-reverse`.
 - `Width`, `Height` and `Size` set sizes; `WidthPercent` and `HeightPercent`
   take a share of the parent; `MinWidth`, `MaxWidth`, `MinHeight` and
-  `MaxHeight` bound them; `Fill`, `FillWidth` and `FillHeight` take the
-  parent's whole content box.
+  `MaxHeight` bound them, and their `Percent` forms by a share of the
+  parent; `Fill`, `FillWidth` and `FillHeight` take the parent's whole
+  content box.
 - `Grow(1)` gives an element the free space along its parent's direction,
   like `flex: 1`: a list that fills the rest of a window, or a `Spacer` that
-  pushes the elements after it to the end. `Shrink` and `Basis` work as in
-  CSS.
-- `Gap` spaces the children; `Padding` and `Margin` take one, two or four
-  values, as in CSS.
+  pushes the elements after it to the end. `Shrink`, `Basis` and
+  `BasisPercent` work as in CSS.
+- `Gap` spaces the children, `GapX` and `GapY` horizontally and vertically
+  apart; `Padding` and `Margin` take one, two or four values, as in CSS, and
+  `PaddingX`, `PaddingY`, `MarginX` and `MarginY` two sides. A margin of
+  `ui.Auto` takes the free space on its side, as in CSS: `Margin(0, ui.Auto)`
+  centers an element in a column, and `Margin(0, 0, 0, ui.Auto)` sends a
+  row's child, and those after it, to the end.
 - `Justify` places the children along the direction (`Start`, `Center`,
   `End`, `SpaceBetween`, `SpaceAround`, `SpaceEvenly`), `AlignItems` across
   it (`Start`, `Center`, `End`, `Stretch`), `AlignSelf` one child; `Center`
-  centers them both ways, and `Wrap` wraps a row onto more lines.
+  centers them both ways. `Wrap` wraps a row onto more lines, which
+  `WrapReverse` stacks upward, and `AlignContent` places those lines (as
+  `Justify` places children, or `Stretch`).
 - `Absolute` takes an element out of the flow, placed with `Top`, `Right`,
-  `Bottom` and `Left` in its parent; `AspectRatio` keeps its proportions;
-  `Clip` cuts its children to its rounded box.
+  `Bottom` and `Left` in its parent, in DIPs or with `TopPercent` and the
+  like; automatic margins center it between the sides it is placed from.
+  On an element in the flow, `Top` and the others move it from where the
+  layout put it, without moving its siblings, as CSS's relative
+  positioning does: a badge raised a little above its text.
+- `AspectRatio` keeps an element's proportions; `Clip` cuts its children
+  to its rounded box, `ClipX` and `ClipY` only on the sides or above and
+  below.
+- `Invisible` hides an element and its children, which keep their room
+  but draw nothing and take neither the pointer nor the focus.
+- `Debug` outlines an element and everything inside it, with their padding
+  and margins, to see why the layout is what it is.
 
 `ui.Scroll` and `ui.ScrollHorizontal` scroll their children with the wheel,
 the touchpad, their scroll bar and the keyboard: the arrow keys, Page Up
 and Page Down, Space, Home and End scroll the container around the focus,
 or under the pointer, unless the focused element takes those keys, as a
-text input does. Give them a size, or grow them in their parent. `ui.List` builds only the rows in view, so it shows
-millions of rows of a fixed height as fast as ten:
+text input does. `ui.ScrollBoth` scrolls both ways, as a canvas or a wide
+table does. Give them a size, or grow them in their parent. `ui.List`
+builds only the rows in view, so it shows millions of rows of a fixed
+height as fast as ten:
 
 ```go
 ui.List(c, len(app.rows), 32, func(i int) {
@@ -151,25 +172,62 @@ ui.List(c, len(app.rows), 32, func(i int) {
 }).Grow(1)
 ```
 
+### Grids
+
+`ui.Grid` lays its children out in columns and rows, as CSS grid does:
+they fill its cells row by row, and it adds rows as they need them.
+`Columns(3)` makes three columns of equal width; `ColumnTracks` sets them
+one by one, as `ui.Fixed(220)` DIPs, `ui.Fr(1)`, a share of the room the
+others leave, or `ui.FitContent()`, as wide as their content:
+
+```go
+ui.Grid(c).Columns(3).Gap(12).Children(func() {
+	for _, p := range app.photos {
+		ui.Image(c, p).AspectRatio(1).Fit(ui.Cover).Radius(8)
+	}
+})
+
+ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1)).GapX(16).GapY(8).Children(func() {
+	ui.Text(c, "Name").Bold().ColumnSpan(-1) // across every column
+	ui.Text(c, "Email")
+	ui.TextInput(c, &app.email)
+	ui.Text(c, "Bio")
+	ui.TextArea(c, &app.bio).RowSpan(2)
+})
+```
+
+`ColumnSpan` and `RowSpan` make a child span tracks, a negative span every
+track to the last, and `ColumnStart` and `RowStart` put it in a given
+column and row, counting from 1. `RowTracks` and `Rows` set the first
+rows, which `Fr` makes share the grid's height. Children stretch to fill
+their cells unless `JustifyItems` (horizontally) and `AlignItems`
+(vertically) say otherwise, or `JustifySelf` and `AlignSelf` for one;
+automatic margins center them. Tracks that fit their content share the
+room left over unless `Justify` or `AlignContent` place them instead.
+
 ## Text
 
 `ui.Text` shows text that wraps at the width it gets, and `ui.Textf` formats
 it. `FontSize`, `FontWeight`, `Bold`, `Italic`, `Font`, `LineHeight`,
-`TextColor`, `TextAlign`, `Underline`, `Strikethrough`, `LetterSpacing`
-and `FontFeatures` style it, set on the text or on any element above it,
-whose texts inherit them. `FontFeatures` turns on OpenType features of the
-font by tag, or sets them with `tag=value`: `FontFeatures("tnum")` gives
-digits of one width for numbers that change, `FontFeatures("liga=0")`
-turns ligatures off. `SingleLine`
-keeps text on one line, cut with an ellipsis, and `MaxLines` limits it to a
-few. `Selectable` lets the user select a text with the pointer, Shift and
-the arrows, and copy it, as an error message or an identifier to paste
-elsewhere.
+`FixedLineHeight` (in DIPs, whatever the font size), `TextColor`,
+`TextAlign`, `Underline`, `WavyUnderline`, `Strikethrough`,
+`DecorationColor` and `DecorationThickness` (of the underline and
+strikethrough), `TextBackground` (a highlight behind the lines),
+`LetterSpacing` and `FontFeatures` style it, set on the text or on any
+element above it, whose texts inherit them. `FontFeatures` turns on
+OpenType features of the font by tag, or sets them with `tag=value`:
+`FontFeatures("tnum")` gives digits of one width for numbers that change,
+`FontFeatures("liga=0")` turns ligatures off. `SingleLine` keeps text on
+one line, cut with an ellipsis, `MaxLines` limits it to a few, and
+`Ellipsis(" →")` ends what they cut with another mark; `NoWrap` keeps its
+lines whole, breaking them only at newlines. `Selectable` lets the user
+select a text with the pointer, Shift and the arrows, and copy it, as an
+error message or an identifier to paste elsewhere.
 
 `ui.RichText` mixes styles in one paragraph: each `ui.Span` sets what it
-changes (font, size, weight, italics, color, underline, strikethrough,
-letter spacing, features) over the style of the text, and the spans wrap
-together:
+changes (font, size, weight, italics, color, underlines, strikethrough,
+their color and thickness, a background, letter spacing, features) over
+the style of the text, and the spans wrap together:
 
 ```go
 ui.RichText(c,
@@ -177,6 +235,13 @@ ui.RichText(c,
 	ui.Span{Text: "report.pdf", Weight: 600},
 	ui.Span{Text: " to "},
 	ui.Span{Text: "Documents", Color: t.Accent, Underline: true},
+)
+
+ui.RichText(c,
+	ui.Span{Text: "Did you mean "},
+	ui.Span{Text: "recieve", WavyUnderline: true, DecorationColor: t.Danger},
+	ui.Span{Text: "? "},
+	ui.Span{Text: "match", Background: ui.RGBA(250, 204, 21, 0.4)},
 )
 ```
 
@@ -205,8 +270,29 @@ has it, before the system's own choice.
 
 ## Styling and themes
 
-`Background`, `Gradient`, `Border`, `Radius`, `Shadow` and `Opacity` style
-an element's box, and `Cursor` sets the pointer over it.
+`Background`, `Border`, `Radius`, `Shadow` and `Opacity` style an
+element's box, and `Cursor` sets the pointer over it:
+
+- **Borders.** `Border(1, c)` draws one inside every edge; `BorderWidth`
+  sets the sides apart, CSS style, with `BorderColor`, as a line under a
+  header with `BorderWidth(0, 0, 1, 0)`, and `BorderStyle(ui.BorderDashed)`
+  dashes it.
+- **Gradients and stripes.** `Gradient(from, to, angle)` fills the box with
+  a linear gradient; `LinearGradient` also places its colors along the line
+  (`Start`, `End`) and mixes them in Oklab, which keeps their lightness,
+  instead of sRGB. `Stripes(c, width, gap, angle)` draws stripes over the
+  background, as on what is unavailable.
+- **Pointer.** `Cursor` takes the shapes of the platforms: `CursorPointer`,
+  `CursorText`, `CursorMove`, `CursorGrab` and `CursorGrabbing`, the
+  resize cursors (both ways, toward one side as `CursorResizeE`, and of
+  columns and rows), `CursorCopy` and `CursorAlias` for drops,
+  `CursorContextMenu`, `CursorVerticalText`, `CursorNotAllowed`,
+  `CursorCrosshair`, and `CursorNone`, which hides it.
+
+There are no style sheets and no state selectors: the view is code, so an
+element's look follows the state in the view itself, as
+`if row.Hovered() { row.Background(t.SurfaceHover) }`, and one element's
+state can style another, as a group's hover does in CSS.
 
 Widgets take their colors and metrics from the theme, `c.Theme()`: the light
 or the dark theme, following the system's appearance as it changes. Use its
@@ -225,8 +311,10 @@ c.SetTheme(&t)
 `Spacing` is the unit of the room widgets leave: their paddings and gaps,
 and the sizes of check boxes, switches, sliders and the rows of tables and
 trees, are multiples of it. It is 4 by default; 3 makes every widget
-compact, 5 roomy. `FontSize` sizes their text, and `Radius` rounds their
-corners.
+compact, 5 roomy. `FontSize` sizes their text, `Radius` rounds their
+corners, and `ScrollbarWidth` sets the width of scroll bars. Size your own
+elements with the theme too, and they follow it: `t.Space(3)` is three
+units of its spacing, and `t.Rem(2)` twice its font size, as CSS's rem.
 
 A widget returns its element, so a call after it styles it differently
 from the rest: `ui.Button(c, "Save").Padding(10, 20).Radius(999)`. For a
@@ -254,7 +342,8 @@ look of your own, build on the widgets' bases, which have none: see
 | `Icon` | shows a `*ui.SVG` in the color of the text, as high as the font size, see [images and icons](#images-and-icons) |
 | `Image` | shows a `*ui.Bitmap`, or a `*ui.SVG` in its own colors |
 | `Divider`, `Spacer` | a line, and space that grows |
-| `Scroll`, `ScrollHorizontal`, `List` | scroll containers, see [layout](#layout) |
+| `Scroll`, `ScrollHorizontal`, `ScrollBoth`, `List` | scroll containers, see [layout](#layout) |
+| `Grid` | a grid of cells, see [grids](#grids) |
 | `Modal`, `Popover`, `Overlay` | dialogs and panels above the window, see [overlays](#overlays) |
 
 ### Widgets without a look
@@ -490,8 +579,11 @@ nothing for it otherwise.
 
 `Draw` paints on an element after its background, and `DrawOver` after its
 children, with a `*ui.Painter` in DIPs of the window: rectangles with
-`Fill` and `Stroke`, `Shadow`, `Line`, `Text`, `Image`, `Clip`, and paths of
-lines and curves with `FillPath` and `StrokePath`:
+`Fill`, `FillGradient`, `Stroke` and `StrokeDashed`, `Shadow`, `Line`,
+`Image`, `Clip`, paths of lines and curves with `FillPath` and
+`StrokePath`, or in a gradient with `FillPathGradient` and
+`StrokePathGradient`, and text with `Text`, or `RichText` in spans of any
+style, which `MeasureText` measures first, to center or align it:
 
 ```go
 ui.Box(c).Height(120).Draw(func(p *ui.Painter, r ui.Rect) {
@@ -509,6 +601,14 @@ ui.Box(c).Height(120).Draw(func(p *ui.Painter, r ui.Rect) {
 })
 ```
 
+```go
+ui.Box(c).Size(200, 40).Draw(func(p *ui.Painter, r ui.Rect) {
+	label := ui.Span{Text: "42%", Weight: 600, Color: c.Theme().TextMuted}
+	w, h := p.MeasureText(0, label)
+	p.RichText(r.X+(r.W-w)/2, r.Y+(r.H-h)/2, 0, label)
+})
+```
+
 Draw functions only paint: MyGo may call them more than once a frame.
 
 For motion, `Element.Animate` returns a value that eases to a target and
@@ -523,7 +623,21 @@ if app.sidebar {
 panel.Width(panel.Animate("width", width, 200*time.Millisecond))
 ```
 
-To animate continuously, compute from `c.Now()` and call
+`AnimateWith` takes the easing: `ui.Linear`, `ui.EaseIn`, `ui.EaseOut` (as
+`Animate`), `ui.EaseInOut`, any `func(t float32) float32`, or
+`ui.Bounce(e)`, which goes along `e` and comes back. `Loop` returns the
+progress of an animation that starts over every period, for spinners and
+pulses; `Rotate` turns an icon:
+
+```go
+spin := ui.Icon(c, loader)
+spin.Rotate(spin.Loop("spin", time.Second, ui.Linear) * 360)
+
+skeleton := ui.Box(c).Height(14).Radius(7).Background(t.Border)
+skeleton.Opacity(0.4 + 0.6*skeleton.Loop("pulse", 1600*time.Millisecond, ui.Bounce(ui.EaseInOut)))
+```
+
+To animate in other ways, compute from `c.Now()` and call
 `c.AnimationFrame()` in every frame that moves: MyGo draws the next frame
 when the display can show it, and draws nothing while nothing changes.
 
@@ -541,6 +655,12 @@ var logo, _ = ui.DecodeBitmap(logoPNG)
 
 ui.Image(c, logo).Size(64, 64).Fit(ui.Contain).Radius(12)
 ```
+
+`Fit` says how an image fills its box: `Contain` (the default) fits it
+inside, `Cover` covers the box and crops the rest, `FillBox` stretches it,
+`ScaleDown` shows it at its own size unless that does not fit, and
+`NaturalSize` at its own size, cropped. `Grayscale` draws it in shades of
+gray, as for what is disabled.
 
 SVG files stay sharp at any size and scale. `ui.ParseSVG` parses one, and
 `ui.MustParseSVG` one that is part of the program, such as an embedded

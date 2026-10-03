@@ -125,8 +125,12 @@ func (rt *engine) setHover(chain []uint64) {
 func (rt *engine) pointerMove(x, y float32) {
 	if d := &rt.scrollDrag; d.st != nil {
 		s := d.st
-		thumb := scrollThumb(s.y, s.h, s.contentH, d.from)
-		if travel := s.h - 4 - thumb.H; travel > 0 {
+		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.contentW, s.contentH, s.scrollX, s.scrollY, s.flags, rt.c.theme.scrollbarWidth())
+		if d.horizontal {
+			if travel := g.hTrack.W - 4 - g.h.W; travel > 0 {
+				s.scrollX = max(0, min(s.contentW-s.w, d.from+(x-d.start)*(s.contentW-s.w)/travel))
+			}
+		} else if travel := g.vTrack.H - 4 - g.v.H; travel > 0 {
 			s.scrollY = max(0, min(s.contentH-s.h, d.from+(y-d.start)*(s.contentH-s.h)/travel))
 		}
 		rt.pointerX, rt.pointerY = x, y
@@ -722,17 +726,32 @@ func (e *Element) Submitted() bool { return e.st.submitted }
 func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 	for _, id := range chain {
 		s := rt.states[id]
-		if s == nil || s.flags&flagScrollY == 0 || s.contentH <= s.h+0.5 || x < s.x+s.w-12 {
+		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 {
 			continue
 		}
-		thumb := scrollThumb(s.y, s.h, s.contentH, s.scrollY)
+		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.contentW, s.contentH, s.scrollX, s.scrollY, s.flags, rt.c.theme.scrollbarWidth())
+		d := &rt.scrollDrag
 		switch {
-		case y >= thumb.Y && y < thumb.Y+thumb.H:
-			rt.scrollDrag.st, rt.scrollDrag.start, rt.scrollDrag.from = s, y, s.scrollY
-		case y < thumb.Y:
-			s.scrollY = max(0, s.scrollY-s.h*0.9)
+		case g.vertical && g.vTrack.Contains(x, y):
+			switch {
+			case y >= g.v.Y && y < g.v.Y+g.v.H:
+				d.st, d.start, d.from, d.horizontal = s, y, s.scrollY, false
+			case y < g.v.Y:
+				s.scrollY = max(0, s.scrollY-s.h*0.9)
+			default:
+				s.scrollY = min(s.contentH-s.h, s.scrollY+s.h*0.9)
+			}
+		case g.horizontal && g.hTrack.Contains(x, y):
+			switch {
+			case x >= g.h.X && x < g.h.X+g.h.W:
+				d.st, d.start, d.from, d.horizontal = s, x, s.scrollX, true
+			case x < g.h.X:
+				s.scrollX = max(0, s.scrollX-s.w*0.9)
+			default:
+				s.scrollX = min(s.contentW-s.w, s.scrollX+s.w*0.9)
+			}
 		default:
-			s.scrollY = min(s.contentH-s.h, s.scrollY+s.h*0.9)
+			continue
 		}
 		rt.requestFrame()
 		return true

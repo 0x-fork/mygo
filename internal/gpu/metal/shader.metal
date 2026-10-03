@@ -1,7 +1,7 @@
 // The one shader of the Metal renderer, as shader.hlsl is the Direct3D
 // one: every scene op is an instanced quad, and the fragment shader
-// computes the coverage of rounded rectangles, borders, gradients and
-// shadows from signed distances, as the CPU renderer (internal/raster)
+// computes the coverage of rounded rectangles, borders, gradients, stripes
+// and shadows from signed distances, as the CPU renderer (internal/raster)
 // does. Colors are straight (not premultiplied) and blending happens in
 // sRGB space, as in browsers. go generate compiles it into shaderlib.go.
 
@@ -16,11 +16,11 @@ struct Inst {
 	float4 color;
 	float4 color2;    // gradient end
 	float4 border;    // border color
-	float4 grad;      // gradient start and end points
-	float4 uv;        // texture rectangle, normalized
+	float4 grad;      // gradient start and end points, or stripes
+	float4 uv;        // texture rectangle, normalized, or border widths
 	float4 clip;      // the innermost clip rectangle
 	float4 clipRadii;
-	float4 params;    // kind, border width, sigma or gradient flag, opacity
+	float4 params;    // kind, dashed or grayscale, sigma or paint, opacity
 };
 
 struct VSOut {
@@ -103,6 +103,90 @@ float boxShadow(float2 p, float4 rect, float sigma, float corner) {
 	return v;
 }
 
+float3 toLinear(float3 c) {
+	return select(pow((c + 0.055f) / 1.055f, float3(2.4f)), c / 12.92f, c <= 0.04045f);
+}
+
+float3 toSRGB(float3 c) {
+	return select(1.055f * pow(max(c, float3(0.0f)), float3(1.0f / 2.4f)) - 0.055f, c * 12.92f, c <= 0.0031308f);
+}
+
+float3 cbrt3(float3 v) { return sign(v) * pow(abs(v), float3(1.0f / 3.0f)); }
+
+float3 oklab(float3 srgb) {
+	float3 c = toLinear(srgb);
+	float3 lms = cbrt3(float3(
+		0.4122214708f * c.r + 0.5363325363f * c.g + 0.0514459929f * c.b,
+		0.2119034982f * c.r + 0.6806995451f * c.g + 0.1073969566f * c.b,
+		0.0883024619f * c.r + 0.2817188376f * c.g + 0.6299787005f * c.b));
+	return float3(
+		0.2104542553f * lms.x + 0.7936177850f * lms.y - 0.0040720468f * lms.z,
+		1.9779984951f * lms.x - 2.4285922050f * lms.y + 0.4505937099f * lms.z,
+		0.0259040371f * lms.x + 0.7827717662f * lms.y - 0.8086757660f * lms.z);
+}
+
+float3 fromOklab(float3 lab) {
+	float3 lms = float3(
+		lab.x + 0.3963377774f * lab.y + 0.2158037573f * lab.z,
+		lab.x - 0.1055613458f * lab.y - 0.0638541728f * lab.z,
+		lab.x - 0.0894841775f * lab.y - 1.2914855480f * lab.z);
+	lms = lms * lms * lms;
+	return toSRGB(float3(
+		4.0767416621f * lms.x - 3.3077115913f * lms.y + 0.2309699292f * lms.z,
+		-1.2684380046f * lms.x + 2.6097574011f * lms.y - 0.3413193965f * lms.z,
+		-0.0041960863f * lms.x - 0.7034186147f * lms.y + 1.7076147010f * lms.z));
+}
+
+// paint returns the premultiplied color at p of plain color, a gradient
+// mixed in sRGB (1) or Oklab (2), or stripes (3), as scene.Paint says.
+float4 paint(float2 p, float mode, float4 rect, float4 c1, float4 c2, float4 g) {
+	if (mode < 0.5f) {
+		return premul(c1);
+	}
+	if (mode < 2.5f) {
+		float2 d = g.zw - g.xy;
+		float t = saturate(dot(p - g.xy, d) / max(dot(d, d), 0.0001f));
+		float a = mix(c1.a, c2.a, t);
+		if (mode < 1.5f) {
+			return float4(mix(c1.rgb * c1.a, c2.rgb * c2.a, t), a);
+		}
+		float3 lab = mix(oklab(c1.rgb) * c1.a, oklab(c2.rgb) * c2.a, t);
+		return a > 0.0f ? float4(saturate(fromOklab(lab / a)) * a, a) : float4(0.0f);
+	}
+	float s = dot(p - rect.xy, g.xy);
+	float phase = s - g.w * floor(s / g.w);
+	float cov = coverage(min(max(-phase, phase - g.z), g.w - phase));
+	return premul(c1) * cov + premul(c2) * (1.0f - cov);
+}
+
+// dash returns how much of a dashed border shows at p: each side, which
+// the pixel belongs to when it is nearest that side's edge in widths of
+// its border, has an odd number of dashes and gaps of equal length, about
+// three widths, starting and ending with a dash.
+float dash(float2 p, float4 rect, float4 w) {
+	float2 q = p - rect.xy;
+	float dt = w.x > 0.0f ? q.y / w.x : 1e9f;
+	float dr = w.y > 0.0f ? (rect.z - q.x) / w.y : 1e9f;
+	float db = w.z > 0.0f ? (rect.w - q.y) / w.z : 1e9f;
+	float dl = w.w > 0.0f ? q.x / w.w : 1e9f;
+	float s, len, bw;
+	if (dt <= dr && dt <= db && dt <= dl) {
+		s = q.x; len = rect.z; bw = w.x;
+	} else if (dr <= db && dr <= dl) {
+		s = q.y; len = rect.w; bw = w.y;
+	} else if (db <= dl) {
+		s = rect.z - q.x; len = rect.z; bw = w.z;
+	} else {
+		s = rect.w - q.y; len = rect.w; bw = w.w;
+	}
+	float n = max(1.0f, floor((len / (3.0f * bw) + 1.0f) * 0.5f + 0.5f));
+	float seg = len / (2.0f * n - 1.0f);
+	float k = floor(s / seg);
+	float f = s - k * seg;
+	float edge = min(f, seg - f);
+	return coverage(k - 2.0f * floor(k * 0.5f) < 0.5f ? -edge : edge);
+}
+
 fragment float4 ps(VSOut v [[stage_in]],
                    const device Inst *insts [[buffer(0)]],
                    texture2d<float> maskTex [[texture(0)]],
@@ -114,18 +198,15 @@ fragment float4 ps(VSOut v [[stage_in]],
 	float4 res;
 	if (kind < 0.5f) {
 		float outer = coverage(sdRoundRect(v.p, i.rect, i.radii));
-		float4 c = i.color;
-		if (i.params.z > 0.5f) {
-			float2 d = i.grad.zw - i.grad.xy;
-			float t = saturate(dot(v.p - i.grad.xy, d) / max(dot(d, d), 0.0001f));
-			c = mix(i.color, i.color2, t);
-		}
-		res = premul(c) * outer;
-		float bw = i.params.y;
-		if (bw > 0.0f) {
-			float4 ir = float4(i.rect.xy + bw, i.rect.zw - 2.0f * bw);
+		res = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad) * outer;
+		float4 bw = i.uv; // top, right, bottom, left
+		if (any(bw > 0.0f)) {
+			float4 ir = float4(i.rect.xy + bw.wx, i.rect.zw - bw.yz - bw.wx);
 			float innerCov = (ir.z > 0.0f && ir.w > 0.0f) ? coverage(sdRoundRect(v.p, ir, i.inner)) : 0.0f;
 			float bc = saturate(outer - innerCov);
+			if (i.params.y > 0.5f) {
+				bc *= dash(v.p, i.rect, bw);
+			}
 			float4 b = premul(i.border) * bc;
 			res = b + res * (1.0f - b.a);
 		}
@@ -133,11 +214,14 @@ fragment float4 ps(VSOut v [[stage_in]],
 		float corner = max(max(i.radii.x, i.radii.y), max(i.radii.z, i.radii.w));
 		res = premul(i.color) * boxShadow(v.p, i.rect, i.params.z, corner);
 	} else if (kind < 2.5f) {
-		res = premul(i.color) * maskTex.sample(samp, v.tex).r;
+		res = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad) * maskTex.sample(samp, v.tex).r;
 	} else if (kind < 3.5f) {
 		res = colorTex.sample(samp, v.tex) * i.color.a;
 	} else {
 		res = imageTex.sample(samp, v.tex) * coverage(sdRoundRect(v.p, i.rect, i.radii));
+		if (i.params.y > 0.5f) {
+			res.rgb = float3(dot(res.rgb, float3(0.2126f, 0.7152f, 0.0722f)));
+		}
 	}
 	float clip = coverage(sdRoundRect(v.p, i.clip, i.clipRadii));
 	return res * clip * i.params.w;

@@ -52,7 +52,7 @@ func TreeItem(c *Context, label string, open *bool, children func()) *Element {
 		parent = tb.parents[n-1]
 	}
 	branch := children != nil && open != nil
-	item := Row(c).Height(t.space(7)).Gap(t.space(0.5)).AlignItems(Center).Padding(0, t.space(2), 0, t.space(1+4*float32(tb.depth))).Focusable().Shrink(0).Role(RoleTreeItem)
+	item := Row(c).Height(t.Space(7)).Gap(t.Space(0.5)).AlignItems(Center).Padding(0, t.Space(2), 0, t.Space(1+4*float32(tb.depth))).Focusable().Shrink(0).Role(RoleTreeItem)
 	item.widget = "TreeItem"
 	item.flags |= flagClickable | flagHover | flagOwnRing
 	tb.items = append(tb.items, item.id)
@@ -102,7 +102,7 @@ func TreeItem(c *Context, label string, open *bool, children func()) *Element {
 	})
 	item.Radius(t.Radius)
 	item.Children(func() {
-		arrow := Box(c).Size(t.space(4), t.space(4)).Shrink(0).Role(RoleNone)
+		arrow := Box(c).Size(t.Space(4), t.Space(4)).Shrink(0).Role(RoleNone)
 		if branch {
 			arrow.flags |= flagClickable
 			if arrow.Clicked() {

@@ -15,7 +15,7 @@ import (
 //	ui.NumberInput(c, &app.copies, 1, 99, 1)
 func NumberInput(c *Context, value *float64, lo, hi, step float64) *Element {
 	t := c.theme
-	row := Row(c).Gap(t.space(1)).Shrink(0).AlignItems(Center)
+	row := Row(c).Gap(t.Space(1)).Shrink(0).AlignItems(Center)
 	row.widget = "NumberInput"
 	decimals := 0
 	if s := strconv.FormatFloat(step, 'f', -1, 64); strings.Contains(s, ".") {
@@ -36,7 +36,7 @@ func NumberInput(c *Context, value *float64, lo, hi, step float64) *Element {
 		}
 	}
 	row.Children(func() {
-		in := TextInput(c, text).Width(t.space(20))
+		in := TextInput(c, text).Width(t.Space(20))
 		in.widget = "NumberInput"
 		if in.Changed() {
 			if v, err := strconv.ParseFloat(strings.TrimSpace(*text), 64); err == nil && v >= lo && v <= hi {
@@ -60,7 +60,7 @@ func NumberInput(c *Context, value *float64, lo, hi, step float64) *Element {
 			label string
 			delta float64
 		}{{"−", -step}, {"+", step}} {
-			btn := Button(c, b.label).Padding(t.space(1), t.space(2)).Label(map[bool]string{true: "Increase", false: "Decrease"}[b.delta > 0])
+			btn := Button(c, b.label).Padding(t.Space(1), t.Space(2)).Label(map[bool]string{true: "Increase", false: "Decrease"}[b.delta > 0])
 			btn.Disabled(b.delta < 0 && *value <= lo || b.delta > 0 && *value >= hi)
 			if btn.Clicked() {
 				set(*value + b.delta)

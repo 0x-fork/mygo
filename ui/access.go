@@ -104,6 +104,9 @@ func (e *Element) innerText() string {
 	var b strings.Builder
 	var walk func(e *Element)
 	walk = func(e *Element) {
+		if e.flags&flagInvisible != 0 {
+			return
+		}
 		if e.kind == kindText && e.text != "" {
 			if b.Len() > 0 {
 				b.WriteByte(' ')
@@ -136,6 +139,9 @@ func (rt *engine) accessTree() *platform.AccessTree {
 }
 
 func (rt *engine) accessElement(t *platform.AccessTree, e *Element, parent int) {
+	if e.flags&flagInvisible != 0 {
+		return
+	}
 	if role, ok := e.accessRole(); ok {
 		n := platform.AccessNode{
 			ID: e.id, Parent: parent, Role: role, Label: e.label,

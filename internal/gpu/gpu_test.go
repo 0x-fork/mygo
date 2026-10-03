@@ -14,7 +14,7 @@ func TestBuild(t *testing.T) {
 	s := &scene.Scene{Width: 200, Height: 100, MaskAtlas: atlas}
 	s.Glyphs = []scene.Glyph{{X: 10.4, Y: 20.6, W: 8, H: 9, U: 16, V: 8, UW: 8, VH: 9, Color: red}}
 	s.Ops = []scene.Op{
-		{Kind: scene.OpFill, Rect: scene.Rect{X: 1, Y: 2, W: 30, H: 20}, Radii: [4]float32{50, 50, 50, 50}, Color: red, Border: 2, BorderColor: red},
+		{Kind: scene.OpFill, Rect: scene.Rect{X: 1, Y: 2, W: 30, H: 20}, Radii: [4]float32{50, 50, 50, 50}, Color: red, Border: scene.Uniform(2), BorderColor: red},
 		{Kind: scene.OpShadow, Rect: scene.Rect{X: 5, Y: 5, W: 10, H: 10}, Color: red, Blur: 8},
 		{Kind: scene.OpPushClip, Rect: scene.Rect{X: 10.5, Y: 10, W: 100, H: 50}, Radii: [4]float32{6, 6, 6, 6}},
 		{Kind: scene.OpGlyphs, Start: 0, End: 1},
@@ -35,7 +35,7 @@ func TestBuild(t *testing.T) {
 		t.Fatalf("%d instances", len(b.Instances))
 	}
 	fill, shadow, glyph, im1, im2, hard := b.Instances[0], b.Instances[1], b.Instances[2], b.Instances[3], b.Instances[4], b.Instances[5]
-	if fill.Params != [4]float32{0, 2, 0, 1} || fill.Radii != [4]float32{10, 10, 10, 10} || fill.Inner != [4]float32{8, 8, 8, 8} {
+	if fill.Params != [4]float32{0, 0, 0, 1} || fill.UV != [4]float32{2, 2, 2, 2} || fill.Radii != [4]float32{10, 10, 10, 10} || fill.Inner != [4]float32{8, 8, 8, 8} {
 		t.Errorf("fill %+v", fill)
 	}
 	if fill.Clip[2] < 1e5 || fill.Color != [4]float32{1, 0, 0, 1} {

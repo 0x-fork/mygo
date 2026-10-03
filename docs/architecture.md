@@ -933,14 +933,15 @@ either.
   `Window.Update` and `Invalidate` coalesce redraws asked from any goroutine
   into one frame on the main thread. Page methods return `errNoPage` or do
   nothing.
-- **Frames.** The engine (`ui/runtime.go`) calls the view to build a
-  frame, again (up to three times) when a handler changed the state while
-  it built, so the frame shows the outcome; lays it out with flexbox
-  (`layout.go`); commits the boxes to the elements' states with the hit
-  list in paint order, the focus order and the labels; paints a
-  `scene.Scene`; and presents it. Input between frames goes to the states
-  of the last frame's elements. An element's identity hashes its parent's
-  with its position or `Key`, so focus, scroll offsets, editors and
+- **Frames.** The engine (`ui/runtime.go`) calls the view to build a frame,
+  again (up to three times) when a handler changed the state while it built,
+  so the frame shows the outcome; lays it out with flexbox (`layout.go`) or
+  as a grid (`grid.go`, CSS grid's placement and track sizing for fixed,
+  fractional and content-sized tracks); commits the boxes to the elements'
+  states with the hit list in paint order, the focus order and the labels;
+  paints a `scene.Scene`; and presents it. Input between frames goes to the
+  states of the last frame's elements. An element's identity hashes its
+  parent's with its position or `Key`, so focus, scroll offsets, editors and
   animations survive rebuilding. Frames happen only when asked: input,
   `Invalidate`, `After`, or `AnimationFrame` while something moves.
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
@@ -952,9 +953,12 @@ either.
   the function matches to report `Chosen`; text inputs' menus queue their
   editing commands instead.
 - **Scenes** are flat lists of operations in device pixels: rounded
-  rectangles with borders and linear gradients, shadows (blurred rounded
-  rectangles), runs of glyphs, images, and pushed and popped clips.
-  Renderers draw the whole scene each frame and retain only textures.
+  rectangles with borders of a width per side, solid or dashed, filled
+  with a color, a linear gradient mixed in sRGB or Oklab, or stripes;
+  shadows (blurred rounded rectangles); runs of glyphs, whose masks may
+  take a gradient (paths drawn with one); images, in color or gray; and
+  pushed and popped clips. Renderers draw the whole scene each frame and
+  retain only textures. Wavy underlines are stroked paths.
 - **Text.** `internal/text` lays out text with the system's own text stack,
   behind a small `engine` interface: DirectWrite on Windows
   (`IDWriteTextLayout`, with an `IDWriteTextRenderer` implemented in Go
@@ -1001,10 +1005,12 @@ either.
   drew, grows the atlas when that is much of it and forgets the rest, and
   paints the frame again: no frame shows with glyphs missing.
 - **Renderers.** `internal/gpu` turns a scene into one instanced quad per
-  operation, in batches that share a scissor rectangle and an image, for
-  one shader that computes the signed distance to rounded rectangles, Evan
-  Wallace's blurred rounded box, gradients, atlas coverage and the
-  innermost rounded clip; outer clips are scissor rectangles. Every GPU
+  operation, in batches that share a scissor rectangle and an image, for one
+  shader that computes the signed distance to rounded rectangles, Evan
+  Wallace's blurred rounded box, gradients, stripes, the dashes of borders,
+  atlas coverage and the innermost rounded clip; outer clips are scissor
+  rectangles. A fill's border widths travel in its texture rectangle, which
+  fills do not use, so every instance stays eleven float4s. Every GPU
   renderer draws these instances:
   - `internal/gpu/d3d11` with a shader compiled to DXBC ahead of time
     (`go generate ./internal/gpu/d3d11` on Windows, with the system's

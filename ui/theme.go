@@ -30,8 +30,10 @@ type Theme struct {
 	Selection Color
 	// Focus is the ring around the control with the keyboard focus.
 	Focus Color
-	// Scrollbar colors scroll bar thumbs.
-	Scrollbar Color
+	// Scrollbar colors scroll bar thumbs, ScrollbarWidth DIPs wide (6 by
+	// default; 0 is 6).
+	Scrollbar      Color
+	ScrollbarWidth float32
 	// Radius rounds the corners of controls.
 	Radius float32
 	// Spacing is the unit of the room widgets leave inside and between
@@ -44,13 +46,30 @@ type Theme struct {
 	Font     string
 }
 
-// space returns n units of the theme's spacing.
-func (t *Theme) space(n float32) float32 {
+// Space returns n units of the theme's Spacing, to size elements of your
+// own in step with the widgets: ui.Column(c).Gap(t.Space(2)).
+func (t *Theme) Space(n float32) float32 {
 	s := t.Spacing
 	if s <= 0 {
 		s = 4
 	}
 	return n * s
+}
+
+func (t *Theme) scrollbarWidth() float32 {
+	if t.ScrollbarWidth <= 0 {
+		return 6
+	}
+	return t.ScrollbarWidth
+}
+
+// Rem returns n times the theme's FontSize, as CSS's rem, to size elements
+// with the text.
+func (t *Theme) Rem(n float32) float32 {
+	if t.FontSize <= 0 {
+		return n * defaultFontSize()
+	}
+	return n * t.FontSize
 }
 
 func defaultFontSize() float32 {

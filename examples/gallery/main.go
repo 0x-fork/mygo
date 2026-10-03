@@ -1,7 +1,8 @@
 // Gallery tours MyGo's own user interface toolkit: a window drawn on the
 // GPU from Go, without a web page. It shows layout, the widgets, text
-// editing, a list of ten thousand rows with context menus, custom drawing,
-// overlays, file drops and updates from other goroutines.
+// editing, a list of ten thousand rows with context menus, styling (grids,
+// borders, gradients, text decorations, motion), custom drawing, overlays,
+// file drops and updates from other goroutines.
 //
 //	go run ./examples/gallery
 package main
@@ -49,9 +50,10 @@ type gallery struct {
 	period   int
 	pinned   bool
 	fruit    string
+	eased    bool
 }
 
-var pages = []string{"Overview", "Controls", "Text", "List", "Drawing", "Overlays"}
+var pages = []string{"Overview", "Controls", "Text", "List", "Styling", "Drawing", "Overlays"}
 
 // icon parses the shapes of a 24×24 stroked icon, drawn in currentColor
 // as icon sets draw them.
@@ -66,12 +68,14 @@ var (
 		"Controls": icon(`<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>`),
 		"Text":     icon(`<path d="M5 6V5h14v1M12 5v14M9 19h6"/>`),
 		"List":     icon(`<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>`),
+		"Styling":  icon(`<path d="M12 21a9 9 0 1 1 9-9c0 2.5-2 3.5-3.5 3.5H16a2 2 0 0 0-1.5 3.3c.4.5.4 2.2-2.5 2.2z"/><circle cx="7.5" cy="11" r="1"/><circle cx="11" cy="7" r="1"/><circle cx="16" cy="8.5" r="1"/>`),
 		"Drawing":  icon(`<path d="M15 5l4 4M4 20l1-4.5L16.5 4a2.1 2.1 0 0 1 3 3L8 18.5z"/>`),
 		"Overlays": icon(`<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 13 9 5 9-5"/>`),
 	}
 	starIcon    = icon(`<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>`)
 	checkIcon   = icon(`<path d="M20 6 9 17l-5-5"/>`)
 	chevronIcon = icon(`<path d="m6 9 6 6 6-6"/>`)
+	loaderIcon  = icon(`<path d="M21 12a9 9 0 1 1-6.2-8.6"/>`)
 	// A picture in its own colors: gradients, a clip path, and a dot in
 	// currentColor.
 	badge = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
@@ -100,6 +104,8 @@ func (g *gallery) view(c *ui.Context) {
 				g.text(c)
 			case "List":
 				g.list(c)
+			case "Styling":
+				g.styling(c)
 			case "Drawing":
 				g.drawing(c)
 			case "Overlays":
@@ -107,7 +113,7 @@ func (g *gallery) view(c *ui.Context) {
 			}
 		})
 	})
-	// Ctrl+1…6 (Cmd on macOS) switch pages.
+	// Ctrl+1…7 (Cmd on macOS) switch pages.
 	for i, p := range pages {
 		if c.Shortcut(ui.Cmd, ui.Key1+ui.Key(i)) {
 			g.page = p
@@ -154,7 +160,7 @@ func card(c *ui.Context, title string, body func()) *ui.Element {
 
 func (g *gallery) overview(c *ui.Context) {
 	t := c.Theme()
-	ui.Text(c, "Everything here is laid out with flexbox and drawn by MyGo itself: no HTML, no JavaScript, no cgo. "+
+	ui.Text(c, "Everything here is laid out with flexbox and grids and drawn by MyGo itself: no HTML, no JavaScript, no cgo. "+
 		"The view is a Go function of the app's state that runs again after every event.").TextColor(t.TextMuted)
 	ui.Row(c).Gap(16).Wrap().AlignItems(ui.Start).Children(func() {
 		card(c, "Counter", func() {
@@ -436,6 +442,136 @@ func (g *gallery) list(c *ui.Context) {
 			}
 		}).Grow(1)
 	})
+}
+
+func (g *gallery) styling(c *ui.Context) {
+	t := c.Theme()
+	ui.Text(c, "Grids, borders of each side, gradients, stripes, text decorations, and motion along easings.").TextColor(t.TextMuted)
+	ui.Grid(c).Columns(2).Gap(16).Children(func() {
+		card(c, "Grid", func() {
+			ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1), ui.Fr(1)).Gap(6).Children(func() {
+				cell := func(s string) *ui.Element {
+					return ui.Box(c).Padding(8, 10).Radius(6).Background(t.Surface).Children(func() { ui.Text(c, s).FontSize(12) })
+				}
+				cell("ColumnSpan(-1)").ColumnSpan(-1).Background(t.Accent).TextColor(t.AccentText)
+				cell("FitContent").RowSpan(2)
+				cell("Fr(1)")
+				cell("Fr(1)")
+				cell("ColumnSpan(2)").ColumnSpan(2).JustifySelf(ui.Center)
+			})
+		})
+		card(c, "Borders", func() {
+			ui.Row(c).PaddingY(6).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+				ui.Text(c, "A header with a line below").Bold()
+			})
+			ui.Row(c).Padding(8, 12).Gap(8).BorderWidth(0, 0, 0, 4).BorderColor(t.Accent).Background(t.Surface).Radius(0, 6, 6, 0).Children(func() {
+				ui.Text(c, "A note with an accent on its left")
+			})
+			ui.Column(c).Height(56).Radius(8).Border(2, t.Border).BorderStyle(ui.BorderDashed).Center().Children(func() {
+				ui.Text(c, "Dashed, as a place to drop files").TextColor(t.TextMuted)
+			})
+		})
+		card(c, "Fills", func() {
+			blue, yellow := ui.Hex("#2563eb"), ui.Hex("#facc15")
+			bar := func(label string) *ui.Element {
+				return ui.Row(c).Height(30).PaddingX(10).Radius(6).Children(func() {
+					ui.Text(c, label).FontSize(12).Bold().TextColor(ui.RGB(255, 255, 255))
+				})
+			}
+			bar("sRGB").Gradient(blue, yellow, 90)
+			bar("Oklab").LinearGradient(ui.LinearGradient{From: blue, To: yellow, Angle: 90, Oklab: true})
+			bar("Stops at 40% and 60%").LinearGradient(ui.LinearGradient{From: blue, To: yellow, Angle: 90, Start: 0.4, End: 0.6})
+			ui.Row(c).Height(30).Radius(6).Background(t.Surface).Stripes(t.Border, 4, 6, 45).Center().Children(func() {
+				ui.Text(c, "Stripes: unavailable").FontSize(12).TextColor(t.TextMuted)
+			})
+		})
+		card(c, "Text decorations", func() {
+			ui.RichText(c, ui.Span{Text: "Spell checkers mark "}, ui.Span{Text: "mispeled", WavyUnderline: true, DecorationColor: t.Danger},
+				ui.Span{Text: " words with waves."})
+			ui.RichText(c, ui.Span{Text: "Search results "}, ui.Span{Text: "stand out", Background: ui.RGBA(250, 204, 21, 0.45)},
+				ui.Span{Text: " with a background."})
+			ui.Text(c, "Underlines of their own color and thickness").Underline().DecorationColor(t.Accent).DecorationThickness(2)
+			ui.Text(c, "A highlight behind every line").TextBackground(t.Selection)
+			ui.Text(c, strings.Repeat("A line cut with an ellipsis of its own. ", 3)).SingleLine().Ellipsis(" →")
+		})
+		card(c, "Motion", func() {
+			ui.Row(c).Gap(14).Children(func() {
+				spin := ui.Icon(c, loaderIcon).FontSize(24).TextColor(t.Accent)
+				spin.Rotate(spin.Loop("spin", time.Second, ui.Linear) * 360)
+				pulse := ui.Box(c).Height(14).Grow(1).Radius(7).Background(t.Border)
+				pulse.Opacity(0.4 + 0.6*pulse.Loop("pulse", 1600*time.Millisecond, ui.Bounce(ui.EaseInOut)))
+			})
+			if ui.Button(c, "Move along each easing").Clicked() {
+				g.eased = !g.eased
+			}
+			for _, e := range []struct {
+				name string
+				ease ui.Easing
+			}{{"Linear", ui.Linear}, {"EaseIn", ui.EaseIn}, {"EaseOut", ui.EaseOut}, {"EaseInOut", ui.EaseInOut}} {
+				track := ui.Row(c).Height(18).Key(e.name)
+				to := float32(0)
+				if g.eased {
+					to = 1
+				}
+				at := track.AnimateWith("x", to, 900*time.Millisecond, e.ease)
+				track.Children(func() {
+					ui.Text(c, e.name).FontSize(12).Width(70).TextColor(t.TextMuted)
+					ui.Box(c).Grow(1).Height(18).Children(func() {
+						ui.Box(c).Size(18, 18).Radius(9).Background(t.Accent).Absolute().LeftPercent(at * 90)
+					})
+				})
+			}
+		})
+		card(c, "Layout", func() {
+			ui.Row(c).Gap(6).Reverse().Children(func() {
+				for _, s := range []string{"1", "2", "3"} {
+					ui.Box(c).Size(28, 28).Radius(6).Background(t.Surface).Center().Children(func() { ui.Text(c, s) })
+				}
+				ui.Text(c, "Reverse()").FontSize(12).TextColor(t.TextMuted).Margin(0, ui.Auto, 0, 0)
+			})
+			ui.Row(c).Gap(6).Children(func() {
+				ui.Text(c, "Margin(…, Auto) pushes to the end").FontSize(12).TextColor(t.TextMuted)
+				ui.Button(c, "Save").Margin(0, 0, 0, ui.Auto)
+			})
+			ui.Row(c).Gap(6).Children(func() {
+				ui.Text(c, "Inbox")
+				ui.Text(c, "3").FontSize(10).Bold().Padding(1, 5).Radius(8).Background(t.Danger).TextColor(ui.RGB(255, 255, 255)).Top(-6)
+				ui.Text(c, "Top(-6) moves a badge up").FontSize(12).TextColor(t.TextMuted)
+			})
+		})
+		card(c, "Scrolling both ways", func() {
+			ui.ScrollBoth(c).Height(150).Radius(6).Border(1, t.Border).Children(func() {
+				ui.Grid(c).ColumnTracks(repeat(ui.Fixed(56), 16)...).Gap(4).Padding(6).Children(func() {
+					for i := range 16 * 12 {
+						ui.Box(c).Height(28).Radius(4).Background(t.Accent.Alpha(0.08 + 0.6*float32(i%16)/16*float32(i/16)/12)).Center().Children(func() {
+							ui.Textf(c, "%c%d", 'A'+i%16, i/16+1).FontSize(11)
+						})
+					}
+				})
+			})
+		})
+		card(c, "Cursors", func() {
+			ui.Row(c).Wrap().Gap(6).Children(func() {
+				for _, k := range []struct {
+					name   string
+					cursor ui.Cursor
+				}{{"ResizeColumn", ui.CursorResizeColumn}, {"ResizeRow", ui.CursorResizeRow}, {"ResizeE", ui.CursorResizeE},
+					{"Copy", ui.CursorCopy}, {"Alias", ui.CursorAlias}, {"ContextMenu", ui.CursorContextMenu},
+					{"VerticalText", ui.CursorVerticalText}, {"None", ui.CursorNone}} {
+					ui.Box(c).Padding(6, 10).Radius(6).Background(t.Surface).Cursor(k.cursor).Children(func() { ui.Text(c, k.name).FontSize(12) })
+				}
+			})
+		})
+	})
+}
+
+// repeat returns n tracks t.
+func repeat(t ui.Track, n int) []ui.Track {
+	out := make([]ui.Track, n)
+	for i := range out {
+		out[i] = t
+	}
+	return out
 }
 
 func (g *gallery) drawing(c *ui.Context) {

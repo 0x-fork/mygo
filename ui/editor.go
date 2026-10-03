@@ -593,9 +593,9 @@ func TextArea(c *Context, value *string) *Element { return textInput(c, value, t
 func textInput(c *Context, value *string, multiline bool) *Element {
 	t := c.theme
 	e := textInputBase(c, value, multiline)
-	e.Padding(t.space(1.5), t.space(2.5)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border)
+	e.Padding(t.Space(1.5), t.Space(2.5)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border)
 	if multiline {
-		e.MinHeight(t.space(20))
+		e.MinHeight(t.Space(20))
 	}
 	e.styleFn = func(e *Element) {
 		if e.Focused() {
@@ -730,7 +730,7 @@ func (e *Element) layoutInput(cw, ch float32) {
 	l := textSystem().Layout(e.inputParams(cw))
 	ed.layout = l
 	ed.contentW = cw
-	ed.originX, ed.originY = e.pad[3]+e.borderW, e.pad[0]+e.borderW
+	ed.originX, ed.originY = e.contentX(), e.contentY()
 	if ed.multiline && len(l.Lines) > 0 && l.Height < ch {
 		// Center a single line vertically in a taller box.
 		_ = ch
@@ -766,8 +766,8 @@ func (e *Element) paintInput(p *Painter) {
 	if l == nil {
 		return
 	}
-	box := Rect{e.x + e.pad[3] + e.borderW, e.y + e.pad[0] + e.borderW, e.w - e.padX(), e.h - e.padY()}
-	clip := Rect{e.x + e.borderW, e.y + e.borderW, e.w - 2*e.borderW, e.h - 2*e.borderW}
+	box := e.contentBox()
+	clip := Rect{e.x + e.border[3], e.y + e.border[0], e.w - e.border[1] - e.border[3], e.h - e.border[0] - e.border[2]}
 	saved := p.clip
 	p.pushClip(clip, [4]float32{})
 	ox, oy := e.x+ed.originX-ed.scrollX, e.y+ed.originY-ed.scrollY

@@ -302,6 +302,10 @@ var cursorNames = map[platform.Cursor]string{
 	platform.CursorResizeNWSE: "nwse-resize", platform.CursorResizeNESW: "nesw-resize",
 	platform.CursorNotAllowed: "not-allowed", platform.CursorCrosshair: "crosshair",
 	platform.CursorGrab: "grab", platform.CursorGrabbing: "grabbing",
+	platform.CursorResizeN: "n-resize", platform.CursorResizeE: "e-resize", platform.CursorResizeS: "s-resize",
+	platform.CursorResizeW: "w-resize", platform.CursorResizeColumn: "col-resize", platform.CursorResizeRow: "row-resize",
+	platform.CursorVerticalText: "vertical-text", platform.CursorCopy: "copy", platform.CursorAlias: "alias",
+	platform.CursorContextMenu: "context-menu", platform.CursorNone: "none",
 }
 
 func (s *surface) SetCursor(c platform.Cursor) {

@@ -33,7 +33,7 @@ const features = [
   },
   {
     title: "Native UI",
-    text: "Interfaces written in Go alone and drawn on the GPU: flexbox layout, widgets, text editing, screen reader support. No webview at all.",
+    text: "Interfaces written in Go alone and drawn on the GPU: flexbox and grid layout, widgets, text editing, screen reader support. No webview at all.",
     slug: "ui",
   },
   {

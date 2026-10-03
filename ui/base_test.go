@@ -265,8 +265,8 @@ func TestTextInputBase(t *testing.T) {
 	if text != "Ada" {
 		t.Errorf("typed %q", text)
 	}
-	if in.pad != [4]float32{} || in.borderW != 0 || in.bg.A != 0 {
-		t.Errorf("the base has a look: padding %v, border %v, background %v", in.pad, in.borderW, in.bg)
+	if in.pad != [4]float32{} || in.border != [4]float32{} || in.bg.A != 0 {
+		t.Errorf("the base has a look: padding %v, border %v, background %v", in.pad, in.border, in.bg)
 	}
 }
 

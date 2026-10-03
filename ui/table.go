@@ -29,7 +29,7 @@ type TableColumn struct {
 func Table(c *Context, columns []TableColumn, n int, selected *int, cell func(row, col int)) *Element {
 	t := c.theme
 	// The height of its rows.
-	tableRow := t.space(8)
+	tableRow := t.Space(8)
 	table := Column(c).Role(RoleTable).Focusable().Clip()
 	table.widget = "Table"
 	table.flags |= flagOwnRing
@@ -65,7 +65,7 @@ func Table(c *Context, columns []TableColumn, n int, selected *int, cell func(ro
 	// cells builds a row's cells, with fill building the content of each.
 	cells := func(role Role, fill func(col int)) {
 		for j, col := range columns {
-			box := Row(c).Padding(0, t.space(2.5)).AlignItems(Center).Shrink(0).Clip().Role(role)
+			box := Row(c).Padding(0, t.Space(2.5)).AlignItems(Center).Shrink(0).Clip().Role(role)
 			if col.Width > 0 {
 				box.Width(col.Width)
 			} else {

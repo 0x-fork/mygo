@@ -19,9 +19,9 @@ memory and CPU use.
 - **Typed IPC** for pages: bind Go services, stream values through channels
   and send typed events; the TypeScript client is generated from your Go
   code.
-- **A Go UI toolkit** for native UI: flexbox layout, widgets, text editing
-  with input methods, virtualized lists, SVG icons, animations, screen
-  reader support, and views you test without a window.
+- **A Go UI toolkit** for native UI: flexbox and grid layout, widgets, text
+  editing with input methods, virtualized lists, SVG icons, animations,
+  screen reader support, and views you test without a window.
 - **Desktop APIs** for both: windows, menus, tray, dialogs, notifications,
   global shortcuts, deep links, file associations and more.
 - **Ready to ship**: app bundles and disk images, Windows installers, Debian

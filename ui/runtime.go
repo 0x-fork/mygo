@@ -44,6 +44,7 @@ type engine struct {
 	paths paths
 	svgs  svgs
 	flex  flexScratch
+	grid  gridScratch
 
 	states map[uint64]*state
 	frame  uint64
@@ -99,6 +100,7 @@ type engine struct {
 	scrollDrag   struct {
 		st          *state
 		start, from float32
+		horizontal  bool
 	}
 	lastPress struct {
 		at     time.Time
@@ -289,10 +291,10 @@ func (rt *engine) commit(root *Element) {
 	rt.focusOrder = rt.focusOrder[:0]
 	rt.labels = rt.labels[:0]
 	full := Rect{0, 0, root.w, root.h}
-	rt.commitElement(root, full)
+	rt.commitElement(root, full, false)
 }
 
-func (rt *engine) commitElement(e *Element, clip Rect) {
+func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	s := e.st
 	s.x, s.y, s.w, s.h = e.x, e.y, e.w, e.h
 	if e.parent != nil {
@@ -307,36 +309,46 @@ func (rt *engine) commitElement(e *Element, clip Rect) {
 	}
 	v := intersect(Rect{e.x, e.y, e.w, e.h}, clip)
 	s.vx, s.vy, s.vw, s.vh = v.X, v.Y, v.W, v.H
-	s.cx, s.cw = e.x+e.pad[3]+e.borderW, max(e.w-e.padX(), 0)
+	s.cx, s.cw = e.x+e.contentX(), max(e.w-e.padX(), 0)
 	if e.flags&(flagScrollX|flagScrollY) != 0 {
 		s.contentW, s.contentH = e.contentW, e.contentH
 		s.scrollX = max(0, min(s.scrollX, e.contentW-e.w))
 		s.scrollY = max(0, min(s.scrollY, e.contentH-e.h))
 	}
-	if e.flags&flagPassThrough == 0 {
+	// What is invisible keeps its box but takes neither the pointer nor
+	// the focus, and has no text to find.
+	invisible := e.flags&flagInvisible != 0 || hidden
+	if invisible {
+		s.vw, s.vh = 0, 0
+		if rt.focused == e.id {
+			rt.focused = 0
+		}
+	}
+	if e.flags&flagPassThrough == 0 && !invisible {
 		rt.hits = append(rt.hits, hit{s, v, e.flags})
 	}
-	if label := e.label; label != "" || e.kind == kindText {
+	if label := e.label; (label != "" || e.kind == kindText) && !invisible {
 		if label == "" {
 			label = e.text
 		}
 		rt.labels = append(rt.labels, labelNode{e.id, label, v})
 	}
-	if e.flags&flagFocusable != 0 && !e.IsDisabled() {
+	if e.flags&flagFocusable != 0 && !e.IsDisabled() && !invisible {
 		rt.focusOrder = append(rt.focusOrder, e.id)
 	}
-	if e.flags&(flagClip|flagScrollX|flagScrollY) != 0 {
-		clip = intersect(clip, Rect{e.x, e.y, e.w, e.h})
+	if e.flags&(flagClipX|flagClipY|flagScrollX|flagScrollY) != 0 {
+		r, _ := e.clipRect()
+		clip = intersect(clip, r)
 	}
 	// Children in flow first, absolute ones above them: the paint order.
 	for ch := e.first; ch != nil; ch = ch.next {
 		if ch.flags&flagAbsolute == 0 {
-			rt.commitElement(ch, clip)
+			rt.commitElement(ch, clip, invisible)
 		}
 	}
 	for ch := e.first; ch != nil; ch = ch.next {
 		if ch.flags&flagAbsolute != 0 {
-			rt.commitElement(ch, clip)
+			rt.commitElement(ch, clip, invisible)
 		}
 	}
 }

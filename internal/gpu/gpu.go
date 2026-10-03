@@ -1,9 +1,9 @@
 // Package gpu turns scenes into what the GPU renderers draw: one instanced
 // quad per operation, for a shader that computes rounded rectangles,
-// borders, gradients, shadows and atlas coverage itself, in batches that
-// share a scissor rectangle and an image. Every renderer (d3d11, metal)
-// draws the same instances, the way internal/raster draws scenes on the
-// CPU.
+// borders, gradients, stripes, shadows and atlas coverage itself, in
+// batches that share a scissor rectangle and an image. Every renderer
+// (d3d11, metal, gl) draws the same instances, the way internal/raster
+// draws scenes on the CPU.
 package gpu
 
 import (
@@ -34,14 +34,15 @@ type Instance struct {
 	Rect, Radii, Inner [4]float32
 	// Color and Color2 (a gradient's end) and Border are straight RGBA.
 	Color, Color2, Border [4]float32
-	// Grad holds a gradient's start and end points; UV the texture
-	// rectangle, normalized.
+	// Grad holds a gradient's start and end points, or the stripes' unit
+	// vector across them, width and period; UV the texture rectangle,
+	// normalized, or a fill's border widths (top, right, bottom, left).
 	Grad, UV [4]float32
 	// Clip and ClipRadii are the innermost clip, which the shader cuts.
 	Clip, ClipRadii [4]float32
 	// Params is the kind (0 fill, 1 shadow, 2 mask glyph, 3 color glyph, 4
-	// image), the border width, the shadow's sigma or 1 for a gradient,
-	// and the opacity.
+	// image); 1 for a dashed border or a grayscale image; the shadow's
+	// sigma or the paint (scene.Paint); and the opacity.
 	Params [4]float32
 }
 
@@ -112,25 +113,22 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 			}
 			bw := op.Border
 			if op.BorderColor.A == 0 {
-				bw = 0
+				bw = [4]float32{}
 			}
 			radii := scene.FitRadii(op.Rect, op.Radii)
 			var inner [4]float32
-			if bw > 0 {
-				ir := scene.Rect{X: op.Rect.X + bw, Y: op.Rect.Y + bw, W: op.Rect.W - 2*bw, H: op.Rect.H - 2*bw}
-				for k, rad := range radii {
-					inner[k] = max(rad-bw, 0)
-				}
-				inner = scene.FitRadii(ir, inner)
+			if scene.HasBorder(bw) {
+				_, inner = scene.InnerRadii(op.Rect, radii, bw)
 			}
-			grad := float32(0)
-			if op.HasGrad {
-				grad = 1
+			dashed := float32(0)
+			if op.Dashed {
+				dashed = 1
 			}
 			b.add(Instance{
 				Rect: rect(op.Rect), Radii: radii, Inner: inner,
 				Color: straight(op.Color), Color2: straight(op.Color2), Border: straight(op.BorderColor), Grad: op.Gradient,
-				Params: [4]float32{0, bw, grad, opacity(op.Opacity)},
+				UV:     bw,
+				Params: [4]float32{0, dashed, float32(op.Paint), opacity(op.Opacity)},
 			}, 0)
 		case scene.OpShadow:
 			if op.Rect.Empty() {
@@ -146,6 +144,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 				Color: straight(op.Color), Params: [4]float32{kind, 0, sigma, opacity(op.Opacity)},
 			}, 0)
 		case scene.OpGlyphs:
+			grad := op.Paint == scene.PaintLinear || op.Paint == scene.PaintOklab
 			for _, g := range s.Glyphs[op.Start:op.End] {
 				a, kind := s.MaskAtlas, float32(2)
 				if g.Colored {
@@ -155,12 +154,17 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 					continue
 				}
 				aw, ah := float32(a.W), float32(a.H)
-				b.add(Instance{
+				in := Instance{
 					Rect:   [4]float32{float32(math.Round(float64(g.X))), float32(math.Round(float64(g.Y))), float32(g.UW), float32(g.VH)},
 					UV:     [4]float32{float32(g.U) / aw, float32(g.V) / ah, float32(g.U+g.UW) / aw, float32(g.V+g.VH) / ah},
 					Color:  straight(g.Color),
 					Params: [4]float32{kind, 0, 0, 1},
-				}, 0)
+				}
+				if grad && !g.Colored {
+					in.Color, in.Color2, in.Grad = straight(op.Color), straight(op.Color2), op.Gradient
+					in.Params[2], in.Params[3] = float32(op.Paint), opacity(op.Opacity)
+				}
+				b.add(in, 0)
 			}
 		case scene.OpImage:
 			img := op.Image
@@ -172,11 +176,15 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 				continue
 			}
 			iw, ih := float32(img.W), float32(img.H)
+			gray := float32(0)
+			if op.Grayscale {
+				gray = 1
+			}
 			b.add(Instance{
 				Rect:   rect(op.Rect),
 				Radii:  scene.FitRadii(op.Rect, op.Radii),
 				UV:     [4]float32{op.Src.X / iw, op.Src.Y / ih, (op.Src.X + op.Src.W) / iw, (op.Src.Y + op.Src.H) / ih},
-				Params: [4]float32{4, 0, 0, opacity(op.Opacity)},
+				Params: [4]float32{4, gray, 0, opacity(op.Opacity)},
 			}, tex)
 		}
 	}

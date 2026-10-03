@@ -16,10 +16,12 @@ import (
 	"github.com/egoist/mygo/internal/scene"
 )
 
-// Scene returns a 320×240 scene with fills, borders, gradients, shadows,
-// nested rounded clips, glyphs from both atlases and images.
+// Scene returns a 320×320 scene with fills, borders of every width and
+// dashed, gradients mixed in sRGB and Oklab, stripes, shadows, nested
+// rounded clips, glyphs from both atlases, plain and in gradients, and
+// images, in color and in gray.
 func Scene() *scene.Scene {
-	s := &scene.Scene{Width: 320, Height: 240, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255}}
+	s := &scene.Scene{Width: 320, Height: 320, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255}}
 	mask := scene.NewAtlas(1, 64, 64)
 	color := scene.NewAtlas(4, 32, 32)
 	s.MaskAtlas, s.ColorAtlas = mask, color
@@ -69,10 +71,10 @@ func Scene() *scene.Scene {
 	add := func(op scene.Op) { s.Ops = append(s.Ops, op) }
 	add(scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 20, Y: 24, W: 120, H: 80}, Radii: r4(12), Color: scene.Color{A: 90}, Blur: 16})
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 20, Y: 20, W: 120, H: 80}, Radii: r4(12), Color: scene.Color{R: 255, G: 255, B: 255, A: 255},
-		Border: 1, BorderColor: scene.Color{R: 200, G: 204, B: 210, A: 255}})
+		Border: scene.Uniform(1), BorderColor: scene.Color{R: 200, G: 204, B: 210, A: 255}})
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 160.5, Y: 20.25, W: 140, H: 30}, Radii: [4]float32{15, 4, 15, 4},
-		Color: red, Color2: blue, HasGrad: true, Gradient: [4]float32{160, 20, 300, 50}})
-	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 170, Y: 60, W: 60, H: 40}, Color: scene.Color{R: 37, G: 99, B: 235, A: 128}, Border: 3, BorderColor: red, Radii: r4(8)})
+		Color: red, Color2: blue, Paint: scene.PaintLinear, Gradient: [4]float32{160, 20, 300, 50}})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 170, Y: 60, W: 60, H: 40}, Color: scene.Color{R: 37, G: 99, B: 235, A: 128}, Border: scene.Uniform(3), BorderColor: red, Radii: r4(8)})
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 240, Y: 60, W: 40, H: 40}, Radii: r4(20), Color: blue, Opacity: 0.5})
 	add(scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 20, Y: 120, W: 200, H: 100}, Radii: r4(16)})
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 0, Y: 110, W: 320, H: 130}, Color: scene.Color{R: 230, G: 236, B: 250, A: 255}})
@@ -90,6 +92,24 @@ func Scene() *scene.Scene {
 	add(scene.Op{Kind: scene.OpPopClip})
 	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 240, Y: 120, W: 8, H: 8}, Image: img, Src: scene.Rect{W: 8, H: 8}})
 	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 240, Y: 140, W: 64, H: 64}, Radii: r4(10), Image: img, Src: scene.Rect{W: 8, H: 8}})
+
+	// Borders of different widths, dashed ones, Oklab gradients, stripes,
+	// glyphs in gradients and a gray image.
+	yellow := scene.Color{R: 250, G: 204, B: 21, A: 255}
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 20, Y: 240, W: 60, H: 30}, Radii: r4(10), Color: scene.Color{R: 255, G: 255, B: 255, A: 255},
+		Border: [4]float32{1, 4, 2, 0}, BorderColor: ink})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 90, Y: 240, W: 60, H: 30}, Radii: r4(8), Border: scene.Uniform(2), BorderColor: blue, Dashed: true})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 160, Y: 240, W: 70, H: 30}, Color: yellow, Border: [4]float32{0, 0, 3, 1}, BorderColor: red, Dashed: true})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 240, Y: 240, W: 64, H: 30}, Radii: r4(4), Color: blue, Color2: yellow, Paint: scene.PaintOklab, Gradient: [4]float32{240, 0, 304, 0}})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 20, Y: 280, W: 80, H: 30}, Color: red, Color2: scene.Color{}, Paint: scene.PaintLinear, Gradient: [4]float32{20, 0, 100, 0}})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 110, Y: 280, W: 80, H: 30}, Radii: r4(6), Color: scene.Color{R: 37, G: 99, B: 235, A: 200}, Color2: yellow,
+		Paint: scene.PaintStripes, Gradient: [4]float32{0.7071, -0.7071, 3, 8}, Border: scene.Uniform(1), BorderColor: ink})
+	start = int32(len(s.Glyphs))
+	for i := range 3 {
+		s.Glyphs = append(s.Glyphs, scene.Glyph{X: float32(200 + i*18), Y: 288, W: 16, H: 16, U: uint16(dx), V: uint16(dy), UW: 16, VH: 16, Color: ink})
+	}
+	add(scene.Op{Kind: scene.OpGlyphs, Start: start, End: int32(len(s.Glyphs)), Paint: scene.PaintOklab, Color: red, Color2: blue, Gradient: [4]float32{200, 288, 252, 304}})
+	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 270, Y: 280, W: 32, H: 32}, Radii: r4(6), Image: img, Src: scene.Rect{W: 8, H: 8}, Grayscale: true})
 	return s
 }
 

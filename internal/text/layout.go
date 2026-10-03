@@ -63,10 +63,14 @@ type Params struct {
 	// Width wraps lines to this many DIPs; 0 or less only breaks lines at
 	// newlines.
 	Width float32
-	// MaxLines truncates the text to that many lines, ending it with an
-	// ellipsis; 0 is unlimited.
+	// MaxLines truncates the text to that many lines, ending it with
+	// Ellipsis ("…" when empty); 0 is unlimited.
 	MaxLines int
-	Align    Align
+	Ellipsis string
+	// NoWrap breaks lines only at newlines, aligning them within Width
+	// all the same.
+	NoWrap bool
+	Align  Align
 	// KeepSpaces keeps the advance of whitespace at the end of wrapped
 	// lines, as text editors do.
 	KeepSpaces bool
@@ -541,7 +545,11 @@ func (s *System) paragraph(p Params, spans []Span, runes []rune, start, end, max
 	spans = spansIn(spans, start, start+len(text))
 	var shaped []shapedLine
 	if len(text) > 0 {
-		shaped = s.engine().shape(text, p.Style, spans, max(p.Width, 0), rtl, p.NoBreakWords)
+		width := max(p.Width, 0)
+		if p.NoWrap {
+			width = 0
+		}
+		shaped = s.engine().shape(text, p.Style, spans, width, rtl, p.NoBreakWords)
 	}
 	if len(shaped) == 0 {
 		shaped = []shapedLine{{end: len(text)}}
@@ -639,10 +647,14 @@ func (s *System) ellipsize(text []rune, spans []Span, start int, p Params, rtl b
 	e := s.engine()
 	rest := text[start:]
 	restSpans := spansIn(spans, start, len(text))
+	mark := []rune(p.Ellipsis)
+	if p.Ellipsis == "" {
+		mark = []rune{'…'}
+	}
 	cut := len(rest)
 	if p.Width > 0 {
 		var ellipsis float32
-		for _, l := range e.shape([]rune{'…'}, p.Style, nil, 0, rtl, false) {
+		for _, l := range e.shape(mark, p.Style, nil, 0, rtl, false) {
 			ellipsis = max(ellipsis, advance(l))
 		}
 		// The advance of each cluster, at its first rune.
@@ -676,14 +688,14 @@ func (s *System) ellipsize(text []rune, spans []Span, start int, p Params, rtl b
 	for cut > 0 && unicode.IsSpace(rest[cut-1]) {
 		cut--
 	}
-	t := make([]rune, cut+1)
+	t := make([]rune, cut+len(mark))
 	copy(t, rest[:cut])
-	t[cut] = '…'
+	copy(t[cut:], mark)
 	out := shapedLine{start: start, end: start + cut}
 	// The ellipsis takes the style of the text it ends.
 	tSpans := spansIn(restSpans, 0, cut)
 	if n := len(tSpans); n > 0 && tSpans[n-1].End == cut {
-		tSpans[n-1].End++
+		tSpans[n-1].End += len(mark)
 	}
 	for _, l := range e.shape(t, p.Style, tSpans, 0, rtl, false) {
 		for _, run := range l.runs {

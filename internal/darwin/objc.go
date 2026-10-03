@@ -42,6 +42,7 @@ var (
 	msgSetPoint      func(obj id, sel objc.SEL, p NSPoint)
 	msgInitRect      func(obj id, sel objc.SEL, r NSRect) id
 	msgInitRectID    func(obj id, sel objc.SEL, r NSRect, a id) id
+	msgInitIDPoint   func(obj id, sel objc.SEL, a id, p NSPoint) id
 	msgInitWindow    func(obj id, sel objc.SEL, r NSRect, style uint, backing uint, deferFlag bool) id
 	msgColor         func(cls id, sel objc.SEL, r, g, b, a float64) id
 	msgOtherEvent    func(cls id, sel objc.SEL, typ uint, loc NSPoint, flags uint, ts float64, wn int, ctx id, subtype int16, d1, d2 int) id
@@ -130,6 +131,7 @@ func load() {
 		purego.RegisterFunc(&msgSetPoint, msgSendAddr)
 		purego.RegisterFunc(&msgInitRect, msgSendAddr)
 		purego.RegisterFunc(&msgInitRectID, msgSendAddr)
+		purego.RegisterFunc(&msgInitIDPoint, msgSendAddr)
 		purego.RegisterFunc(&msgInitWindow, msgSendAddr)
 		purego.RegisterFunc(&msgColor, msgSendAddr)
 		purego.RegisterFunc(&msgOtherEvent, msgSendAddr)

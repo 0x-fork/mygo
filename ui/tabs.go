@@ -15,10 +15,10 @@ package ui
 func Tabs(c *Context, selected *int, labels ...string) *Element {
 	t := c.theme
 	tabs := TabsBase(c, selected, len(labels))
-	list := tabs.List.Gap(t.space(1))
+	list := tabs.List.Gap(t.Space(1))
 	list.Children(func() {
 		for i, label := range labels {
-			tab := tabs.Tab(i).Padding(t.space(2), t.space(3)).FocusRing(false)
+			tab := tabs.Tab(i).Padding(t.Space(2), t.Space(3)).FocusRing(false)
 			on := i == *selected
 			tab.TextColor(t.TextMuted)
 			if on {
@@ -31,7 +31,7 @@ func Tabs(c *Context, selected *int, labels ...string) *Element {
 			}
 			tab.DrawOver(func(p *Painter, r Rect) {
 				if on {
-					in, h := t.space(1.5), t.space(0.5)
+					in, h := t.Space(1.5), t.Space(0.5)
 					p.Fill(Rect{r.X + in, r.Y + r.H - h, r.W - 2*in, h}, t.Accent, h/2)
 				}
 				if tab.FocusVisible() {

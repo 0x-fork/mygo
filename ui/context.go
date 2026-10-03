@@ -37,9 +37,12 @@ func (c *Context) alloc() *Element {
 	}
 	c.used++
 	e := &c.chunks[ci][ei]
-	shadows := e.shadows[:0]
+	shadows, cols, rows := e.shadows[:0], e.cols[:0], e.rows[:0]
 	*e = Element{}
-	e.shadows = shadows
+	e.shadows, e.cols, e.rows = shadows, cols, rows
+	e.shrink = 1
+	e.justify, e.align, e.self, e.alignContent = alignAuto, alignAuto, alignAuto, alignAuto
+	e.justifyItems, e.justifySelf = alignAuto, alignAuto
 	return e
 }
 
@@ -53,8 +56,6 @@ func (c *Context) reset(now time.Time, w, h float32) {
 	root.c = c
 	root.id = 1
 	root.kind = kindBox
-	root.shrink = 1
-	root.align, root.self = alignAuto, alignAuto
 	root.width, root.height = px(w), px(h)
 	root.st = c.rt.stateFor(root.id)
 	root.bg = c.theme.Background
@@ -72,8 +73,6 @@ func (c *Context) overlayRoot() *Element {
 		o.c = c
 		o.id = mix(1, 0x6f7665726c6179)
 		o.kind = kindBox
-		o.shrink = 1
-		o.align, o.self = alignAuto, alignAuto
 		o.flags = flagAbsolute | flagPassThrough
 		o.inset = [4]length{px(0), px(0), px(0), px(0)}
 		o.depth = 1
@@ -92,8 +91,6 @@ func (c *Context) newElement(k kind) *Element {
 	e := c.alloc()
 	e.c = c
 	e.kind = k
-	e.shrink = 1
-	e.align, e.self = alignAuto, alignAuto
 	p := c.parent
 	e.id = mix(p.id, uint64(p.nchild)+uint64(k)<<56)
 	p.add(e)

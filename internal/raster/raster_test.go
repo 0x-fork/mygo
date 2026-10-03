@@ -40,9 +40,9 @@ func TestRenderShapes(t *testing.T) {
 	s := &scene.Scene{Width: 200, Height: 120, Clear: scene.Color{R: 255, G: 255, B: 255, A: 255}}
 	s.Ops = append(s.Ops,
 		scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 20, Y: 24, W: 80, H: 60}, Radii: [4]float32{12, 12, 12, 12}, Color: scene.Color{R: 0, G: 0, B: 0, A: 80}, Blur: 16},
-		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 20, Y: 20, W: 80, H: 60}, Radii: [4]float32{12, 12, 12, 12}, Color: scene.Color{R: 37, G: 99, B: 235, A: 255}, Border: 2, BorderColor: scene.Color{R: 0, G: 0, B: 0, A: 255}},
+		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 20, Y: 20, W: 80, H: 60}, Radii: [4]float32{12, 12, 12, 12}, Color: scene.Color{R: 37, G: 99, B: 235, A: 255}, Border: scene.Uniform(2), BorderColor: scene.Color{R: 0, G: 0, B: 0, A: 255}},
 		scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 120, Y: 20, W: 60, H: 60}, Radii: [4]float32{30, 30, 30, 30}},
-		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 110, Y: 10, W: 80, H: 80}, Color: scene.Color{R: 220, G: 38, B: 38, A: 255}, Color2: scene.Color{R: 250, G: 204, B: 21, A: 255}, HasGrad: true, Gradient: [4]float32{110, 10, 190, 90}},
+		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 110, Y: 10, W: 80, H: 80}, Color: scene.Color{R: 220, G: 38, B: 38, A: 255}, Color2: scene.Color{R: 250, G: 204, B: 21, A: 255}, Paint: scene.PaintLinear, Gradient: [4]float32{110, 10, 190, 90}},
 		scene.Op{Kind: scene.OpPopClip},
 	)
 	dst := NewImage(s.Width, s.Height)
@@ -101,7 +101,7 @@ func TestRenderText(t *testing.T) {
 func BenchmarkRenderFullFrame(b *testing.B) {
 	s := &scene.Scene{Width: 1600, Height: 1000, Clear: scene.Color{R: 250, G: 250, B: 250, A: 255}}
 	for i := 0; i < 20; i++ {
-		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: float32(40 + i*60), Y: 40, W: 50, H: 900}, Radii: [4]float32{8, 8, 8, 8}, Color: scene.Color{R: 37, G: 99, B: 235, A: 255}, Border: 1, BorderColor: scene.Color{R: 0, G: 0, B: 0, A: 40}})
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: float32(40 + i*60), Y: 40, W: 50, H: 900}, Radii: [4]float32{8, 8, 8, 8}, Color: scene.Color{R: 37, G: 99, B: 235, A: 255}, Border: scene.Uniform(1), BorderColor: scene.Color{R: 0, G: 0, B: 0, A: 40}})
 	}
 	dst := NewImage(s.Width, s.Height)
 	b.ResetTimer()

@@ -5,6 +5,7 @@ import (
 	"hash/maphash"
 	"image"
 	"image/color"
+	"math"
 	"sync/atomic"
 
 	"github.com/egoist/mygo/internal/scene"
@@ -87,7 +88,17 @@ func Icon(c *Context, s *SVG) *Element {
 }
 
 // Icon draws the shapes of an SVG fitted in r, in color c.
-func (p *Painter) Icon(s *SVG, r Rect, c Color) { p.drawIcon(s, r, c) }
+func (p *Painter) Icon(s *SVG, r Rect, c Color) { p.drawIcon(s, r, c, 0) }
+
+// Rotate turns an Icon by degrees clockwise around its center, as a
+// spinner does:
+//
+//	spin := ui.Icon(c, loader)
+//	spin.Rotate(spin.Loop("spin", time.Second, ui.Linear) * 360)
+func (e *Element) Rotate(degrees float32) *Element { e.rotate = degrees; return e }
+
+// Grayscale draws the element's image, or icon, in shades of gray.
+func (e *Element) Grayscale() *Element { e.gray = true; return e }
 
 // svgs holds what the engine reuses to draw SVGs: the job of drawing an
 // icon's mask, the pixels it draws them into, and the pictures of SVGs
@@ -100,11 +111,14 @@ type svgs struct {
 }
 
 // iconJob is the mask of an icon drawIcon asks the text system for, which
-// draws it when it is not cached.
+// draws it when it is not cached: the SVG fitted in w×h pixels, turned by
+// rotate degrees in a mask cw×ch.
 type iconJob struct {
-	s    *SVG
-	w, h int
-	draw func() (w, h int, pix []byte)
+	s      *SVG
+	w, h   int
+	cw, ch int
+	rotate float32
+	draw   func() (w, h int, pix []byte)
 }
 
 // pictureKey identifies the picture of an SVG drawn w×h pixels, in its own
@@ -136,11 +150,12 @@ func (rt *engine) canvasFor(w, h int) *image.RGBA {
 	return c
 }
 
-// drawIcon paints an SVG's shapes fitted in r, in c, from a mask the text
-// system caches in its atlas: once there, the GPU draws the icon in any
-// color without drawing its shapes again.
-func (p *Painter) drawIcon(s *SVG, r Rect, c Color) {
-	if s == nil || c.A == 0 || !p.visible(r, 0) {
+// drawIcon paints an SVG's shapes fitted in r, in c, turned by rotate
+// degrees around its center, from a mask the text system caches in its
+// atlas: once there, the GPU draws the icon in any color without drawing
+// its shapes again.
+func (p *Painter) drawIcon(s *SVG, r Rect, c Color, rotate float32) {
+	if s == nil || c.A == 0 || !p.visible(r, r.W+r.H) {
 		return
 	}
 	d := p.snap(r)
@@ -148,24 +163,46 @@ func (p *Painter) drawIcon(s *SVG, r Rect, c Color) {
 	if w <= 0 || h <= 0 || w > 4096 || h > 4096 {
 		return
 	}
+	// Turned by a sixteenth of a degree at the finest, in a mask as large
+	// as it then covers, around the same center.
+	rotate = float32(math.Mod(float64(rotate), 360))
+	if rotate < 0 {
+		rotate += 360
+	}
+	rotate = float32(math.Round(float64(rotate)*16) / 16)
+	if rotate == 360 {
+		rotate = 0
+	}
+	cw, ch := w, h
+	if rotate != 0 {
+		sin, cos := math.Sincos(float64(rotate) * math.Pi / 180)
+		sin, cos = math.Abs(sin), math.Abs(cos)
+		cw = int(math.Ceil(float64(w)*cos+float64(h)*sin)) + 2
+		ch = int(math.Ceil(float64(w)*sin+float64(h)*cos)) + 2
+		// Of the same parity, so that the center stays on the grid.
+		cw += (cw - w) & 1
+		ch += (ch - h) & 1
+	}
 	rt := p.rt
 	j := &rt.svgs.job
 	if j.draw == nil {
 		j.draw = rt.rasterizeIcon
 	}
-	var buf [17]byte
+	var buf [21]byte
 	buf[0] = 's' // apart from the masks of paths
 	binary.LittleEndian.PutUint64(buf[1:], s.id)
 	binary.LittleEndian.PutUint32(buf[9:], uint32(w))
 	binary.LittleEndian.PutUint32(buf[13:], uint32(h))
-	j.s, j.w, j.h = s, w, h
+	binary.LittleEndian.PutUint32(buf[17:], math.Float32bits(rotate))
+	j.s, j.w, j.h, j.cw, j.ch, j.rotate = s, w, h, cw, ch, rotate
 	gi := rt.text.Mask(maphash.Bytes(svgSeed, buf[:]), j.draw)
 	j.s = nil
 	if !gi.OK {
 		return
 	}
+	x, y := d.X-float32((cw-w)/2), d.Y-float32((ch-h)/2)
 	start := int32(len(p.s.Glyphs))
-	p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{X: d.X, Y: d.Y, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: c.Alpha(p.opacity).scene()})
+	p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{X: x, Y: y, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: c.Alpha(p.opacity).scene()})
 	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: start + 1})
 }
 
@@ -173,9 +210,13 @@ func (p *Painter) drawIcon(s *SVG, r Rect, c Color) {
 // whatever its colors.
 func (rt *engine) rasterizeIcon() (int, int, []byte) {
 	j := &rt.svgs.job
-	img := rt.canvasFor(j.w, j.h)
-	j.s.doc.Draw(img, color.NRGBA{A: 255}, false)
-	n := j.w * j.h
+	img := rt.canvasFor(j.cw, j.ch)
+	if j.rotate != 0 {
+		j.s.doc.DrawRotated(img, color.NRGBA{A: 255}, float64(j.w), float64(j.h), float64(j.rotate))
+	} else {
+		j.s.doc.Draw(img, color.NRGBA{A: 255}, false)
+	}
+	n := j.cw * j.ch
 	if cap(rt.svgs.mask) < n {
 		rt.svgs.mask = make([]byte, n)
 	}
@@ -183,25 +224,27 @@ func (rt *engine) rasterizeIcon() (int, int, []byte) {
 	for i := range mask {
 		mask[i] = img.Pix[i*4+3]
 	}
-	return j.w, j.h, mask
+	return j.cw, j.ch, mask
 }
 
 // drawSVG paints an SVG in its own colors, with current for currentColor,
-// scaled into box as fit says and clipped to radius.
-func (p *Painter) drawSVG(s *SVG, box Rect, fit Fit, radius [4]float32, current Color) {
+// scaled into box as fit says, clipped to radius and in gray if gray.
+func (p *Painter) drawSVG(s *SVG, box Rect, fit Fit, radius [4]float32, current Color, gray bool) {
 	if s == nil || s.w <= 0 || s.h <= 0 || !p.visible(box, 0) {
 		return
 	}
 	dst := box
-	switch fit {
-	case Contain:
-		f := min(box.W/s.w, box.H/s.h)
-		dst.W, dst.H = s.w*f, s.h*f
-		dst.X += (box.W - dst.W) / 2
-		dst.Y += (box.H - dst.H) / 2
-	case Cover:
-		f := max(box.W/s.w, box.H/s.h)
-		dst.W, dst.H = s.w*f, s.h*f
+	if fit != FillBox {
+		scale := float32(1)
+		switch fit {
+		case Contain:
+			scale = min(box.W/s.w, box.H/s.h)
+		case Cover:
+			scale = max(box.W/s.w, box.H/s.h)
+		case ScaleDown:
+			scale = min(box.W/s.w, box.H/s.h, 1)
+		}
+		dst.W, dst.H = s.w*scale, s.h*scale
 		dst.X += (box.W - dst.W) / 2
 		dst.Y += (box.H - dst.H) / 2
 	}
@@ -214,10 +257,10 @@ func (p *Painter) drawSVG(s *SVG, box Rect, fit Fit, radius [4]float32, current 
 		current = Color{}
 	}
 	img := p.rt.picture(pictureKey{s: s, w: w, h: h, color: current, stretch: fit == FillBox})
-	op := scene.Op{Kind: scene.OpImage, Rect: d, Radii: p.radii(radius), Image: img, Src: scene.Rect{W: float32(w), H: float32(h)}, Opacity: p.opacity}
-	if fit == Cover {
+	op := scene.Op{Kind: scene.OpImage, Rect: d, Radii: p.radii(radius), Image: img, Src: scene.Rect{W: float32(w), H: float32(h)}, Opacity: p.opacity, Grayscale: gray}
+	if fit == Cover || fit == NaturalSize {
 		// Only what falls in the box shows.
-		b := p.snap(box)
+		b := p.snap(box).Intersect(d)
 		op.Rect, op.Src = b, scene.Rect{X: b.X - d.X, Y: b.Y - d.Y, W: b.W, H: b.H}
 	}
 	p.s.Ops = append(p.s.Ops, op)

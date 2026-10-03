@@ -55,7 +55,7 @@ func (m *sceneMaker) op(s *scene.Scene) scene.Op {
 	case 0:
 		r := m.rnd.Float32() * 12
 		return scene.Op{Kind: scene.OpFill, Rect: m.rect(), Radii: [4]float32{r, r, r, r}, Color: m.color(),
-			Border: float32(m.rnd.IntN(3)), BorderColor: m.color()}
+			Border: scene.Uniform(float32(m.rnd.IntN(3))), BorderColor: m.color()}
 	case 1:
 		return scene.Op{Kind: scene.OpShadow, Rect: m.rect(), Radii: [4]float32{4, 4, 4, 4}, Color: m.color(), Blur: m.rnd.Float32() * 16}
 	case 2:

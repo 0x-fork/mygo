@@ -3,6 +3,9 @@
 package darwin
 
 import (
+	"bytes"
+	"image"
+	pngenc "image/png"
 	"runtime"
 	"structs"
 	"sync"
@@ -246,6 +249,23 @@ var cursorSelectors = map[platform.Cursor]string{
 	platform.CursorCrosshair:  "crosshairCursor",
 	platform.CursorGrab:       "openHandCursor",
 	platform.CursorGrabbing:   "closedHandCursor",
+	platform.CursorResizeN:    "resizeUpCursor",
+	platform.CursorResizeE:    "resizeRightCursor",
+	platform.CursorResizeS:    "resizeDownCursor",
+	platform.CursorResizeW:    "resizeLeftCursor",
+	// macOS 15 has cursors for columns and rows.
+	platform.CursorResizeColumn: "columnResizeCursor",
+	platform.CursorResizeRow:    "rowResizeCursor",
+	platform.CursorVerticalText: "IBeamCursorForVerticalLayout",
+	platform.CursorCopy:         "dragCopyCursor",
+	platform.CursorAlias:        "dragLinkCursor",
+	platform.CursorContextMenu:  "contextualMenuCursor",
+}
+
+// cursorFallbacks are the cursors of older macOS for those it lacks.
+var cursorFallbacks = map[platform.Cursor]string{
+	platform.CursorResizeColumn: "resizeLeftRightCursor",
+	platform.CursorResizeRow:    "resizeUpDownCursor",
 }
 
 func (s *surface) applyCursor() {
@@ -272,11 +292,42 @@ func nsCursor(c platform.Cursor) id {
 			}
 		}
 	}
+	if c == platform.CursorNone {
+		return noCursor()
+	}
 	name, ok := cursorSelectors[c]
 	if !ok {
 		name = "arrowCursor"
 	}
+	if !respondsTo(cls, name) {
+		if name, ok = cursorFallbacks[c]; !ok {
+			name = "arrowCursor"
+		}
+	}
 	return send(cls, name)
+}
+
+var hiddenCursor id
+
+// noCursor returns a cursor of a transparent image, which hides the
+// pointer while it is over the view, unlike NSCursor's hide, which hides
+// it everywhere until unhidden.
+func noCursor() id {
+	if hiddenCursor == 0 {
+		// A PNG of one transparent pixel.
+		var png bytes.Buffer
+		if err := pngenc.Encode(&png, image.NewNRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+			return send(class("NSCursor"), "arrowCursor")
+		}
+		b := png.Bytes()
+		withPool(func() {
+			data := send(class("NSData"), "dataWithBytes:length:", uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)))
+			img := send(send(class("NSImage"), "alloc"), "initWithData:", uintptr(data))
+			hiddenCursor = msgInitIDPoint(send(class("NSCursor"), "alloc"), sel("initWithImage:hotSpot:"), img, NSPoint{})
+			send(img, "release")
+		})
+	}
+	return hiddenCursor
 }
 
 func (s *surface) SetCursor(c platform.Cursor) {

@@ -306,21 +306,145 @@ func over(src, dst byte, inv uint32) byte {
 	return byte(min(uint32(src)+(t+t>>8)>>8, 255))
 }
 
-// paint returns the op's fill color at a pixel center.
-func paint(op *scene.Op, fill [4]float32, px, py float32) [4]float32 {
-	if !op.HasGrad {
-		return fill
+// painter computes the fill of an op at pixel centers: its color, or its
+// gradient or stripes, premultiplied and times the op's opacity.
+type painter struct {
+	paint      scene.Paint
+	c1, c2     [4]float32 // premultiplied
+	lab1, lab2 [3]float32 // premultiplied Oklab
+	g          [4]float32
+	origin     [2]float32
+}
+
+func newPainter(op *scene.Op, opacity float32) painter {
+	p := painter{paint: op.Paint, c1: op.Color.Premul(opacity), c2: op.Color2.Premul(opacity), g: op.Gradient, origin: [2]float32{op.Rect.X, op.Rect.Y}}
+	if p.paint == scene.PaintOklab {
+		p.lab1, p.lab2 = oklab(op.Color), oklab(op.Color2)
+		for i := range 3 {
+			p.lab1[i] *= p.c1[3]
+			p.lab2[i] *= p.c2[3]
+		}
 	}
-	g := op.Gradient
+	return p
+}
+
+// solid reports whether the fill is one color.
+func (p *painter) solid() bool { return p.paint == scene.PaintSolid }
+
+// visible reports whether the fill shows anywhere.
+func (p *painter) visible() bool { return p.c1[3] > 0 || (!p.solid() && p.c2[3] > 0) }
+
+// at returns the fill at a pixel center.
+func (p *painter) at(px, py float32) [4]float32 {
+	switch p.paint {
+	case scene.PaintSolid:
+		return p.c1
+	case scene.PaintStripes:
+		s := (px-p.origin[0])*p.g[0] + (py-p.origin[1])*p.g[1]
+		period := p.g[3]
+		phase := s - period*float32(math.Floor(float64(s/period)))
+		cov := clamp01(0.5 - min(max(-phase, phase-p.g[2]), period-phase))
+		var c [4]float32
+		for i := range c {
+			c[i] = p.c1[i]*cov + p.c2[i]*(1-cov)
+		}
+		return c
+	}
+	g := p.g
 	dx, dy := g[2]-g[0], g[3]-g[1]
 	t := float32(0)
 	if l := dx*dx + dy*dy; l > 0 {
-		t = clamp01(((px-g[0])*dx + (py-g[1])*dy) / l)
+		t = clamp01(((px-g[0])*dx + (py-g[1])*dy) / max(l, 0.0001))
 	}
-	a, b := op.Color, op.Color2
-	mix := func(u, v uint8) float32 { return (float32(u)*(1-t) + float32(v)*t) / 255 }
-	alpha := mix(a.A, b.A) * op.Opacity
-	return [4]float32{mix(a.R, b.R) * alpha, mix(a.G, b.G) * alpha, mix(a.B, b.B) * alpha, alpha}
+	a := p.c1[3]*(1-t) + p.c2[3]*t
+	if p.paint == scene.PaintLinear {
+		return [4]float32{p.c1[0]*(1-t) + p.c2[0]*t, p.c1[1]*(1-t) + p.c2[1]*t, p.c1[2]*(1-t) + p.c2[2]*t, a}
+	}
+	if a <= 0 {
+		return [4]float32{}
+	}
+	var lab [3]float32
+	for i := range lab {
+		lab[i] = (p.lab1[i]*(1-t) + p.lab2[i]*t) / a
+	}
+	rgb := fromOklab(lab)
+	return [4]float32{clamp01(rgb[0]) * a, clamp01(rgb[1]) * a, clamp01(rgb[2]) * a, a}
+}
+
+func toLinear(c float32) float32 {
+	if c <= 0.04045 {
+		return c / 12.92
+	}
+	return float32(math.Pow(float64((c+0.055)/1.055), 2.4))
+}
+
+func toSRGB(c float32) float32 {
+	if c <= 0.0031308 {
+		return c * 12.92
+	}
+	return 1.055*float32(math.Pow(float64(max(c, 0)), 1/2.4)) - 0.055
+}
+
+// oklab converts an sRGB color to Oklab, as the shaders do.
+func oklab(c scene.Color) [3]float32 {
+	r, g, b := toLinear(float32(c.R)/255), toLinear(float32(c.G)/255), toLinear(float32(c.B)/255)
+	l := float32(math.Cbrt(float64(0.4122214708*r + 0.5363325363*g + 0.0514459929*b)))
+	m := float32(math.Cbrt(float64(0.2119034982*r + 0.6806995451*g + 0.1073969566*b)))
+	s := float32(math.Cbrt(float64(0.0883024619*r + 0.2817188376*g + 0.6299787005*b)))
+	return [3]float32{
+		0.2104542553*l + 0.7936177850*m - 0.0040720468*s,
+		1.9779984951*l - 2.4285922050*m + 0.4505937099*s,
+		0.0259040371*l + 0.7827717662*m - 0.8086757660*s,
+	}
+}
+
+// fromOklab converts an Oklab color to sRGB components, unclamped.
+func fromOklab(lab [3]float32) [3]float32 {
+	l := lab[0] + 0.3963377774*lab[1] + 0.2158037573*lab[2]
+	m := lab[0] - 0.1055613458*lab[1] - 0.0638541728*lab[2]
+	s := lab[0] - 0.0894841775*lab[1] - 1.2914855480*lab[2]
+	l, m, s = l*l*l, m*m*m, s*s*s
+	return [3]float32{
+		toSRGB(4.0767416621*l - 3.3077115913*m + 0.2309699292*s),
+		toSRGB(-1.2684380046*l + 2.6097574011*m - 0.3413193965*s),
+		toSRGB(-0.0041960863*l - 0.7034186147*m + 1.7076147010*s),
+	}
+}
+
+// dash returns how much of a dashed border of widths w (top, right,
+// bottom, left) around r shows at a pixel center, as the shaders compute
+// it: each side, which the pixel belongs to when it is nearest that side's
+// edge in widths of its border, has an odd number of dashes and gaps of
+// equal length, about three widths, starting and ending with a dash.
+func dash(r scene.Rect, w [4]float32, px, py float32) float32 {
+	qx, qy := px-r.X, py-r.Y
+	d := func(dist, width float32) float32 {
+		if width > 0 {
+			return dist / width
+		}
+		return 1e9
+	}
+	dt, dr, db, dl := d(qy, w[0]), d(r.W-qx, w[1]), d(r.H-qy, w[2]), d(qx, w[3])
+	var s, length, bw float32
+	switch {
+	case dt <= dr && dt <= db && dt <= dl:
+		s, length, bw = qx, r.W, w[0]
+	case dr <= db && dr <= dl:
+		s, length, bw = qy, r.H, w[1]
+	case db <= dl:
+		s, length, bw = r.W-qx, r.W, w[2]
+	default:
+		s, length, bw = r.H-qy, r.H, w[3]
+	}
+	n := max(1, float32(math.Floor(float64((length/(3*bw)+1)*0.5+0.5))))
+	seg := length / (2*n - 1)
+	k := float32(math.Floor(float64(s / seg)))
+	f := s - k*seg
+	edge := min(f, seg-f)
+	if k-2*float32(math.Floor(float64(k*0.5))) < 0.5 {
+		edge = -edge
+	}
+	return clamp01(0.5 - edge)
 }
 
 func (r *renderer) fill(op *scene.Op) {
@@ -333,24 +457,19 @@ func (r *renderer) fill(op *scene.Op) {
 	}
 	outer := op.Rect
 	radii := fitRadii(outer, op.Radii)
-	fill := op.Color.Premul(opacity)
+	pt := newPainter(op, opacity)
 	border := op.BorderColor.Premul(opacity)
 	bw := op.Border
 	if op.BorderColor.A == 0 {
-		bw = 0
+		bw = [4]float32{}
 	}
+	hasBorder := scene.HasBorder(bw)
 	inner := outer
 	var innerRadii [4]float32
-	if bw > 0 {
-		inner = scene.Rect{X: outer.X + bw, Y: outer.Y + bw, W: outer.W - 2*bw, H: outer.H - 2*bw}
-		for i, rad := range radii {
-			innerRadii[i] = max(rad-bw, 0)
-		}
-		innerRadii = fitRadii(inner, innerRadii)
+	if hasBorder {
+		inner, innerRadii = scene.InnerRadii(outer, radii, bw)
 	}
-	hasFill := op.Color.A > 0 || (op.HasGrad && op.Color2.A > 0)
-	opGrad := *op
-	opGrad.Opacity = opacity
+	hasFill, solid := pt.visible(), pt.solid()
 	x0, y0, x1, y1 := r.pixelBounds(outer)
 	for y := y0; y < y1; y++ {
 		row := r.dst.Pix[y*r.dst.Stride:]
@@ -358,7 +477,7 @@ func (r *renderer) fill(op *scene.Op) {
 		cl, ch := r.clipSolid(y)
 		ol, oh := solidSpan(outer, radii, float32(y), float32(y+1))
 		il, ih := ol, oh
-		if bw > 0 {
+		if hasBorder {
 			il, ih = 0, 0
 			if !inner.Empty() {
 				il, ih = solidSpan(inner, innerRadii, float32(y), float32(y+1))
@@ -367,14 +486,16 @@ func (r *renderer) fill(op *scene.Op) {
 		// The middle run, inside the clips, the shape and its border, is
 		// plain fill.
 		sl, sh := max(il, cl, x0), min(ih, ch, x1)
-		if sl < sh && hasFill && !op.HasGrad {
-			blendSpan(row, sl, sh, fill, 1)
+		if sl < sh && hasFill && solid {
+			blendSpan(row, sl, sh, pt.c1, 1)
 		}
 		for x := x0; x < x1; x++ {
 			if x >= sl && x < sh {
-				if op.HasGrad {
-					blend(row[4*x:4*x+4], paint(&opGrad, fill, float32(x)+0.5, py), 1)
+				if !hasFill || solid {
+					x = sh - 1 // past the run, which is done
+					continue
 				}
+				blend(row[4*x:4*x+4], pt.at(float32(x)+0.5, py), 1)
 				continue
 			}
 			px := float32(x) + 0.5
@@ -394,14 +515,18 @@ func (r *renderer) fill(op *scene.Op) {
 			}
 			p := row[4*x : 4*x+4]
 			if hasFill {
-				blend(p, paint(&opGrad, fill, px, py), oc*clipCov)
+				blend(p, pt.at(px, py), oc*clipCov)
 			}
-			if bw > 0 {
+			if hasBorder {
 				ic := float32(0)
 				if !inner.Empty() {
 					ic = coverage(inner, innerRadii, px, py)
 				}
-				if bc := oc - ic; bc > 0 {
+				bc := oc - ic
+				if bc > 0 && op.Dashed {
+					bc *= dash(outer, bw, px, py)
+				}
+				if bc > 0 {
 					blend(p, border, bc*clipCov)
 				}
 			}
@@ -415,7 +540,7 @@ func (r *renderer) shadow(op *scene.Op) {
 	sigma := op.Blur / 2
 	if sigma < 0.5 {
 		f := *op
-		f.Kind, f.Border, f.HasGrad = scene.OpFill, 0, false
+		f.Kind, f.Border, f.Paint = scene.OpFill, [4]float32{}, scene.PaintSolid
 		r.fill(&f)
 		return
 	}
@@ -520,6 +645,15 @@ func erf(x float32) float32 {
 }
 
 func (r *renderer) glyphs(op *scene.Op) {
+	var pt *painter
+	if op.Paint == scene.PaintLinear || op.Paint == scene.PaintOklab {
+		opacity := op.Opacity
+		if opacity == 0 {
+			opacity = 1
+		}
+		p := newPainter(op, opacity)
+		pt = &p
+	}
 	for _, g := range r.s.Glyphs[op.Start:op.End] {
 		atlas := r.s.MaskAtlas
 		if g.Colored {
@@ -551,6 +685,9 @@ func (r *renderer) glyphs(op *scene.Op) {
 					c := [4]float32{float32(s[0]) / 255 * alpha, float32(s[1]) / 255 * alpha, float32(s[2]) / 255 * alpha, float32(s[3]) / 255 * alpha}
 					blend(p, c, cov)
 				} else if m := atlas.Pix[ay*atlas.W+ax]; m != 0 {
+					if pt != nil {
+						tint = pt.at(float32(x)+0.5, float32(y)+0.5)
+					}
 					blend(p, tint, cov*float32(m)/255)
 				}
 			}
@@ -589,6 +726,10 @@ func (r *renderer) image(op *scene.Op) {
 				continue
 			}
 			c := sample(img, op.Src.X+(px-op.Rect.X)*sx, op.Src.Y+(py-op.Rect.Y)*sy, op.Src)
+			if op.Grayscale {
+				l := 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]
+				c[0], c[1], c[2] = l, l, l
+			}
 			blend(row[4*x:4*x+4], c, cov)
 		}
 	}

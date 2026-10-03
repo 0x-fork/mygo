@@ -172,7 +172,7 @@ type pathJob struct {
 // drawPath paints a flattened path with c, from a mask cached by the shape:
 // filled (non-zero winding), or with width > 0 stroked that many pixels
 // wide with round joins and caps.
-func (p *Painter) drawPath(f *flatPath, width float32, c Color) {
+func (p *Painter) drawPath(f *flatPath, width float32, c Color, g *LinearGradient) {
 	if f.polys() == 0 {
 		return
 	}
@@ -223,7 +223,14 @@ func (p *Painter) drawPath(f *flatPath, width float32, c Color) {
 	}
 	start := int32(len(p.s.Glyphs))
 	p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{X: x0, Y: y0, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: c.Alpha(p.opacity).scene()})
-	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: start + 1})
+	op := scene.Op{Kind: scene.OpGlyphs, Start: start, End: start + 1}
+	if g != nil {
+		// The gradient spans the path's bounds.
+		op.Rect = scene.Rect{X: minX - hw, Y: minY - hw, W: maxX - minX + 2*hw, H: maxY - minY + 2*hw}
+		op.Opacity = p.opacity
+		p.gradient(&op, *g)
+	}
+	p.s.Ops = append(p.s.Ops, op)
 }
 
 // rasterizePath draws the mask of the path job, into memory the engine
@@ -250,7 +257,15 @@ func (rt *engine) rasterizePath() (int, int, []byte) {
 func (p *Painter) FillPath(path *Path, c Color) {
 	f := &p.rt.paths.flat
 	path.flatten(f, p.scale)
-	p.drawPath(f, 0, c)
+	p.drawPath(f, 0, c, nil)
+}
+
+// FillPathGradient fills a path with a gradient across its bounds, as the
+// area under a chart's line.
+func (p *Painter) FillPathGradient(path *Path, g LinearGradient) {
+	f := &p.rt.paths.flat
+	path.flatten(f, p.scale)
+	p.drawPath(f, 0, g.From, &g)
 }
 
 // StrokePath draws the outline of a path, width DIPs wide, with round
@@ -258,7 +273,15 @@ func (p *Painter) FillPath(path *Path, c Color) {
 func (p *Painter) StrokePath(path *Path, width float32, c Color) {
 	f := &p.rt.paths.flat
 	path.flatten(f, p.scale)
-	p.drawPath(f, width*p.scale, c)
+	p.drawPath(f, width*p.scale, c, nil)
+}
+
+// StrokePathGradient draws the outline of a path as StrokePath does, in a
+// gradient across its bounds.
+func (p *Painter) StrokePathGradient(path *Path, width float32, g LinearGradient) {
+	f := &p.rt.paths.flat
+	path.flatten(f, p.scale)
+	p.drawPath(f, width*p.scale, g.From, &g)
 }
 
 func fillInto(z *vec.Rasterizer, f *flatPath, x0, y0 float32) {

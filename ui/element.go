@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"strings"
 
 	"github.com/egoist/mygo/internal/text"
@@ -19,7 +20,7 @@ const (
 	// Stretch makes children as large as the container across its axis.
 	Stretch
 	// SpaceBetween, SpaceAround and SpaceEvenly spread children along the
-	// main axis (Justify only).
+	// main axis (Justify), or lines and grid tracks (AlignContent).
 	SpaceBetween
 	SpaceAround
 	SpaceEvenly
@@ -39,6 +40,13 @@ type length struct {
 	v float32
 	u unit
 }
+
+// Auto is an automatic margin, which takes the free space on its side, as
+// in CSS: Margin(0, Auto) centers an element horizontally, and a Row's
+// child with Margin(0, 0, 0, Auto) goes to the end with those after it.
+var Auto = float32(math.Inf(1))
+
+func isAuto(v float32) bool { return math.IsInf(float64(v), 1) }
 
 func px(v float32) length      { return length{v, unitPx} }
 func percent(v float32) length { return length{v, unitPercent} }
@@ -75,7 +83,8 @@ const (
 	flagDragWindow
 	flagScrollX
 	flagScrollY
-	flagClip
+	flagClipX
+	flagClipY
 	flagAbsolute
 	flagDisabled
 	flagTrackPointer
@@ -86,6 +95,11 @@ const (
 	flagDropTarget
 	flagContextMenu
 	flagSelectable
+	flagInvisible
+	flagDebug
+
+	// flagClip clips both ways.
+	flagClip = flagClipX | flagClipY
 )
 
 type shadow struct {
@@ -96,18 +110,26 @@ type shadow struct {
 // textStyle is the text styling of an element; descendants inherit what is
 // set.
 type textStyle struct {
-	set        uint16
-	family     string
-	size       float32
-	weight     int
-	italic     bool
-	color      Color
+	set    uint16
+	family string
+	size   float32
+	weight int
+	italic bool
+	color  Color
+	// lineHeight is a multiple of the font size, or DIPs when fixedLine.
 	lineHeight float32
+	fixedLine  bool
 	align      Align
 	underline  bool
+	wavy       bool
 	strike     bool
 	spacing    float32 // letter spacing
 	features   string
+	// decoColor and decoThick are those of underlines and strikethroughs;
+	// background is behind the text.
+	decoColor  Color
+	decoThick  float32
+	background Color
 }
 
 const (
@@ -122,9 +144,12 @@ const (
 	setStrike
 	setSpacing
 	setFeatures
+	setDecoColor
+	setDecoThick
+	setBackground
 
 	// setAll has every bit of textStyle.set.
-	setAll = setFeatures<<1 - 1
+	setAll = setBackground<<1 - 1
 )
 
 // Element is a node of a frame's user interface. The functions that create
@@ -150,22 +175,32 @@ type Element struct {
 	// Layout.
 	row                    bool
 	wrap                   bool
+	reverse, wrapReverse   bool
 	justify, align, self   Align
-	gap                    float32
-	pad, margin            [4]float32 // top, right, bottom, left
+	alignContent           Align
+	gapX, gapY             float32
+	pad                    [4]float32 // top, right, bottom, left
+	margin                 [4]float32 // Auto for auto margins
 	width, height          length
 	minW, minH, maxW, maxH length
 	grow, shrink           float32
 	basis                  length
 	inset                  [4]length
 	aspect                 float32
+	grid                   bool
+	cols, rows             []Track // of a grid
+	justifyItems           Align   // of a grid
+	cell                   gridCell
+	justifySelf            Align
 
 	// Painting.
-	bg, bg2      Color
-	gradAngle    float32
-	hasGrad      bool
-	borderW      float32
+	bg           Color
+	fill         fillKind
+	grad         LinearGradient
+	stripes      stripes
+	border       [4]float32 // top, right, bottom, left
 	borderC      Color
+	borderStyle  BorderStyle
 	radius       [4]float32
 	shadows      []shadow
 	opacity      float32
@@ -182,9 +217,13 @@ type Element struct {
 	ts       textStyle
 	maxLines int
 	single   bool
+	noWrap   bool
+	ellipsis string
 	image    *Bitmap
 	svg      *SVG // of an Icon, or an Image in its own colors
 	fit      Fit
+	gray     bool
+	rotate   float32 // of an Icon, in degrees
 	label    string
 	// widget names the widget that used the element's state as it created
 	// it, which Key would then lose.
@@ -213,6 +252,8 @@ type Element struct {
 	tl         *text.Layout
 	measures   [4]measure
 	nmeasure   int
+	leaf       [2]float32 // the max-content and min-content widths of text
+	leafOK     bool
 }
 
 type measure struct {
@@ -236,7 +277,53 @@ const (
 	Cover
 	// FillBox stretches the image to the element.
 	FillBox
+	// ScaleDown shows the image at its own size, or as Contain does where
+	// that is smaller.
+	ScaleDown
+	// NaturalSize shows the image at its own size, centered and cropped.
+	NaturalSize
 )
+
+// BorderStyle is how a border draws.
+type BorderStyle uint8
+
+const (
+	BorderSolid BorderStyle = iota
+	// BorderDashed draws each side in dashes about three times as long as
+	// the side is wide, with a dash at both ends.
+	BorderDashed
+)
+
+// LinearGradient blends two colors along a line across a box, as CSS's
+// linear-gradient does with two colors:
+//
+//	e.LinearGradient(ui.LinearGradient{From: blue, To: yellow, Angle: 90, Oklab: true})
+type LinearGradient struct {
+	From, To Color
+	// Angle is the direction of the line, in degrees clockwise from
+	// upwards: 180 goes from top to bottom, 90 from left to right.
+	Angle float32
+	// Start and End place From and To along the line, from 0 to 1: the
+	// colors are solid before Start and after End. Both 0 mean 0 and 1.
+	Start, End float32
+	// Oklab mixes the colors in the Oklab color space, whose midpoints keep
+	// the colors' lightness and saturation, instead of in sRGB, as CSS's
+	// "in oklab" does.
+	Oklab bool
+}
+
+type fillKind uint8
+
+const (
+	fillColor fillKind = iota
+	fillGradient
+	fillStripes
+)
+
+type stripes struct {
+	c                 Color
+	width, gap, angle float32
+}
 
 // Children builds the element's children: elements created while fn runs
 // are added to e.
@@ -266,7 +353,7 @@ func (e *Element) Key(k any) *Element {
 
 // Row lays the children out from left to right.
 func (e *Element) Row() *Element {
-	e.row = true
+	e.row, e.grid = true, false
 	if e.align == alignAuto {
 		e.align = Center
 	}
@@ -274,13 +361,35 @@ func (e *Element) Row() *Element {
 }
 
 // Column lays the children out from top to bottom.
-func (e *Element) Column() *Element { e.row = false; return e }
+func (e *Element) Column() *Element { e.row, e.grid = false, false; return e }
+
+// Reverse lays the children out in the other direction: a Row from right
+// to left, a Column from bottom to top, as CSS's row-reverse and
+// column-reverse do. Justify's Start is then the right or the bottom.
+func (e *Element) Reverse() *Element { e.reverse = true; return e }
 
 // Wrap starts a new line of children when they do not fit.
 func (e *Element) Wrap() *Element { e.wrap = true; return e }
 
-// Gap puts space between children.
-func (e *Element) Gap(v float32) *Element { e.gap = v; return e }
+// WrapReverse wraps the children onto lines that stack the other way: up
+// in a Row, to the left in a Column.
+func (e *Element) WrapReverse() *Element { e.wrap, e.wrapReverse = true, true; return e }
+
+// Gap puts space between children, and between the lines of a wrapping
+// container or the tracks of a grid.
+func (e *Element) Gap(v float32) *Element { e.gapX, e.gapY = v, v; return e }
+
+// GapX sets the horizontal space between children, lines or columns.
+func (e *Element) GapX(v float32) *Element { e.gapX = v; return e }
+
+// GapY sets the vertical space between children, lines or rows.
+func (e *Element) GapY(v float32) *Element { e.gapY = v; return e }
+
+// AlignContent places the lines of a wrapping container across its main
+// axis, as CSS's align-content does: Start (the default), Center, End,
+// Stretch, SpaceBetween, SpaceAround or SpaceEvenly. In a grid it places
+// the rows, which stretch when it is not set.
+func (e *Element) AlignContent(a Align) *Element { e.alignContent = a; return e }
 
 // edges expands CSS shorthand values: all, vertical horizontal, top
 // horizontal bottom, or top right bottom left.
@@ -308,8 +417,15 @@ func (e *Element) PaddingX(v float32) *Element { e.pad[1], e.pad[3] = v, v; retu
 // PaddingY sets the top and bottom padding.
 func (e *Element) PaddingY(v float32) *Element { e.pad[0], e.pad[2] = v, v; return e }
 
-// Margin sets the space around the element, as Padding does.
+// Margin sets the space around the element, as Padding does. Auto
+// margins take the free space on their side.
 func (e *Element) Margin(v ...float32) *Element { e.margin = edges(v); return e }
+
+// MarginX sets the left and right margins.
+func (e *Element) MarginX(v float32) *Element { e.margin[1], e.margin[3] = v, v; return e }
+
+// MarginY sets the top and bottom margins.
+func (e *Element) MarginY(v float32) *Element { e.margin[0], e.margin[2] = v, v; return e }
 
 // Width sets the width in DIPs.
 func (e *Element) Width(v float32) *Element { e.width = px(v); return e }
@@ -341,6 +457,13 @@ func (e *Element) MinHeight(v float32) *Element { e.minH = px(v); return e }
 func (e *Element) MaxWidth(v float32) *Element  { e.maxW = px(v); return e }
 func (e *Element) MaxHeight(v float32) *Element { e.maxH = px(v); return e }
 
+// MinWidthPercent, MinHeightPercent, MaxWidthPercent and MaxHeightPercent
+// bound the size by a percentage of the parent's.
+func (e *Element) MinWidthPercent(p float32) *Element  { e.minW = percent(p); return e }
+func (e *Element) MinHeightPercent(p float32) *Element { e.minH = percent(p); return e }
+func (e *Element) MaxWidthPercent(p float32) *Element  { e.maxW = percent(p); return e }
+func (e *Element) MaxHeightPercent(p float32) *Element { e.maxH = percent(p); return e }
+
 // Grow gives the element a share f of the free space along its parent's
 // main axis: Grow(1) on one child makes it take all of it. Like CSS flex:
 // f, the element then starts from no size (unless Basis says otherwise) and
@@ -362,6 +485,10 @@ func (e *Element) Shrink(f float32) *Element { e.shrink = f; return e }
 // shrinking.
 func (e *Element) Basis(v float32) *Element { e.basis = px(v); return e }
 
+// BasisPercent sets the basis as a percentage of the parent's size along
+// its main axis.
+func (e *Element) BasisPercent(p float32) *Element { e.basis = percent(p); return e }
+
 // Justify places the children along the main axis.
 func (e *Element) Justify(a Align) *Element { e.justify = a; return e }
 
@@ -369,7 +496,8 @@ func (e *Element) Justify(a Align) *Element { e.justify = a; return e }
 func (e *Element) AlignItems(a Align) *Element { e.align = a; return e }
 
 // AlignSelf places the element across its parent's main axis, overriding
-// the parent's AlignItems.
+// the parent's AlignItems; in a grid, it places the element in its cell
+// vertically.
 func (e *Element) AlignSelf(a Align) *Element { e.self = a; return e }
 
 // Center centers the children along and across the main axis.
@@ -380,11 +508,21 @@ func (e *Element) Center() *Element { e.justify, e.align = Center, Center; retur
 // its siblings.
 func (e *Element) Absolute() *Element { e.flags |= flagAbsolute; return e }
 
-// Top, Right, Bottom and Left place an Absolute element.
+// Top, Right, Bottom and Left place an Absolute element. On an element in
+// its parent's layout, they move it from where the layout put it, as CSS's
+// relative positioning does, without moving its siblings.
 func (e *Element) Top(v float32) *Element    { e.inset[0] = px(v); return e }
 func (e *Element) Right(v float32) *Element  { e.inset[1] = px(v); return e }
 func (e *Element) Bottom(v float32) *Element { e.inset[2] = px(v); return e }
 func (e *Element) Left(v float32) *Element   { e.inset[3] = px(v); return e }
+
+// TopPercent, RightPercent, BottomPercent and LeftPercent place the
+// element as Top, Right, Bottom and Left do, by a percentage of the
+// parent's height or width.
+func (e *Element) TopPercent(p float32) *Element    { e.inset[0] = percent(p); return e }
+func (e *Element) RightPercent(p float32) *Element  { e.inset[1] = percent(p); return e }
+func (e *Element) BottomPercent(p float32) *Element { e.inset[2] = percent(p); return e }
+func (e *Element) LeftPercent(p float32) *Element   { e.inset[3] = percent(p); return e }
 
 // AspectRatio makes the height the width divided by r.
 func (e *Element) AspectRatio(r float32) *Element { e.aspect = r; return e }
@@ -392,19 +530,71 @@ func (e *Element) AspectRatio(r float32) *Element { e.aspect = r; return e }
 // Clip hides what the children draw outside the element.
 func (e *Element) Clip() *Element { e.flags |= flagClip; return e }
 
-// Background fills the element.
-func (e *Element) Background(c Color) *Element { e.bg = c; e.hasGrad = false; return e }
+// ClipX hides what the children draw left and right of the element, and
+// ClipY what they draw above and below it.
+func (e *Element) ClipX() *Element { e.flags |= flagClipX; return e }
+func (e *Element) ClipY() *Element { e.flags |= flagClipY; return e }
+
+// Invisible hides the element and its children, which keep their room in
+// the layout but draw nothing and take neither the pointer nor the focus,
+// as CSS's visibility: hidden does.
+func (e *Element) Invisible() *Element { e.flags |= flagInvisible; return e }
+
+// Debug outlines the element and every element inside it, with their
+// padding and margins, to see the layout.
+func (e *Element) Debug() *Element { e.flags |= flagDebug; return e }
+
+// Background fills the element, in place of a gradient.
+func (e *Element) Background(c Color) *Element {
+	e.bg = c
+	if e.fill == fillGradient {
+		e.fill = fillColor
+	}
+	return e
+}
 
 // Gradient fills the element with a linear gradient from one color to
 // another, at angle degrees clockwise from upwards as in CSS: 180 goes
 // from top to bottom, 90 from left to right.
 func (e *Element) Gradient(from, to Color, angle float32) *Element {
-	e.bg, e.bg2, e.gradAngle, e.hasGrad = from, to, angle, true
+	return e.LinearGradient(LinearGradient{From: from, To: to, Angle: angle})
+}
+
+// LinearGradient fills the element with a gradient, of which Gradient sets
+// only the colors and the angle.
+func (e *Element) LinearGradient(g LinearGradient) *Element {
+	e.grad, e.fill = g, fillGradient
 	return e
 }
 
-// Border draws a border of width DIPs inside the element's edges.
-func (e *Element) Border(width float32, c Color) *Element { e.borderW, e.borderC = width, c; return e }
+// Stripes draws stripes of c over the background, width DIPs wide with
+// gap DIPs between them, running at angle degrees clockwise from upwards:
+// 0 draws vertical stripes, 90 horizontal ones, and 45 slanting ones like
+// slashes, as to mark what is unavailable.
+func (e *Element) Stripes(c Color, width, gap, angle float32) *Element {
+	e.stripes, e.fill = stripes{c, width, gap, angle}, fillStripes
+	return e
+}
+
+// Border draws a border of width DIPs inside the element's edges, on every
+// side; BorderWidth sets different widths.
+func (e *Element) Border(width float32, c Color) *Element {
+	e.border, e.borderC = [4]float32{width, width, width, width}, c
+	return e
+}
+
+// BorderWidth sets the widths of the border on each side, CSS style: all
+// sides, vertical and horizontal, or top, right, bottom and left. A line
+// below a header:
+//
+//	ui.Row(c).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)
+func (e *Element) BorderWidth(v ...float32) *Element { e.border = edges(v); return e }
+
+// BorderColor sets the color of the border.
+func (e *Element) BorderColor(c Color) *Element { e.borderC = c; return e }
+
+// BorderStyle sets whether the border is solid, as by default, or dashed.
+func (e *Element) BorderStyle(s BorderStyle) *Element { e.borderStyle = s; return e }
 
 // Radius rounds the corners: one radius for all, or top-left, top-right,
 // bottom-right and bottom-left.
@@ -459,7 +649,15 @@ func (e *Element) TextColor(c Color) *Element { e.ts.color = c; e.ts.set |= setC
 // LineHeight sets the height of lines of text as a multiple of the font
 // size.
 func (e *Element) LineHeight(m float32) *Element {
-	e.ts.lineHeight = m
+	e.ts.lineHeight, e.ts.fixedLine = m, false
+	e.ts.set |= setLineHeight
+	return e
+}
+
+// FixedLineHeight sets the height of lines of text in DIPs, whatever the
+// font size, as for rows of text that line up with a grid.
+func (e *Element) FixedLineHeight(v float32) *Element {
+	e.ts.lineHeight, e.ts.fixedLine = v, true
 	e.ts.set |= setLineHeight
 	return e
 }
@@ -468,7 +666,42 @@ func (e *Element) LineHeight(m float32) *Element {
 func (e *Element) TextAlign(a Align) *Element { e.ts.align = a; e.ts.set |= setAlign; return e }
 
 // Underline underlines text.
-func (e *Element) Underline() *Element { e.ts.underline = true; e.ts.set |= setUnderline; return e }
+func (e *Element) Underline() *Element {
+	e.ts.underline, e.ts.wavy = true, false
+	e.ts.set |= setUnderline
+	return e
+}
+
+// WavyUnderline underlines text with a wave, as spell checkers mark words.
+func (e *Element) WavyUnderline() *Element {
+	e.ts.underline, e.ts.wavy = true, true
+	e.ts.set |= setUnderline
+	return e
+}
+
+// DecorationColor sets the color of underlines and strikethroughs, which
+// is the text's otherwise.
+func (e *Element) DecorationColor(c Color) *Element {
+	e.ts.decoColor = c
+	e.ts.set |= setDecoColor
+	return e
+}
+
+// DecorationThickness sets the thickness of underlines and strikethroughs
+// in DIPs, which follows the font size otherwise.
+func (e *Element) DecorationThickness(v float32) *Element {
+	e.ts.decoThick = v
+	e.ts.set |= setDecoThick
+	return e
+}
+
+// TextBackground fills the lines of text behind it with c, as a
+// highlight.
+func (e *Element) TextBackground(c Color) *Element {
+	e.ts.background = c
+	e.ts.set |= setBackground
+	return e
+}
 
 // Strikethrough strikes text through.
 func (e *Element) Strikethrough() *Element { e.ts.strike = true; e.ts.set |= setStrike; return e }
@@ -501,6 +734,14 @@ func (e *Element) MaxLines(n int) *Element { e.maxLines = n; return e }
 // SingleLine keeps the element's text on one line, ending it with an
 // ellipsis when it does not fit.
 func (e *Element) SingleLine() *Element { e.single = true; e.maxLines = 1; return e }
+
+// NoWrap keeps each line of the element's text whole, breaking it only at
+// newlines, even where it overflows the element.
+func (e *Element) NoWrap() *Element { e.noWrap = true; return e }
+
+// Ellipsis sets what ends text that MaxLines or SingleLine cuts, "…" by
+// default.
+func (e *Element) Ellipsis(s string) *Element { e.ellipsis = s; return e }
 
 // Label names the element for assistive technology and for finding it in
 // tests, when its text does not.

@@ -128,4 +128,22 @@ const (
 	CursorCrosshair  = Cursor(platform.CursorCrosshair)
 	CursorGrab       = Cursor(platform.CursorGrab)
 	CursorGrabbing   = Cursor(platform.CursorGrabbing)
+	// CursorResizeN, E, S and W resize toward one side only, as at the
+	// limit of a resize.
+	CursorResizeN = Cursor(platform.CursorResizeN)
+	CursorResizeE = Cursor(platform.CursorResizeE)
+	CursorResizeS = Cursor(platform.CursorResizeS)
+	CursorResizeW = Cursor(platform.CursorResizeW)
+	// CursorResizeColumn and CursorResizeRow move the line between columns
+	// or rows, as of a table or a split.
+	CursorResizeColumn = Cursor(platform.CursorResizeColumn)
+	CursorResizeRow    = Cursor(platform.CursorResizeRow)
+	CursorVerticalText = Cursor(platform.CursorVerticalText)
+	// CursorCopy and CursorAlias show that a drop copies or links what is
+	// dragged.
+	CursorCopy        = Cursor(platform.CursorCopy)
+	CursorAlias       = Cursor(platform.CursorAlias)
+	CursorContextMenu = Cursor(platform.CursorContextMenu)
+	// CursorNone hides the pointer over the element, as over a video.
+	CursorNone = Cursor(platform.CursorNone)
 )

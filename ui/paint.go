@@ -53,6 +53,9 @@ func (p *Painter) element(e *Element) {
 	if e.styleFn != nil {
 		e.styleFn(e)
 	}
+	if e.flags&flagInvisible != 0 {
+		return
+	}
 	saved := p.opacity
 	if e.flags&flagDisabled != 0 {
 		p.opacity *= 0.5
@@ -69,7 +72,7 @@ func (p *Painter) element(e *Element) {
 	for _, sh := range e.shadows {
 		margin = max(margin, abs32(sh.x)+abs32(sh.y)+sh.blur+sh.spread)
 	}
-	clips := e.flags&(flagClip|flagScrollX|flagScrollY) != 0
+	clips := e.flags&(flagClipX|flagClipY|flagScrollX|flagScrollY) != 0
 	own := p.visible(box, margin+4)
 	if own {
 		for _, sh := range e.shadows {
@@ -82,16 +85,14 @@ func (p *Painter) element(e *Element) {
 			}
 			p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpShadow, Rect: p.snap(r), Radii: p.radii(rad), Color: sh.color.scene(), Blur: sh.blur * p.scale, Opacity: p.opacity})
 		}
-		if e.bg.A > 0 || (e.hasGrad && e.bg2.A > 0) || (e.borderW > 0 && e.borderC.A > 0) {
-			p.fill(box, e.radius, e.bg, e.borderW, e.borderC, e)
-		}
+		p.background(e, box)
 		if e.paintFn != nil {
 			e.paintFn(p, box)
 		}
 		switch e.kind {
 		case kindText:
 			ts := e.resolvedText()
-			ox, oy := e.x+e.pad[3]+e.borderW, e.y+e.pad[0]+e.borderW
+			ox, oy := e.x+e.contentX(), e.y+e.contentY()
 			if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 && e.Focused() {
 				if a, b := ed.selection(); a != b {
 					for _, r := range e.tl.Selection(a, b) {
@@ -103,18 +104,18 @@ func (p *Painter) element(e *Element) {
 		case kindImage:
 			p.image(e)
 		case kindIcon:
-			p.drawIcon(e.svg, e.contentBox(), e.resolvedText().color)
+			c := e.resolvedText().color
+			if e.gray {
+				c = c.gray()
+			}
+			p.drawIcon(e.svg, e.contentBox(), c, e.rotate)
 		case kindInput:
 			e.paintInput(p)
 		}
 	}
 	savedClip := p.clip
 	if clips {
-		inner := Rect{box.X + e.borderW, box.Y + e.borderW, box.W - 2*e.borderW, box.H - 2*e.borderW}
-		rad := e.radius
-		for i := range rad {
-			rad[i] = max(rad[i]-e.borderW, 0)
-		}
+		inner, rad := e.clipRect()
 		p.pushClip(inner, rad)
 	}
 	if !clips || p.clip.W > 0 && p.clip.H > 0 {
@@ -139,28 +140,140 @@ func (p *Painter) element(e *Element) {
 	if own && e.paintAfterFn != nil {
 		e.paintAfterFn(p, box)
 	}
+	if e.flags&flagDebug != 0 && (e.parent == nil || e.parent.flags&flagDebug == 0) {
+		p.debug(e)
+	}
 	if own && e.flags&(flagFocusable|flagOwnRing) == flagFocusable && e.kind != kindInput && e.c.rt.focused == e.id && e.c.rt.focusVisible && e.c.rt.windowFocused {
 		p.FocusRing(box, e.radius)
 	}
 	p.opacity = saved
 }
 
-func (p *Painter) fill(r Rect, radius [4]float32, bg Color, bw float32, bc Color, e *Element) {
-	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii(radius), Color: bg.scene(), Border: bw * p.scale, BorderColor: bc.scene(), Opacity: p.opacity}
-	if bw > 0 {
-		op.Border = max(round(bw*p.scale), 1)
+// clipRect returns the box an element clips its children to, inside its
+// border, and its radii: as far as the clip reaches along an axis it does
+// not clip.
+func (e *Element) clipRect() (Rect, [4]float32) {
+	r := Rect{e.x + e.border[3], e.y + e.border[0], e.w - e.border[1] - e.border[3], e.h - e.border[0] - e.border[2]}
+	var rad [4]float32
+	all := e.flags&(flagScrollX|flagScrollY) != 0 || e.flags&flagClip == flagClip
+	if all {
+		for i, side := range [4][2]int{{0, 3}, {0, 1}, {2, 1}, {2, 3}} {
+			rad[i] = max(e.radius[i]-max(e.border[side[0]], e.border[side[1]]), 0)
+		}
+		return r, rad
 	}
-	if e != nil && e.hasGrad {
-		// CSS angles: 0deg points up, 90deg right.
-		a := float64(e.gradAngle) * math.Pi / 180
-		dx, dy := float32(math.Sin(a)), float32(-math.Cos(a))
-		half := (abs32(op.Rect.W*dx) + abs32(op.Rect.H*dy)) / 2
-		cx, cy := op.Rect.X+op.Rect.W/2, op.Rect.Y+op.Rect.H/2
-		op.HasGrad = true
-		op.Color2 = e.bg2.scene()
-		op.Gradient = [4]float32{cx - dx*half, cy - dy*half, cx + dx*half, cy + dy*half}
+	const far = 1e6
+	if e.flags&flagClipX == 0 {
+		r.X, r.W = -far, 2*far
+	}
+	if e.flags&flagClipY == 0 {
+		r.Y, r.H = -far, 2*far
+	}
+	return r, rad
+}
+
+// borders returns border widths in device pixels, whole ones at least one
+// wide where they are not zero.
+func (p *Painter) borders(w [4]float32) [4]float32 {
+	for i, v := range w {
+		if v > 0 {
+			w[i] = max(round(v*p.scale), 1)
+		}
+	}
+	return w
+}
+
+// fill paints a rounded rectangle with a solid border of bw DIPs.
+func (p *Painter) fill(r Rect, radius [4]float32, bg Color, bw float32, bc Color) {
+	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii(radius), Color: bg.scene(), BorderColor: bc.scene(), Opacity: p.opacity}
+	if bw > 0 {
+		op.Border = p.borders([4]float32{bw, bw, bw, bw})
 	}
 	p.s.Ops = append(p.s.Ops, op)
+}
+
+// background paints the background and the border of an element.
+func (p *Painter) background(e *Element, box Rect) {
+	border := scene.HasBorder(e.border) && e.borderC.A > 0
+	var visible bool
+	switch e.fill {
+	case fillColor:
+		visible = e.bg.A > 0
+	case fillGradient:
+		visible = e.grad.From.A > 0 || e.grad.To.A > 0
+	case fillStripes:
+		visible = e.bg.A > 0 || e.stripes.c.A > 0
+	}
+	if !visible && !border {
+		return
+	}
+	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(box), Radii: p.radii(e.radius), Color: e.bg.scene(), Opacity: p.opacity}
+	if border {
+		op.Border, op.BorderColor, op.Dashed = p.borders(e.border), e.borderC.scene(), e.borderStyle == BorderDashed
+	}
+	switch e.fill {
+	case fillGradient:
+		p.gradient(&op, e.grad)
+	case fillStripes:
+		st := e.stripes
+		a := float64(st.angle) * math.Pi / 180
+		w := max(st.width*p.scale, 0.5)
+		op.Paint, op.Color, op.Color2 = scene.PaintStripes, st.c.scene(), e.bg.scene()
+		op.Gradient = [4]float32{float32(math.Cos(a)), float32(math.Sin(a)), w, w + max(st.gap*p.scale, 0)}
+	}
+	p.s.Ops = append(p.s.Ops, op)
+}
+
+// gradient sets the paint of op to g, across its rectangle.
+func (p *Painter) gradient(op *scene.Op, g LinearGradient) {
+	// CSS angles: 0deg points up, 90deg right.
+	a := float64(g.Angle) * math.Pi / 180
+	dx, dy := float32(math.Sin(a)), float32(-math.Cos(a))
+	half := (abs32(op.Rect.W*dx) + abs32(op.Rect.H*dy)) / 2
+	cx, cy := op.Rect.X+op.Rect.W/2, op.Rect.Y+op.Rect.H/2
+	x0, y0, x1, y1 := cx-dx*half, cy-dy*half, cx+dx*half, cy+dy*half
+	start, end := g.Start, g.End
+	if start == 0 && end == 0 {
+		end = 1
+	}
+	op.Paint = scene.PaintLinear
+	if g.Oklab {
+		op.Paint = scene.PaintOklab
+	}
+	op.Color, op.Color2 = g.From.scene(), g.To.scene()
+	sx, sy := x0+(x1-x0)*start, y0+(y1-y0)*start
+	ex, ey := x0+(x1-x0)*end, y0+(y1-y0)*end
+	if end-start < 0.5/max(2*half, 1) {
+		// Stops at one place: a hard edge, half a pixel wide.
+		ex, ey = sx+dx*0.5, sy+dy*0.5
+	}
+	op.Gradient = [4]float32{sx, sy, ex, ey}
+}
+
+// debug outlines an element and the elements inside it: their margins in
+// orange, borders and padding in green, and content in blue.
+func (p *Painter) debug(e *Element) {
+	saved := p.opacity
+	p.opacity = 1
+	var walk func(e *Element)
+	walk = func(e *Element) {
+		if e.flags&flagInvisible != 0 {
+			return
+		}
+		box := Rect{e.x, e.y, e.w, e.h}
+		if e.marginX() > 0 || e.marginY() > 0 {
+			p.fill(Rect{box.X - e.m(3), box.Y - e.m(0), box.W + e.marginX(), box.H + e.marginY()}, [4]float32{}, Color{}, 1, RGBA(249, 115, 22, 0.8))
+		}
+		if e.padX() > 0 || e.padY() > 0 {
+			p.fill(e.contentBox(), [4]float32{}, Color{}, 1, RGBA(34, 197, 94, 0.8))
+		}
+		p.fill(box, [4]float32{}, Color{}, 1, RGBA(59, 130, 246, 0.9))
+		for c := e.first; c != nil; c = c.next {
+			walk(c)
+		}
+	}
+	walk(e)
+	p.opacity = saved
 }
 
 func (p *Painter) pushClip(r Rect, radius [4]float32) {
@@ -172,21 +285,27 @@ func (p *Painter) popClip() {
 	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpPopClip})
 }
 
-// textLayout draws a text layout with its top-left corner at (x, y).
 // textLayout paints a laid out text from (x, y), in color, with the
-// underline or strikethrough of ts, and the colors and lines of the spans
-// of sp, if any.
+// background, underline or strikethrough of ts, and the colors, backgrounds
+// and lines of the spans of sp, if any.
 func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textStyle, sp *spanPaint) {
 	if l == nil {
 		return
 	}
 	sys := p.rt.text
 	s := p.scale
+	deco := decoration{underline: ts.underline, wavy: ts.wavy, strike: ts.strike, color: ts.decoColor, thick: ts.decoThick}
 	start := int32(len(p.s.Glyphs))
 	for li := range l.Lines {
 		line := &l.Lines[li]
 		if y+line.Y > p.clip.Y+p.clip.H || y+line.Y+line.Height < p.clip.Y {
 			continue
+		}
+		if ts.background.A > 0 && line.Width > 0 {
+			p.Fill(Rect{x + line.X, y + line.Y, line.Width, line.Height}, ts.background, 0)
+		}
+		if sp != nil {
+			sp.backgrounds(p, line, x, y)
 		}
 		baseline := round((y + line.Baseline) * s)
 		for _, g := range line.Glyphs {
@@ -211,15 +330,10 @@ func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textS
 			})
 		}
 		if sp != nil {
-			sp.lines(p, line, x, baseline, color)
+			sp.lines(p, line, x, baseline, color, deco)
 		}
-		if ts.underline || ts.strike {
-			thick := max(round(ts.size*s/14), 1)
-			ly := baseline + max(round(ts.size*s/10), 1)
-			if ts.strike {
-				ly = baseline - round(line.Ascent*s*0.3)
-			}
-			p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: round((x + line.X) * s), Y: ly, W: round(line.Width * s), H: thick}, Color: color.scene(), Opacity: p.opacity})
+		if deco.underline || deco.strike {
+			p.decorate((x+line.X)*s, (x+line.X+line.Width)*s, baseline, baseline-round(line.Ascent*s*0.3), ts.size, deco, color)
 		}
 	}
 	if end := int32(len(p.s.Glyphs)); end > start {
@@ -227,39 +341,113 @@ func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textS
 	}
 }
 
+// decoration is how lines go through or under text.
+type decoration struct {
+	underline, wavy, strike bool
+	// color, if set, is the lines', and thick their thickness in DIPs.
+	color Color
+	thick float32
+}
+
+// decorate draws the lines of d along text of size DIPs from x0 to x1, on
+// a baseline at baseline, with a strikethrough at strikeY, all in device
+// pixels, in the color of d or c.
+func (p *Painter) decorate(x0, x1, baseline, strikeY, size float32, d decoration, c Color) {
+	s := p.scale
+	thick := max(round(size*s/14), 1)
+	if d.thick > 0 {
+		thick = max(round(d.thick*s), 1)
+		// Thicker lines than the font's grow both ways.
+		strikeY -= float32(math.Floor(float64(thick / 2)))
+	}
+	if d.color.A > 0 {
+		c = d.color
+	}
+	x, w := round(x0), round(x1-x0)
+	if w <= 0 {
+		return
+	}
+	if d.underline {
+		uy := baseline + max(round(size*s/10), 1)
+		if d.wavy {
+			p.wave(x, x+w, uy+thick/2, thick, c)
+		} else {
+			p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: x, Y: uy, W: w, H: thick}, Color: c.scene(), Opacity: p.opacity})
+		}
+	}
+	if d.strike {
+		p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: x, Y: strikeY, W: w, H: thick}, Color: c.scene(), Opacity: p.opacity})
+	}
+}
+
+// wave strokes a wave from x0 to x1 around y, thick device pixels wide,
+// one and a half times as high, as spell checkers underline words.
+func (p *Painter) wave(x0, x1, y, thick float32, c Color) {
+	s := p.scale
+	amp := thick * 1.5 / 2
+	length := thick * 6
+	y += amp
+	var path Path
+	// Eight points a wave, the last at x1.
+	n := max(int(math.Ceil(float64((x1-x0)/(length/8)))), 1)
+	path.MoveTo(x0/s, y/s)
+	for i := 1; i <= n; i++ {
+		x := x0 + (x1-x0)*float32(i)/float32(n)
+		path.LineTo(x/s, (y-amp*float32(math.Sin(float64((x-x0)/length*2*math.Pi))))/s)
+	}
+	p.StrokePath(&path, thick/s, c)
+}
+
 // contentBox returns the element's box inside its padding and border.
 func (e *Element) contentBox() Rect {
-	return Rect{e.x + e.pad[3] + e.borderW, e.y + e.pad[0] + e.borderW, e.w - e.padX(), e.h - e.padY()}
+	return Rect{e.x + e.contentX(), e.y + e.contentY(), e.w - e.padX(), e.h - e.padY()}
 }
 
 func (p *Painter) image(e *Element) {
 	if s := e.svg; s != nil {
-		p.drawSVG(s, e.contentBox(), e.fit, e.radius, e.resolvedText().color)
+		p.drawSVG(s, e.contentBox(), e.fit, e.radius, e.resolvedText().color, e.gray)
 		return
 	}
 	img := e.image
 	if img == nil || img.w == 0 || img.h == 0 {
 		return
 	}
-	p.drawBitmap(img, e.contentBox(), e.fit, e.radius)
+	p.drawBitmap(img, e.contentBox(), e.fit, e.radius, e.gray)
 }
 
-func (p *Painter) drawBitmap(img *Bitmap, box Rect, fit Fit, radius [4]float32) {
-	src := scene.Rect{W: float32(img.w), H: float32(img.h)}
-	dst := box
-	iw, ih := float32(img.w), float32(img.h)
+// fitIn returns where a picture w×h DIPs goes in box as fit says, and
+// which part of it shows there, as fractions of its size.
+func fitIn(box Rect, w, h float32, fit Fit) (dst, src Rect) {
+	dst, src = box, Rect{0, 0, 1, 1}
+	scale := float32(1)
 	switch fit {
+	case FillBox:
+		return dst, src
 	case Contain:
-		f := min(box.W/iw, box.H/ih)
-		dst.W, dst.H = iw*f, ih*f
-		dst.X += (box.W - dst.W) / 2
-		dst.Y += (box.H - dst.H) / 2
+		scale = min(box.W/w, box.H/h)
 	case Cover:
-		f := max(box.W/iw, box.H/ih)
-		sw, sh := box.W/f, box.H/f
-		src = scene.Rect{X: (iw - sw) / 2, Y: (ih - sh) / 2, W: sw, H: sh}
+		scale = max(box.W/w, box.H/h)
+	case ScaleDown:
+		scale = min(box.W/w, box.H/h, 1)
 	}
-	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpImage, Rect: p.snap(dst), Radii: p.radii(radius), Image: img.img, Src: src, Opacity: p.opacity})
+	dst.W, dst.H = w*scale, h*scale
+	dst.X += (box.W - dst.W) / 2
+	dst.Y += (box.H - dst.H) / 2
+	// Only what falls in the box shows.
+	shown := intersect(dst, box)
+	src = Rect{(shown.X - dst.X) / dst.W, (shown.Y - dst.Y) / dst.H, shown.W / dst.W, shown.H / dst.H}
+	return shown, src
+}
+
+func (p *Painter) drawBitmap(img *Bitmap, box Rect, fit Fit, radius [4]float32, gray bool) {
+	// A bitmap's own size is its pixels in DIPs, as an Image lays it out.
+	iw, ih := float32(img.w), float32(img.h)
+	dst, frac := fitIn(box, iw, ih, fit)
+	if dst.W <= 0 || dst.H <= 0 {
+		return
+	}
+	src := scene.Rect{X: frac.X * iw, Y: frac.Y * ih, W: frac.W * iw, H: frac.H * ih}
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpImage, Rect: p.snap(dst), Radii: p.radii(radius), Image: img.img, Src: src, Opacity: p.opacity, Grayscale: gray})
 }
 
 // scrollbars draws the thumbs of a scroll container whose content
@@ -280,44 +468,93 @@ func (p *Painter) scrollbars(e *Element) {
 		return
 	}
 	color := theme.Scrollbar
-	if e.flags&flagScrollY != 0 && e.contentH > e.h+0.5 {
-		r := scrollThumb(e.y, e.h, e.contentH, st.scrollY)
-		bar := Rect{e.x + e.w - 9, r.Y, 6, r.H}
-		if dragging {
-			bar.X, bar.W = e.x+e.w-11, 8
+	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.contentW, e.contentH, st.scrollX, st.scrollY, e.flags, theme.scrollbarWidth())
+	if g.vertical {
+		bar := g.v
+		if dragging && !rt.scrollDrag.horizontal {
+			bar.X, bar.W = bar.X-2, bar.W+2
 		}
-		p.fill(bar, [4]float32{bar.W / 2, bar.W / 2, bar.W / 2, bar.W / 2}, color, 0, Color{}, nil)
+		p.fill(bar, [4]float32{bar.W / 2, bar.W / 2, bar.W / 2, bar.W / 2}, color, 0, Color{})
 	}
-	if e.flags&flagScrollX != 0 && e.contentW > e.w+0.5 {
-		r := scrollThumb(e.x, e.w, e.contentW, st.scrollX)
-		bar := Rect{r.Y, e.y + e.h - 9, r.H, 6}
-		p.fill(bar, [4]float32{3, 3, 3, 3}, color, 0, Color{}, nil)
+	if g.horizontal {
+		bar := g.h
+		if dragging && rt.scrollDrag.horizontal {
+			bar.Y, bar.H = bar.Y-2, bar.H+2
+		}
+		p.fill(bar, [4]float32{bar.H / 2, bar.H / 2, bar.H / 2, bar.H / 2}, color, 0, Color{})
 	}
 }
 
+// scrollGeometry is where the scroll bars of a container go.
+type scrollGeometry struct {
+	vertical, horizontal bool
+	// v and h are the thumbs, vTrack and hTrack the tracks they move on.
+	v, h, vTrack, hTrack Rect
+}
+
+// scrollBars returns the scroll bars of a container box scrolled by
+// (x, y) over content w×h, with thumbs width DIPs wide: those of the
+// directions its flags scroll that overflow, which leave each other the
+// corner where both show.
+func scrollBars(box Rect, w, h, x, y float32, flags uint32, width float32) scrollGeometry {
+	var g scrollGeometry
+	g.vertical = flags&flagScrollY != 0 && h > box.H+0.5
+	g.horizontal = flags&flagScrollX != 0 && w > box.W+0.5
+	corner := float32(0)
+	if g.vertical && g.horizontal {
+		corner = width + 3
+	}
+	if g.vertical {
+		g.vTrack = Rect{box.X + box.W - width - 6, box.Y, width + 6, box.H - corner}
+		t := scrollThumb(box.Y, box.H-corner, box.H, h, y)
+		g.v = Rect{box.X + box.W - width - 3, t.Y, width, t.H}
+	}
+	if g.horizontal {
+		g.hTrack = Rect{box.X, box.Y + box.H - width - 6, box.W - corner, width + 6}
+		t := scrollThumb(box.X, box.W-corner, box.W, w, x)
+		g.h = Rect{t.Y, box.Y + box.H - width - 3, t.H, width}
+	}
+	return g
+}
+
 // scrollThumb returns the thumb's position (Y) and length (H) along a
-// track starting at pos, len long, for content of size content scrolled by
-// offset.
-func scrollThumb(pos, length, content, offset float32) Rect {
-	track := length - 4
-	thumb := max(track*length/content, 24)
-	travel := track - thumb
+// track starting at pos, track long, for a view of content of size content
+// scrolled by offset.
+func scrollThumb(pos, track, view, content, offset float32) Rect {
+	inner := track - 4
+	thumb := min(max(inner*view/content, 24), inner)
+	travel := inner - thumb
 	at := float32(0)
-	if content > length {
-		at = travel * offset / (content - length)
+	if content > view {
+		at = travel * offset / (content - view)
 	}
 	return Rect{Y: pos + 2 + at, H: thumb}
 }
 
 // Fill paints a rounded rectangle.
 func (p *Painter) Fill(r Rect, c Color, radius float32) {
-	p.fill(r, [4]float32{radius, radius, radius, radius}, c, 0, Color{}, nil)
+	p.fill(r, [4]float32{radius, radius, radius, radius}, c, 0, Color{})
+}
+
+// FillGradient paints a rounded rectangle with a gradient.
+func (p *Painter) FillGradient(r Rect, g LinearGradient, radius float32) {
+	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}), Opacity: p.opacity}
+	p.gradient(&op, g)
+	p.s.Ops = append(p.s.Ops, op)
 }
 
 // Stroke paints the outline of a rounded rectangle, width DIPs wide inside
 // its edge.
 func (p *Painter) Stroke(r Rect, c Color, radius, width float32) {
-	p.fill(r, [4]float32{radius, radius, radius, radius}, Color{}, width, c, nil)
+	p.fill(r, [4]float32{radius, radius, radius, radius}, Color{}, width, c)
+}
+
+// StrokeDashed paints the outline of a rounded rectangle in dashes, as a
+// dashed border.
+func (p *Painter) StrokeDashed(r Rect, c Color, radius, width float32) {
+	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}),
+		Border: p.borders([4]float32{width, width, width, width}), BorderColor: c.scene(), Dashed: true, Opacity: p.opacity}
+	p.s.Ops = append(p.s.Ops, op)
 }
 
 // Shadow paints a box shadow under a rounded rectangle.
@@ -351,10 +588,10 @@ func (p *Painter) Image(src ImageSource, r Rect, fit Fit) {
 	switch s := src.(type) {
 	case *Bitmap:
 		if s != nil && s.w > 0 && s.h > 0 {
-			p.drawBitmap(s, r, fit, [4]float32{})
+			p.drawBitmap(s, r, fit, [4]float32{}, false)
 		}
 	case *SVG:
-		p.drawSVG(s, r, fit, [4]float32{}, p.rt.c.theme.Text)
+		p.drawSVG(s, r, fit, [4]float32{}, p.rt.c.theme.Text, false)
 	}
 }
 
@@ -365,7 +602,7 @@ func (p *Painter) FocusRing(r Rect, radius [4]float32) {
 	for i := range radius {
 		radius[i] += w + 1
 	}
-	p.fill(o, radius, Color{}, w, p.rt.c.theme.Focus, nil)
+	p.fill(o, radius, Color{}, w, p.rt.c.theme.Focus)
 }
 
 // Clip restricts what fn draws to r.

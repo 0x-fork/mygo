@@ -1,8 +1,8 @@
 // The one shader of the OpenGL renderer, as shader.metal is the Metal one
 // and shader.hlsl the Direct3D one: every scene op is an instanced quad,
 // and the fragment shader computes the coverage of rounded rectangles,
-// borders, gradients and shadows from signed distances, as the CPU
-// renderer (internal/raster) does. Colors are straight (not premultiplied)
+// borders, gradients, stripes and shadows from signed distances, as the
+// CPU renderer (internal/raster) does. Colors are straight (not premultiplied)
 // and blending happens in sRGB space, as in browsers. The renderer
 // compiles it when it starts, as GLSL 3.30 or GLSL ES 3.00, with VERTEX or
 // FRAGMENT defined.
@@ -16,11 +16,11 @@ layout(location = 2) in vec4 aInner;     // radii of the border's inner edge
 layout(location = 3) in vec4 aColor;
 layout(location = 4) in vec4 aColor2;    // gradient end
 layout(location = 5) in vec4 aBorder;    // border color
-layout(location = 6) in vec4 aGrad;      // gradient start and end points
-layout(location = 7) in vec4 aUV;        // texture rectangle, normalized
+layout(location = 6) in vec4 aGrad;      // gradient start and end points, or stripes
+layout(location = 7) in vec4 aUV;        // texture rectangle, normalized, or border widths
 layout(location = 8) in vec4 aClip;      // the innermost clip rectangle
 layout(location = 9) in vec4 aClipRadii;
-layout(location = 10) in vec4 aParams;   // kind, border width, sigma or gradient flag, opacity
+layout(location = 10) in vec4 aParams;   // kind, dashed or grayscale, sigma or paint, opacity
 
 uniform vec2 uSize;
 
@@ -32,6 +32,7 @@ flat out vec4 vColor;
 flat out vec4 vColor2;
 flat out vec4 vBorder;
 flat out vec4 vGrad;
+flat out vec4 vWidths;
 flat out vec4 vClip;
 flat out vec4 vClipRadii;
 flat out vec4 vParams;
@@ -56,6 +57,7 @@ void main() {
 	vColor2 = aColor2;
 	vBorder = aBorder;
 	vGrad = aGrad;
+	vWidths = aUV;
 	vClip = aClip;
 	vClipRadii = aClipRadii;
 	vParams = aParams;
@@ -73,6 +75,7 @@ flat in vec4 vColor;
 flat in vec4 vColor2;
 flat in vec4 vBorder;
 flat in vec4 vGrad;
+flat in vec4 vWidths;
 flat in vec4 vClip;
 flat in vec4 vClipRadii;
 flat in vec4 vParams;
@@ -134,6 +137,92 @@ float boxShadow(vec2 p, vec4 rect, float sigma, float corner) {
 	return v;
 }
 
+vec3 toLinear(vec3 c) {
+	return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, lessThanEqual(c, vec3(0.04045)));
+}
+
+vec3 toSRGB(vec3 c) {
+	return mix(1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, c * 12.92, lessThanEqual(c, vec3(0.0031308)));
+}
+
+vec3 cbrt3(vec3 v) { return sign(v) * pow(abs(v), vec3(1.0 / 3.0)); }
+
+vec3 oklab(vec3 srgb) {
+	vec3 c = toLinear(srgb);
+	vec3 lms = cbrt3(vec3(
+		0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b,
+		0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b,
+		0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b));
+	return vec3(
+		0.2104542553 * lms.x + 0.7936177850 * lms.y - 0.0040720468 * lms.z,
+		1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z,
+		0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z);
+}
+
+vec3 fromOklab(vec3 lab) {
+	vec3 lms = vec3(
+		lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z,
+		lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z,
+		lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z);
+	lms = lms * lms * lms;
+	return toSRGB(vec3(
+		4.0767416621 * lms.x - 3.3077115913 * lms.y + 0.2309699292 * lms.z,
+		-1.2684380046 * lms.x + 2.6097574011 * lms.y - 0.3413193965 * lms.z,
+		-0.0041960863 * lms.x - 0.7034186147 * lms.y + 1.7076147010 * lms.z));
+}
+
+// paint returns the premultiplied color at p of plain color, a gradient
+// mixed in sRGB (1) or Oklab (2), or stripes (3), as scene.Paint says.
+vec4 paint(vec2 p, float mode, vec4 rect, vec4 c1, vec4 c2, vec4 g) {
+	if (mode < 0.5) {
+		return premul(c1);
+	}
+	if (mode < 2.5) {
+		vec2 d = g.zw - g.xy;
+		float t = clamp(dot(p - g.xy, d) / max(dot(d, d), 0.0001), 0.0, 1.0);
+		float a = mix(c1.a, c2.a, t);
+		if (mode < 1.5) {
+			return vec4(mix(c1.rgb * c1.a, c2.rgb * c2.a, t), a);
+		}
+		vec3 lab = mix(oklab(c1.rgb) * c1.a, oklab(c2.rgb) * c2.a, t);
+		return a > 0.0 ? vec4(clamp(fromOklab(lab / a), 0.0, 1.0) * a, a) : vec4(0.0);
+	}
+	float s = dot(p - rect.xy, g.xy);
+	float phase = s - g.w * floor(s / g.w);
+	float cov = coverage(min(max(-phase, phase - g.z), g.w - phase));
+	return premul(c1) * cov + premul(c2) * (1.0 - cov);
+}
+
+// dash returns how much of a dashed border shows at p: each side, which
+// the pixel belongs to when it is nearest that side's edge in widths of
+// its border, has an odd number of dashes and gaps of equal length, about
+// three widths, starting and ending with a dash.
+float dash(vec2 p, vec4 rect, vec4 w) {
+	vec2 q = p - rect.xy;
+	float dt = w.x > 0.0 ? q.y / w.x : 1e9;
+	float dr = w.y > 0.0 ? (rect.z - q.x) / w.y : 1e9;
+	float db = w.z > 0.0 ? (rect.w - q.y) / w.z : 1e9;
+	float dl = w.w > 0.0 ? q.x / w.w : 1e9;
+	float s;
+	float len;
+	float bw;
+	if (dt <= dr && dt <= db && dt <= dl) {
+		s = q.x; len = rect.z; bw = w.x;
+	} else if (dr <= db && dr <= dl) {
+		s = q.y; len = rect.w; bw = w.y;
+	} else if (db <= dl) {
+		s = rect.z - q.x; len = rect.z; bw = w.z;
+	} else {
+		s = rect.w - q.y; len = rect.w; bw = w.w;
+	}
+	float n = max(1.0, floor((len / (3.0 * bw) + 1.0) * 0.5 + 0.5));
+	float seg = len / (2.0 * n - 1.0);
+	float k = floor(s / seg);
+	float f = s - k * seg;
+	float edge = min(f, seg - f);
+	return coverage(k - 2.0 * floor(k * 0.5) < 0.5 ? -edge : edge);
+}
+
 void main() {
 	vec2 p = vPoint.xy;
 	vec2 tex = vPoint.zw;
@@ -141,18 +230,15 @@ void main() {
 	vec4 res;
 	if (kind < 0.5) {
 		float outer = coverage(sdRoundRect(p, vRect, vRadii));
-		vec4 c = vColor;
-		if (vParams.z > 0.5) {
-			vec2 d = vGrad.zw - vGrad.xy;
-			float t = clamp(dot(p - vGrad.xy, d) / max(dot(d, d), 0.0001), 0.0, 1.0);
-			c = mix(vColor, vColor2, t);
-		}
-		res = premul(c) * outer;
-		float bw = vParams.y;
-		if (bw > 0.0) {
-			vec4 ir = vec4(vRect.xy + bw, vRect.zw - 2.0 * bw);
+		res = paint(p, vParams.z, vRect, vColor, vColor2, vGrad) * outer;
+		vec4 bw = vWidths; // top, right, bottom, left
+		if (any(greaterThan(bw, vec4(0.0)))) {
+			vec4 ir = vec4(vRect.xy + bw.wx, vRect.zw - bw.yz - bw.wx);
 			float innerCov = (ir.z > 0.0 && ir.w > 0.0) ? coverage(sdRoundRect(p, ir, vInner)) : 0.0;
 			float bc = clamp(outer - innerCov, 0.0, 1.0);
+			if (vParams.y > 0.5) {
+				bc *= dash(p, vRect, bw);
+			}
 			vec4 b = premul(vBorder) * bc;
 			res = b + res * (1.0 - b.a);
 		}
@@ -160,11 +246,14 @@ void main() {
 		float corner = max(max(vRadii.x, vRadii.y), max(vRadii.z, vRadii.w));
 		res = premul(vColor) * boxShadow(p, vRect, vParams.z, corner);
 	} else if (kind < 2.5) {
-		res = premul(vColor) * texture(uMask, tex).r;
+		res = paint(p, vParams.z, vRect, vColor, vColor2, vGrad) * texture(uMask, tex).r;
 	} else if (kind < 3.5) {
 		res = texture(uColor, tex) * vColor.a;
 	} else {
 		res = texture(uImage, tex) * coverage(sdRoundRect(p, vRect, vRadii));
+		if (vParams.y > 0.5) {
+			res.rgb = vec3(dot(res.rgb, vec3(0.2126, 0.7152, 0.0722)));
+		}
 	}
 	float clip = coverage(sdRoundRect(p, vClip, vClipRadii));
 	fragColor = res * clip * vParams.w;

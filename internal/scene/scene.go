@@ -45,17 +45,20 @@ func (r Rect) Contains(x, y float32) bool {
 type Kind uint8
 
 const (
-	// OpFill paints a rounded rectangle with Color (or a gradient from Color
-	// to Color2 along Gradient) and, when Border is positive, a border of
-	// BorderColor inside its edge.
+	// OpFill paints a rounded rectangle with Color, or the Paint of Color
+	// and Color2, and, where Border is positive, a border of BorderColor
+	// inside its edges, dashed or not.
 	OpFill Kind = iota
 	// OpShadow paints the blurred shadow of a rounded rectangle: Rect and
 	// Radii are the shadow's box, already offset and spread, Blur its blur
 	// radius and Color its color.
 	OpShadow
-	// OpGlyphs paints Scene.Glyphs[Start:End].
+	// OpGlyphs paints Scene.Glyphs[Start:End]. With a gradient Paint, its
+	// mask glyphs take the gradient from Color to Color2, times Opacity,
+	// instead of their own colors.
 	OpGlyphs
-	// OpImage paints Src of Image into Rect, clipped to Radii, with Opacity.
+	// OpImage paints Src of Image into Rect, clipped to Radii, with
+	// Opacity, in shades of gray if Grayscale.
 	OpImage
 	// OpPushClip clips the following ops to Rect with Radii, intersected
 	// with the clip in effect, until the matching OpPopClip.
@@ -73,23 +76,64 @@ type Op struct {
 	Radii [4]float32
 
 	Color Color
-	// Gradient, when Color2 is set, is a linear gradient from Color at
-	// (Gradient[0], Gradient[1]) to Color2 at (Gradient[2], Gradient[3]).
+	// Paint, unless PaintSolid, fills with Color and Color2 as Gradient
+	// says.
+	Paint    Paint
 	Color2   Color
 	Gradient [4]float32
-	HasGrad  bool
 
-	Border      float32
+	// Border holds the widths of the border on the top, right, bottom and
+	// left; Dashed dashes it.
+	Border      [4]float32
 	BorderColor Color
+	Dashed      bool
 
 	Blur float32
 
 	Start, End int32
 
-	Image *Image
-	Src   Rect
+	Image     *Image
+	Src       Rect
+	Grayscale bool
 	// Opacity multiplies the op's colors; 0 means 1.
 	Opacity float32
+}
+
+// Paint is what fills an OpFill besides plain Color, or the masks of an
+// OpGlyphs (gradients only).
+type Paint uint8
+
+const (
+	PaintSolid Paint = iota
+	// PaintLinear is a linear gradient from Color at (Gradient[0],
+	// Gradient[1]) to Color2 at (Gradient[2], Gradient[3]), mixed in sRGB;
+	// PaintOklab mixes them in Oklab. Both mix premultiplied colors, as
+	// CSS does.
+	PaintLinear
+	PaintOklab
+	// PaintStripes draws stripes of Color over Color2: Gradient holds the
+	// unit vector across the stripes, their width and their period, from
+	// the top-left corner of Rect.
+	PaintStripes
+)
+
+// Uniform returns the widths of a border as wide on every side.
+func Uniform(w float32) [4]float32 { return [4]float32{w, w, w, w} }
+
+// HasBorder reports whether any of the widths is positive.
+func HasBorder(w [4]float32) bool { return w[0] > 0 || w[1] > 0 || w[2] > 0 || w[3] > 0 }
+
+// InnerRadii returns the radii of the inner edge of a border of widths w
+// (top, right, bottom, left) inside a rounded rectangle r with radii,
+// which FitRadii already fitted: each corner's less the wider of its two
+// sides, fitted to the inner rectangle.
+func InnerRadii(r Rect, radii, w [4]float32) (Rect, [4]float32) {
+	inner := Rect{X: r.X + w[3], Y: r.Y + w[0], W: r.W - w[1] - w[3], H: r.H - w[0] - w[2]}
+	var out [4]float32
+	for i, side := range [4][2]int{{0, 3}, {0, 1}, {2, 1}, {2, 3}} {
+		out[i] = max(radii[i]-max(w[side[0]], w[side[1]]), 0)
+	}
+	return inner, FitRadii(inner, out)
 }
 
 // Glyph is a glyph mask or color glyph copied from an atlas into a frame.

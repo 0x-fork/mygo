@@ -288,4 +288,15 @@ const (
 	CursorCrosshair
 	CursorGrab
 	CursorGrabbing
+	CursorResizeN
+	CursorResizeE
+	CursorResizeS
+	CursorResizeW
+	CursorResizeColumn
+	CursorResizeRow
+	CursorVerticalText
+	CursorCopy
+	CursorAlias
+	CursorContextMenu
+	CursorNone
 )
