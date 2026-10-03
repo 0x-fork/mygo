@@ -309,33 +309,74 @@ func Slider(c *Context, value *float64, lo, hi float64) *Element {
 	t := c.theme
 	// The knob, a capsule like AppKit's, moves across the content box,
 	// half of it inside the padding on each side, so it stays on the
-	// track, which spans the slider.
+	// track, which spans the slider. Held, it grows into a lens of glass
+	// that the track shows through, as AppKit's does.
 	kw, kh := t.Space(5), t.Space(4)
 	s := SliderBase(c, value, lo, hi).Height(t.Space(5)).MinWidth(t.Space(20)).PaddingX(kw / 2).FocusRing(false)
 	frac := float32(0)
 	if hi > lo {
 		frac = float32((*value - lo) / (hi - lo))
 	}
-	face := RGB(255, 255, 255)
+	face, rim, drop := RGB(255, 255, 255), RGBA(0, 0, 0, 0.22), RGBA(0, 0, 0, 0.12)
 	if t.Dark {
-		face = RGB(224, 225, 225)
+		face, rim, drop = RGB(224, 225, 225), RGBA(0, 0, 0, 0.7), RGBA(0, 0, 0, 0.3)
 	}
+	held := s.Animate("held", b2f(s.st.pressed), 150*time.Millisecond)
 	s.Draw(func(p *Painter, r Rect) {
 		// As thick as Progress.
 		h := t.Space(1.5)
 		track := Rect{r.X, r.Y + r.H/2 - h/2, r.W, h}
-		k := Rect{r.X + (r.W-kw)*frac, r.Y + r.H/2 - kh/2, kw, kh}
+		x := r.X + kw/2 + (r.W-kw)*frac
+		g := 1 + 0.35*held
+		k := Rect{x - kw*g/2, r.Y + r.H/2 - kh*g/2, kw * g, kh * g}
+		rad := k.H / 2
+		if held > 0 {
+			// The lens shows what is behind it, lightened, and the track
+			// through it: its shadow goes under both.
+			p.Shadow(Rect{k.X + 3, k.Y + 6, k.W - 6, k.H}, rad, 10, drop.Alpha(held))
+			p.Fill(k, s.backdrop().Mix(RGB(255, 255, 255), 0.1).Alpha(held), rad)
+		}
 		p.Fill(track, t.Border, h/2)
-		p.Fill(Rect{track.X, track.Y, k.X + kw/2 - track.X, h}, t.Accent, h/2)
-		// A tight shadow edges the knob, a soft one lifts it.
-		p.Shadow(Rect{k.X, k.Y + 0.5, k.W, k.H}, kh/2, 1, RGBA(0, 0, 0, 0.08))
-		p.Shadow(Rect{k.X, k.Y + 1.5, k.W, k.H}, kh/2, 7, RGBA(0, 0, 0, 0.1))
-		p.Fill(k, face, kh/2)
+		p.Fill(Rect{track.X, track.Y, x - track.X, h}, t.Accent, h/2)
+		if held < 1 {
+			// A tight shadow edges the knob, a soft one lifts it.
+			p.Shadow(Rect{k.X, k.Y + 0.5, k.W, k.H}, rad, 1, RGBA(0, 0, 0, 0.08*(1-held)))
+			p.Shadow(Rect{k.X, k.Y + 1.5, k.W, k.H}, rad, 7, RGBA(0, 0, 0, 0.1*(1-held)))
+			p.Fill(k, face.Alpha(1-held), rad)
+		}
+		if held > 0 {
+			// The lens's rim, lit on the inside.
+			p.Stroke(k, rim.Alpha(held), rad, 1)
+			p.Stroke(Rect{k.X + 1, k.Y + 1, k.W - 2, k.H - 2}, RGBA(255, 255, 255, 0.25*held), rad-1, 1)
+		}
 		if s.FocusVisible() {
-			p.FocusRing(k, [4]float32{kh / 2, kh / 2, kh / 2, kh / 2})
+			p.FocusRing(k, [4]float32{rad, rad, rad, rad})
 		}
 	})
 	return s
+}
+
+// backdrop returns the color behind e: the backgrounds of its ancestors
+// over the window's.
+func (e *Element) backdrop() Color {
+	var layers []Color
+	for p := e.parent; p != nil; p = p.parent {
+		c := p.bg
+		if p.fill == fillGradient {
+			c = p.grad.From.Mix(p.grad.To, 0.5)
+		}
+		if c.A > 0 {
+			layers = append(layers, c)
+		}
+		if c.A == 255 {
+			break
+		}
+	}
+	c := e.c.theme.Background
+	for i := len(layers) - 1; i >= 0; i-- {
+		c = layers[i].Over(c)
+	}
+	return c
 }
 
 // Progress creates a progress bar filled to value between 0 and 1; a
