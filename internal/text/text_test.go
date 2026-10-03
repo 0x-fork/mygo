@@ -85,7 +85,7 @@ func TestGlyphRaster(t *testing.T) {
 	l := s.Layout(Params{Text: "Ag", Style: Style{Size: 32}})
 	n := 0
 	for _, g := range l.Lines[0].Glyphs {
-		img := s.Glyph(g.Font, g.ID, 1, 0, 0)
+		img := s.Glyph(g.Font, g.ID, 1, 0, 0, false)
 		if !img.OK || img.W == 0 || img.H == 0 || img.Top >= 0 {
 			t.Fatalf("glyph %v: %+v", g.ID, img)
 		}
@@ -136,7 +136,7 @@ func TestGlyphShades(t *testing.T) {
 	}
 	var ink [Shades]int
 	for shade := range Shade(Shades) {
-		img := s.Glyph(g.Font, g.ID, 2, 0, shade)
+		img := s.Glyph(g.Font, g.ID, 2, 0, shade, false)
 		for y := range int(img.H) {
 			for x := range int(img.W) {
 				ink[shade] += int(s.MaskAtlas.Pix[(int(img.Y)+y)*s.MaskAtlas.W+int(img.X)+x])
@@ -338,7 +338,7 @@ func TestColorEmoji(t *testing.T) {
 	s := Shared()
 	l := s.Layout(Params{Text: "🎉", Style: Style{Size: 32}})
 	g := l.Lines[0].Glyphs[0]
-	if img := s.Glyph(g.Font, g.ID, 1, 0, 0); !img.OK || !img.Colored || img.W < 16 {
+	if img := s.Glyph(g.Font, g.ID, 1, 0, 0, false); !img.OK || !img.Colored || img.W < 16 {
 		t.Errorf("%+v", img)
 	}
 }
@@ -548,10 +548,10 @@ func TestFontsOfManySizes(t *testing.T) {
 	for i := range 2 * maxFonts {
 		l := s.Layout(Params{Text: "Hi", Style: Style{Size: 10 + float32(i)/10}})
 		g := l.Lines[0].Glyphs[0]
-		img := s.Glyph(g.Font, g.ID, 1, 0, 0)
+		img := s.Glyph(g.Font, g.ID, 1, 0, 0, false)
 		if !img.OK && s.Full() {
 			s.MakeRoom() // as frames do once the atlas fills
-			img = s.Glyph(g.Font, g.ID, 1, 0, 0)
+			img = s.Glyph(g.Font, g.ID, 1, 0, 0, false)
 		}
 		if !img.OK {
 			t.Fatalf("no glyph at size %v", g.Size)
@@ -559,6 +559,66 @@ func TestFontsOfManySizes(t *testing.T) {
 		s.EndFrame()
 		if n := f.fontCount(); n > maxFonts {
 			t.Fatalf("%d fonts after a frame", n)
+		}
+	}
+}
+
+// TestPlacement checks that glyphs go to the positions within a pixel the
+// system's text stack draws them at, and baselines to its whole pixels:
+// Core Graphics' two positions a pixel at 26 pixels an em, left of the pen,
+// and baselines down to the next pixel; GTK's whole pixels.
+func TestPlacement(t *testing.T) {
+	s := newSystem()
+	l := s.Layout(Params{Text: "l", Style: Style{Size: 13}})
+	g := l.Lines[0].Glyphs[0]
+	at := func(x float32) GlyphImage { return s.Glyph(g.Font, g.ID, 2, x, 0, false) }
+	same := func(a, b GlyphImage) bool { return a.X == b.X && a.Y == b.Y && a.Left == b.Left }
+	switch runtime.GOOS {
+	case "darwin":
+		if !same(at(10), at(10.49)) || same(at(10), at(10.5)) {
+			t.Error("not two positions a pixel")
+		}
+		if b := s.Baseline(20.01); b != 21 {
+			t.Errorf("baseline 20.01 drawn at %v", b)
+		}
+	case "linux":
+		if !same(at(10), at(10.9)) {
+			t.Error("not on whole pixels")
+		}
+		if b := s.Baseline(20.9); b != 20 {
+			t.Errorf("baseline 20.9 drawn at %v", b)
+		}
+	case "windows":
+		if b := s.Baseline(20.6); b != 21 {
+			t.Errorf("baseline 20.6 drawn at %v", b)
+		}
+	}
+}
+
+// TestDecorate checks underlines and strikethroughs: below and above the
+// baseline, at least a fraction of a pixel thick, from the text's start,
+// and on macOS where AppKit draws them for the system font at 13 points,
+// skipping the ink of descenders.
+func TestDecorate(t *testing.T) {
+	s := newSystem()
+	l := s.Layout(Params{Text: "Hello", Style: Style{Size: 13}})
+	under := s.Decorate(l, 0, 0, len(l.Lines[0].Glyphs), 0, 0, 1, Underline, 0)
+	strike := s.Decorate(l, 0, 0, len(l.Lines[0].Glyphs), 0, 0, 1, Strikethrough, 0)
+	if len(under) != 1 || len(strike) != 1 {
+		t.Fatalf("%d underlines, %d strikethroughs", len(under), len(strike))
+	}
+	base := s.Baseline(l.Lines[0].Baseline)
+	u, st := under[0], strike[0]
+	if u.Top < base || u.Bottom <= u.Top || st.Bottom > base || st.Bottom <= st.Top || u.X0 > 1 || u.X1 < l.Width-1 {
+		t.Errorf("underline %+v, strikethrough %+v, baseline %v, width %v", u, st, base, l.Width)
+	}
+	if runtime.GOOS == "darwin" {
+		if u.Top != base+1 || u.Bottom != base+2 || st.Top != base-4 || st.Bottom != base-3 {
+			t.Errorf("underline %+v, strikethrough %+v from baseline %v", u, st, base)
+		}
+		l = s.Layout(Params{Text: "gypsy", Style: Style{Size: 24}})
+		if n := len(s.Decorate(l, 0, 0, len(l.Lines[0].Glyphs), 0, 0, 2, Underline, 0)); n < 3 {
+			t.Errorf("an underline of gypsy in %d pieces", n)
 		}
 	}
 }

@@ -75,7 +75,7 @@ func TestRenderText(t *testing.T) {
 	s := &scene.Scene{Width: 160, Height: 40, Clear: scene.Color{R: 255, G: 255, B: 255, A: 255}, MaskAtlas: sys.MaskAtlas, ColorAtlas: sys.ColorAtlas}
 	start := len(s.Glyphs)
 	for _, g := range l.Lines[0].Glyphs {
-		gi := sys.Glyph(g.Font, g.ID, 1, 0, 0)
+		gi := sys.Glyph(g.Font, g.ID, 1, 0, 0, false)
 		if !gi.OK {
 			continue
 		}
@@ -200,6 +200,26 @@ func TestShadowMatchesItsFormula(t *testing.T) {
 		}
 		if worst > 3 {
 			t.Errorf("%+v: off by %.1f of 255", c, worst)
+		}
+	}
+}
+
+// TestThinLineCoverage checks that boxes with square corners cover pixels
+// by area, as lines thinner than a pixel need: 0.7 of a pixel inside one
+// row, and a fifth and a half across two.
+func TestThinLineCoverage(t *testing.T) {
+	m := NewImage(10, 10)
+	s := &scene.Scene{Width: 10, Height: 10, Clear: scene.Color{R: 255, G: 255, B: 255, A: 255}, Ops: []scene.Op{
+		{Kind: scene.OpFill, Rect: scene.Rect{X: 0, Y: 2.2, W: 10, H: 0.7}, Color: scene.Color{A: 255}},
+		{Kind: scene.OpFill, Rect: scene.Rect{X: 0, Y: 5.8, W: 10, H: 0.7}, Color: scene.Color{A: 255}},
+	}}
+	Render(m, s)
+	for _, c := range []struct {
+		y    int
+		want float64
+	}{{2, 0.7}, {5, 0.2}, {6, 0.5}} {
+		if got := 1 - float64(pixel(m, 5, c.y)[0])/255; math.Abs(got-c.want) > 0.01 {
+			t.Errorf("row %d covered %.3f, want %.3f", c.y, got, c.want)
 		}
 	}
 }

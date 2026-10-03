@@ -319,8 +319,11 @@ func (r *Renderer) init() error {
 		return errors.New("d3d11: cannot create the input layout")
 	}
 
+	// Dual-source blending: the destination times one minus the shader's
+	// second color, the source's alpha of each channel (D3D11_BLEND_ONE,
+	// D3D11_BLEND_INV_SRC1_COLOR and D3D11_BLEND_INV_SRC1_ALPHA).
 	bd := blendDesc{}
-	bd.RenderTarget[0] = rtBlend{BlendEnable: 1, SrcBlend: 2, DestBlend: 6, BlendOp: 1, SrcBlendAlpha: 2, DestBlendAlpha: 6, BlendOpAlpha: 1, WriteMask: 0xf}
+	bd.RenderTarget[0] = rtBlend{BlendEnable: 1, SrcBlend: 2, DestBlend: 17, BlendOp: 1, SrcBlendAlpha: 2, DestBlendAlpha: 19, BlendOpAlpha: 1, WriteMask: 0xf}
 	if failed(call(r.device, devCreateBlendState, uintptr(unsafe.Pointer(&bd)), uintptr(unsafe.Pointer(&r.blend)))) {
 		return errors.New("d3d11: cannot create the blend state")
 	}

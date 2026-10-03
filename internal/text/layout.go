@@ -266,8 +266,10 @@ type System struct {
 	mu  sync.Mutex
 	eng engine
 	// uiFamily is the family system-ui stands for where the engine does
-	// not know it (SetUIFamily).
-	uiFamily string
+	// not know it (SetUIFamily), and rendering the desktop's settings for
+	// rasterizing text, if the app gave them (SetFontRendering).
+	uiFamily  string
+	rendering *[3]string
 	// fonts caches the font of each style.
 	fonts map[Style]*Font
 
@@ -275,7 +277,10 @@ type System struct {
 	frame   uint64
 
 	glyphs map[glyphKey]*atlasEntry
-	masks  map[uint64]*atlasEntry
+	places map[placeKey]placement
+	// runs holds joined glyphs (GlyphRun).
+	runs  map[runKey]*atlasEntry
+	masks map[uint64]*atlasEntry
 	// transient holds the masks drawn for the frame being painted alone,
 	// recent the frame each of them was last drawn in.
 	transient map[uint64]GlyphImage
@@ -288,6 +293,9 @@ type System struct {
 	full   [2]bool
 	want   [2]int
 	failed int
+	// subpixel tells that the system's settings ask for subpixel
+	// antialiasing (TextParams).
+	subpixel bool
 	// rooms counts MakeRoom calls during the frame.
 	rooms int
 }
@@ -304,6 +312,8 @@ func newSystem() *System {
 		fonts:      map[Style]*Font{},
 		layouts:    map[Params]*cached{},
 		glyphs:     map[glyphKey]*atlasEntry{},
+		places:     map[placeKey]placement{},
+		runs:       map[runKey]*atlasEntry{},
 		masks:      map[uint64]*atlasEntry{},
 		transient:  map[uint64]GlyphImage{},
 		recent:     map[uint64]uint64{},
@@ -321,6 +331,10 @@ func (s *System) engine() engine {
 		s.eng = newEngine()
 		if u, ok := s.eng.(uiFamilySetter); ok {
 			u.setUIFamily(s.uiFamily)
+		}
+		if f, ok := s.eng.(fontRenderer); ok && s.rendering != nil {
+			r := s.rendering
+			f.setFontRendering(r[0], r[1], r[2])
 		}
 	}
 	return s.eng
@@ -340,6 +354,36 @@ type fontForgetter interface {
 // uiFamilySetter is an engine that takes the family of the desktop's
 // interface font from the app.
 type uiFamilySetter interface{ setUIFamily(family string) }
+
+// fontRenderer is an engine that takes the desktop's settings for
+// rasterizing text from the app (platform.FontRendering).
+type fontRenderer interface {
+	setFontRendering(antialias, hinting, subpixels string)
+}
+
+// SetFontRendering sets how text is rasterized where the system's text
+// stack does not know the desktop's settings, as Pango on Linux:
+// antialiasing ("none", "gray" or "subpixel"), hinting ("none", "slight",
+// "medium" or "full") and the order of the screen's subpixels ("rgb",
+// "bgr", "vrgb" or "vbgr"), "" for the default. Other engines ignore it.
+func (s *System) SetFontRendering(antialias, hinting, subpixels string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := [3]string{antialias, hinting, subpixels}
+	if s.rendering != nil && *s.rendering == r {
+		return
+	}
+	s.rendering = &r
+	// An engine started already takes them now, and forgets what it drew.
+	if f, ok := s.eng.(fontRenderer); ok {
+		f.setFontRendering(antialias, hinting, subpixels)
+		clear(s.fonts)
+		clear(s.layouts)
+		clear(s.glyphs)
+		clear(s.places)
+		clear(s.runs)
+	}
+}
 
 // SetUIFamily sets the family "system-ui" stands for where the system's
 // text stack does not know the desktop's interface font, as Pango on
@@ -403,6 +447,8 @@ func (s *System) EndFrame() {
 		clear(s.layouts)
 		clear(s.fonts)
 		clear(s.glyphs)
+		clear(s.places)
+		clear(s.runs)
 		f.forgetFonts()
 		return
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"reflect"
 	"runtime"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"unsafe"
 
 	"github.com/ebitengine/purego"
+	"github.com/egoist/mygo/internal/scene"
 )
 
 // DirectWrite lays out paragraphs with IDWriteTextLayout, which finds the
@@ -24,6 +26,13 @@ import (
 // layer for color fonts such as Segoe UI Emoji. Fonts are those of the
 // system's font collection, memory mapped and shared by every process,
 // and those the app registers, in a collection of its own.
+//
+// Glyphs look as Direct2D draws them with the system's settings: in the
+// rendering mode and grid fitting DirectWrite recommends for their font
+// and size, with ClearType where the system smooths fonts with it (on
+// opaque backgrounds), aliased where it does not smooth them, and blended
+// with the gamma and contrast of the system's rendering parameters, which
+// renderers apply (scene.TextParams).
 
 func newEngine() engine {
 	e, err := newDWrite()
@@ -40,6 +49,7 @@ var (
 	kernel32DLL         = syscall.NewLazyDLL(systemDir() + `\kernel32.dll`)
 	procUserLocaleName  = kernel32DLL.NewProc("GetUserDefaultLocaleName")
 	procSystemDirectory = syscall.NewLazyDLL("kernel32.dll").NewProc("GetSystemDirectoryW")
+	procSystemParams    = syscall.NewLazyDLL(systemDir() + `\user32.dll`).NewProc("SystemParametersInfoW")
 )
 
 func systemDir() string {
@@ -64,6 +74,9 @@ var (
 	iidIDWriteFactory2      = guid{0x0439fc60, 0xca44, 0x4994, [8]byte{0x8d, 0xee, 0x3a, 0x9a, 0xf7, 0xb7, 0x32, 0xec}}
 	iidIDWriteFactory5      = guid{0x958db99a, 0xbe2a, 0x4f09, [8]byte{0xaf, 0x7d, 0x65, 0x18, 0x98, 0x03, 0xd1, 0xd3}}
 	iidIDWriteFontFace2     = guid{0xd8b768ff, 0x64bc, 0x4e66, [8]byte{0x98, 0x2b, 0xec, 0x8e, 0x87, 0xf6, 0x93, 0xf7}}
+	iidIDWriteFontFace3     = guid{0xd37d7598, 0x09be, 0x4222, [8]byte{0xa2, 0x36, 0x20, 0x81, 0x34, 0x1c, 0xc1, 0xf2}}
+	iidIDWriteFactory3      = guid{0x9a1b41c3, 0xd3bb, 0x466a, [8]byte{0x87, 0xfc, 0xfe, 0x67, 0x55, 0x6a, 0x3b, 0x65}}
+	iidIDWriteRendParams1   = guid{0x94413cf4, 0xa6fc, 0x4248, [8]byte{0x8b, 0x50, 0x66, 0x74, 0x34, 0x8f, 0xca, 0xd3}}
 	iidIDWritePixelSnapping = guid{0xeaf3a2da, 0xecf4, 0x4d24, [8]byte{0xb6, 0x44, 0xb3, 0x4f, 0x68, 0x42, 0x02, 0x4b}}
 	iidIDWriteTextRenderer  = guid{0xef8a8135, 0x5cc6, 0x45fe, [8]byte{0x88, 0x25, 0xc5, 0xa0, 0x72, 0x4e, 0xb8, 0x19}}
 	iidIDWriteTextLayout1   = guid{0x9064d822, 0x80a7, 0x465c, [8]byte{0xa9, 0x86, 0xdf, 0x65, 0xf7, 0x8b, 0x8f, 0xeb}}
@@ -80,6 +93,7 @@ const (
 	// IDWriteFactory
 	factoryGetSystemFontCollection = 3
 	factoryRegisterFontFileLoader  = 13
+	factoryCreateRenderingParams   = 10
 	factoryCreateTextFormat        = 15
 	factoryCreateTypography        = 16
 	factoryCreateTextLayout        = 18
@@ -94,6 +108,7 @@ const (
 	fallbackCreate                 = 5
 	format1SetFontFallback         = 34
 	// IDWriteFactory3
+	factory3CreateGlyphRunAnalysis          = 31
 	factory3CreateFontCollectionFromFontSet = 37
 	// IDWriteFactory5
 	factory5CreateFontSetBuilder         = 43
@@ -103,15 +118,27 @@ const (
 	collectionGetFontFamilyCount = 3
 	collectionGetFontFamily      = 4
 	collectionFindFamilyName     = 5
+	collectionGetFontFromFace    = 6
 	// IDWriteFontFamily
 	familyGetFamilyNames       = 6
 	familyGetFirstMatchingFont = 7
 	// IDWriteFont
+	fontGetFontFamily  = 3
 	fontCreateFontFace = 13
 	// IDWriteFontFace
 	faceGetMetrics = 8
 	// IDWriteFontFace2
-	face2IsColorFont = 30
+	face2IsColorFont                 = 30
+	face2GetRecommendedRenderingMode = 34
+	// IDWriteFontFace3
+	face3GetRecommendedRenderingMode = 44
+	// IDWriteRenderingParams, and IDWriteRenderingParams1
+	paramsGetGamma                      = 3
+	paramsGetEnhancedContrast           = 4
+	paramsGetClearTypeLevel             = 5
+	paramsGetPixelGeometry              = 6
+	paramsGetRenderingMode              = 7
+	params1GetGrayscaleEnhancedContrast = 8
 	// IDWriteLocalizedStrings
 	stringsFindLocaleName  = 4
 	stringsGetStringLength = 7
@@ -156,12 +183,27 @@ const (
 	readingDirectionRTL   = 1
 	textAlignmentTrailing = 1
 
+	renderingModeAliased          = 1
+	renderingModeGDIClassic       = 2
+	renderingModeGDINatural       = 3
+	renderingModeNatural          = 4
 	renderingModeNaturalSymmetric = 5
+	renderingModeOutline          = 6
+	renderingModeDownsampled      = 7 // DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC_DOWNSAMPLED
 	measuringModeNatural          = 0
 	gridFitModeDefault            = 0
+	antialiasModeClearType        = 0
 	antialiasModeGrayscale        = 1
+	outlineThresholdAntialiased   = 0
+	outlineThresholdAliased       = 1
 	textureAliased1x1             = 0
 	textureClearType3x1           = 1
+	pixelGeometryFlat             = 0
+	pixelGeometryBGR              = 2
+
+	spiGetFontSmoothing      = 0x004A
+	spiGetFontSmoothingType  = 0x200A
+	feFontSmoothingClearType = 2
 
 	errNoColor                     = 0x8898500C
 	errNotSufficientBuffer         = 0x8007007A
@@ -298,6 +340,7 @@ var dwGeneric = map[string][]string{
 type dwrite struct {
 	factory  uintptr // IDWriteFactory
 	factory2 uintptr // IDWriteFactory2, from Windows 8.1
+	factory3 uintptr // IDWriteFactory3, from Windows 10
 	factory5 uintptr // IDWriteFactory5, from Windows 10 1703
 	system   uintptr // the system font collection
 	locale   []uint16
@@ -310,6 +353,19 @@ type dwrite struct {
 	faces     map[faceKey]uintptr
 	fonts     map[fontKey]*Font
 	color     map[uintptr]bool // whether a font face has color glyphs
+	thin      map[uintptr]bool // whether a font face is too thin for antialiasing
+
+	// The system's settings for text (settings): its rendering parameters,
+	// the correction renderers apply, whether it smooths fonts with
+	// ClearType, on a panel of blue, green and red subpixels, at what
+	// level, and whether it does not smooth them.
+	settingsRead bool
+	params       uintptr // IDWriteRenderingParams
+	text         scene.TextParams
+	clearType    bool
+	bgr          bool
+	clearLevel   float32
+	aliased      bool
 
 	// The fonts the app registers: their files, a collection of them,
 	// and the family name of each name they are registered under.
@@ -353,6 +409,7 @@ func newDWrite() (*dwrite, error) {
 		faces:     map[faceKey]uintptr{},
 		fonts:     map[fontKey]*Font{},
 		color:     map[uintptr]bool{},
+		thin:      map[uintptr]bool{},
 		aliases:   map[string]string{},
 	}
 	hr, _, _ := procDWriteCreate.Call(factoryTypeShared, uintptr(unsafe.Pointer(&iidIDWriteFactory)), uintptr(unsafe.Pointer(&e.factory)))
@@ -360,6 +417,7 @@ func newDWrite() (*dwrite, error) {
 		return nil, fmt.Errorf("DWriteCreateFactory failed (HRESULT %#08x)", uint32(hr))
 	}
 	e.factory2 = queryInterface(e.factory, &iidIDWriteFactory2)
+	e.factory3 = queryInterface(e.factory, &iidIDWriteFactory3)
 	e.factory5 = queryInterface(e.factory, &iidIDWriteFactory5)
 	if hr := call(e.factory, factoryGetSystemFontCollection, uintptr(unsafe.Pointer(&e.system)), 0); failed(hr) {
 		return nil, fmt.Errorf("IDWriteFactory::GetSystemFontCollection failed (HRESULT %#08x)", uint32(hr))
@@ -574,7 +632,9 @@ func (e *dwrite) fontOf(face uintptr, size float32) *Font {
 	var m dwFontMetrics
 	call(face, faceGetMetrics, uintptr(unsafe.Pointer(&m)))
 	em := size / float32(max(m.designUnitsPerEm, 1))
-	f := &Font{Size: size, Ascent: float32(m.ascent) * em, Descent: float32(m.descent) * em, LineGap: float32(m.lineGap) * em, native: face}
+	f := &Font{Size: size, Ascent: float32(m.ascent) * em, Descent: float32(m.descent) * em, LineGap: float32(m.lineGap) * em, native: face, thin: e.isThin(face),
+		underlineTop: float32(m.underlinePosition) * em, underlineThick: float32(m.underlineThickness) * em,
+		strikeTop: float32(m.strikethroughPosition) * em, strikeThick: float32(m.strikethroughThickness) * em}
 	e.fonts[key] = f
 	return f
 }
@@ -868,7 +928,133 @@ func (e *dwrite) run(r dwRun, x float32, index []int) shapedRun {
 	return out
 }
 
-func (e *dwrite) glyph(f *Font, id uint32, scale, dx float32, _ Shade) bitmap {
+// settings reads the system's settings for text once: the rendering
+// parameters DirectWrite makes of them (gamma, contrast, ClearType level,
+// pixel geometry) and how the system smooths fonts.
+func (e *dwrite) settings() {
+	if e.settingsRead {
+		return
+	}
+	e.settingsRead = true
+	e.clearLevel = 1
+	if failed(call(e.factory, factoryCreateRenderingParams, uintptr(unsafe.Pointer(&e.params)))) {
+		e.params = 0
+		return
+	}
+	gamma := method[func(uintptr) float32](e.params, paramsGetGamma)(e.params)
+	contrast := method[func(uintptr) float32](e.params, paramsGetEnhancedContrast)(e.params)
+	gray := contrast
+	if p1 := queryInterface(e.params, &iidIDWriteRendParams1); p1 != 0 {
+		gray = method[func(uintptr) float32](p1, params1GetGrayscaleEnhancedContrast)(p1)
+		release(p1)
+	}
+	e.clearLevel = method[func(uintptr) float32](e.params, paramsGetClearTypeLevel)(e.params)
+	geometry := call(e.params, paramsGetPixelGeometry)
+	e.text = scene.TextParams{GammaRatios: scene.GammaRatios(gamma), Contrast: gray, SubpixelContrast: contrast}
+	e.bgr = geometry == pixelGeometryBGR
+	var smooth int32
+	var kind uint32
+	procSystemParams.Call(spiGetFontSmoothing, 0, uintptr(unsafe.Pointer(&smooth)), 0)
+	procSystemParams.Call(spiGetFontSmoothingType, 0, uintptr(unsafe.Pointer(&kind)), 0)
+	e.aliased = smooth == 0 || call(e.params, paramsGetRenderingMode) == renderingModeAliased
+	e.clearType = !e.aliased && kind == feFontSmoothingClearType && geometry != pixelGeometryFlat
+}
+
+func (e *dwrite) textParams() (scene.TextParams, bool) {
+	e.settings()
+	if e.aliased {
+		return scene.TextParams{}, false
+	}
+	return e.text, e.clearType
+}
+
+// mode returns the rendering mode and grid fitting DirectWrite recommends
+// for a font at scale pixels per DIP, as Direct2D draws it with: from
+// Windows 10, with natural symmetric rendering downsampled at high
+// resolutions (IDWriteFontFace3).
+func (e *dwrite) mode(f *Font, scale float32) (mode, gridFit uintptr) {
+	if e.aliased {
+		return renderingModeAliased, gridFitModeDefault
+	}
+	mode, gridFit = renderingModeNaturalSymmetric, gridFitModeDefault
+	face, index := uintptr(0), 0
+	if e.factory3 != 0 {
+		face, index = queryInterface(f.native, &iidIDWriteFontFace3), face3GetRecommendedRenderingMode
+	}
+	if face == 0 {
+		face, index = queryInterface(f.native, &iidIDWriteFontFace2), face2GetRecommendedRenderingMode
+	}
+	if face == 0 {
+		return mode, gridFit
+	}
+	defer release(face)
+	var m, g uint32
+	hr := method[func(this uintptr, size, dpiX, dpiY float32, transform uintptr, sideways int32, threshold, measuring, params uintptr, mode, gridFit *uint32) uintptr](face, index)(
+		face, f.Size, 96*scale, 96*scale, 0, 0, outlineThresholdAntialiased, measuringModeNatural, e.params, &m, &g)
+	if failed(hr) || m == 0 {
+		return mode, gridFit
+	}
+	// Glyph run analyses draw no outlines, which large text recommends.
+	if m == renderingModeOutline {
+		m = renderingModeNaturalSymmetric
+	}
+	return uintptr(m), uintptr(g)
+}
+
+// positions are those DirectWrite rasterizes glyphs at in their rendering
+// mode, the nearest to the pen: six a pixel for ClearType, eight in
+// natural, four in natural symmetric and two in downsampled rendering, and
+// whole pixels in aliased and GDI rendering.
+func (e *dwrite) positions(f *Font, scale float32, subpixel bool) (int, bool) {
+	e.settings()
+	mode, _ := e.mode(f, scale)
+	switch {
+	case mode == renderingModeAliased || mode == renderingModeGDIClassic || mode == renderingModeGDINatural:
+		return 1, true
+	case subpixel && e.clearType:
+		return 6, true
+	case mode == renderingModeNatural:
+		return 8, true
+	case mode == renderingModeDownsampled:
+		return 2, true
+	}
+	return 4, true
+}
+
+// decorate places underlines and strikethroughs as Direct2D draws a text
+// layout's, run by run along their advances: an underline at its font's
+// offset, rounded to whole pixels, from the baseline DirectWrite snaps, a
+// strikethrough at its offset from the baseline as laid out, both as thick
+// as the font says, with their edges where Direct2D's eight samples across
+// and down a pixel put them.
+func (e *dwrite) decorate(r decoRange) []Stroke {
+	s := r.scale
+	base := r.baseline() * s
+	var out []Stroke
+	r.runs(func(f *Font, i, j int) {
+		x0, x1 := r.span(i, j)
+		var top, thick float32
+		if r.d == Underline {
+			top = float32(math.Round(float64(base))) + float32(math.Round(float64(-f.underlineTop*s)))
+			thick = f.underlineThick * s
+		} else {
+			top = base - f.strikeTop*s
+			thick = f.strikeThick * s
+		}
+		out = append(out, Stroke{X0: eighths((r.x + x0) * s), X1: eighths((r.x + x1) * s), Top: eighths(top), Bottom: eighths(top + thick)})
+	})
+	return out
+}
+
+// eighths moves an edge to where Direct2D's coverage puts it: rasterizing
+// with eight samples across and down each pixel, at (k+0.5)/8.
+func eighths(v float32) float32 { return float32(math.Ceil(float64(v)*8-0.5)) / 8 }
+
+// baseline is the nearest whole pixel, where DirectWrite snaps baselines.
+func (e *dwrite) baseline(y float32) float32 { return float32(math.Round(float64(y))) }
+
+func (e *dwrite) glyph(f *Font, id uint32, scale, dx float32, _ Shade, subpixel bool) bitmap {
+	e.settings()
 	index := uint16(id)
 	var advance float32
 	run := dwGlyphRun{fontFace: f.native, fontEmSize: f.Size * scale, glyphCount: 1, glyphIndices: &index, glyphAdvances: &advance}
@@ -877,17 +1063,85 @@ func (e *dwrite) glyph(f *Font, id uint32, scale, dx float32, _ Shade) bitmap {
 			return b
 		}
 	}
-	a, r, ok := e.analyze(&run, dx, 0)
+	mode, gridFit := e.mode(f, scale)
+	subpixel = subpixel && e.clearType
+	a, r, ok := e.analyzeAs(&run, dx, 0, mode, gridFit, subpixel)
 	if !ok {
 		return bitmap{}
 	}
 	defer release(a)
 	w, h := int(r.right-r.left), int(r.bottom-r.top)
+	if subpixel {
+		pix := e.subpixels(a, r)
+		if pix == nil {
+			return bitmap{}
+		}
+		return bitmap{left: int(r.left), top: int(r.top), w: w, h: h, pix: pix, subpixel: true}
+	}
 	alpha := e.alpha(a, r)
 	if alpha == nil {
 		return bitmap{}
 	}
 	return bitmap{left: int(r.left), top: int(r.top), w: w, h: h, pix: alpha}
+}
+
+// join: Direct2D draws the glyphs of a run from its glyph cache, each in
+// turn.
+func (e *dwrite) join() bool { return false }
+
+// subpixels returns the ClearType coverage of an analyzed run's pixels in
+// r, red, green, blue and their mean for each, at the system's ClearType
+// level: none (0) is the mean of the three.
+func (e *dwrite) subpixels(a uintptr, r dwRect) []byte {
+	w, h := int(r.right-r.left), int(r.bottom-r.top)
+	n := 3 * w * h
+	if cap(e.scratch) < n {
+		e.scratch = make([]byte, n)
+	}
+	buf := e.scratch[:n]
+	if failed(call(a, glyphsCreateAlphaTexture, textureClearType3x1, uintptr(unsafe.Pointer(&r)), uintptr(unsafe.Pointer(&buf[0])), uintptr(n))) {
+		return nil
+	}
+	out := make([]byte, 4*w*h)
+	level := min(max(e.clearLevel, 0), 1)
+	for i := range w * h {
+		c := buf[3*i : 3*i+3]
+		if e.bgr {
+			c = []byte{c[2], c[1], c[0]}
+		}
+		mean := (float32(c[0]) + float32(c[1]) + float32(c[2])) / 3
+		for k := range 3 {
+			out[4*i+k] = uint8(mean + (float32(c[k])-mean)*level + 0.5)
+		}
+		out[4*i+3] = uint8(mean + 0.5)
+	}
+	return out
+}
+
+// isThin reports whether a face is of a family whose strokes are too thin
+// for antialiasing, which Direct2D gives more contrast: those Windows
+// Terminal lists, digitized from typewriters' typeballs.
+func (e *dwrite) isThin(face uintptr) bool {
+	t, ok := e.thin[face]
+	if ok {
+		return t
+	}
+	var font, fam, strs uintptr
+	if !failed(call(e.system, collectionGetFontFromFace, face, uintptr(unsafe.Pointer(&font)))) {
+		if !failed(call(font, fontGetFontFamily, uintptr(unsafe.Pointer(&fam)))) {
+			if !failed(call(fam, familyGetFamilyNames, uintptr(unsafe.Pointer(&strs)))) {
+				switch englishName(strs) {
+				case "Courier New", "Fixed Miriam Transparent", "Miriam Fixed", "Rod", "Rod Transparent", "Simplified Arabic Fixed":
+					t = true
+				}
+				release(strs)
+			}
+			release(fam)
+		}
+		release(font)
+	}
+	e.thin[face] = t
+	return t
 }
 
 func (e *dwrite) isColor(face uintptr) bool {
@@ -902,34 +1156,55 @@ func (e *dwrite) isColor(face uintptr) bool {
 	return c
 }
 
-// analyze returns the glyph run analysis of a run drawn at (x, y) and the
-// bounds of its pixels.
+// analyze returns the grayscale glyph run analysis of a run drawn at
+// (x, y), in natural symmetric rendering, and the bounds of its pixels.
 func (e *dwrite) analyze(run *dwGlyphRun, x, y float32) (uintptr, dwRect, bool) {
+	mode := uintptr(renderingModeNaturalSymmetric)
+	if e.aliased {
+		mode = renderingModeAliased
+	}
+	return e.analyzeAs(run, x, y, mode, gridFitModeDefault, false)
+}
+
+// analyzeAs returns the glyph run analysis of a run drawn at (x, y) in a
+// rendering mode and grid fitting, with ClearType if clearType, and the
+// bounds of its pixels.
+func (e *dwrite) analyzeAs(run *dwGlyphRun, x, y float32, mode, gridFit uintptr, clearType bool) (uintptr, dwRect, bool) {
 	var a uintptr
 	var hr uintptr
 	if e.factory2 != 0 {
-		hr = method[func(this uintptr, run *dwGlyphRun, transform, rendering, measuring, gridFit, antialias uintptr, x, y float32, out *uintptr) uintptr](e.factory2, factory2CreateGlyphRunAnalysis)(
-			e.factory2, run, 0, renderingModeNaturalSymmetric, measuringModeNatural, gridFitModeDefault, antialiasModeGrayscale, x, y, &a)
+		antialias := uintptr(antialiasModeGrayscale)
+		if clearType {
+			antialias = antialiasModeClearType
+		}
+		// IDWriteFactory3 takes the rendering modes of Windows 10 too.
+		f, index := e.factory2, factory2CreateGlyphRunAnalysis
+		if e.factory3 != 0 {
+			f, index = e.factory3, factory3CreateGlyphRunAnalysis
+		}
+		hr = method[func(this uintptr, run *dwGlyphRun, transform, rendering, measuring, gridFit, antialias uintptr, x, y float32, out *uintptr) uintptr](f, index)(
+			f, run, 0, mode, measuringModeNatural, gridFit, antialias, x, y, &a)
 	} else {
 		hr = method[func(this uintptr, run *dwGlyphRun, pixelsPerDip float32, transform, rendering, measuring uintptr, x, y float32, out *uintptr) uintptr](e.factory, factoryCreateGlyphRunAnalysis)(
-			e.factory, run, 1, 0, renderingModeNaturalSymmetric, measuringModeNatural, x, y, &a)
+			e.factory, run, 1, 0, mode, measuringModeNatural, x, y, &a)
 	}
 	if failed(hr) || a == 0 {
 		return 0, dwRect{}, false
 	}
 	var r dwRect
-	if failed(call(a, glyphsGetAlphaTextureBound, e.texture(), uintptr(unsafe.Pointer(&r)))) || r.right <= r.left || r.bottom <= r.top {
+	if failed(call(a, glyphsGetAlphaTextureBound, e.texture(mode, clearType), uintptr(unsafe.Pointer(&r)))) || r.right <= r.left || r.bottom <= r.top {
 		release(a)
 		return 0, dwRect{}, false
 	}
 	return a, r, true
 }
 
-// texture returns the kind of texture glyph run analyses give: with
-// IDWriteFactory2 grayscale coverage, before ClearType's three values a
-// pixel.
-func (e *dwrite) texture() uintptr {
-	if e.factory2 != 0 {
+// texture returns the kind of texture a glyph run analysis gives: aliased
+// in aliased rendering, ClearType's three values a pixel for ClearType,
+// and otherwise, with IDWriteFactory2, grayscale coverage. Without it
+// analyses give ClearType only, which alpha averages.
+func (e *dwrite) texture(mode uintptr, clearType bool) uintptr {
+	if mode == renderingModeAliased || e.factory2 != 0 && !clearType {
 		return textureAliased1x1
 	}
 	return textureClearType3x1
@@ -939,7 +1214,7 @@ func (e *dwrite) texture() uintptr {
 func (e *dwrite) alpha(a uintptr, r dwRect) []byte {
 	w, h := int(r.right-r.left), int(r.bottom-r.top)
 	out := make([]byte, w*h)
-	if e.factory2 != 0 {
+	if e.factory2 != 0 || e.aliased {
 		if failed(call(a, glyphsCreateAlphaTexture, textureAliased1x1, uintptr(unsafe.Pointer(&r)), uintptr(unsafe.Pointer(&out[0])), uintptr(len(out)))) {
 			return nil
 		}
@@ -1127,25 +1402,35 @@ func familyNames(coll uintptr) []string {
 			continue
 		}
 		if !failed(call(fam, familyGetFamilyNames, uintptr(unsafe.Pointer(&strs)))) {
-			var index uint32
-			var exists int32
-			en := utf16z("en-us")
-			call(strs, stringsFindLocaleName, uintptr(unsafe.Pointer(&en[0])), uintptr(unsafe.Pointer(&index)), uintptr(unsafe.Pointer(&exists)))
-			if exists == 0 {
-				index = 0
-			}
-			var length uint32
-			if !failed(call(strs, stringsGetStringLength, uintptr(index), uintptr(unsafe.Pointer(&length)))) {
-				buf := make([]uint16, length+1)
-				if !failed(call(strs, stringsGetString, uintptr(index), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))) {
-					names = append(names, syscall.UTF16ToString(buf))
-				}
+			if name := englishName(strs); name != "" {
+				names = append(names, name)
 			}
 			release(strs)
 		}
 		release(fam)
 	}
 	return names
+}
+
+// englishName returns the English name of localized strings, or their
+// first.
+func englishName(strs uintptr) string {
+	var index uint32
+	var exists int32
+	en := utf16z("en-us")
+	call(strs, stringsFindLocaleName, uintptr(unsafe.Pointer(&en[0])), uintptr(unsafe.Pointer(&index)), uintptr(unsafe.Pointer(&exists)))
+	if exists == 0 {
+		index = 0
+	}
+	var length uint32
+	if failed(call(strs, stringsGetStringLength, uintptr(index), uintptr(unsafe.Pointer(&length)))) {
+		return ""
+	}
+	buf := make([]uint16, length+1)
+	if failed(call(strs, stringsGetString, uintptr(index), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))) {
+		return ""
+	}
+	return syscall.UTF16ToString(buf)
 }
 
 func (e *dwrite) fontCount() int { return len(e.fonts) }

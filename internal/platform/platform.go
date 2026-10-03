@@ -615,6 +615,21 @@ type Theme interface {
 	// UIFont returns the family of the desktop's interface font where the
 	// system's text stack does not know it, as on Linux, else "".
 	UIFont() string
+	// FontRendering returns how the desktop's settings say to rasterize
+	// text where the system's text stack does not know them, as on Linux.
+	FontRendering() FontRendering
+}
+
+// FontRendering is how the desktop's settings say to rasterize text, as
+// GTK's gtk-xft settings: each field is "" for the default, or unknown.
+type FontRendering struct {
+	// Antialias is "none", "gray" or "subpixel".
+	Antialias string
+	// Hinting is "none", "slight", "medium" or "full".
+	Hinting string
+	// Subpixels is the order of the screen's subpixels: "rgb", "bgr",
+	// "vrgb" or "vbgr".
+	Subpixels string
 }
 
 // PDFOptions configures Window.PrintToPDF; lengths are in inches.

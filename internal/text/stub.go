@@ -1,6 +1,11 @@
 package text
 
-import "errors"
+import (
+	"errors"
+	"math"
+
+	"github.com/egoist/mygo/internal/scene"
+)
 
 // stubEngine lays out text without fonts where the system has no text
 // engine MyGo can use: every rune takes half an em and draws nothing.
@@ -30,7 +35,19 @@ func (e *stubEngine) shape(text []rune, style Style, spans []Span, width float32
 	return []shapedLine{{end: len(text), runs: []shapedRun{run}}}
 }
 
-func (e *stubEngine) glyph(f *Font, id uint32, scale, dx float32, _ Shade) bitmap { return bitmap{} }
+func (e *stubEngine) glyph(f *Font, id uint32, scale, dx float32, _ Shade, _ bool) bitmap {
+	return bitmap{}
+}
+
+func (e *stubEngine) textParams() (scene.TextParams, bool) { return scene.TextParams{}, false }
+
+func (e *stubEngine) positions(*Font, float32, bool) (int, bool) { return 1, true }
+
+func (e *stubEngine) decorate(decoRange) []Stroke { return nil }
+
+func (e *stubEngine) join() bool { return false }
+
+func (e *stubEngine) baseline(y float32) float32 { return float32(math.Round(float64(y))) }
 
 func (e *stubEngine) register(data []byte, family string) error {
 	return errors.New("mygo: this system has no text engine to add fonts to")

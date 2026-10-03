@@ -152,6 +152,77 @@ type Glyph struct {
 	// Colored glyphs come from Scene.ColorAtlas, the others from
 	// Scene.MaskAtlas.
 	Colored bool
+	// Subpixel glyphs come from Scene.ColorAtlas too, but hold the
+	// coverage of the red, green and blue subpixels of each pixel
+	// (ClearType), each blending its channel of Color.
+	Subpixel bool
+	// Thin glyphs, of fonts too thin for antialiasing such as Courier New,
+	// take half more contrast whatever their color (see TextCoverage), as
+	// Direct2D gives them.
+	Thin bool
+}
+
+// TextParams corrects the coverage of mask and subpixel glyphs for the
+// gamma and contrast text is blended with, as Direct2D does; the zero
+// value leaves it as it is.
+type TextParams struct {
+	// GammaRatios are Direct2D's alpha correction of a gamma (see
+	// GammaRatios).
+	GammaRatios [4]float32
+	// Contrast enhances the contrast of mask glyphs, and SubpixelContrast
+	// that of subpixel glyphs, the more the darker their color: DirectWrite's
+	// grayscale enhanced contrast and enhanced contrast.
+	Contrast, SubpixelContrast float32
+}
+
+// GammaRatios returns Direct2D's alpha correction ratios for text blended
+// at a gamma between 1 and 2.2, as Windows Terminal computes them.
+func GammaRatios(gamma float32) [4]float32 {
+	// Microsoft's ratios, for gamma 1.0, 1.1, ... 2.2, divided by 4.
+	table := [13][4]float32{
+		{0, 0, 0, 0},
+		{0.0166, -0.0807, 0.2227, -0.0751},
+		{0.0350, -0.1760, 0.4325, -0.1370},
+		{0.0543, -0.2821, 0.6302, -0.1876},
+		{0.0739, -0.3963, 0.8167, -0.2287},
+		{0.0933, -0.5161, 0.9926, -0.2616},
+		{0.1121, -0.6395, 1.1588, -0.2877},
+		{0.1300, -0.7649, 1.3159, -0.3080},
+		{0.1469, -0.8911, 1.4644, -0.3234},
+		{0.1627, -1.0170, 1.6051, -0.3347},
+		{0.1773, -1.1420, 1.7385, -0.3426},
+		{0.1908, -1.2652, 1.8650, -0.3476},
+		{0.2031, -1.3864, 1.9851, -0.3501},
+	}
+	i := min(max(int(gamma*10+0.5), 10), 22) - 10
+	const norm13 = float32(float64(0x10000) / (255 * 255) * 4)
+	const norm24 = float32(float64(0x100) / 255 * 4)
+	r := table[i]
+	return [4]float32{norm13 * r[0] / 4, norm24 * r[1] / 4, norm13 * r[2] / 4, norm24 * r[3] / 4}
+}
+
+// ThinBoost is the contrast Direct2D adds for thin glyphs.
+const ThinBoost = 0.5
+
+// TextCoverage corrects the coverage a of a glyph of straight color c, as
+// Direct2D blends text: it enhances the contrast by contrast, the more the
+// darker c is, plus boost, and corrects for the gamma of the ratios g.
+func TextCoverage(a float32, c [3]float32, contrast, boost float32, g [4]float32) float32 {
+	k := contrast*min(max(3-4*(0.30*c[0]+0.59*c[1]+0.11*c[2]), 0), 1) + boost
+	a = a * (k + 1) / (a*k + 1)
+	f := 0.25*c[0] + 0.5*c[1] + 0.25*c[2]
+	return min(max(a+a*(1-a)*((g[0]*f+g[1])*a+(g[2]*f+g[3])), 0), 1)
+}
+
+// SubpixelCoverage corrects the coverage of each subpixel of a subpixel
+// glyph of straight color c, as Direct2D blends ClearType text.
+func SubpixelCoverage(a, c [3]float32, contrast, boost float32, g [4]float32) [3]float32 {
+	k := contrast*min(max(3-4*(0.30*c[0]+0.59*c[1]+0.11*c[2]), 0), 1) + boost
+	for i := range a {
+		v := a[i] * (k + 1) / (a[i]*k + 1)
+		a[i] = min(max(v+v*(1-v)*((g[0]*c[i]+g[1])*v+(g[2]*c[i]+g[3])), 0), 1)
+	}
+	return a
 }
 
 // Scene is a frame's display list.
@@ -164,8 +235,11 @@ type Scene struct {
 	Clear  Color
 	Ops    []Op
 	Glyphs []Glyph
+	// Text corrects the coverage of mask and subpixel glyphs.
+	Text TextParams
 	// MaskAtlas holds coverage masks (one byte per pixel), ColorAtlas
-	// premultiplied RGBA bitmaps such as emoji.
+	// premultiplied RGBA bitmaps such as emoji, and the coverage of
+	// subpixel glyphs.
 	MaskAtlas, ColorAtlas *Atlas
 }
 

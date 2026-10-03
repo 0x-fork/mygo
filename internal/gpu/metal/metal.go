@@ -50,15 +50,16 @@ const (
 	usageRenderTarget = 4
 	storageManaged    = 1
 
-	loadActionClear    = 2
-	storeActionStore   = 1
-	primitiveTriStrip  = 4
-	blendOne           = 1
-	blendOneMinusSrcA  = 5
-	filterLinear       = 1
-	statusError        = 5
-	layerWidthSizable  = 1 << 1
-	layerHeightSizable = 1 << 4
+	loadActionClear        = 2
+	storeActionStore       = 1
+	primitiveTriStrip      = 4
+	blendOne               = 1
+	blendOneMinusSrc1Color = 16
+	blendOneMinusSrc1A     = 18
+	filterLinear           = 1
+	statusError            = 5
+	layerWidthSizable      = 1 << 1
+	layerHeightSizable     = 1 << 4
 )
 
 var (
@@ -423,9 +424,11 @@ func (r *Renderer) init() error {
 	// Premultiplied colors over what is drawn.
 	send(ca, "setBlendingEnabled:", 1)
 	send(ca, "setSourceRGBBlendFactor:", blendOne)
-	send(ca, "setDestinationRGBBlendFactor:", blendOneMinusSrcA)
+	// Dual-source blending: the shader's second color is the source's
+	// alpha of each channel.
+	send(ca, "setDestinationRGBBlendFactor:", blendOneMinusSrc1Color)
 	send(ca, "setSourceAlphaBlendFactor:", blendOne)
-	send(ca, "setDestinationAlphaBlendFactor:", blendOneMinusSrcA)
+	send(ca, "setDestinationAlphaBlendFactor:", blendOneMinusSrc1A)
 	errObj = 0
 	r.pipeline = send(r.device, "newRenderPipelineStateWithDescriptor:error:", desc, uintptr(unsafe.Pointer(&errObj)))
 	if r.pipeline == 0 {

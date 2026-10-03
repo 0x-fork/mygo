@@ -12,6 +12,8 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/egoist/mygo/internal/scene"
 )
 
 // An engine is the system's own text stack: DirectWrite on Windows, Core
@@ -32,8 +34,25 @@ type engine interface {
 	shape(text []rune, style Style, spans []Span, width float32, rtl, wholeWords bool) []shapedLine
 	// glyph rasterizes glyph id of f at scale pixels per DIP, its origin
 	// dx pixels (0 ≤ dx < 1) right of the left edge of a pixel, for text
-	// of a shade when f is shaded.
-	glyph(f *Font, id uint32, scale, dx float32, shade Shade) bitmap
+	// of a shade when f is shaded, with subpixel antialiasing if subpixel.
+	glyph(f *Font, id uint32, scale, dx float32, shade Shade, subpixel bool) bitmap
+	// positions returns how many horizontal positions within a pixel
+	// glyphs of f at scale pixels per DIP are drawn at, with subpixel
+	// antialiasing if subpixel, and whether a pen goes to the nearest
+	// (round) or to the one left of it.
+	positions(f *Font, scale float32, subpixel bool) (n int, round bool)
+	// baseline returns the whole pixel a baseline y device pixels from the
+	// top is drawn at.
+	baseline(y float32) float32
+	// decorate returns the strokes of a decoration (see System.Decorate).
+	decorate(r decoRange) []Stroke
+	// join reports whether the engine's text stack adds the coverage of
+	// the glyphs of a run whose edges share pixels before blending it.
+	join() bool
+	// textParams returns how renderers correct the coverage of glyphs,
+	// and whether glyphs take subpixel antialiasing, as the system's
+	// settings say.
+	textParams() (p scene.TextParams, subpixel bool)
 	// register adds the fonts of a font file under family, or under their
 	// own family names when family is "".
 	register(data []byte, family string) error
@@ -64,9 +83,10 @@ type bitmap struct {
 	// glyph's origin, y down.
 	left, top, w, h int
 	// pix holds a byte of coverage per pixel, or for color glyphs four
-	// bytes of premultiplied RGBA.
-	pix   []byte
-	color bool
+	// bytes of premultiplied RGBA, or for subpixel ones the coverage of
+	// the red, green and blue subpixels and a fourth byte.
+	pix             []byte
+	color, subpixel bool
 }
 
 // Font is a font of the system, or of the app, at a size. Layouts and
@@ -80,8 +100,13 @@ type Font struct {
 	Ascent, Descent, LineGap float32
 
 	native uintptr // the engine's font
-	// shaded fonts' glyphs differ by the shade of the text.
-	shaded bool
+	// shaded fonts' glyphs differ by the shade of the text; thin ones are
+	// too thin for antialiasing (GlyphImage.Thin).
+	shaded, thin bool
+	// The tops of the font's underline and strikethrough, in DIPs above
+	// the baseline, and their thickness, for engines that decorate with
+	// them (DirectWrite and Pango).
+	underlineTop, underlineThick, strikeTop, strikeThick float32
 }
 
 // generic names the families "system-ui", "sans-serif", "serif" and

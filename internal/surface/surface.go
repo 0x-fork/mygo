@@ -23,6 +23,9 @@ type Conn struct {
 	// UIFont returns the family of the desktop's interface font where the
 	// system's text stack does not know it (Linux), else "".
 	UIFont func() string
+	// FontRendering returns how the desktop's settings say to rasterize
+	// text where the system's text stack does not know them (Linux).
+	FontRendering func() platform.FontRendering
 	// TitleBar returns the room the window controls take in a window with
 	// a hidden title bar, zero in other windows.
 	TitleBar func() platform.TitleBar

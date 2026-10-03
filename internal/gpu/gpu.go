@@ -4,6 +4,12 @@
 // batches that share a scissor rectangle and an image. Every renderer
 // (d3d11, metal, gl) draws the same instances, the way internal/raster
 // draws scenes on the CPU.
+//
+// The shaders write a second color for blending, the source's alpha for
+// each channel: the alpha of the color for everything but subpixel
+// glyphs, whose subpixels cover each channel by its own. Renderers blend
+// with dual-source blending: the destination times one minus the second
+// color, plus the first.
 package gpu
 
 import (
@@ -29,8 +35,10 @@ func SourceSum(src string) string {
 // it: eleven float4s.
 type Instance struct {
 	// Rect is x, y, width, height; Radii the corners' radii (top-left,
-	// top-right, bottom-right, bottom-left); Inner those of a border's
-	// inner edge, or of the box casting a shadow.
+	// top-right, bottom-right, bottom-left), or a glyph's gamma ratios
+	// (scene.TextParams); Inner those of a border's inner edge, or of the
+	// box casting a shadow, or a glyph's contrast and thin boost in Inner[0]
+	// and Inner[1].
 	Rect, Radii, Inner [4]float32
 	// Color and Color2 (a gradient's end) and Border are straight RGBA.
 	Color, Color2, Border [4]float32
@@ -43,8 +51,9 @@ type Instance struct {
 	// Clip and ClipRadii are the innermost clip, which the shader cuts.
 	Clip, ClipRadii [4]float32
 	// Params is the kind (0 fill, 1 shadow, 2 mask glyph, 3 color glyph, 4
-	// image); 1 for a dashed border or a grayscale image; the shadow's
-	// sigma (0 for none) or the paint (scene.Paint); and the opacity.
+	// image, 5 subpixel glyph); 1 for a dashed border or a grayscale image;
+	// the shadow's sigma (0 for none) or the paint (scene.Paint); and the
+	// opacity.
 	Params [4]float32
 }
 
@@ -151,16 +160,25 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 		case scene.OpGlyphs:
 			grad := op.Paint == scene.PaintLinear || op.Paint == scene.PaintOklab
 			for _, g := range s.Glyphs[op.Start:op.End] {
-				a, kind := s.MaskAtlas, float32(2)
-				if g.Colored {
+				a, kind, contrast := s.MaskAtlas, float32(2), s.Text.Contrast
+				switch {
+				case g.Colored:
 					a, kind = s.ColorAtlas, 3
+				case g.Subpixel:
+					a, kind, contrast = s.ColorAtlas, 5, s.Text.SubpixelContrast
 				}
 				if a == nil {
 					continue
 				}
+				boost := float32(0)
+				if g.Thin {
+					boost = scene.ThinBoost
+				}
 				aw, ah := float32(a.W), float32(a.H)
 				in := Instance{
 					Rect:   [4]float32{float32(math.Round(float64(g.X))), float32(math.Round(float64(g.Y))), float32(g.UW), float32(g.VH)},
+					Radii:  s.Text.GammaRatios,
+					Inner:  [4]float32{contrast, boost},
 					UV:     [4]float32{float32(g.U) / aw, float32(g.V) / ah, float32(g.U+g.UW) / aw, float32(g.V+g.VH) / ah},
 					Color:  straight(g.Color),
 					Params: [4]float32{kind, 0, 0, 1},

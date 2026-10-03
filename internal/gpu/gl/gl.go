@@ -34,6 +34,8 @@ const (
 	glScissorTest        = 0x0C11
 	glOne                = 1
 	glOneMinusSrcAlpha   = 0x0303
+	glOneMinusSrc1Color  = 0x88FA
+	glOneMinusSrc1Alpha  = 0x88FB
 	glColorBufferBit     = 0x4000
 	glArrayBuffer        = 0x8892
 	glStreamDraw         = 0x88E0
@@ -79,6 +81,7 @@ var (
 
 	epoxyGLVersion    func() int32
 	epoxyIsDesktopGL  func() bool
+	epoxyHasExtension func(name string) bool
 	currentGDKContext func() uintptr // gdk_gl_context_get_current, when GDK is loaded
 
 	glGetString             func(name uint32) uintptr
@@ -123,6 +126,7 @@ var (
 	glEnable                func(cap uint32)
 	glDisable               func(cap uint32)
 	glBlendFunc             func(src, dst uint32)
+	glBlendFuncSeparate     func(srcRGB, dstRGB, srcAlpha, dstAlpha uint32)
 	glClearColor            func(r, g, b, a float32)
 	glClear                 func(mask uint32)
 	glDrawArraysInstanced   func(mode uint32, first, count, instances int32)
@@ -163,6 +167,7 @@ func load() error {
 		}
 		fn(&epoxyGLVersion, "epoxy_gl_version")
 		fn(&epoxyIsDesktopGL, "epoxy_is_desktop_gl")
+		fn(&epoxyHasExtension, "epoxy_has_gl_extension")
 		gl(&glGetString, "glGetString")
 		gl(&glGetError, "glGetError")
 		gl(&glGetIntegerv, "glGetIntegerv")
@@ -205,6 +210,7 @@ func load() error {
 		gl(&glEnable, "glEnable")
 		gl(&glDisable, "glDisable")
 		gl(&glBlendFunc, "glBlendFunc")
+		gl(&glBlendFuncSeparate, "glBlendFuncSeparate")
 		gl(&glClearColor, "glClearColor")
 		gl(&glClear, "glClear")
 		gl(&glDrawArraysInstanced, "glDrawArraysInstanced")
@@ -260,8 +266,11 @@ type texture struct {
 // with the GL context that was current when New was called. All its
 // methods must be called with that context current.
 type Renderer struct {
-	context  uintptr // GDK's, to tell when the area's context changes
-	es       bool
+	context uintptr // GDK's, to tell when the area's context changes
+	es      bool
+	// dual tells that the context blends with a second color from the
+	// shader (OpenGL 3.3, or GLES with EXT_blend_func_extended).
+	dual     bool
 	maxSize  int
 	program  uint32
 	vao, buf uint32
@@ -298,9 +307,14 @@ func (r *Renderer) init() error {
 	var size int32
 	glGetIntegerv(glMaxTextureSize, &size)
 	r.maxSize = int(size)
-	header := "#version 330 core\n"
+	r.dual = !r.es || epoxyHasExtension("GL_EXT_blend_func_extended")
+	header := "#version 330 core\n#define DUAL\n"
 	if r.es {
-		header = "#version 300 es\nprecision highp float;\nprecision highp int;\n"
+		header = "#version 300 es\n"
+		if r.dual {
+			header += "#extension GL_EXT_blend_func_extended : require\n#define DUAL\n"
+		}
+		header += "precision highp float;\nprecision highp int;\n"
 	}
 	vs, err := compile(glVertexShader, header+"#define VERTEX\n"+shaderSource)
 	if err != nil {
@@ -513,7 +527,11 @@ func (r *Renderer) draw(s *scene.Scene) error {
 		glBindTexture(glTexture2D, tex)
 	}
 	glEnable(glBlend)
-	glBlendFunc(glOne, glOneMinusSrcAlpha)
+	if r.dual {
+		glBlendFuncSeparate(glOne, glOneMinusSrc1Color, glOne, glOneMinusSrc1Alpha)
+	} else {
+		glBlendFunc(glOne, glOneMinusSrcAlpha)
+	}
 	glEnable(glScissorTest)
 	bound := uintptr(r.empty)
 	for _, b := range r.b.Batches {

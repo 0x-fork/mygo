@@ -84,7 +84,14 @@ uniform sampler2D uMask;
 uniform sampler2D uColor;
 uniform sampler2D uImage;
 
+// The color and, for dual-source blending, the source's alpha of each
+// channel. Without it, subpixel glyphs take the mean of their subpixels.
+#ifdef DUAL
+layout(location = 0, index = 0) out vec4 fragColor;
+layout(location = 0, index = 1) out vec4 fragAlpha;
+#else
 out vec4 fragColor;
+#endif
 
 float sdRoundRect(vec2 p, vec4 rect, vec4 radii) {
 	vec2 h = rect.zw * 0.5;
@@ -96,7 +103,39 @@ float sdRoundRect(vec2 p, vec4 rect, vec4 radii) {
 
 float coverage(float d) { return clamp(0.5 - d, 0.0, 1.0); }
 
+// rectCoverage returns how much of the pixel at p a rounded rectangle
+// covers: by the distance to its edge near rounded corners, and exactly,
+// the area of the pixel inside it, near square ones.
+float rectCoverage(vec2 p, vec4 rect, vec4 radii) {
+	vec2 q = p - rect.xy - rect.zw * 0.5;
+	float r = q.x < 0.0 ? (q.y < 0.0 ? radii.x : radii.w) : (q.y < 0.0 ? radii.y : radii.z);
+	if (r > 0.0) {
+		return coverage(sdRoundRect(p, rect, radii));
+	}
+	vec2 c = clamp(min(rect.xy + rect.zw, p + 0.5) - max(rect.xy, p - 0.5), 0.0, 1.0);
+	return c.x * c.y;
+}
+
 vec4 premul(vec4 c) { return vec4(c.rgb * c.a, c.a); }
+
+vec3 unpremul(vec4 c) { return c.a > 0.0 ? c.rgb / c.a : vec3(0.0); }
+
+// textCoverage corrects the coverage a of a glyph of straight color c as
+// Direct2D blends text (scene.TextCoverage): it enhances the contrast,
+// the more the darker c is, and corrects for gamma with the ratios g.
+float textCoverage(float a, vec3 c, float contrast, float boost, vec4 g) {
+	float k = contrast * clamp(3.0 - 4.0 * dot(c, vec3(0.30, 0.59, 0.11)), 0.0, 1.0) + boost;
+	a = a * (k + 1.0) / (a * k + 1.0);
+	float f = dot(c, vec3(0.25, 0.5, 0.25));
+	return clamp(a + a * (1.0 - a) * ((g.x * f + g.y) * a + (g.z * f + g.w)), 0.0, 1.0);
+}
+
+// subpixelCoverage does the same for each subpixel of a subpixel glyph.
+vec3 subpixelCoverage(vec3 a, vec3 c, float contrast, float boost, vec4 g) {
+	float k = contrast * clamp(3.0 - 4.0 * dot(c, vec3(0.30, 0.59, 0.11)), 0.0, 1.0) + boost;
+	a = a * (k + 1.0) / (a * k + 1.0);
+	return clamp(a + a * (1.0 - a) * ((g.x * c + g.y) * a + (g.z * c + g.w)), vec3(0.0), vec3(1.0));
+}
 
 // erf2 approximates the error function (Abramowitz and Stegun 7.1.27).
 vec2 erf2(vec2 x) {
@@ -229,12 +268,12 @@ void main() {
 	float kind = vParams.x;
 	vec4 res;
 	if (kind < 0.5) {
-		float outer = coverage(sdRoundRect(p, vRect, vRadii));
+		float outer = rectCoverage(p, vRect, vRadii);
 		res = paint(p, vParams.z, vRect, vColor, vColor2, vGrad) * outer;
 		vec4 bw = vWidths; // top, right, bottom, left
 		if (any(greaterThan(bw, vec4(0.0)))) {
 			vec4 ir = vec4(vRect.xy + bw.wx, vRect.zw - bw.yz - bw.wx);
-			float innerCov = (ir.z > 0.0 && ir.w > 0.0) ? coverage(sdRoundRect(p, ir, vInner)) : 0.0;
+			float innerCov = (ir.z > 0.0 && ir.w > 0.0) ? rectCoverage(p, ir, vInner) : 0.0;
 			float bc = clamp(outer - innerCov, 0.0, 1.0);
 			if (vParams.y > 0.5) {
 				bc *= dash(p, vRect, bw);
@@ -245,23 +284,40 @@ void main() {
 	} else if (kind < 1.5) {
 		float sigma = vParams.z;
 		float corner = max(max(vRadii.x, vRadii.y), max(vRadii.z, vRadii.w));
-		float s = sigma > 0.0 ? boxShadow(p, vRect, sigma, corner) : coverage(sdRoundRect(p, vRect, vRadii));
+		float s = sigma > 0.0 ? boxShadow(p, vRect, sigma, corner) : rectCoverage(p, vRect, vRadii);
 		if (vWidths.z > 0.0 && vWidths.w > 0.0) {
-			s *= 1.0 - coverage(sdRoundRect(p, vWidths, vInner)); // outside the box casting it
+			s *= 1.0 - rectCoverage(p, vWidths, vInner); // outside the box casting it
 		}
 		res = premul(vColor) * s;
 	} else if (kind < 2.5) {
-		res = paint(p, vParams.z, vRect, vColor, vColor2, vGrad) * texture(uMask, tex).r;
+		vec4 c = paint(p, vParams.z, vRect, vColor, vColor2, vGrad);
+		res = c * textCoverage(texture(uMask, tex).r, unpremul(c), vInner.x, vInner.y, vRadii);
 	} else if (kind < 3.5) {
 		res = texture(uColor, tex) * vColor.a;
-	} else {
-		res = texture(uImage, tex) * coverage(sdRoundRect(p, vRect, vRadii));
+	} else if (kind < 4.5) {
+		res = texture(uImage, tex) * rectCoverage(p, vRect, vRadii);
 		if (vParams.y > 0.5) {
 			res.rgb = vec3(dot(res.rgb, vec3(0.2126, 0.7152, 0.0722)));
 		}
+	} else {
+		vec4 c = paint(p, vParams.z, vRect, vColor, vColor2, vGrad);
+		vec3 straight = unpremul(c);
+		vec3 a = subpixelCoverage(texture(uColor, tex).rgb, straight, vInner.x, vInner.y, vRadii);
+		vec3 w = a * c.a * rectCoverage(p, vClip, vClipRadii) * vParams.w;
+		float wa = (w.r + w.g + w.b) / 3.0;
+#ifdef DUAL
+		fragColor = vec4(straight * w, wa);
+		fragAlpha = vec4(w, wa);
+#else
+		fragColor = vec4(straight * wa, wa);
+#endif
+		return;
 	}
-	float clip = coverage(sdRoundRect(p, vClip, vClipRadii));
+	float clip = rectCoverage(p, vClip, vClipRadii);
 	fragColor = res * clip * vParams.w;
+#ifdef DUAL
+	fragAlpha = fragColor.aaaa;
+#endif
 }
 
 #endif

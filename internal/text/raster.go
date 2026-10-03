@@ -3,11 +3,9 @@ package text
 import (
 	"image"
 	"math"
-)
 
-// SubpixelSteps is the number of horizontal positions within a pixel a
-// glyph is rasterized for.
-const SubpixelSteps = 4
+	"github.com/egoist/mygo/internal/scene"
+)
 
 // A Shade is how light the color of text is, from 0 (dark) to Shades-1
 // (light). Core Text's font smoothing, which AppKit draws text with,
@@ -40,25 +38,48 @@ var linear = func() (t [256]float32) {
 }()
 
 type glyphKey struct {
-	font  *Font
-	id    uint32
-	scale uint32 // pixels per DIP, in 1/256
-	subX  uint8
-	shade Shade
+	font     *Font
+	id       uint32
+	scale    uint32 // pixels per DIP, in 1/256
+	subX     uint8  // the position within a pixel, of placement.n
+	shade    Shade
+	subpixel bool
+}
+
+// placement is how the system's text stack places glyphs of a font at a
+// scale horizontally: at n positions within a pixel, the nearest to their
+// pen if round, else the one left of it.
+type placement struct {
+	n     int
+	round bool
+}
+
+type placeKey struct {
+	font     *Font
+	scale    uint32
+	subpixel bool
 }
 
 // GlyphImage is a rasterized glyph in an atlas.
 type GlyphImage struct {
 	// OK is false for glyphs without pixels, such as spaces.
 	OK bool
-	// Colored glyphs are in the color atlas, the others in the mask atlas.
-	Colored bool
+	// Colored glyphs are in the color atlas, the others in the mask atlas
+	// but Subpixel ones, in the color atlas too, which hold the coverage of
+	// each pixel's red, green and blue subpixels.
+	Colored, Subpixel bool
+	// Thin glyphs are of a font too thin for antialiasing, which renderers
+	// give more contrast (scene.Glyph.Thin).
+	Thin bool
 	// X, Y, W and H are the bitmap's rectangle in its atlas.
 	X, Y, W, H uint16
 	// Left and Top place the bitmap relative to the glyph's origin on the
 	// baseline, in pixels: Top is usually negative.
 	Left, Top float32
 }
+
+// inColor reports whether the glyph is in the color atlas.
+func (g GlyphImage) inColor() bool { return g.Colored || g.Subpixel }
 
 // atlasEntry is a cached glyph or mask.
 type atlasEntry struct {
@@ -124,11 +145,21 @@ func (s *System) makeRoom(color bool, want int, grow bool) {
 		}
 	}
 	for k, e := range s.glyphs {
-		if !e.OK || e.Colored != color {
+		if !e.OK || e.inColor() != color {
 			continue // blank glyphs take no room
 		}
 		if e.used != s.frame {
 			delete(s.glyphs, k)
+			continue
+		}
+		keep = append(keep, e)
+	}
+	for k, e := range s.runs {
+		if e.inColor() != color {
+			continue
+		}
+		if e.used != s.frame {
+			delete(s.runs, k)
 			continue
 		}
 		keep = append(keep, e)
@@ -148,8 +179,13 @@ func (s *System) makeRoom(color bool, want int, grow bool) {
 	if !ok {
 		a.Reset()
 		for k, e := range s.glyphs {
-			if e.OK && e.Colored == color {
+			if e.OK && e.inColor() == color {
 				delete(s.glyphs, k)
+			}
+		}
+		for k, e := range s.runs {
+			if e.inColor() == color {
+				delete(s.runs, k)
 			}
 		}
 		if !color {
@@ -162,9 +198,13 @@ func (s *System) makeRoom(color bool, want int, grow bool) {
 	}
 }
 
-// Glyph rasterizes glyph id of a font at scale pixels per DIP, shifted
-// right by subX/SubpixelSteps of a pixel, for text of a shade.
-func (s *System) Glyph(f *Font, id uint32, scale float32, subX int, shade Shade) GlyphImage {
+// Glyph rasterizes glyph id of a font at scale pixels per DIP whose pen
+// is x device pixels from the left, for text of a shade, placed as the
+// system's text stack places glyphs: at one of the positions within a
+// pixel it draws them at. Left is relative to the pixel x is in. Glyphs on
+// opaque backgrounds may be subpixel ones, when the system's settings
+// (TextParams) ask for subpixel antialiasing.
+func (s *System) Glyph(f *Font, id uint32, scale, x float32, shade Shade, opaque bool) GlyphImage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if f == nil {
@@ -173,34 +213,81 @@ func (s *System) Glyph(f *Font, id uint32, scale float32, subX int, shade Shade)
 	if !f.shaded {
 		shade = 0
 	}
-	key := glyphKey{font: f, id: id, scale: uint32(scale*256 + 0.5), subX: uint8(subX), shade: min(shade, Shades-1)}
-	if e, ok := s.glyphs[key]; ok {
-		e.used = s.frame
-		return e.GlyphImage
+	subpixel := opaque && s.subpixel
+	q, n, carry := s.place(f, scale, subpixel, x)
+	key := glyphKey{font: f, id: id, scale: uint32(scale*256 + 0.5), subX: uint8(q), shade: min(shade, Shades-1), subpixel: subpixel}
+	e, ok := s.glyphs[key]
+	if !ok {
+		failed := s.failed
+		g := s.rasterize(f, id, scale, float32(q)/float32(n), key.shade, key.subpixel)
+		e = &atlasEntry{g, s.frame}
+		if s.failed == failed { // not left out of a full atlas
+			s.glyphs[key] = e
+		}
 	}
-	failed := s.failed
-	g := s.rasterize(f, id, scale, float32(subX)/SubpixelSteps, key.shade)
-	if s.failed == failed { // not left out of a full atlas
-		s.glyphs[key] = &atlasEntry{g, s.frame}
-	}
+	e.used = s.frame
+	g := e.GlyphImage
+	g.Left += carry
 	return g
 }
 
-func (s *System) rasterize(f *Font, id uint32, scale, dx float32, shade Shade) GlyphImage {
-	b := s.engine().glyph(f, id, scale, dx, shade)
+// place returns where the system's text stack draws a glyph of f whose pen
+// is at x: at position q of the n within a pixel, carry pixels right of
+// the pixel x is in.
+func (s *System) place(f *Font, scale float32, subpixel bool, x float32) (q, n int, carry float32) {
+	pk := placeKey{f, uint32(scale*256 + 0.5), subpixel}
+	pl, ok := s.places[pk]
+	if !ok {
+		pl.n, pl.round = s.engine().positions(f, scale, subpixel)
+		pl.n = max(pl.n, 1)
+		s.places[pk] = pl
+	}
+	frac := float64(x) - math.Floor(float64(x))
+	if pl.round {
+		if q = int(math.Floor(frac*float64(pl.n) + 0.5)); q == pl.n {
+			return 0, pl.n, 1
+		}
+		return q, pl.n, 0
+	}
+	return min(int(frac*float64(pl.n)), pl.n-1), pl.n, 0
+}
+
+// Baseline returns where the system's text stack draws a baseline that is
+// y device pixels from the top: on a whole pixel.
+func (s *System) Baseline(y float32) float32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.engine().baseline(y)
+}
+
+func (s *System) rasterize(f *Font, id uint32, scale, dx float32, shade Shade, subpixel bool) GlyphImage {
+	b := s.engine().glyph(f, id, scale, dx, shade, subpixel)
 	if b.w <= 0 || b.h <= 0 || b.w > 2048 || b.h > 2048 {
 		return GlyphImage{}
 	}
-	x, y, ok := s.alloc(b.color, b.w, b.h)
+	inColor := b.color || b.subpixel
+	x, y, ok := s.alloc(inColor, b.w, b.h)
 	if !ok {
 		return GlyphImage{}
 	}
-	if b.color {
+	if inColor {
 		s.ColorAtlas.Put(x, y, b.w, b.h, b.pix, 4*b.w)
 	} else {
 		s.MaskAtlas.Put(x, y, b.w, b.h, b.pix, b.w)
 	}
-	return GlyphImage{OK: true, Colored: b.color, X: uint16(x), Y: uint16(y), W: uint16(b.w), H: uint16(b.h), Left: float32(b.left), Top: float32(b.top)}
+	return GlyphImage{OK: true, Colored: b.color, Subpixel: b.subpixel, Thin: f.thin && !b.color,
+		X: uint16(x), Y: uint16(y), W: uint16(b.w), H: uint16(b.h), Left: float32(b.left), Top: float32(b.top)}
+}
+
+// TextParams returns how renderers correct the coverage of glyphs, as
+// the system's settings say, for the frame being painted, and has glyphs
+// on opaque backgrounds take subpixel antialiasing if they ask for it.
+func (s *System) TextParams() scene.TextParams {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, subpixel := s.engine().textParams()
+	s.subpixel = subpixel
+	return p
 }
 
 // alloc finds lasting room in an atlas, or records that it is full.

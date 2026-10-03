@@ -408,6 +408,8 @@ func (t theme) IsDark() bool { return t.b.isDark() }
 // UIFont is DirectWrite's to find: Segoe UI.
 func (theme) UIFont() string { return "" }
 
+func (theme) FontRendering() platform.FontRendering { return platform.FontRendering{} }
+
 func (t theme) SetSource(source string) {
 	t.b.themeSource = source
 	t.b.applyTheme()

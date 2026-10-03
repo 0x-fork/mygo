@@ -303,11 +303,16 @@ func (h *windowHost) detach() {
 
 func (h *windowHost) requestFrame() { h.conn.Surface.RequestFrame() }
 
-// uiFont gives system-ui the desktop's interface font where the text
-// system does not know it.
+// uiFont gives system-ui the desktop's interface font, and text the
+// desktop's settings for rasterizing it, where the text system does not
+// know them.
 func (h *windowHost) uiFont() {
 	if h.conn.UIFont != nil {
 		text.Shared().SetUIFamily(h.conn.UIFont())
+	}
+	if h.conn.FontRendering != nil {
+		r := h.conn.FontRendering()
+		text.Shared().SetFontRendering(r.Antialias, r.Hinting, r.Subpixels)
 	}
 }
 

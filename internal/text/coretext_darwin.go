@@ -8,11 +8,15 @@ import (
 	"log"
 	"math"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
+	"unicode"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
 	"github.com/ebitengine/purego/objc"
+	"github.com/egoist/mygo/internal/scene"
 )
 
 // Core Text lays out paragraphs: a typesetter finds the fonts, falls back
@@ -108,6 +112,14 @@ var ct struct {
 	fontGetLeading        func(font uintptr) float64
 	fontGetSize           func(font uintptr) float64
 	fontGetSymbolicTraits func(font uintptr) uint32
+	fontGetUnderlinePos   func(font uintptr) float64
+	fontGetUnderlineThick func(font uintptr) float64
+	fontGetXHeight        func(font uintptr) float64
+	fontGetUnitsPerEm     func(font uintptr) uint32
+	fontCopyTable         func(font uintptr, tag uint32, options uint32) uintptr
+	fontCreatePath        func(font uintptr, glyph uint16, matrix uintptr) uintptr
+	dataGetLength         func(data uintptr) int
+	dataGetBytePtr        func(data uintptr) *byte
 	fontGetBoundingRects  func(font uintptr, orientation uint32, glyphs *uint16, rects *cgRect, n int) cgRect
 	fontDrawGlyphs        func(font uintptr, glyphs *uint16, positions *cgPoint, n int, context uintptr)
 	paragraphStyleCreate  func(settings *ctParagraphStyleSetting, n int) uintptr
@@ -147,6 +159,8 @@ var ct struct {
 	contextQuantize         func(ctx uintptr, on bool)
 	contextScaleCTM         func(ctx uintptr, sx, sy float64)
 	contextSetFill          func(ctx uintptr, r, g, b, a float64)
+	pathApply               func(path, info, fn uintptr)
+	pathRelease             func(path uintptr)
 
 	// Objective-C
 	poolPush func() uintptr
@@ -194,6 +208,16 @@ func loadCoreText() error {
 		return fmt.Errorf("cannot load %s", strings.Join(missing, ", "))
 	}
 	bind(cf, &ct.release, "CFRelease")
+	bind(cf, &ct.dataGetLength, "CFDataGetLength")
+	bind(cf, &ct.dataGetBytePtr, "CFDataGetBytePtr")
+	bind(text, &ct.fontGetUnderlinePos, "CTFontGetUnderlinePosition")
+	bind(text, &ct.fontGetUnderlineThick, "CTFontGetUnderlineThickness")
+	bind(text, &ct.fontGetXHeight, "CTFontGetXHeight")
+	bind(text, &ct.fontGetUnitsPerEm, "CTFontGetUnitsPerEm")
+	bind(text, &ct.fontCopyTable, "CTFontCopyTable")
+	bind(text, &ct.fontCreatePath, "CTFontCreatePathForGlyph")
+	bind(cg, &ct.pathApply, "CGPathApply")
+	bind(cg, &ct.pathRelease, "CGPathRelease")
 	bind(cf, &ct.retain, "CFRetain")
 	bind(cf, &ct.hash, "CFHash")
 	bind(cf, &ct.equal, "CFEqual")
@@ -296,6 +320,8 @@ type coreText struct {
 	styles [2]uintptr // paragraph styles: left-to-right, right-to-left
 	srgb   uintptr
 	smooth bool // the user leaves font smoothing on
+	// bands caches where glyphs' outlines cross underlines (inkInBand).
+	bands map[bandKey][2]float32
 
 	primary map[Style]uintptr // the CTFont of each style
 	fonts   map[uint][]*Font  // by CFHash of their CTFont
@@ -319,6 +345,7 @@ func newCoreText() (*coreText, error) {
 		fonts:      map[uint][]*Font{},
 		color:      map[uintptr]bool{},
 		registered: map[string][]registeredFace{},
+		bands:      map[bandKey][2]float32{},
 	}
 	for i, dir := range [2]int8{0, 1} { // kCTWritingDirectionLeftToRight, RightToLeft
 		d := dir
@@ -806,7 +833,27 @@ func (e *coreText) isColor(font uintptr) bool {
 	return c
 }
 
-func (e *coreText) glyph(f *Font, id uint32, scale, dx float32, shade Shade) bitmap {
+// positions follows Core Graphics' subpixel quantization, which AppKit
+// leaves on: glyphs go to the position left of their pen, among fewer the
+// larger they are, at most five a pixel and one from 34 pixels an em.
+func (e *coreText) positions(f *Font, scale float32, _ bool) (int, bool) {
+	px := float64(f.Size * scale)
+	if px <= 0 {
+		return 1, false
+	}
+	return min(5, max(1, int(math.Ceil(100/(3*px)-1e-9)))), false
+}
+
+// baseline is the whole pixel at or below y: Core Graphics draws a glyph
+// from the pixel below its pen in its y-up space, as AppKit does on
+// flipped views.
+func (e *coreText) baseline(y float32) float32 { return float32(math.Ceil(float64(y) - 1e-3)) }
+
+// textParams leaves coverage as it is: Core Graphics blends text in sRGB
+// space, as renderers do, without subpixels since macOS 10.14.
+func (e *coreText) textParams() (scene.TextParams, bool) { return scene.TextParams{}, false }
+
+func (e *coreText) glyph(f *Font, id uint32, scale, dx float32, shade Shade, _ bool) bitmap {
 	font := f.native
 	g := uint16(id)
 	var r cgRect
@@ -865,6 +912,239 @@ func (e *coreText) glyph(f *Font, id uint32, scale, dx float32, shade Shade) bit
 	ct.contextRelease(ctx)
 	runtime.KeepAlive(pix)
 	return bitmap{left: left, top: top, w: w, h: h, pix: pix, color: color}
+}
+
+// decorate places underlines and strikethroughs as Core Text draws them
+// for AppKit, which snaps them in points, the DIPs of a screen, from the
+// baseline: an underline as low and thick as those of the fonts of the
+// glyphs under it want it, skipping their ink, a strikethrough through the
+// middle of the x-height of the text's own font, and both from where the
+// text starts to its width rounded up to a whole point, leaving out
+// whitespace starting or ending a line. The baseline is the glyphs', a
+// whole pixel, as AppKit's labels have on whole points.
+func (e *coreText) decorate(r decoRange) []Stroke {
+	gs := r.line.Glyphs
+	i, j := r.i, r.j
+	if i == 0 {
+		for i < j && unicode.IsSpace(r.rune(i)) {
+			i++
+		}
+	}
+	if j == len(gs) {
+		for j > i && unicode.IsSpace(r.rune(j-1)) {
+			j--
+		}
+	}
+	if i >= j {
+		return nil
+	}
+	x0, _ := r.span(i, j)
+	var width float32
+	for _, g := range gs[i:j] {
+		width += g.Advance
+	}
+	x1 := x0 + float32(math.Ceil(float64(width)-1e-4))
+	var center, thick float32 // below the baseline
+	if r.d == Strikethrough {
+		p, t := ctStrikethrough(r.font)
+		center, thick = -p, t
+	} else {
+		r.runs(func(f *Font, _, _ int) {
+			p, t := ctUnderline(f)
+			center, thick = max(center, p), max(thick, t)
+		})
+	}
+	pieces := [][2]float32{{x0, x1}}
+	if r.d == Underline {
+		var cuts [][2]float32
+		for k := i; k < j; k++ {
+			g := gs[k]
+			if g.Font == nil || !skipsInk(r.rune(k)) {
+				continue
+			}
+			if a, b, ok := e.inkInBand(g.Font, g.ID, -(center + thick/2), -(center - thick/2)); ok {
+				cuts = append(cuts, [2]float32{g.X + a - thick, g.X + b + thick})
+			}
+		}
+		pieces = cut(x0, x1, cuts, 0.75*thick)
+	}
+	s := r.scale
+	base := e.baseline(r.baseline() * s)
+	out := make([]Stroke, len(pieces))
+	for k, p := range pieces {
+		out[k] = Stroke{X0: (r.x + p[0]) * s, X1: (r.x + p[1]) * s, Top: base + (center-thick/2)*s, Bottom: base + (center+thick/2)*s}
+	}
+	return out
+}
+
+// ctUnderline returns where Core Text centers the underline of a font
+// below the baseline, and how thick it draws it, in points.
+func ctUnderline(f *Font) (center, thick float32) {
+	font := f.native
+	pos, th := ct.fontGetUnderlinePos(font), ct.fontGetUnderlineThick(font)
+	asc, desc := ct.fontGetAscent(font), ct.fontGetDescent(font)
+	d := desc
+	if desc < 2 {
+		d = (asc + desc) / 4
+	}
+	reach := min(d*5.3636991028295373, asc+desc)
+	if pos >= 0 { // no underline position
+		pos = -0.08805546253922189 * reach
+	}
+	p, t := -pos, th
+	if d >= 2 && th > 0.35 {
+		t = math.Ceil(th)
+		if t >= d || d <= 4 && t >= 3 || d <= 2.5 && t >= 2 {
+			t--
+		}
+		p = snapLine(p, t)
+		if p < 1.5 || p == 1.5 && d > 4 {
+			p++
+		}
+	}
+	if d > 0 {
+		p = min(p, math.Floor(d)-t/2)
+	}
+	p = max(p, math.Ceil(th)+t/2)
+	if t <= 0 { // no underline thickness
+		t = reach * 0.044027731269610945
+	}
+	return float32(p), float32(t)
+}
+
+// ctStrikethrough returns where Core Text centers the strikethrough of a
+// font above the baseline, and how thick it draws it, in points: through
+// the middle of the x-height, as thick as the underline.
+func ctStrikethrough(f *Font) (center, thick float32) {
+	font := f.native
+	p, th := ct.fontGetXHeight(font)/2, ct.fontGetUnderlineThick(font)
+	if p <= 0 {
+		// No x-height: the strikeout of the OS/2 table.
+		if t := ct.fontCopyTable(font, 0x4F532F32, 0); t != 0 {
+			if ct.dataGetLength(t) >= 30 {
+				b := unsafe.Slice(ct.dataGetBytePtr(t), 30)
+				size, pos := int16(uint16(b[26])<<8|uint16(b[27])), int16(uint16(b[28])<<8|uint16(b[29]))
+				em := ct.fontGetSize(font) / float64(max(ct.fontGetUnitsPerEm(font), 1))
+				p, th = (float64(pos)-float64(size)/2)*em, float64(size)*em
+			}
+			ct.release(t)
+		}
+	}
+	t := th
+	if p > 1 && th > 0.35 {
+		t = math.Ceil(th)
+		p = snapLine(p, t)
+	}
+	return float32(p), float32(t)
+}
+
+// join: Core Graphics blends each glyph of a run in turn.
+func (e *coreText) join() bool { return false }
+
+// snapLine puts a line of thickness t (whole points) centered at p on
+// whole points.
+func snapLine(p, t float64) float64 {
+	if int(t)%2 == 0 {
+		return math.Floor(p + 0.5)
+	}
+	return math.Floor(p) + 0.5
+}
+
+type bandKey struct {
+	font   uintptr
+	glyph  uint32
+	lo, hi float32
+}
+
+// inkInBand returns how far left and right of its origin the outline of a
+// glyph reaches between lo and hi points above the baseline.
+func (e *coreText) inkInBand(f *Font, id uint32, lo, hi float32) (a, b float32, ok bool) {
+	key := bandKey{f.native, id, lo, hi}
+	if v, seen := e.bands[key]; seen {
+		return v[0], v[1], v[0] <= v[1]
+	}
+	if len(e.bands) >= 4096 {
+		clear(e.bands)
+	}
+	segs := glyphOutline(f.native, uint16(id))
+	ax, bx, found := bandX(segs, float64(lo), float64(hi))
+	v := [2]float32{1, 0}
+	if found {
+		v = [2]float32{float32(ax), float32(bx)}
+	}
+	e.bands[key] = v
+	return v[0], v[1], found
+}
+
+// The outline of a glyph, flattened into segments, as CGPathApply hands
+// its elements to the one callback made for it.
+var (
+	outlineOnce sync.Once
+	outlineFn   uintptr
+	outlineSegs [][4]float64
+	outlineAt   [2]float64 // the current point
+	outlineFrom [2]float64 // the start of the subpath
+)
+
+type cgPathElement struct {
+	kind   int32
+	points *cgPoint
+}
+
+// glyphOutline returns the outline of a glyph in points, y up, as line
+// segments. The text system's lock serializes its callers.
+func glyphOutline(font uintptr, glyph uint16) [][4]float64 {
+	outlineOnce.Do(func() {
+		outlineFn = purego.NewCallback(func(_ uintptr, el *cgPathElement) uintptr {
+			pt := func(i int) [2]float64 {
+				p := unsafe.Slice(el.points, i+1)[i]
+				return [2]float64{p.x, p.y}
+			}
+			line := func(q [2]float64) {
+				outlineSegs = append(outlineSegs, [4]float64{outlineAt[0], outlineAt[1], q[0], q[1]})
+				outlineAt = q
+			}
+			switch el.kind {
+			case 0: // move
+				outlineAt = pt(0)
+				outlineFrom = outlineAt
+			case 1: // line
+				line(pt(0))
+			case 2, 3: // quadratic and cubic curves, in 16 lines
+				p0 := outlineAt
+				c := []([2]float64){p0, pt(0), pt(1)}
+				if el.kind == 3 {
+					c = append(c, pt(2))
+				}
+				for k := 1; k <= 16; k++ {
+					t := float64(k) / 16
+					line(bezier(c, t))
+				}
+			case 4: // close
+				line(outlineFrom)
+			}
+			return 0
+		})
+	})
+	outlineSegs = outlineSegs[:0]
+	path := ct.fontCreatePath(font, glyph, 0)
+	if path == 0 {
+		return nil
+	}
+	ct.pathApply(path, 0, outlineFn)
+	ct.pathRelease(path)
+	return slices.Clone(outlineSegs)
+}
+
+// bezier returns the point at t of a Bézier curve of control points c.
+func bezier(c [][2]float64, t float64) [2]float64 {
+	p := slices.Clone(c)
+	for n := len(p) - 1; n > 0; n-- {
+		for k := range n {
+			p[k] = [2]float64{p[k][0] + (p[k+1][0]-p[k][0])*t, p[k][1] + (p[k+1][1]-p[k][1])*t}
+		}
+	}
+	return p[0]
 }
 
 // shadeGray returns the sRGB gray of the relative luminance a shade

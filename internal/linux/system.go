@@ -249,6 +249,46 @@ func (screen) CursorPoint() platform.Point {
 
 type theme struct{ b *Backend }
 
+// FontRendering returns GTK's gtk-xft settings, which the desktop's
+// settings daemon gives (XSETTINGS) or GDK's defaults, as GTK makes them
+// the screen's font options: no hinting where hinting is off, and subpixel
+// antialiasing where the screen's subpixels have an order.
+func (theme) FontRendering() platform.FontRendering {
+	settings := gtkSettingsGetDefault()
+	if settings == 0 {
+		return platform.FontRendering{}
+	}
+	var antialias, hinting int32
+	var style, rgba ptr
+	gObjectGetPtr(settings, cs("gtk-xft-antialias"), unsafe.Pointer(&antialias), 0)
+	gObjectGetPtr(settings, cs("gtk-xft-hinting"), unsafe.Pointer(&hinting), 0)
+	gObjectGetPtr(settings, cs("gtk-xft-hintstyle"), unsafe.Pointer(&style), 0)
+	gObjectGetPtr(settings, cs("gtk-xft-rgba"), unsafe.Pointer(&rgba), 0)
+	var r platform.FontRendering
+	switch hintStyle := takeStr(style); {
+	case hinting == 0:
+		r.Hinting = "none"
+	case hinting == 1 && strings.HasPrefix(hintStyle, "hint"):
+		switch h := strings.TrimPrefix(hintStyle, "hint"); h {
+		case "none", "slight", "medium", "full":
+			r.Hinting = h
+		}
+	}
+	switch order := takeStr(rgba); order {
+	case "rgb", "bgr", "vrgb", "vbgr":
+		r.Subpixels = order
+	}
+	switch {
+	case antialias == 0:
+		r.Antialias = "none"
+	case antialias == 1 && r.Subpixels != "":
+		r.Antialias = "subpixel"
+	case antialias == 1:
+		r.Antialias = "gray"
+	}
+	return r
+}
+
 // UIFont returns the family of the font GTK apps show their interface
 // in, gtk-font-name, such as "Cantarell 11" on GNOME, which the desktop's
 // settings daemon or settings.ini gives; fontconfig knows only a default

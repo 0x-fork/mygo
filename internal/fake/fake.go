@@ -610,6 +610,8 @@ func (t theme) IsDark() bool {
 }
 func (theme) UIFont() string { return "" }
 
+func (theme) FontRendering() platform.FontRendering { return platform.FontRendering{} }
+
 func (t theme) SetSource(s string) {
 	t.b.mu.Lock()
 	t.b.theme = s

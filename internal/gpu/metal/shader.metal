@@ -3,7 +3,9 @@
 // computes the coverage of rounded rectangles, borders, gradients, stripes
 // and shadows from signed distances, as the CPU renderer (internal/raster)
 // does. Colors are straight (not premultiplied) and blending happens in
-// sRGB space, as in browsers. go generate compiles it into shaderlib.go.
+// sRGB space, as in browsers, with a second color for the source's alpha
+// of each channel, which subpixel glyphs need. go generate compiles it
+// into shaderlib.go.
 
 #include <metal_stdlib>
 using namespace metal;
@@ -21,6 +23,13 @@ struct Inst {
 	float4 clip;      // the innermost clip rectangle
 	float4 clipRadii;
 	float4 params;    // kind, dashed or grayscale, sigma or paint, opacity
+};
+
+// The color and, for dual-source blending, the source's alpha of each
+// channel.
+struct PSOut {
+	float4 color [[color(0), index(0)]];
+	float4 alpha [[color(0), index(1)]];
 };
 
 struct VSOut {
@@ -62,7 +71,39 @@ float sdRoundRect(float2 p, float4 rect, float4 radii) {
 
 float coverage(float d) { return saturate(0.5f - d); }
 
+// rectCoverage returns how much of the pixel at p a rounded rectangle
+// covers: by the distance to its edge near rounded corners, and exactly,
+// the area of the pixel inside it, near square ones.
+float rectCoverage(float2 p, float4 rect, float4 radii) {
+	float2 q = p - rect.xy - rect.zw * 0.5f;
+	float r = q.x < 0.0f ? (q.y < 0.0f ? radii.x : radii.w) : (q.y < 0.0f ? radii.y : radii.z);
+	if (r > 0.0f) {
+		return coverage(sdRoundRect(p, rect, radii));
+	}
+	float2 c = saturate(min(rect.xy + rect.zw, p + 0.5f) - max(rect.xy, p - 0.5f));
+	return c.x * c.y;
+}
+
 float4 premul(float4 c) { return float4(c.rgb * c.a, c.a); }
+
+float3 unpremul(float4 c) { return c.a > 0.0f ? c.rgb / c.a : float3(0.0f); }
+
+// textCoverage corrects the coverage a of a glyph of straight color c as
+// Direct2D blends text (scene.TextCoverage): it enhances the contrast,
+// the more the darker c is, and corrects for gamma with the ratios g.
+float textCoverage(float a, float3 c, float contrast, float boost, float4 g) {
+	float k = contrast * saturate(3.0f - 4.0f * dot(c, float3(0.30f, 0.59f, 0.11f))) + boost;
+	a = a * (k + 1.0f) / (a * k + 1.0f);
+	float f = dot(c, float3(0.25f, 0.5f, 0.25f));
+	return saturate(a + a * (1.0f - a) * ((g.x * f + g.y) * a + (g.z * f + g.w)));
+}
+
+// subpixelCoverage does the same for each subpixel of a subpixel glyph.
+float3 subpixelCoverage(float3 a, float3 c, float contrast, float boost, float4 g) {
+	float k = contrast * saturate(3.0f - 4.0f * dot(c, float3(0.30f, 0.59f, 0.11f))) + boost;
+	a = a * (k + 1.0f) / (a * k + 1.0f);
+	return saturate(a + a * (1.0f - a) * ((g.x * c + g.y) * a + (g.z * c + g.w)));
+}
 
 // erf2 approximates the error function (Abramowitz and Stegun 7.1.27).
 float2 erf2(float2 x) {
@@ -187,7 +228,7 @@ float dash(float2 p, float4 rect, float4 w) {
 	return coverage(k - 2.0f * floor(k * 0.5f) < 0.5f ? -edge : edge);
 }
 
-fragment float4 ps(VSOut v [[stage_in]],
+fragment PSOut ps(VSOut v [[stage_in]],
                    const device Inst *insts [[buffer(0)]],
                    texture2d<float> maskTex [[texture(0)]],
                    texture2d<float> colorTex [[texture(1)]],
@@ -197,12 +238,12 @@ fragment float4 ps(VSOut v [[stage_in]],
 	float kind = i.params.x;
 	float4 res;
 	if (kind < 0.5f) {
-		float outer = coverage(sdRoundRect(v.p, i.rect, i.radii));
+		float outer = rectCoverage(v.p, i.rect, i.radii);
 		res = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad) * outer;
 		float4 bw = i.uv; // top, right, bottom, left
 		if (any(bw > 0.0f)) {
 			float4 ir = float4(i.rect.xy + bw.wx, i.rect.zw - bw.yz - bw.wx);
-			float innerCov = (ir.z > 0.0f && ir.w > 0.0f) ? coverage(sdRoundRect(v.p, ir, i.inner)) : 0.0f;
+			float innerCov = (ir.z > 0.0f && ir.w > 0.0f) ? rectCoverage(v.p, ir, i.inner) : 0.0f;
 			float bc = saturate(outer - innerCov);
 			if (i.params.y > 0.5f) {
 				bc *= dash(v.p, i.rect, bw);
@@ -213,21 +254,30 @@ fragment float4 ps(VSOut v [[stage_in]],
 	} else if (kind < 1.5f) {
 		float sigma = i.params.z;
 		float corner = max(max(i.radii.x, i.radii.y), max(i.radii.z, i.radii.w));
-		float s = sigma > 0.0f ? boxShadow(v.p, i.rect, sigma, corner) : coverage(sdRoundRect(v.p, i.rect, i.radii));
+		float s = sigma > 0.0f ? boxShadow(v.p, i.rect, sigma, corner) : rectCoverage(v.p, i.rect, i.radii);
 		if (i.uv.z > 0.0f && i.uv.w > 0.0f) {
-			s *= 1.0f - coverage(sdRoundRect(v.p, i.uv, i.inner)); // outside the box casting it
+			s *= 1.0f - rectCoverage(v.p, i.uv, i.inner); // outside the box casting it
 		}
 		res = premul(i.color) * s;
 	} else if (kind < 2.5f) {
-		res = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad) * maskTex.sample(samp, v.tex).r;
+		float4 c = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad);
+		res = c * textCoverage(maskTex.sample(samp, v.tex).r, unpremul(c), i.inner.x, i.inner.y, i.radii);
 	} else if (kind < 3.5f) {
 		res = colorTex.sample(samp, v.tex) * i.color.a;
-	} else {
-		res = imageTex.sample(samp, v.tex) * coverage(sdRoundRect(v.p, i.rect, i.radii));
+	} else if (kind < 4.5f) {
+		res = imageTex.sample(samp, v.tex) * rectCoverage(v.p, i.rect, i.radii);
 		if (i.params.y > 0.5f) {
 			res.rgb = float3(dot(res.rgb, float3(0.2126f, 0.7152f, 0.0722f)));
 		}
+	} else {
+		float4 c = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad);
+		float3 straight = unpremul(c);
+		float3 a = subpixelCoverage(colorTex.sample(samp, v.tex).rgb, straight, i.inner.x, i.inner.y, i.radii);
+		float3 w = a * c.a * rectCoverage(v.p, i.clip, i.clipRadii) * i.params.w;
+		float wa = (w.r + w.g + w.b) / 3.0f;
+		return PSOut{float4(straight * w, wa), float4(w, wa)};
 	}
-	float clip = coverage(sdRoundRect(v.p, i.clip, i.clipRadii));
-	return res * clip * i.params.w;
+	float clip = rectCoverage(v.p, i.clip, i.clipRadii);
+	res *= clip * i.params.w;
+	return PSOut{res, res.aaaa};
 }

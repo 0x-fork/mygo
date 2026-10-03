@@ -15,6 +15,9 @@ type Painter struct {
 	scale   float32
 	opacity float32
 	clip    Rect
+	// opaque tells that the root's background covers the window, which
+	// subpixel glyphs need.
+	opaque bool
 }
 
 func (rt *engine) paint(root *Element, w, h, scale float32) {
@@ -25,7 +28,9 @@ func (rt *engine) paint(root *Element, w, h, scale float32) {
 	s.Reset(int(math.Ceil(float64(w*scale))), int(math.Ceil(float64(h*scale))), scene.Color{})
 	s.Scale = scale
 	s.MaskAtlas, s.ColorAtlas = rt.text.MaskAtlas, rt.text.ColorAtlas
-	p := &Painter{rt: rt, s: s, scale: scale, opacity: 1, clip: Rect{0, 0, w, h}}
+	s.Text = rt.text.TextParams()
+	opaque := root.bg.A == 255 && root.fill == fillColor && (!root.opacitySet || root.opacity >= 1)
+	p := &Painter{rt: rt, s: s, scale: scale, opacity: 1, clip: Rect{0, 0, w, h}, opaque: opaque}
 	p.element(root)
 }
 
@@ -308,6 +313,10 @@ func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textS
 	deco := decoration{underline: ts.underline, wavy: ts.wavy, strike: ts.strike, color: ts.decoColor, thick: ts.decoThick}
 	shade := text.ShadeOf(color.R, color.G, color.B)
 	start := int32(len(p.s.Glyphs))
+	var run *glyphRun
+	if sys.JoinsGlyphs() {
+		run = &glyphRun{}
+	}
 	for li := range l.Lines {
 		line := &l.Lines[li]
 		if y+line.Y > p.clip.Y+p.clip.H || y+line.Y+line.Height < p.clip.Y {
@@ -319,40 +328,94 @@ func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textS
 		if sp != nil {
 			sp.backgrounds(p, line, x, y)
 		}
-		baseline := round((y + line.Baseline) * s)
+		baseline := sys.Baseline((y + line.Baseline) * s)
 		for _, g := range line.Glyphs {
 			pen := (x + g.X) * s
 			if pen > (p.clip.X+p.clip.W)*s || pen+(g.Advance+g.Size)*s < p.clip.X*s {
 				continue
 			}
 			ix := float32(math.Floor(float64(pen)))
-			sub := int((pen - ix) * text.SubpixelSteps)
 			glyphColor, glyphShade := color, shade
 			if sp != nil {
 				if glyphColor = sp.color(sp.at(g.Cluster), color); glyphColor != color {
 					glyphShade = text.ShadeOf(glyphColor.R, glyphColor.G, glyphColor.B)
 				}
 			}
-			gi := sys.Glyph(g.Font, g.ID, s, sub, glyphShade)
+			gi := sys.Glyph(g.Font, g.ID, s, pen, glyphShade, p.opaque)
 			if !gi.OK {
 				continue
 			}
-			p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{
+			sg := scene.Glyph{
 				X: ix + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
 				U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
-				Color: glyphColor.Alpha(p.opacity).scene(), Colored: gi.Colored,
-			})
+				Color: glyphColor.Alpha(p.opacity).scene(), Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
+			}
+			if run != nil {
+				run.add(p, g, gi, pen, sg, glyphShade, baseline)
+				continue
+			}
+			p.s.Glyphs = append(p.s.Glyphs, sg)
+		}
+		if run != nil {
+			run.flush(p, baseline)
 		}
 		if sp != nil {
-			sp.lines(p, line, x, baseline, color, deco)
+			sp.lines(p, l, li, x, y, color, deco)
 		}
 		if deco.underline || deco.strike {
-			p.decorate((x+line.X)*s, (x+line.X+line.Width)*s, baseline, baseline-round(line.Ascent*s*0.3), ts.size, deco, color)
+			p.decorations(l, li, 0, len(line.Glyphs), x, y, deco, color)
 		}
 	}
 	if end := int32(len(p.s.Glyphs)); end > start {
 		p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end})
 	}
+}
+
+// glyphRun gathers glyphs of a line in one font and color whose
+// antialiased edges share pixels, which the text system joins where the
+// system's text stack draws them joined (System.JoinsGlyphs).
+type glyphRun struct {
+	font   *text.Font
+	shade  text.Shade
+	ids    []uint32
+	pens   []float32
+	glyphs []scene.Glyph
+	last   text.GlyphImage
+}
+
+// add takes a glyph, its pen at pen and its scene glyph sg, into the run
+// if it shares pixels with the last, else starts a run with it.
+func (r *glyphRun) add(p *Painter, g text.Glyph, gi text.GlyphImage, pen float32, sg scene.Glyph, shade text.Shade, baseline float32) {
+	if n := len(r.glyphs); n > 0 {
+		prev := &r.glyphs[n-1]
+		if g.Font == r.font && sg.Color == prev.Color && !gi.Colored && p.rt.text.Shares(r.last, prev.X, prev.Y, gi, sg.X, sg.Y) {
+			r.ids, r.pens, r.glyphs, r.last = append(r.ids, g.ID), append(r.pens, pen), append(r.glyphs, sg), gi
+			return
+		}
+		r.flush(p, baseline)
+	}
+	r.font, r.shade, r.last = g.Font, shade, gi
+	r.ids, r.pens, r.glyphs = append(r.ids, g.ID), append(r.pens, pen), append(r.glyphs, sg)
+}
+
+// flush paints the run: one glyph as it is, more joined.
+func (r *glyphRun) flush(p *Painter, baseline float32) {
+	switch n := len(r.glyphs); {
+	case n == 1:
+		p.s.Glyphs = append(p.s.Glyphs, r.glyphs[0])
+	case n > 1:
+		gi := p.rt.text.GlyphRun(r.font, r.ids, r.pens, p.scale, r.shade, p.opaque)
+		if !gi.OK {
+			p.s.Glyphs = append(p.s.Glyphs, r.glyphs...)
+			break
+		}
+		sg := r.glyphs[0]
+		sg.X, sg.Y = float32(math.Floor(float64(r.pens[0])))+gi.Left, baseline+gi.Top
+		sg.W, sg.H, sg.U, sg.V, sg.UW, sg.VH = float32(gi.W), float32(gi.H), gi.X, gi.Y, gi.W, gi.H
+		sg.Subpixel, sg.Thin = gi.Subpixel, gi.Thin
+		p.s.Glyphs = append(p.s.Glyphs, sg)
+	}
+	r.ids, r.pens, r.glyphs = r.ids[:0], r.pens[:0], r.glyphs[:0]
 }
 
 // decoration is how lines go through or under text.
@@ -363,34 +426,28 @@ type decoration struct {
 	thick float32
 }
 
-// decorate draws the lines of d along text of size DIPs from x0 to x1, on
-// a baseline at baseline, with a strikethrough at strikeY, all in device
-// pixels, in the color of d or c.
-func (p *Painter) decorate(x0, x1, baseline, strikeY, size float32, d decoration, c Color) {
-	s := p.scale
-	thick := max(round(size*s/14), 1)
-	if d.thick > 0 {
-		thick = max(round(d.thick*s), 1)
-		// Thicker lines than the font's grow both ways.
-		strikeY -= float32(math.Floor(float64(thick / 2)))
-	}
+// decorations draws the lines of d along glyphs [i, j) of line li of l,
+// laid out from (x, y) in DIPs, where the system's text stack places
+// underlines and strikethroughs, in the color of d or c. Wavy underlines
+// follow the underline, at least a pixel thick.
+func (p *Painter) decorations(l *text.Layout, li, i, j int, x, y float32, d decoration, c Color) {
 	if d.color.A > 0 {
 		c = d.color
 	}
-	x, w := round(x0), round(x1-x0)
-	if w <= 0 {
-		return
-	}
-	if d.underline {
-		uy := baseline + max(round(size*s/10), 1)
-		if d.wavy {
-			p.wave(x, x+w, uy+thick/2, thick, c)
-		} else {
-			p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: x, Y: uy, W: w, H: thick}, Color: c.scene(), Opacity: p.opacity})
+	for _, k := range [2]text.Decoration{text.Underline, text.Strikethrough} {
+		if k == text.Underline && !d.underline || k == text.Strikethrough && !d.strike {
+			continue
 		}
-	}
-	if d.strike {
-		p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: x, Y: strikeY, W: w, H: thick}, Color: c.scene(), Opacity: p.opacity})
+		for _, st := range p.rt.text.Decorate(l, li, i, j, x, y, p.scale, k, d.thick) {
+			if st.X1 <= st.X0 || st.Bottom <= st.Top {
+				continue
+			}
+			if k == text.Underline && d.wavy {
+				p.wave(st.X0, st.X1, (st.Top+st.Bottom)/2, max(st.Bottom-st.Top, 1), c)
+				continue
+			}
+			p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: st.X0, Y: st.Top, W: st.X1 - st.X0, H: st.Bottom - st.Top}, Color: c.scene(), Opacity: p.opacity})
+		}
 	}
 }
 

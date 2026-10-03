@@ -112,6 +112,8 @@ func (theme) IsDark() bool     { return false }
 func (theme) SetSource(string) {}
 func (theme) UIFont() string   { return "" }
 
+func (theme) FontRendering() platform.FontRendering { return platform.FontRendering{} }
+
 type power struct{}
 
 func (power) Watch()                        {}

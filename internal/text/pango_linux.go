@@ -18,6 +18,7 @@ import (
 	"unsafe"
 
 	"github.com/ebitengine/purego"
+	"github.com/egoist/mygo/internal/scene"
 )
 
 // Pango lays out paragraphs: fontconfig finds the fonts and the fallbacks
@@ -46,13 +47,21 @@ const (
 	pangoDirLTR       = 0
 	pangoDirRTL       = 1
 
-	cairoFormatARGB32       = 0
-	cairoAntialiasGray      = 2
-	cairoHintMetricsOff     = 1
-	cairoStatusSuccess      = 0
-	fcResultMatch           = 0
-	fcSetApplication        = 1
-	gTrue, gFalse       int = 1, 0
+	cairoFormatARGB32          = 0
+	cairoAntialiasDefault      = 0
+	cairoAntialiasNone         = 1
+	cairoAntialiasGray         = 2
+	cairoAntialiasSubpixel     = 3
+	cairoHintStyleDefault      = 0
+	cairoHintStyleNone         = 1
+	cairoHintStyleSlight       = 2
+	cairoHintStyleMedium       = 3
+	cairoHintStyleFull         = 4
+	cairoHintMetricsOn         = 2
+	cairoStatusSuccess         = 0
+	fcResultMatch              = 0
+	fcSetApplication           = 1
+	gTrue, gFalse          int = 1, 0
 )
 
 // Pango and cairo structs, as their headers lay them out.
@@ -97,7 +106,8 @@ type (
 	cairoTextExtents struct {
 		xBearing, yBearing, width, height, xAdvance, yAdvance float64
 	}
-	fcFontSet struct {
+	pangoRectangle struct{ x, y, width, height int32 }
+	fcFontSet      struct {
 		nfont, sfont int32
 		fonts        *uintptr
 	}
@@ -120,6 +130,11 @@ var pangoLib struct {
 	hbNominalGlyph            func(font uintptr, r rune, glyph *uint32) int32
 	hbGlyphHAdvance           func(font uintptr, glyph uint32) int32
 	metricsGetAscent          func(metrics uintptr) int32
+	metricsGetUnderlinePos    func(metrics uintptr) int32
+	metricsGetUnderlineThick  func(metrics uintptr) int32
+	metricsGetStrikePos       func(metrics uintptr) int32
+	metricsGetStrikeThick     func(metrics uintptr) int32
+	fontGetGlyphExtents       func(font uintptr, glyph uint32, ink, logical *pangoRectangle)
 	metricsGetDescent         func(metrics uintptr) int32
 	metricsGetHeight          func(metrics uintptr) int32
 	metricsUnref              func(metrics uintptr)
@@ -153,6 +168,8 @@ var pangoLib struct {
 	cairoFontOptionsDestroy   func(options uintptr)
 	cairoFontOptionsAntialias func(options uintptr, antialias int32)
 	cairoFontOptionsHintMets  func(options uintptr, hint int32)
+	cairoFontOptionsHintStyle func(options uintptr, style int32)
+	cairoFontOptionsSubpixel  func(options uintptr, order int32)
 	cairoScaledFontFace       func(font uintptr) uintptr
 	cairoScaledFontMatrix     func(font uintptr, m *cairoMatrix)
 	cairoScaledFontOptions    func(font, options uintptr)
@@ -226,6 +243,11 @@ func loadPango() error {
 	bind(pango, &l.fontGetMetrics, "pango_font_get_metrics")
 	bind(pango, &l.fontDescribeAbsolute, "pango_font_describe_with_absolute_size")
 	bind(pango, &l.metricsGetAscent, "pango_font_metrics_get_ascent")
+	bind(pango, &l.metricsGetUnderlinePos, "pango_font_metrics_get_underline_position")
+	bind(pango, &l.metricsGetUnderlineThick, "pango_font_metrics_get_underline_thickness")
+	bind(pango, &l.metricsGetStrikePos, "pango_font_metrics_get_strikethrough_position")
+	bind(pango, &l.metricsGetStrikeThick, "pango_font_metrics_get_strikethrough_thickness")
+	bind(pango, &l.fontGetGlyphExtents, "pango_font_get_glyph_extents")
 	bind(pango, &l.metricsGetDescent, "pango_font_metrics_get_descent")
 	bind(pango, &l.metricsUnref, "pango_font_metrics_unref")
 	bind(pango, &l.descNew, "pango_font_description_new")
@@ -256,6 +278,8 @@ func loadPango() error {
 	bind(cairo, &l.cairoFontOptionsDestroy, "cairo_font_options_destroy")
 	bind(cairo, &l.cairoFontOptionsAntialias, "cairo_font_options_set_antialias")
 	bind(cairo, &l.cairoFontOptionsHintMets, "cairo_font_options_set_hint_metrics")
+	bind(cairo, &l.cairoFontOptionsHintStyle, "cairo_font_options_set_hint_style")
+	bind(cairo, &l.cairoFontOptionsSubpixel, "cairo_font_options_set_subpixel_order")
 	bind(cairo, &l.cairoScaledFontFace, "cairo_scaled_font_get_font_face")
 	bind(cairo, &l.cairoScaledFontMatrix, "cairo_scaled_font_get_font_matrix")
 	bind(cairo, &l.cairoScaledFontOptions, "cairo_scaled_font_get_font_options")
@@ -311,6 +335,39 @@ type pangoEngine struct {
 	// uiFamily is the desktop's interface font, which system-ui stands for
 	// before fontconfig's default.
 	uiFamily string
+	// The cairo antialiasing, hint style and subpixel order of the
+	// desktop's settings (setFontRendering), as GTK has its labels draw.
+	antialias, hintStyle, subpixels int32
+}
+
+// setFontRendering takes the desktop's settings (platform.FontRendering)
+// for the fonts made from now on.
+func (e *pangoEngine) setFontRendering(antialias, hinting, subpixels string) {
+	e.antialias = map[string]int32{"none": cairoAntialiasNone, "gray": cairoAntialiasGray, "subpixel": cairoAntialiasSubpixel}[antialias]
+	e.hintStyle = map[string]int32{"none": cairoHintStyleNone, "slight": cairoHintStyleSlight, "medium": cairoHintStyleMedium, "full": cairoHintStyleFull}[hinting]
+	e.subpixels = map[string]int32{"rgb": 1, "bgr": 2, "vrgb": 3, "vbgr": 4}[subpixels]
+	e.applyOptions()
+	for _, sf := range e.scaled {
+		pangoLib.cairoScaledFontDestroy(sf)
+	}
+	clear(e.scaled)
+}
+
+// applyOptions gives the context GTK's font options for labels: the
+// desktop's antialiasing, hint style and subpixel order, metrics hinted
+// to whole pixels, and glyphs on whole pixels.
+func (e *pangoEngine) applyOptions() {
+	l := &pangoLib
+	opts := l.cairoFontOptionsCreate()
+	l.cairoFontOptionsAntialias(opts, e.antialias)
+	l.cairoFontOptionsHintStyle(opts, e.hintStyle)
+	l.cairoFontOptionsSubpixel(opts, e.subpixels)
+	l.cairoFontOptionsHintMets(opts, cairoHintMetricsOn)
+	l.contextSetFontOptions(e.context, opts)
+	l.cairoFontOptionsDestroy(opts)
+	if l.contextSetRoundPositions != nil {
+		l.contextSetRoundPositions(e.context, int32(gTrue))
+	}
 }
 
 func (e *pangoEngine) setUIFamily(family string) {
@@ -325,8 +382,9 @@ func (e *pangoEngine) setUIFamily(family string) {
 }
 
 type scaledKey struct {
-	font  *Font
-	scale float32
+	font     *Font
+	scale    float32
+	subpixel bool
 }
 
 func newPango() (*pangoEngine, error) {
@@ -347,16 +405,10 @@ func newPango() (*pangoEngine, error) {
 		return nil, errors.New("pango_cairo_font_map_new failed")
 	}
 	e.context = l.fontMapCreateContext(e.fontMap)
-	// Unhinted metrics keep advances the same at every scale; grayscale
-	// antialiasing suits glyphs drawn on any background.
-	opts := l.cairoFontOptionsCreate()
-	l.cairoFontOptionsAntialias(opts, cairoAntialiasGray)
-	l.cairoFontOptionsHintMets(opts, cairoHintMetricsOff)
-	l.contextSetFontOptions(e.context, opts)
-	l.cairoFontOptionsDestroy(opts)
-	if l.contextSetRoundPositions != nil {
-		l.contextSetRoundPositions(e.context, int32(gFalse))
-	}
+	// Until the app has the desktop's settings, GDK's defaults on X11
+	// without a settings daemon: grayscale antialiasing, medium hinting.
+	e.antialias, e.hintStyle = cairoAntialiasGray, cairoHintStyleMedium
+	e.applyOptions()
 	return e, nil
 }
 
@@ -435,6 +487,11 @@ func (e *pangoEngine) fontOf(font uintptr) *Font {
 	if m := l.fontGetMetrics(font, 0); m != 0 {
 		f.Ascent = float32(l.metricsGetAscent(m)) / pangoScale
 		f.Descent = float32(l.metricsGetDescent(m)) / pangoScale
+		// Hinted metrics are whole pixels (DIPs), rounded up.
+		f.underlineTop = float32(l.metricsGetUnderlinePos(m)) / pangoScale
+		f.underlineThick = float32(l.metricsGetUnderlineThick(m)) / pangoScale
+		f.strikeTop = float32(l.metricsGetStrikePos(m)) / pangoScale
+		f.strikeThick = float32(l.metricsGetStrikeThick(m)) / pangoScale
 		if l.metricsGetHeight != nil {
 			f.LineGap = max(float32(l.metricsGetHeight(m))/pangoScale-f.Ascent-f.Descent, 0)
 		}
@@ -617,8 +674,11 @@ func (e *pangoEngine) space(font uintptr, r rune) (uint32, int32) {
 
 // scaledFont returns a cairo font drawing a Font's glyphs at scale pixels
 // per DIP, its user space in pixels.
-func (e *pangoEngine) scaledFont(f *Font, scale float32) uintptr {
-	key := scaledKey{f, scale}
+// scaledFont returns the cairo font of f at scale pixels per DIP, with the
+// context's options, but grayscale antialiasing instead of subpixel unless
+// subpixel.
+func (e *pangoEngine) scaledFont(f *Font, scale float32, subpixel bool) uintptr {
+	key := scaledKey{f, scale, subpixel}
 	if sf, ok := e.scaled[key]; ok {
 		return sf
 	}
@@ -640,7 +700,9 @@ func (e *pangoEngine) scaledFont(f *Font, scale float32) uintptr {
 	identity := cairoMatrix{xx: 1, yy: 1}
 	opts := l.cairoFontOptionsCreate()
 	l.cairoScaledFontOptions(src, opts)
-	l.cairoFontOptionsAntialias(opts, cairoAntialiasGray)
+	if !subpixel && e.antialias == cairoAntialiasSubpixel {
+		l.cairoFontOptionsAntialias(opts, cairoAntialiasGray)
+	}
 	sf := l.cairoScaledFontCreate(l.cairoScaledFontFace(src), &m, &identity, opts)
 	l.cairoFontOptionsDestroy(opts)
 	if sf == 0 || l.cairoScaledFontStatus(sf) != cairoStatusSuccess {
@@ -650,13 +712,91 @@ func (e *pangoEngine) scaledFont(f *Font, scale float32) uintptr {
 	return sf
 }
 
-func (e *pangoEngine) glyph(f *Font, id uint32, scale, dx float32, _ Shade) bitmap {
+// textParams leaves coverage as it is: cairo blends glyphs in sRGB space,
+// as renderers do, with subpixel antialiasing where the desktop's settings
+// ask for it.
+func (e *pangoEngine) textParams() (scene.TextParams, bool) {
+	return scene.TextParams{}, e.antialias == cairoAntialiasSubpixel
+}
+
+// positions puts glyphs on whole pixels, as GTK does: Pango rounds their
+// positions, and labels sit on whole pixels.
+func (e *pangoEngine) positions(*Font, float32, bool) (int, bool) { return 1, false }
+
+// decorate places underlines and strikethroughs as GTK draws a label's
+// (PangoRenderer): at the positions and thicknesses of the run's font,
+// whole pixels, from the label's baseline, an underline along the ink and
+// advances of the run, a strikethrough along its ink.
+func (e *pangoEngine) decorate(r decoRange) []Stroke {
+	s := r.scale
+	base := e.baseline(r.baseline() * s)
+	var out []Stroke
+	r.runs(func(f *Font, i, j int) {
+		ink0, ink1 := float32(math.MaxFloat32), float32(-math.MaxFloat32)
+		for _, g := range r.line.Glyphs[i:j] {
+			if a, b, ok := e.ink(f, g.ID); ok {
+				ink0, ink1 = min(ink0, g.X+a), max(ink1, g.X+b)
+			}
+		}
+		x0, x1 := r.span(i, j)
+		top, thick := f.strikeTop, f.strikeThick
+		if r.d == Underline {
+			top, thick = f.underlineTop, f.underlineThick
+			x0, x1 = min(x0, ink0), max(x1, ink1)
+		} else {
+			if ink0 > ink1 {
+				return
+			}
+			x0, x1 = ink0, ink1
+		}
+		st := Stroke{X0: (r.x + x0) * s, X1: (r.x + x1) * s, Top: base - top*s, Bottom: base - top*s + thick*s}
+		// Runs whose lines meet make one, as PangoRenderer draws them.
+		if n := len(out); n > 0 && out[n-1].Top == st.Top && out[n-1].Bottom == st.Bottom {
+			out[n-1].X1 = max(out[n-1].X1, st.X1)
+			return
+		}
+		out = append(out, st)
+	})
+	return out
+}
+
+// join: cairo adds the coverage of a run's glyphs before compositing it.
+func (e *pangoEngine) join() bool { return true }
+
+// ink returns how far left and right of its origin a glyph's ink reaches,
+// in DIPs.
+func (e *pangoEngine) ink(f *Font, id uint32) (a, b float32, ok bool) {
+	if id == pangoGlyphEmpty || id&pangoGlyphUnknow != 0 {
+		return 0, 0, false
+	}
+	var ink, logical pangoRectangle
+	pangoLib.fontGetGlyphExtents(f.native, id, &ink, &logical)
+	if ink.width <= 0 {
+		return 0, 0, false
+	}
+	return float32(ink.x) / pangoScale, float32(ink.x+ink.width) / pangoScale, true
+}
+
+// baseline is the whole pixel at or above y, as a GTK label's.
+func (e *pangoEngine) baseline(y float32) float32 { return float32(math.Floor(float64(y) + 1e-3)) }
+
+func (e *pangoEngine) glyph(f *Font, id uint32, scale, dx float32, _ Shade, subpixel bool) bitmap {
 	// Pango's empty glyphs, and the boxes it draws for missing ones, are
 	// not the font's.
 	if id == pangoGlyphEmpty || id&pangoGlyphUnknow != 0 {
 		return bitmap{}
 	}
-	sf := e.scaledFont(f, scale)
+	b := e.draw(f, id, scale, dx, false)
+	if b.color || b.pix == nil || !subpixel || e.antialias != cairoAntialiasSubpixel {
+		return b
+	}
+	return e.draw(f, id, scale, dx, true)
+}
+
+// draw rasterizes a glyph with cairo: with subpixel antialiasing if
+// subpixel, else in grayscale, or in color for color fonts.
+func (e *pangoEngine) draw(f *Font, id uint32, scale, dx float32, subpixel bool) bitmap {
+	sf := e.scaledFont(f, scale, subpixel)
 	if sf == 0 {
 		return bitmap{}
 	}
@@ -667,10 +807,15 @@ func (e *pangoEngine) glyph(f *Font, id uint32, scale, dx float32, _ Shade) bitm
 	if ext.width <= 0 || ext.height <= 0 {
 		return bitmap{}
 	}
-	left := int(math.Floor(ext.xBearing+float64(dx))) - 1
-	top := int(math.Floor(ext.yBearing)) - 1
-	right := int(math.Ceil(ext.xBearing+ext.width+float64(dx))) + 1
-	bottom := int(math.Ceil(ext.yBearing+ext.height)) + 1
+	// The LCD filter spreads subpixel glyphs a pixel further.
+	pad := 1
+	if subpixel {
+		pad = 2
+	}
+	left := int(math.Floor(ext.xBearing+float64(dx))) - pad
+	top := int(math.Floor(ext.yBearing)) - pad
+	right := int(math.Ceil(ext.xBearing+ext.width+float64(dx))) + pad
+	bottom := int(math.Ceil(ext.yBearing+ext.height)) + pad
 	w, h := right-left, bottom-top
 	if w > 2048 || h > 2048 {
 		return bitmap{}
@@ -690,6 +835,20 @@ func (e *pangoEngine) glyph(f *Font, id uint32, scale, dx float32, _ Shade) bitm
 		return bitmap{}
 	}
 	src := unsafe.Slice(data, stride*h)
+	if subpixel {
+		// White glyphs with subpixel antialiasing: the coverage of each
+		// subpixel in R, G and B (B, G, R in memory).
+		b := bitmap{left: left, top: top, w: w, h: h, pix: make([]byte, 4*w*h), subpixel: true}
+		for y := range h {
+			row := src[y*stride:]
+			for x := range w {
+				p, q := b.pix[4*(y*w+x):], row[4*x:]
+				p[0], p[1], p[2] = q[2], q[1], q[0]
+				p[3] = uint8((uint16(q[0]) + uint16(q[1]) + uint16(q[2]) + 1) / 3)
+			}
+		}
+		return b
+	}
 	// White glyphs of a plain font come out gray: B, G, R and A (in
 	// memory order) are the same, and the alpha is the coverage. Others
 	// are colored.

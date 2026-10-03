@@ -185,39 +185,37 @@ func (sp *spanPaint) color(i int, c Color) Color {
 }
 
 // runs calls fn with each run of the glyphs of a line in one span: the
-// span's index (-1 past the spans), and the run's left, right and largest
-// size, in DIPs from the left of the text.
-func (sp *spanPaint) runs(line *text.Line, fn func(k int, x0, x1, size float32)) {
+// span's index (-1 past the spans), the run's glyphs [i, j), and its left
+// and right, in DIPs from the left of the text.
+func (sp *spanPaint) runs(line *text.Line, fn func(k, i, j int, x0, x1 float32)) {
 	gs := line.Glyphs
 	for i := 0; i < len(gs); {
 		k := sp.at(gs[i].Cluster)
-		x0, x1, size := float32(math.MaxFloat32), float32(-math.MaxFloat32), float32(0)
+		x0, x1 := float32(math.MaxFloat32), float32(-math.MaxFloat32)
 		j := i
 		for ; j < len(gs) && sp.at(gs[j].Cluster) == k; j++ {
 			x0, x1 = min(x0, gs[j].X), max(x1, gs[j].X+gs[j].Advance)
-			size = max(size, gs[j].Size)
 		}
+		fn(k, i, j, x0, x1)
 		i = j
-		fn(k, x0, x1, size)
 	}
 }
 
 // backgrounds fills behind the spans of a line that have a background,
 // from the top-left of the text at (x, y), in DIPs.
 func (sp *spanPaint) backgrounds(p *Painter, line *text.Line, x, y float32) {
-	sp.runs(line, func(k int, x0, x1, _ float32) {
+	sp.runs(line, func(k, _, _ int, x0, x1 float32) {
 		if k >= 0 && sp.spans[k].Background.A > 0 {
 			p.Fill(Rect{x + x0, y + line.Y, x1 - x0, line.Height}, sp.spans[k].Background, 0)
 		}
 	})
 }
 
-// lines draws the underlines and strikethroughs of the spans of a line,
-// from the left of the text at x, in DIPs, and its baseline in device
-// pixels, with the color and thickness of base where the spans set none.
-func (sp *spanPaint) lines(p *Painter, line *text.Line, x, baseline float32, color Color, base decoration) {
-	s := p.scale
-	sp.runs(line, func(k int, x0, x1, size float32) {
+// lines draws the underlines and strikethroughs of the spans of line li
+// of l, laid out from (x, y) in DIPs, with the color and thickness of base
+// where the spans set none.
+func (sp *spanPaint) lines(p *Painter, l *text.Layout, li int, x, y float32, color Color, base decoration) {
+	sp.runs(&l.Lines[li], func(k, i, j int, _, _ float32) {
 		if k < 0 {
 			return
 		}
@@ -232,6 +230,6 @@ func (sp *spanPaint) lines(p *Painter, line *text.Line, x, baseline float32, col
 		if span.DecorationThickness > 0 {
 			d.thick = span.DecorationThickness
 		}
-		p.decorate((x+x0)*s, (x+x1)*s, baseline, baseline-round(size*s*0.27), size, d, sp.color(k, color))
+		p.decorations(l, li, i, j, x, y, d, sp.color(k, color))
 	})
 }

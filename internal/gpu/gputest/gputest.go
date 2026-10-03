@@ -16,14 +16,16 @@ import (
 	"github.com/egoist/mygo/internal/scene"
 )
 
-// Scene returns a 320×380 scene with fills, borders of every width and
+// Scene returns a 320×410 scene with fills, borders of every width and
 // dashed, gradients mixed in sRGB and Oklab, stripes, shadows, blurred or
 // not, and cut by the boxes casting them, nested rounded clips, glyphs from
-// both atlases, plain and in gradients, and images, in color and in gray.
+// both atlases and subpixel ones, plain and in gradients, with Direct2D's
+// gamma and contrast, and images, in color and in gray.
 func Scene() *scene.Scene {
-	s := &scene.Scene{Width: 320, Height: 380, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255}}
+	s := &scene.Scene{Width: 320, Height: 410, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255},
+		Text: scene.TextParams{GammaRatios: scene.GammaRatios(1.8), Contrast: 1, SubpixelContrast: 0.5}}
 	mask := scene.NewAtlas(1, 64, 64)
-	color := scene.NewAtlas(4, 32, 32)
+	color := scene.NewAtlas(4, 64, 32)
 	s.MaskAtlas, s.ColorAtlas = mask, color
 	// A disc and a ring as glyph masks, and a color glyph.
 	disc := make([]byte, 16*16)
@@ -55,6 +57,19 @@ func Scene() *scene.Scene {
 	}
 	cx, cy, _ := color.Alloc(10, 10)
 	color.Put(cx, cy, 10, 10, emoji, 40)
+	// A subpixel disc: its red subpixels a third of a pixel left of its
+	// green ones, its blue ones a third right.
+	lcd := make([]byte, 16*16*4)
+	for y := range 16 {
+		for x := range 16 {
+			for c := range 3 {
+				dx, dy := float64(x)-7.5+float64(c-1)/3, float64(y)-7.5
+				lcd[(y*16+x)*4+c] = byte(255 * clamp(6.5-math.Sqrt(dx*dx+dy*dy)))
+			}
+		}
+	}
+	lx, ly, _ := color.Alloc(16, 16)
+	color.Put(lx, ly, 16, 16, lcd, 64)
 	pix := make([]byte, 8*8*4)
 	for y := range 8 {
 		for x := range 8 {
@@ -122,6 +137,28 @@ func Scene() *scene.Scene {
 	add(scene.Op{Kind: scene.OpFill, Rect: card, Radii: r4(8), Color: scene.Color{R: 37, G: 99, B: 235, A: 90}})
 	add(scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 218, Y: 334, W: 84, H: 32}, Radii: r4(16), Color: red, Blur: 6,
 		Cast: scene.Rect{X: 220, Y: 334, W: 80, H: 28}, CastRadii: r4(14)})
+
+	// Subpixel glyphs, dark on white and light on dark, half transparent,
+	// in a gradient, and clipped; thin mask glyphs, dark and light.
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 0, Y: 380, W: 160, H: 30}, Color: scene.Color{R: 255, G: 255, B: 255, A: 255}})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 160, Y: 380, W: 160, H: 30}, Color: scene.Color{R: 24, G: 24, B: 27, A: 255}})
+	sub := func(x float32, c scene.Color) scene.Glyph {
+		return scene.Glyph{X: x, Y: 387, W: 16, H: 16, U: uint16(lx), V: uint16(ly), UW: 16, VH: 16, Color: c, Subpixel: true}
+	}
+	start = int32(len(s.Glyphs))
+	s.Glyphs = append(s.Glyphs, sub(8, ink), sub(28, blue), sub(48, scene.Color{R: 20, G: 24, B: 32, A: 128}),
+		sub(168, scene.Color{R: 255, G: 255, B: 255, A: 255}), sub(188, yellow), sub(208, scene.Color{R: 113, G: 113, B: 122, A: 255}),
+		scene.Glyph{X: 68, Y: 387, W: 16, H: 16, U: uint16(dx), V: uint16(dy), UW: 16, VH: 16, Color: ink, Thin: true},
+		scene.Glyph{X: 228, Y: 387, W: 16, H: 16, U: uint16(dx), V: uint16(dy), UW: 16, VH: 16, Color: scene.Color{R: 244, G: 244, B: 245, A: 255}, Thin: true})
+	add(scene.Op{Kind: scene.OpGlyphs, Start: start, End: int32(len(s.Glyphs))})
+	start = int32(len(s.Glyphs))
+	s.Glyphs = append(s.Glyphs, sub(92, ink), sub(110, ink), sub(128, ink))
+	add(scene.Op{Kind: scene.OpGlyphs, Start: start, End: int32(len(s.Glyphs)), Paint: scene.PaintLinear, Color: red, Color2: blue, Gradient: [4]float32{92, 387, 144, 403}})
+	add(scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 250, Y: 384, W: 40, H: 22}, Radii: r4(8)})
+	start = int32(len(s.Glyphs))
+	s.Glyphs = append(s.Glyphs, sub(248, scene.Color{R: 255, G: 255, B: 255, A: 255}), sub(266, scene.Color{R: 255, G: 255, B: 255, A: 255}), sub(284, red))
+	add(scene.Op{Kind: scene.OpGlyphs, Start: start, End: int32(len(s.Glyphs))})
+	add(scene.Op{Kind: scene.OpPopClip})
 	return s
 }
 

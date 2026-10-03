@@ -42,8 +42,9 @@ func (w *Window) attachContent() {
 				w.native.TitleBarDoubleClicked()
 			}
 		},
-		IsDark: func() bool { return backend().Theme().IsDark() },
-		UIFont: func() string { return backend().Theme().UIFont() },
+		IsDark:        func() bool { return backend().Theme().IsDark() },
+		UIFont:        func() string { return backend().Theme().UIFont() },
+		FontRendering: func() platform.FontRendering { return backend().Theme().FontRendering() },
 		TitleBar: func() platform.TitleBar {
 			if !w.hiddenTitleBar || w.native == nil {
 				return platform.TitleBar{}

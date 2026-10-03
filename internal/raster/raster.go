@@ -189,6 +189,13 @@ func coverage(rc scene.Rect, radii [4]float32, px, py float32) float32 {
 	default:
 		rad = radii[3]
 	}
+	if rad <= 0 {
+		// A square corner: the area of the pixel inside the box, exact
+		// for lines thinner than a pixel too.
+		cx := min(rc.X+rc.W, px+0.5) - max(rc.X, px-0.5)
+		cy := min(rc.Y+rc.H, py+0.5) - max(rc.Y, py-0.5)
+		return clamp01(cx) * clamp01(cy)
+	}
 	ax, ay := abs(qx)-hx+rad, abs(qy)-hy+rad
 	var d float32
 	if ax > 0 && ay > 0 {
@@ -267,6 +274,27 @@ func blend(p []byte, c [4]float32, cov float32) {
 	p[1] = to8(c[1]*cov + float32(p[1])/255*inv)
 	p[2] = to8(c[0]*cov + float32(p[2])/255*inv)
 	p[3] = to8(a + float32(p[3])/255*inv)
+}
+
+// blendSubpixel composites a straight color c over a pixel with the
+// coverage a of each subpixel, times w, each channel by its own: as
+// renderers blend subpixel glyphs with a second color for the source's
+// alpha.
+func blendSubpixel(p []byte, c, a [3]float32, w float32) {
+	wr, wg, wb := a[0]*w, a[1]*w, a[2]*w
+	wa := (wr + wg + wb) / 3
+	p[0] = to8(c[2]*wb + float32(p[0])/255*(1-wb))
+	p[1] = to8(c[1]*wg + float32(p[1])/255*(1-wg))
+	p[2] = to8(c[0]*wr + float32(p[2])/255*(1-wr))
+	p[3] = to8(wa + float32(p[3])/255*(1-wa))
+}
+
+// unpremul returns the straight color of a premultiplied one.
+func unpremul(c [4]float32) [3]float32 {
+	if c[3] <= 0 {
+		return [3]float32{}
+	}
+	return [3]float32{c[0] / c[3], c[1] / c[3], c[2] / c[3]}
 }
 
 // blendSpan composites a premultiplied color with coverage cov over a run
@@ -705,9 +733,10 @@ func (r *renderer) glyphs(op *scene.Op) {
 		p := newPainter(op, opacity)
 		pt = &p
 	}
+	text := r.s.Text
 	for _, g := range r.s.Glyphs[op.Start:op.End] {
 		atlas := r.s.MaskAtlas
-		if g.Colored {
+		if g.Colored || g.Subpixel {
 			atlas = r.s.ColorAtlas
 		}
 		if atlas == nil {
@@ -718,6 +747,14 @@ func (r *renderer) glyphs(op *scene.Op) {
 		x1, y1 := min(gx+int(g.UW), r.x1), min(gy+int(g.VH), r.y1)
 		tint := g.Color.Premul(1)
 		alpha := float32(g.Color.A) / 255
+		contrast, boost := text.Contrast, float32(0)
+		if g.Subpixel {
+			contrast = text.SubpixelContrast
+		}
+		if g.Thin {
+			boost = scene.ThinBoost
+		}
+		correct := contrast != 0 || boost != 0 || text.GammaRatios != [4]float32{}
 		for y := y0; y < y1; y++ {
 			row := r.dst.Pix[y*r.dst.Stride:]
 			cl, ch := r.clipSolid(y)
@@ -731,15 +768,38 @@ func (r *renderer) glyphs(op *scene.Op) {
 					}
 				}
 				p := row[4*x : 4*x+4]
-				if g.Colored {
+				switch {
+				case g.Colored:
 					s := atlas.Pix[(ay*atlas.W+ax)*4:]
 					c := [4]float32{float32(s[0]) / 255 * alpha, float32(s[1]) / 255 * alpha, float32(s[2]) / 255 * alpha, float32(s[3]) / 255 * alpha}
 					blend(p, c, cov)
-				} else if m := atlas.Pix[ay*atlas.W+ax]; m != 0 {
+				case g.Subpixel:
+					s := atlas.Pix[(ay*atlas.W+ax)*4:]
+					if s[0]|s[1]|s[2] == 0 {
+						continue
+					}
 					if pt != nil {
 						tint = pt.at(float32(x)+0.5, float32(y)+0.5)
 					}
-					blend(p, tint, cov*float32(m)/255)
+					c := unpremul(tint)
+					a := [3]float32{float32(s[0]) / 255, float32(s[1]) / 255, float32(s[2]) / 255}
+					if correct {
+						a = scene.SubpixelCoverage(a, c, contrast, boost, text.GammaRatios)
+					}
+					blendSubpixel(p, c, a, tint[3]*cov)
+				default:
+					m := atlas.Pix[ay*atlas.W+ax]
+					if m == 0 {
+						continue
+					}
+					if pt != nil {
+						tint = pt.at(float32(x)+0.5, float32(y)+0.5)
+					}
+					a := float32(m) / 255
+					if correct {
+						a = scene.TextCoverage(a, unpremul(tint), contrast, boost, text.GammaRatios)
+					}
+					blend(p, tint, cov*a)
 				}
 			}
 		}

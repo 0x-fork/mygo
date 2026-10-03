@@ -196,6 +196,8 @@ type theme struct{ b *Backend }
 // UIFont is Core Text's to find: the system font.
 func (theme) UIFont() string { return "" }
 
+func (theme) FontRendering() platform.FontRendering { return platform.FontRendering{} }
+
 func (t theme) IsDark() bool {
 	var dark bool
 	withPool(func() {

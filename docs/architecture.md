@@ -989,12 +989,62 @@ either.
   its own whitespace trimming, ellipsis, alignment, carets and selection, so
   those behave the same everywhere, and caches layouts by their parameters.
   The engines rasterize glyphs too (`IDWriteGlyphRunAnalysis`,
-  `CTFontDrawGlyphs`, cairo), at four subpixel offsets, into a coverage
-  atlas, and color glyphs (emoji) into a color atlas. Core Text draws with
-  font smoothing, as AppKit does unless the user turned it off
-  (`AppleFontSmoothing`), which emboldens glyphs more the lighter their
-  color is, in four steps of its luminance: its glyphs are rasterized for
-  each `text.Shade` of the text's color. Paths drawn with
+  `CTFontDrawGlyphs`, cairo) into a coverage atlas, color glyphs (emoji)
+  into a color atlas, and subpixel glyphs, the coverage of each pixel's
+  red, green and blue, into the color atlas as well. Text looks as each
+  platform's own toolkit draws it, pixel for pixel, which tests against
+  AppKit, Direct2D and GTK 3 labels showed:
+  - *Placement.* `System.Glyph` takes a glyph's pen position and places
+    it as the engine does: Core Graphics' subpixel quantization, which
+    AppKit leaves on, at `min(5, ⌈100/(3·px)⌉)` positions a pixel for
+    glyphs of `px` pixels an em, left of the pen; DirectWrite's six
+    positions a pixel for ClearType, eight in natural, four in natural
+    symmetric and two in downsampled rendering, whole pixels in GDI and
+    aliased rendering, the nearest to the pen; GTK's whole pixels, as Pango rounds glyph
+    positions. `System.Baseline` snaps baselines likewise: down to the
+    next pixel on macOS (Core Graphics floors in its y-up space),
+    to the nearest on Windows, up on Linux.
+  - *macOS.* Core Text draws with font smoothing, as AppKit does unless
+    the user turned it off (`AppleFontSmoothing`, read through
+    `NSUserDefaults` as AppKit does: Core Graphics' bitmap contexts ignore
+    it), which emboldens glyphs more the lighter their color is, in four
+    steps of its luminance: its glyphs are rasterized for each
+    `text.Shade` of the text's color.
+  - *Windows.* Glyphs take the rendering mode and grid fitting DirectWrite
+    recommends for their font and size (`IDWriteFontFace3`'s, which from
+    about 1.9 pixels a DIP downsamples natural symmetric rendering, as
+    Direct2D draws), ClearType where the system smooths
+    fonts with it (`SPI_GETFONTSMOOTHINGTYPE`, with the pixel geometry and
+    ClearType level of the system's rendering parameters) and the glyph is
+    on an opaque background, and are aliased where the system does not
+    smooth fonts. Renderers blend them as Direct2D does, with the gamma
+    and enhanced contrasts of the system's rendering parameters
+    (`scene.TextParams`, Windows Terminal's reproduction of Direct2D's
+    shaders), and half again as much contrast for the families Direct2D
+    finds too thin for antialiasing, such as Courier New.
+  - *Linux.* Pango takes GTK's font options, which package ui reads from
+    `gtk-xft-*` (`platform.Theme.FontRendering`, given to
+    `System.SetFontRendering` with the interface font): the desktop's
+    antialiasing, subpixel order and hint style, with metrics hinted to
+    whole pixels and glyph positions rounded, as a GTK 3 label has them.
+    Subpixel antialiasing draws subpixel glyphs.
+  - *Decorations.* `System.Decorate` places underlines and strikethroughs
+    as the platform does: Core Text's own geometry for AppKit, snapped in
+    points, an underline as low and thick as the fonts under it want,
+    skipping the ink of descenders, a strikethrough through the middle of
+    the x-height, from the text's start to its width rounded up to a
+    point; Direct2D's, an underline at the font's offset rounded to whole
+    pixels from the snapped baseline, a strikethrough from the baseline as
+    laid out, with edges where its eight samples across and down a pixel
+    put them; GTK's, at Pango's metrics in whole pixels, the underline
+    along a run's ink and advances, the strikethrough along its ink.
+  - *Joined glyphs.* Renderers blend each glyph in turn, as Core Graphics
+    and Direct2D do, but cairo adds the coverage of a run's glyphs before
+    blending it, which differs where antialiased edges of neighbors share
+    a pixel. There, on Linux, package ui has the text system join them
+    (`System.GlyphRun`): their coverage added and clamped, cached as one
+    bitmap.
+  Paths drawn with
   `Painter` are masks in the coverage atlas, rasterized by `internal/vec`.
   So are icons: `internal/svg` parses SVG documents (with `encoding/xml`
   and its own small CSS cascade) into nodes of paths, paints and layers,
@@ -1039,9 +1089,16 @@ either.
   shader that computes the signed distance to rounded rectangles, Evan
   Wallace's blurred rounded box, gradients, stripes, the dashes of borders,
   atlas coverage and the innermost rounded clip; outer clips are scissor
-  rectangles. A fill's border widths travel in its texture rectangle, which
-  fills do not use, so every instance stays eleven float4s. Every GPU
-  renderer draws these instances:
+  rectangles. Near square corners, coverage is exact, the area of a pixel
+  inside the box, so lines thinner than a pixel cover as much as they
+  should, as text decorations need. A fill's border widths travel in its
+  texture rectangle, which fills do not use, and a glyph's gamma ratios
+  and contrast in its radii, so every instance stays eleven float4s. The
+  shader writes a second color, the source's alpha of each channel, and
+  renderers blend with it (dual-source blending): it is the color's alpha
+  but for subpixel glyphs, whose subpixels cover each channel by its own.
+  OpenGL ES without `EXT_blend_func_extended` blends the mean of their
+  subpixels instead. Every GPU renderer draws these instances:
   - `internal/gpu/d3d11` with a shader compiled to DXBC ahead of time
     (`go generate ./internal/gpu/d3d11` on Windows, with the system's
     `d3dcompiler_47.dll`), so apps carry no shader compiler. The
