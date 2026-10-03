@@ -295,6 +295,7 @@ func loadCoreText() error {
 type coreText struct {
 	styles [2]uintptr // paragraph styles: left-to-right, right-to-left
 	srgb   uintptr
+	smooth bool // the user leaves font smoothing on
 
 	primary map[Style]uintptr // the CTFont of each style
 	fonts   map[uint][]*Font  // by CFHash of their CTFont
@@ -331,7 +332,29 @@ func newCoreText() (*coreText, error) {
 	if e.srgb == 0 {
 		e.srgb = ct.colorSpaceDeviceRGB()
 	}
+	e.smooth = fontSmoothing()
 	return e, nil
+}
+
+// fontSmoothing reports whether the user leaves font smoothing on: AppKit
+// turns it off when AppleFontSmoothing is 0, or not a number, which Core
+// Graphics' bitmap contexts do not heed.
+func fontSmoothing() bool {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	pool := ct.poolPush()
+	defer ct.poolPop(pool)
+	cls := objc.ID(objc.GetClass("NSUserDefaults"))
+	if cls == 0 {
+		return true
+	}
+	defaults := cls.Send(objc.RegisterName("standardUserDefaults"))
+	key := cfString("AppleFontSmoothing")
+	defer ct.release(key)
+	if defaults.Send(objc.RegisterName("objectForKey:"), key) == 0 {
+		return true
+	}
+	return objc.Send[int](defaults, objc.RegisterName("integerForKey:"), key) != 0
 }
 
 func cfString(s string) uintptr {
@@ -663,7 +686,7 @@ func (e *coreText) fontOf(font uintptr) *Font {
 		Descent: float32(ct.fontGetDescent(font)),
 		LineGap: float32(ct.fontGetLeading(font)),
 		native:  font,
-		shaded:  !e.isColor(font),
+		shaded:  e.smooth && !e.isColor(font),
 	}
 	e.fonts[h] = append(e.fonts[h], f)
 	return f
@@ -821,9 +844,9 @@ func (e *coreText) glyph(f *Font, id uint32, scale, dx float32, shade Shade) bit
 		return bitmap{}
 	}
 	ct.contextAntialias(ctx, true)
-	// Font smoothing, unless the user turned it off (AppleFontSmoothing),
-	// emboldens glyphs more the lighter the fill color is, even in a
-	// context of alpha alone: the gray of the shade sets how much.
+	// Font smoothing emboldens glyphs more the lighter the fill color is,
+	// even in a context of alpha alone: the gray of the shade sets how
+	// much. Fonts are shaded while the user leaves it on.
 	ct.contextSmoothFonts(ctx, f.shaded)
 	ct.contextAllowSubpixelPos(ctx, true)
 	ct.contextSubpixelPos(ctx, true)

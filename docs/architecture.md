@@ -991,9 +991,10 @@ either.
   The engines rasterize glyphs too (`IDWriteGlyphRunAnalysis`,
   `CTFontDrawGlyphs`, cairo), at four subpixel offsets, into a coverage
   atlas, and color glyphs (emoji) into a color atlas. Core Text draws with
-  font smoothing, as AppKit does, which emboldens glyphs more the lighter
-  their color is, in four steps of its luminance: its glyphs are
-  rasterized for each `text.Shade` of the text's color. Paths drawn with
+  font smoothing, as AppKit does unless the user turned it off
+  (`AppleFontSmoothing`), which emboldens glyphs more the lighter their
+  color is, in four steps of its luminance: its glyphs are rasterized for
+  each `text.Shade` of the text's color. Paths drawn with
   `Painter` are masks in the coverage atlas, rasterized by `internal/vec`.
   So are icons: `internal/svg` parses SVG documents (with `encoding/xml`
   and its own small CSS cascade) into nodes of paths, paints and layers,
