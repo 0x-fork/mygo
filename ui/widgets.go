@@ -308,7 +308,8 @@ func Switch(c *Context, on *bool) *Element {
 func Slider(c *Context, value *float64, lo, hi float64) *Element {
 	t := c.theme
 	// The knob moves across the content box, half of it inside the
-	// padding on each side.
+	// padding on each side, so it stays on the track, which spans the
+	// slider.
 	knob := t.Space(4)
 	s := SliderBase(c, value, lo, hi).Height(t.Space(5)).MinWidth(t.Space(20)).PaddingX(knob / 2).FocusRing(false)
 	frac := float32(0)
@@ -316,11 +317,12 @@ func Slider(c *Context, value *float64, lo, hi float64) *Element {
 		frac = float32((*value - lo) / (hi - lo))
 	}
 	s.Draw(func(p *Painter, r Rect) {
-		h := t.Space(1)
-		track := Rect{r.X + knob/2, r.Y + r.H/2 - h/2, r.W - knob, h}
-		p.Fill(track, t.Border.Mix(t.Text, 0.1), h/2)
-		p.Fill(Rect{track.X, track.Y, track.W * frac, h}, t.Accent, h/2)
+		// As thick as Progress.
+		h := t.Space(1.5)
+		track := Rect{r.X, r.Y + r.H/2 - h/2, r.W, h}
 		k := Rect{r.X + (r.W-knob)*frac, r.Y + r.H/2 - knob/2, knob, knob}
+		p.Fill(track, t.Border, h/2)
+		p.Fill(Rect{track.X, track.Y, k.X + knob/2 - track.X, h}, t.Accent, h/2)
 		p.Shadow(Rect{k.X, k.Y + 1, k.W, k.H}, knob/2, 3, RGBA(0, 0, 0, 0.3))
 		p.Fill(k, RGB(255, 255, 255), knob/2)
 		p.Stroke(k, t.Border, knob/2, 1)
