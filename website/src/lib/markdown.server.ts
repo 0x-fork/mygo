@@ -3,6 +3,8 @@
 // highlighted by Shiki for both color schemes.
 
 import path from "node:path"
+import { codeToKeyedTokens } from "@shikijs/magic-move/core"
+import type { KeyedTokensInfo } from "@shikijs/magic-move/types"
 import GithubSlugger from "github-slugger"
 import type { Element, ElementContent, Root, RootContent } from "hast"
 import { toString } from "hast-util-to-string"
@@ -10,7 +12,7 @@ import rehypeStringify from "rehype-stringify"
 import remarkGfm from "remark-gfm"
 import remarkParse from "remark-parse"
 import remarkRehype from "remark-rehype"
-import { createHighlighter, type Highlighter } from "shiki"
+import { createHighlighter, type BundledLanguage, type Highlighter } from "shiki"
 import { unified } from "unified"
 import { visit } from "unist-util-visit"
 
@@ -218,6 +220,11 @@ function highlight(shiki: Highlighter, code: string, lang: string): Element {
 export async function highlightCode(code: string, lang: string) {
   const pre = highlight(await getHighlighter(), code, lang)
   return unified().use(rehypeStringify).stringify({ type: "root", children: [pre] })
+}
+
+/** Code highlighted for both color schemes, as the tokens of a magic move. */
+export async function highlightTokens(code: string, lang: BundledLanguage): Promise<KeyedTokensInfo> {
+  return codeToKeyedTokens(await getHighlighter(), code, { lang, themes, defaultColor: false })
 }
 
 /** Lists of pages become cards: `- [Title](page.md): what it covers`. */
