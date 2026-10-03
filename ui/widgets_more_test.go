@@ -63,7 +63,7 @@ func TestSplit(t *testing.T) {
 	tt := NewTester(func(c *Context) {
 		Split(c, &size, func() { Text(c, "left") }, func() { Text(c, "right") }).Fill()
 	}, 400, 200)
-	if r, _ := tt.Find("right"); r.X < 120+6-0.5 || r.X > 120+6+0.5 {
+	if r, _ := tt.Find("right"); r.X < 120+1-0.5 || r.X > 120+1+0.5 {
 		t.Fatalf("the second pane starts at %v", r.X)
 	}
 	// The divider moves with the pointer, within the window.
@@ -86,8 +86,15 @@ func TestSplit(t *testing.T) {
 	if size != 50 {
 		t.Errorf("Right on the divider: %v", size)
 	}
-	if r, _ := tt.Find("right"); r.X != 56 {
+	if r, _ := tt.Find("right"); r.X != 51 {
 		t.Errorf("the second pane follows to %v", r.X)
+	}
+	// The handle reaches over the first pane as over the second.
+	tt.Press(48, y)
+	tt.Move(68, y)
+	tt.Release(68, y)
+	if size != 70 {
+		t.Errorf("dragged 20 DIPs right from over the first pane, it is %v wide", size)
 	}
 }
 
