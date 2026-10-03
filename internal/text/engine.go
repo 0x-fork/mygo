@@ -34,7 +34,8 @@ type engine interface {
 	shape(text []rune, style Style, spans []Span, width float32, rtl, wholeWords bool) []shapedLine
 	// glyph rasterizes glyph id of f at scale pixels per DIP, its origin
 	// dx pixels (0 ≤ dx < 1) right of the left edge of a pixel, for text
-	// of a shade when f is shaded, with subpixel antialiasing if subpixel.
+	// of a shade when f is shaded or the shade is Thick, with subpixel
+	// antialiasing if subpixel.
 	glyph(f *Font, id uint32, scale, dx float32, shade Shade, subpixel bool) bitmap
 	// positions returns how many horizontal positions within a pixel
 	// glyphs of f at scale pixels per DIP are drawn at, with subpixel
@@ -101,8 +102,9 @@ type Font struct {
 
 	native uintptr // the engine's font
 	// shaded fonts' glyphs differ by the shade of the text; thin ones are
-	// too thin for antialiasing (GlyphImage.Thin).
-	shaded, thin bool
+	// too thin for antialiasing (GlyphImage.Thin). The engine draws the
+	// glyphs of fonts that thicken thicker for Thick.
+	shaded, thin, thickens bool
 	// The tops of the font's underline and strikethrough, in DIPs above
 	// the baseline, and their thickness, for engines that decorate with
 	// them (DirectWrite and Pango).

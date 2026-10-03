@@ -157,6 +157,40 @@ func TestGlyphShades(t *testing.T) {
 	}
 }
 
+// TestThick rasterizes Thick text as bold as the lightest shade where the
+// engine thickens glyphs (Core Graphics' smoothing has four strengths),
+// whether or not the user smooths fonts, and as other text elsewhere.
+func TestThick(t *testing.T) {
+	s := newSystem()
+	l := s.Layout(Params{Text: "O", Style: Style{Size: 13}})
+	g := l.Lines[0].Glyphs[0]
+	ink := func(f *Font, shade Shade) (n int) {
+		img := s.Glyph(f, g.ID, 2, 0, shade, false)
+		for y := range int(img.H) {
+			for x := range int(img.W) {
+				n += int(s.MaskAtlas.Pix[(int(img.Y)+y)*s.MaskAtlas.W+int(img.X)+x])
+			}
+		}
+		return n
+	}
+	dark, light, thick := ink(g.Font, 0), ink(g.Font, Shades-1), ink(g.Font, Thick)
+	if !g.Font.thickens {
+		if thick != dark {
+			t.Errorf("thick text has ink %d, other text %d", thick, dark)
+		}
+		return
+	}
+	if thick < light || thick <= dark {
+		t.Errorf("thick text has ink %d, the lightest shade %d, the darkest %d", thick, light, dark)
+	}
+	// Without smoothing, as when the user turns it off.
+	unsmoothed := *g.Font
+	unsmoothed.shaded = false
+	if plain, thick := ink(&unsmoothed, Shades-1), ink(&unsmoothed, Thick); thick <= plain {
+		t.Errorf("thick text has ink %d unsmoothed, other text %d", thick, plain)
+	}
+}
+
 // square draws a w×w mask filled with v.
 func square(w int, v byte, calls *int) func() (int, int, []byte) {
 	return func() (int, int, []byte) {

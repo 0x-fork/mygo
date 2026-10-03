@@ -86,8 +86,10 @@ framework safely. Read it before changing anything under `internal/`.
 │                       per-platform binary packages
 ├── plugins/            official plugins, each a Go package and its npm
 │                       package (@mygo-plugins/<name>) side by side: fetch,
-│                       websocket; and updater, the update window, Go only,
-│                       a web page or native UI (updater/native)
+│                       websocket; and Go only: updater, the update window,
+│                       a web page or native UI (updater/native), and
+│                       terminal, a view of native UI running programs with
+│                       libghostty-vt
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native, vibrancy; counter-native
@@ -656,6 +658,74 @@ build` like mygo-runtime and released with the same version.
   in another language than the window. The page reports the width its
   buttons need too, as translations can be long.
 
+- **terminal** is a terminal for native UI: a `Terminal` runs a program in
+  a pseudo-terminal and emulates it with libghostty-vt, Ghostty's terminal
+  emulator, and `View` draws it with package ui and takes its input.
+  - *The library* is loaded with purego (`internal/vt`): `dlopen`, or
+    `LoadLibrary`, then a symbol table; functions taking structs or floats
+    by value go through `purego.RegisterFunc`, the rest through `SyscallN`.
+    The Go mirrors of the C structs are checked against the layouts the
+    library describes in JSON (`ghostty_type_json`) as it loads, as are the
+    enum values the package hardcodes, and packed cells (`GhosttyCell`) are
+    read by the bit positions it reports, so that a library of another
+    version fails to load. Its callbacks (writing to the pty, the title,
+    the bell, the clipboard, synchronized output, device attributes, …) are
+    made once and find their terminal by the userdata.
+  - *Pseudo-terminals* (`internal/pty`) are opened in pure Go: `/dev/ptmx`
+    with the ioctls of `grantpt`, `unlockpt` and `ptsname` (`TIOCPTYGNAME`
+    on macOS, `TIOCGPTN` on Linux), the program in a session of its own
+    with the slave as its controlling terminal; ConPTY on Windows
+    (`CreatePseudoConsole`, a process attribute list), whose console the
+    terminal closes once the program exits. The user's shell starts as a
+    login shell (`-zsh`), when the first frame of a view sizes the screen
+    (or after half a second without one), so that it starts at its size.
+    A key the view takes tells Windows' backend to open no menu for the
+    `WM_SYSCHAR` of Alt and the key.
+  - *Threads.* A goroutine reads the program's output and writes it to the
+    emulator under the terminal's lock, then asks the view for a frame;
+    another writes what is typed, from a queue, so that a program that does
+    not read cannot block the reader, which answers its queries. Callbacks
+    of the app run after the lock is released. A frame takes the lock only
+    to copy the emulator's state into a render state (`render_state`'s
+    first phase); a second lock guards the render state, which a program's
+    synchronized update (mode 2026) holds: the render hold callback copies
+    the screen as the update starts, and frames show that copy until it
+    ends, or for a second at most. Locks are taken in that order.
+  - *Drawing.* The view sizes the grid in device pixels from the font
+    (cells as wide as the widest ASCII glyph, as tall as the line) and
+    rebuilds only the rows the render state marks dirty: runs of cells of
+    one font and color, shaped with `ui.Shape` (through an LRU of shaped
+    text, as output repeats) and placed in their cells, the glyphs of a
+    cell centered there and shrunk when too wide, as emoji are; backgrounds
+    and lines merge across cells. Box drawing, blocks and Powerline's
+    separators are drawn, as in Ghostty, so that lines join across cells.
+    Frames paint every row from these caches, the cursor (its cell's text
+    again in the cursor's text color under a block), the selection (its
+    text clipped to its cells and drawn again in the selected text's color
+    when the theme has one), an input method's composition and a scroll
+    bar.
+  - *Themes.* `ghostty_themes.go` holds the themes the Ghostty it binds
+    ships (iTerm2-Color-Schemes' archive that its `build.zig.zon` names),
+    as 22 colors each, which `go generate` writes too
+    (`go run ./internal/libbuild -themes` writes only them, without Zig).
+    `GhosttyTheme` looks for a theme file of the user's first, in
+    Ghostty's themes directory, as Ghostty does.
+  - *Input* comes as it happens (`ui.Element.HandleInput`): keys are
+    encoded by libghostty-vt's key encoder, set from the terminal's modes
+    (legacy, modifyOtherKeys, the Kitty keyboard protocol). A key that
+    types text waits for the text, which macOS and Windows send after it,
+    to encode both; text that comes alone, as on Linux or from input
+    methods, finds its key from US layout. Mouse reports go through the
+    mouse encoder while the program asks for them; otherwise a selection
+    gesture of libghostty-vt turns presses and drags into selections, with
+    the clicks it counts itself.
+  - *Shipping the library.* `mygo-plugin.json` names its build for each
+    platform, published as assets of a release of this repository, with
+    their SHA-256 (`go generate ./plugins/terminal` builds them with Zig
+    from Ghostty's sources and writes it). The CLI puts them into apps
+    (see the CLI's resources); other programs download theirs into the
+    user's cache once, which packaged apps never do.
+
 ## Typed client generation (`internal/tsgen`)
 
 `mygo generate` builds the app and runs it with `MYGO_GENERATE=<file>`;
@@ -961,6 +1031,17 @@ either.
   frame that moved one builds another for what read the old one. Frames
   happen only when asked: input, `Invalidate`, `After`, or `AnimationFrame`
   while something moves.
+- **Input taken as it comes.** An element with `HandleInput` gets its
+  input on the main thread as the backend reports it, before the frame
+  (`ui/handler.go`): keys (with their releases, which ui otherwise
+  ignores), text, compositions and edit commands while it has the focus,
+  unless a `Shortcut` around it claims the key, and the pointer pressed on
+  it, moving over it or scrolling over it; once it takes a press, the
+  moves and the release come to it, as to a pressed element. Its
+  `TextCaret` turns on the input method at that caret, with no text around
+  it. `ui.Shape` lays out text without the cache of layouts, for widgets
+  that keep their glyphs, and `Painter.Glyphs` draws them where they
+  placed them.
 - **Lists** (`ui/list.go`) build only the rows in view and keep their
   place by a row, the anchor, and how far its top is above where the
   content starts, not by an offset into their content: rows are measured,
@@ -1044,7 +1125,10 @@ either.
     `NSUserDefaults` as AppKit does: Core Graphics' bitmap contexts ignore
     it), which emboldens glyphs more the lighter their color is, in four
     steps of its luminance: its glyphs are rasterized for each
-    `text.Shade` of the text's color.
+    `text.Shade` of the text's color. `text.Thick`, for text a
+    `ui.Font` thickens (the terminal's `Font.Thicken`, as Ghostty's
+    font-thicken), smooths at the strongest step whatever the color and
+    the user's setting; other engines draw it as other text.
   - *Windows.* Glyphs take the rendering mode and grid fitting DirectWrite
     recommends for their font and size (`IDWriteFontFace3`'s, which from
     about 1.9 pixels a DIP downsamples natural symmetric rendering, as
@@ -1353,6 +1437,13 @@ renderer's (`gputest.Compare`).
   without an `LC_CODE_SIGNATURE`, and the bundles around it, so vendors'
   signatures stay. Windows builds sign the PE images among the resources
   that have no certificate table, with the app's certificate or command.
+  The packages of the app may name native libraries in a
+  `mygo-plugin.json` (`natives.go`), with a file per platform, its URL and
+  its SHA-256, as the terminal plugin names libghostty-vt: `go list -deps`
+  of the target finds them, the CLI downloads each once into
+  `<user cache>/mygo/natives/<sha256>/`, checking its SHA-256, and installs
+  it at the top of the resources like a listed resource, both
+  architectures of a universal app combined.
   `resources/icon.png` is the default icon. Each platform's output
   directory is assembled in a staging directory that replaces it whole, so
   removed resources do not linger; development builds on Linux and Windows
@@ -1439,7 +1530,7 @@ profile).
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
 | CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, resources (platform directories, universal pairs, staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime, `mygo-runtime` and the plugins' packages (against a fake Go side on the real runtime, `plugins/fake-go.ts`) |
-| plugins | `go test ./plugins/...` | the fetch plugin against `httptest` servers, the WebSocket client against a test server (ordering, fragments, pings, closing handshakes) |
+| plugins | `go test ./plugins/...` | the fetch plugin against `httptest` servers, the WebSocket client against a test server (ordering, fragments, pings, closing handshakes); the terminal's binding of libghostty-vt (layouts, rendering, encoders, selections), its pseudo-terminals, and its view through `Tester` with real shells: typing, keys as programs ask, input methods, mouse reports, selecting and copying, pasting, scrollback, exits (the library is downloaded, or named by `MYGO_GHOSTTY_VT`; `-short` skips them) |
 | native UI | `go test ./ui ./internal/text ./internal/scene ./internal/raster ./internal/svg ./internal/gpu/...` | the GPU renderers against the CPU renderer (Direct3D on Windows, Metal on macOS, OpenGL on Linux); views through `Tester`: input, focus, editing, lists, overlays, frames that fill the glyph atlas; text layout and caret geometry; atlas zones and repacking; the CPU renderer against its formulas; SVG parsing and drawing, with `FuzzParse`; `go test -run '^$' -bench . ./ui` times a frame |
 | GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, channels, protocol, Eval, geometry, capture, menus, window.open, native UI (frames, clicks, input methods replacing typed text, file drops, assistive technology reading and acting; on macOS typing, skipped while an input method is selected, and composing; on Linux with `MYGO_GPU=1`, what OpenGL drew in the GtkGLArea); on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
 

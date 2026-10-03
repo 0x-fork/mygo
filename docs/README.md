@@ -120,6 +120,8 @@ that must start instantly.
   makes, with headers on the handshake.
 - [Updater](plugins/updater.md): an update window in the manner of
   Sparkle, which checks for updates and offers to install them.
+- [Terminal](plugins/terminal.md): a terminal for native UI, which runs
+  the shell or any program with Ghostty's terminal emulator.
 
 ## Reference
 

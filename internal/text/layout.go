@@ -476,6 +476,15 @@ func (s *System) Layout(p Params) *Layout {
 	return l
 }
 
+// Shape lays out p.Text as Layout does, but caches nothing, for text that
+// its caller keeps or rarely draws twice. The result belongs to the
+// caller.
+func (s *System) Shape(p Params) *Layout {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.layout(p)
+}
+
 // Metrics returns the ascent, descent and default line height of a style.
 func (s *System) Metrics(style Style) (ascent, descent, lineHeight float32) {
 	s.mu.Lock()

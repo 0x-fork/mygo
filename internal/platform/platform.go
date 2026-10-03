@@ -416,7 +416,9 @@ type WindowHandler interface {
 
 	// SurfaceEvent delivers input on the window's Surface, and changes of
 	// it. For FileDragOver and FileDrop it reports whether the content
-	// takes the files where they are; it returns false for other events.
+	// takes the files where they are, and for KeyPressed whether it took
+	// the key itself, which the system then leaves alone (Windows opens no
+	// menu for Alt and the key); it returns false for other events.
 	SurfaceEvent(ev SurfaceEvent) bool
 }
 

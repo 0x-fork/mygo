@@ -215,6 +215,12 @@ type Element struct {
 	styleFn      func(e *Element)
 	paintAfterFn func(p *Painter, r Rect)
 
+	// Input the element takes itself (HandleInput), and where the caret of
+	// the text it takes is (TextCaret).
+	inputFn   func(InputEvent) bool
+	caret     Rect
+	takesText bool
+
 	// Content.
 	text     string
 	spans    []Span // of a RichText

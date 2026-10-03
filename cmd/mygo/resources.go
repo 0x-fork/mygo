@@ -105,6 +105,12 @@ type resource struct {
 // as macOS and Windows do, and top-level names must differ from reserved,
 // the files the packaging adds itself.
 func (c *Config) resources(goos, goarch string, reserved ...string) ([]resource, error) {
+	return c.resourcesWith(goos, goarch, nil, reserved...)
+}
+
+// resourcesWith is resources with the native libraries of the app's
+// packages (see natives), installed at the top like listed resources.
+func (c *Config) resourcesWith(goos, goarch string, natives []source, reserved ...string) ([]resource, error) {
 	m := &merger{c: c, reserved: map[string]string{}}
 	for _, name := range reserved {
 		m.reserved[strings.ToLower(name)] = name
@@ -177,6 +183,7 @@ func (c *Config) resources(goos, goarch string, reserved ...string) ([]resource,
 		}
 		top = append(top, source{name: filepath.Base(src), path: src, listed: true})
 	}
+	top = append(top, natives...)
 	if err := m.merge(top); err != nil {
 		return nil, err
 	}

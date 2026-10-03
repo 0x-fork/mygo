@@ -119,6 +119,10 @@ type surface struct {
 	caret    platform.RectF
 	input    platform.TextInputState
 
+	// keyTaken tells that the content took the key down, whose
+	// WM_SYSCHAR then opens no menu.
+	keyTaken bool
+
 	reconvert  *[2]int // the runes a reconversion replaces
 	dropTarget uintptr // IDropTarget
 	access     *uiaTree
@@ -394,8 +398,9 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		s.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
 		return 0, true
 	case wmKeyDown, wmSysKeyDown:
+		s.keyTaken = false
 		if k := vkKey(wp); k != platform.KeyUnknown {
-			s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, Mods: mods(), Repeat: lp&(1<<30) != 0})
+			s.keyTaken = s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, Mods: mods(), Repeat: lp&(1<<30) != 0})
 		}
 		// Alt+F4, Alt+Space and F10 keep working.
 		return 0, m == wmKeyDown
@@ -405,6 +410,10 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		}
 		return 0, m == wmKeyUp
 	case wmSysChar:
+		if s.keyTaken {
+			// The content took Alt and the key, as a terminal does.
+			return 0, true
+		}
 		// Alt and a letter go to the window, which opens the menu of the
 		// letter: DefWindowProc would open the window's bar without it.
 		if wp > ' ' {

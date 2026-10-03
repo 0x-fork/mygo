@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"strings"
+	"sync/atomic"
 
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/raster"
@@ -14,14 +15,16 @@ import (
 type headless struct {
 	w, h, scale float32
 	img         raster.Renderer
-	requested   bool
-	dark        bool
-	clipboard   string
-	cursor      Cursor
-	ime         platform.TextInputState
-	opened      []string
-	bar         TitleBar
-	access      *platform.AccessTree
+	// requested is set when the view asks for a frame, from any goroutine
+	// for invalidate.
+	requested atomic.Bool
+	dark      bool
+	clipboard string
+	cursor    Cursor
+	ime       platform.TextInputState
+	opened    []string
+	bar       TitleBar
+	access    *platform.AccessTree
 	// menu is the context menu shown, and chosen takes its choice.
 	menu   *platform.Menu
 	chosen func(id int)
@@ -31,7 +34,7 @@ func (h *headless) size() (float32, float32, float32) { return h.w, h.h, h.scale
 func (h *headless) present(s *scene.Scene) {
 	h.img.Render(s)
 }
-func (h *headless) requestFrame()                              { h.requested = true }
+func (h *headless) requestFrame()                              { h.requested.Store(true) }
 func (h *headless) setCursor(c Cursor)                         { h.cursor = c }
 func (h *headless) setTextInput(t platform.TextInputState)     { h.ime = t }
 func (h *headless) updateAccessibility(t *platform.AccessTree) { h.access = t }
@@ -41,7 +44,7 @@ func (h *headless) startDrag()                                 {}
 func (h *headless) titleBarDoubleClicked()                     {}
 func (h *headless) isDark() bool                               { return h.dark }
 func (h *headless) titleBar() TitleBar                         { return h.bar }
-func (h *headless) invalidate()                                { h.requested = true }
+func (h *headless) invalidate()                                { h.requested.Store(true) }
 func (h *headless) openURL(u string)                           { h.opened = append(h.opened, u) }
 func (h *headless) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {
 	h.menu, h.chosen = m, chosen
@@ -79,9 +82,9 @@ func NewTester(view func(c *Context), width, height int) *Tester {
 // settle runs frames until the view asks for no more, or 20 of them.
 func (t *Tester) settle() {
 	for i := 0; i < 20; i++ {
-		t.h.requested = false
+		t.h.requested.Store(false)
 		t.rt.runFrame()
-		if !t.h.requested {
+		if !t.h.requested.Load() {
 			return
 		}
 	}
@@ -119,7 +122,7 @@ func (t *Tester) SetDark(dark bool) {
 }
 
 // Frame renders another frame, as when the view's state changed.
-func (t *Tester) Frame() { t.h.requested = true; t.settle() }
+func (t *Tester) Frame() { t.h.requested.Store(true); t.settle() }
 
 // Image returns the last frame.
 func (t *Tester) Image() *image.RGBA { return t.h.image() }
@@ -273,9 +276,47 @@ func (t *Tester) Key(mods Modifiers, key Key) {
 	t.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: platform.Key(key), Mods: platform.Modifiers(mods)})
 }
 
+// TypeKey presses a key that types text, as a keyboard does: the key goes
+// down, the text comes, then the key goes up.
+func (t *Tester) TypeKey(mods Modifiers, key Key, text string) {
+	t.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.Key(key), Mods: platform.Modifiers(mods)})
+	t.send(platform.SurfaceEvent{Kind: platform.TextInput, Text: text})
+	t.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: platform.Key(key), Mods: platform.Modifiers(mods)})
+}
+
 // Type types text into the focused text input.
 func (t *Tester) Type(s string) {
 	t.send(platform.SurfaceEvent{Kind: platform.TextInput, Text: s})
+}
+
+// SetFocused gives the window the keyboard, or takes it away, as when the
+// user switches to another window.
+func (t *Tester) SetFocused(focused bool) {
+	kind := platform.SurfaceBlur
+	if focused {
+		kind = platform.SurfaceFocus
+	}
+	t.send(platform.SurfaceEvent{Kind: kind})
+}
+
+// Compose shows text as an input method's composition, with its caret at
+// rune caret, as while typing in Chinese or Japanese; an empty text ends
+// it. Type commits the text.
+func (t *Tester) Compose(text string, caret int) {
+	t.send(platform.SurfaceEvent{Kind: platform.TextComposition, Text: text, Caret: caret})
+}
+
+// Command performs an edit command of the menus, as Copy of the Edit menu:
+// "copy", "cut", "paste", "selectAll", "undo", "redo" or "delete".
+func (t *Tester) Command(name string) {
+	t.send(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: name})
+}
+
+// TextCaret returns where input methods compose, and whether one would:
+// the caret of the focused text input, or of an element's TextCaret.
+func (t *Tester) TextCaret() (Rect, bool) {
+	c := t.h.ime.Caret
+	return Rect{float32(c.X), float32(c.Y), float32(c.W), float32(c.H)}, t.h.ime.Active
 }
 
 // Clipboard returns the text the view copied; SetClipboard sets the text

@@ -191,6 +191,36 @@ export default defineConfig({
 </plist>
 ```
 
+### Native libraries of packages
+
+A Go package that loads a native library with purego, as the
+[terminal plugin](plugins/terminal.md) loads libghostty-vt, names its
+builds in a `mygo-plugin.json` next to its sources, with a file per
+platform, where to download it and its SHA-256:
+
+```json
+{
+  "libraries": [
+    {
+      "name": "libexample",
+      "files": {
+        "darwin-arm64": { "name": "libexample.dylib", "url": "https://…/libexample-darwin-arm64.dylib", "sha256": "…" },
+        "linux-amd64": { "name": "libexample.so", "url": "https://…/libexample-linux-amd64.so", "sha256": "…" },
+        "windows-amd64": { "name": "example.dll", "url": "https://…/example-windows-amd64.dll", "sha256": "…" }
+      }
+    }
+  ]
+}
+```
+
+`mygo build` and `mygo dev` find these files in the packages the app is
+built from, download each library once into the user's cache
+(`<cache>/mygo/natives/<sha256>/`), check its SHA-256, and install it at
+the top of the app's resources under its name, signed like the other
+code there; a universal macOS app gets both architectures in one file.
+The package loads it from `PathResources`. Building for a platform the
+package has no file for fails.
+
 ## macOS
 
 `mygo build` makes an app bundle, signs it, and puts it in a disk image

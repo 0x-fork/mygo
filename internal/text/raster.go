@@ -16,6 +16,24 @@ type Shade uint8
 // Shades is the number of shades of text.
 const Shades = 4
 
+// Thick is a shade beyond the others, for text drawn thicker: with Core
+// Text's font smoothing at its strongest, whatever the text's color and
+// the user's setting, as Ghostty's font-thicken draws it. Engines that do
+// not thicken glyphs draw them as for other text.
+const Thick Shade = Shades
+
+// shadeFor returns the shade that glyphs of f for text of shade are drawn
+// for.
+func (f *Font) shadeFor(shade Shade) Shade {
+	switch {
+	case shade >= Thick && f.thickens:
+		return Thick
+	case !f.shaded:
+		return 0
+	}
+	return min(shade, Shades-1)
+}
+
 // ShadeOf returns the shade of text of an sRGB color: its relative
 // luminance rounded to a quarter, as Core Text rounds it, and at most 3/4.
 func ShadeOf(r, g, b uint8) Shade {
@@ -210,12 +228,10 @@ func (s *System) Glyph(f *Font, id uint32, scale, x float32, shade Shade, opaque
 	if f == nil {
 		return GlyphImage{}
 	}
-	if !f.shaded {
-		shade = 0
-	}
+	shade = f.shadeFor(shade)
 	subpixel := opaque && s.subpixel
 	q, n, carry := s.place(f, scale, subpixel, x)
-	key := glyphKey{font: f, id: id, scale: uint32(scale*256 + 0.5), subX: uint8(q), shade: min(shade, Shades-1), subpixel: subpixel}
+	key := glyphKey{font: f, id: id, scale: uint32(scale*256 + 0.5), subX: uint8(q), shade: shade, subpixel: subpixel}
 	e, ok := s.glyphs[key]
 	if !ok {
 		failed := s.failed

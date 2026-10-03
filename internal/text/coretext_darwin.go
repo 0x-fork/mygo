@@ -714,6 +714,8 @@ func (e *coreText) fontOf(font uintptr) *Font {
 		LineGap: float32(ct.fontGetLeading(font)),
 		native:  font,
 		shaded:  e.smooth && !e.isColor(font),
+		// Smoothing thickens glyphs, whatever the user's setting.
+		thickens: !e.isColor(font),
 	}
 	e.fonts[h] = append(e.fonts[h], f)
 	return f
@@ -863,8 +865,9 @@ func (e *coreText) glyph(f *Font, id uint32, scale, dx float32, shade Shade, _ b
 	}
 	s, x := float64(scale), float64(dx)
 	// Smoothing spreads a glyph up to a pixel further.
+	smooth := f.shaded || shade == Thick
 	pad := 1
-	if f.shaded {
+	if smooth {
 		pad = 2
 	}
 	// Core Graphics' y goes up: the box from r.y to r.y+r.h above the
@@ -893,14 +896,17 @@ func (e *coreText) glyph(f *Font, id uint32, scale, dx float32, shade Shade, _ b
 	ct.contextAntialias(ctx, true)
 	// Font smoothing emboldens glyphs more the lighter the fill color is,
 	// even in a context of alpha alone: the gray of the shade sets how
-	// much. Fonts are shaded while the user leaves it on.
-	ct.contextSmoothFonts(ctx, f.shaded)
+	// much. Fonts are shaded while the user leaves it on; thick text is
+	// smoothed with white, the most.
+	ct.contextSmoothFonts(ctx, smooth)
 	ct.contextAllowSubpixelPos(ctx, true)
 	ct.contextSubpixelPos(ctx, true)
 	ct.contextAllowQuantize(ctx, false)
 	ct.contextQuantize(ctx, false)
 	fill := 0.0
-	if f.shaded {
+	if shade == Thick {
+		fill = 1
+	} else if f.shaded {
 		fill = shadeGray(shade)
 	}
 	ct.contextSetFill(ctx, fill, fill, fill, 1)

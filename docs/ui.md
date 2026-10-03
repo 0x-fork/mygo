@@ -658,6 +658,31 @@ func Disclosure(c *ui.Context, title string, body func()) {
   editing commands of their platform's text fields, unless `ContextMenu`
   gives them another menu. `Shortcut` only shows a key: handle it with
   `Shortcut` on the context or an element.
+- **Every key, as it comes.** Widgets that take every key themselves, as
+  the [terminal](plugins/terminal.md) does, get their input as it comes
+  with `HandleInput`, before the next frame: keys pressed and released,
+  text typed and composed while they have the focus, the edit commands of
+  the menus, and the pointer pressed on them, moving over them or
+  scrolling over them. The function reports whether it took the event; one
+  it leaves goes on to shortcuts, Tab, context menus and scroll containers
+  as usual, and keys that the window or an element around the focus
+  handles with `Shortcut` go there first. `TextCaret` turns on the system's
+  input methods for such an element while it has the focus, composing at
+  the caret it gives. `c.ReadClipboard`, `c.WriteClipboard` and
+  `c.OpenURL` copy, paste and open links for them:
+
+  ```go
+  ui.Box(c).Fill().Focusable().HandleInput(func(ev ui.InputEvent) bool {
+  	switch ev.Kind {
+  	case ui.InputKeyDown:
+  		return app.key(ev.Mods, ev.Key)
+  	case ui.InputText:
+  		app.insert(ev.Text)
+  		return true
+  	}
+  	return false
+  }).TextCaret(app.caretRect())
+  ```
 - **Tooltips.** `Tooltip("…")` shows a tip once the pointer rests on the
   element.
 - **Custom title bars.** In a `Frameless` window, `DragWindow` makes an
@@ -760,6 +785,28 @@ ui.Box(c).Size(200, 40).Draw(func(p *ui.Painter, r ui.Rect) {
 ```
 
 Draw functions only paint: MyGo may call them more than once a frame.
+
+Text that a widget lays out itself, as in the cells of a grid, is shaped
+once with `ui.Shape`, which returns glyphs placed along a line by the
+system's text engine, with ligatures, kerning and fallback fonts, and the
+runes each comes from. Move their `X` and draw them with `Painter.Glyphs`;
+`Font.Metrics` returns the font's ascent, descent and line gap, and
+`Painter.Scale` the device pixels of a DIP, to line things up with the
+display's pixels. `Shape` caches nothing, unlike the text of elements:
+keep the glyphs of text drawn in many frames. `Font.Features` turns
+OpenType features on and off, and `Font.Thicken` draws text with a
+thicker stroke on macOS, as Ghostty's `font-thicken`.
+
+```go
+font := ui.Font{Family: "monospace", Size: 13}
+glyphs := ui.Shape("grid", font)
+for i := range glyphs {
+	glyphs[i].X = float32(glyphs[i].Cluster) * cellWidth // one per cell
+}
+ui.Box(c).Height(20).Draw(func(p *ui.Painter, r ui.Rect) {
+	p.Glyphs(glyphs, r.X, r.Y+font.Metrics().Ascent, c.Theme().Text)
+})
+```
 
 For motion, `Element.Animate` returns a value that eases to a target and
 draws frames until it gets there:
@@ -922,7 +969,12 @@ func TestCounter(t *testing.T) {
 ```
 
 `tt.RightClick` opens a context menu, which `tt.Menu` lists and
-`tt.ChooseMenuItem("Move to", "Archive")` chooses from. `tt.Image()` is the
+`tt.ChooseMenuItem("Move to", "Archive")` chooses from. `tt.TypeKey` presses
+a key with the text it types, `tt.SetFocused` takes the keyboard from the
+window and gives it back, `tt.Compose` shows the composition of an input
+method, `tt.Command` performs an edit command
+of the menus, such as `"copy"`, and `tt.TextCaret` returns where input
+methods would compose. `tt.Image()` is the
 last frame, for snapshots, and `ui.Render` draws a view once at a given
 scale.
 

@@ -47,6 +47,8 @@ go run ./cmd/mygo generate examples/todo   # regenerate an example's TypeScript 
 go run ./cmd/mygo dev examples/todo        # live reload (dev bundle in examples/todo/.mygo)
 go run ./cmd/mygo build examples/todo      # .app + .dmg in examples/todo/build
 go run ./examples/gallery                  # the native UI toolkit's tour
+go run ./examples/terminal                 # a terminal (downloads libghostty-vt once)
+go generate ./plugins/terminal             # build libghostty-vt for every platform (with Zig), write Ghostty's themes
 go generate ./internal/gpu/d3d11           # recompile the Direct3D shader (on Windows)
 go generate ./internal/gpu/metal           # recompile the Metal shader (on macOS, with Xcode)
 bun run --cwd website dev                  # the website, with docs/ at /docs (see website/README.md)
@@ -66,7 +68,10 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
 - Official plugins live in `plugins/<name>`: the Go package and its npm
   package (`@mygo-plugins/<name>`) side by side, released with
   mygo-runtime's version. The updater plugin is Go only; its `native`
-  package draws the update window in native UI.
+  package draws the update window in native UI. The terminal plugin is Go
+  only too, for native UI, with libghostty-vt loaded through purego: its
+  `mygo-plugin.json` pins the builds the CLI puts into apps, published as
+  release assets (`libghostty-vt-<commit>`); change it with `go generate`.
 - The `dist/` of npm packages is not committed: run `bun run build` after
   `bun install` (CI and releases do). Commit `internal/bridge/bridge.js`
   whenever its sources change, and keep the generated clients of examples

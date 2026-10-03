@@ -144,7 +144,7 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 	if err := os.Chmod(stage, 0o755); err != nil {
 		return nil, err
 	}
-	res, err := c.resources(goos, goarch, reservedNames(c, goos)...)
+	res, err := c.appResources(goos, goarch)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,10 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		if err != nil {
 			return nil, err
 		}
-		if slices.ContainsFunc(res, func(r resource) bool { return r.lipo != "" }) {
+		inProject := func(r resource) bool {
+			return r.lipo != "" && strings.HasPrefix(r.src, c.path(resourcesDir)+string(filepath.Separator))
+		}
+		if slices.ContainsFunc(res, inProject) {
 			logf("made universal binaries of the code in %s and %s", filepath.Join(resourcesDir, "darwin-arm64"), filepath.Join(resourcesDir, "darwin-amd64"))
 		}
 		if err := codesign(c, app, opts.sign, true); err != nil {

@@ -69,9 +69,7 @@ func (s *System) GlyphRun(f *Font, ids []uint32, xs []float32, scale float32, sh
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !f.shaded {
-		shade = 0
-	}
+	shade = f.shadeFor(shade)
 	subpixel := opaque && s.subpixel
 	origin := math.Floor(float64(xs[0]))
 	var key strings.Builder

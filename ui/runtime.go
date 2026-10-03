@@ -72,6 +72,8 @@ type engine struct {
 	menu               menuState
 	toasts             []toast
 	nextToast          uint64
+	// mods are the modifiers of the last pointer event.
+	mods Modifiers
 
 	consumed  bool
 	animating bool
@@ -334,6 +336,7 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	}
 	s.flags = e.flags
 	s.cursor = e.cursor
+	s.input, s.caret, s.takesText = e.inputFn, e.caret, e.takesText
 	if e.flags&(flagEditable|flagSelectable) != 0 && s.cursor == 0 {
 		s.cursor = CursorText + 1
 	}

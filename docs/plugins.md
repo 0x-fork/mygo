@@ -13,6 +13,9 @@ JavaScript package whose functions call them. The app uses the Go half with
 - [Updater](plugins/updater.md): an update window in the manner of
   Sparkle, which checks for updates and offers to install them. It is all
   Go, and its window is a web page or, for apps of native UI, native UI.
+- [Terminal](plugins/terminal.md): a terminal for native UI, a view that
+  runs the shell or any program with Ghostty's terminal emulator. It is
+  all Go, with a native library that the CLI puts into apps.
 
 ## Using plugins
 

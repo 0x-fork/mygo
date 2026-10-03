@@ -189,6 +189,16 @@ func (c *Context) AnimationFrame() { c.rt.animating = true }
 // time, such as a clock.
 func (c *Context) After(d time.Duration) { c.rt.scheduleAt(c.now.Add(d)) }
 
+// ReadClipboard returns the text on the clipboard, and WriteClipboard
+// puts text there, for widgets that copy and paste themselves. Call them
+// on the main thread: in the view, or in an input handler.
+func (c *Context) ReadClipboard() string   { return c.rt.host.readClipboard() }
+func (c *Context) WriteClipboard(s string) { c.rt.host.writeClipboard(s) }
+
+// OpenURL opens a URL in the default browser, or the app registered for
+// its scheme, as a Link does.
+func (c *Context) OpenURL(url string) { c.rt.host.openURL(url) }
+
 // Shortcut reports whether the key with exactly the modifiers mods was
 // pressed, wherever the keyboard focus is, unless a focused element
 // handled it first: a focused button or link takes Enter and Space, and a
@@ -261,6 +271,12 @@ type state struct {
 	anims              map[any]*anim
 	shortcuts          []shortcut
 	delivered          []shortcut
+
+	// input, caret and takesText are those of the last frame's element
+	// (HandleInput, TextCaret).
+	input     func(InputEvent) bool
+	caret     Rect
+	takesText bool
 }
 
 type shortcut struct {
