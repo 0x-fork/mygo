@@ -76,7 +76,7 @@ func openWindow(s *session) {
 		fit(win, v.Release)
 	}
 	win.OnClosed(s.cancel)
-	win.OnWillNavigate(func(e *mygo.NavigateEvent) {
+	win.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
 		// Links of the release notes open in the browser.
 		e.PreventDefault()
 		if e.UserInitiated && safeURL(e.URL) {
@@ -91,7 +91,7 @@ func openWindow(s *session) {
 			win.ShowInactive()
 		}
 	})
-	win.LoadHTML(page(t, s.u.iconURL(), v), "")
+	win.Page().LoadHTML(page(t, s.u.iconURL(), v), "")
 }
 
 // fit gives the window the size of a status or release view.

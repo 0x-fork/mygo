@@ -44,7 +44,7 @@ func main() {
 			Vibrancy:        mygo.VibrancySidebar,
 			BackgroundColor: "light-dark(#ececec, #2a2a2a)",
 		})
-		win.LoadHTML(page, "")
+		win.Page().LoadHTML(page, "")
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

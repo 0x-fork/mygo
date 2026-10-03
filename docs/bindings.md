@@ -346,13 +346,13 @@ Only the app's own pages may call Go methods: pages of its frontend and of
 custom protocols (see [the frontend](frontend.md)), `file:` and `about:`
 pages, and in development builds pages served from localhost, such as the
 dev server. A window that shows other sites, `https://example.com` for
-example, keeps them from calling Go unless `WindowOptions.TrustedOrigins`
-lists their origin:
+example, keeps them from calling Go unless `PageOptions.TrustedOrigins` lists
+their origin:
 
 ```go
 mygo.NewWindow(mygo.WindowOptions{
-	URL:            "https://app.example.com",
-	TrustedOrigins: []string{"https://app.example.com"},
+	URL:  "https://app.example.com",
+	Page: mygo.PageOptions{TrustedOrigins: []string{"https://app.example.com"}},
 })
 ```
 
@@ -364,13 +364,13 @@ window does.
 ## From Go to the page
 
 Events are the way to tell pages about changes. To run code in a page,
-typically to automate or test it, use `Window.Eval`, which returns the
+typically to automate or test it, use `Page.Eval`, which returns the
 value of an expression, awaiting promises, decoded from JSON, or
 `mygo.EvalAs[T]` to decode it into a Go type:
 
 ```go
-title, err := mygo.EvalAs[string](win, "document.title")
-count, err := mygo.EvalAs[int](win, "const items = document.querySelectorAll('li'); return items.length")
+title, err := mygo.EvalAs[string](win.Page(), "document.title")
+count, err := mygo.EvalAs[int](win.Page(), "const items = document.querySelectorAll('li'); return items.length")
 ```
 
 Statements run as the body of an async function, so `return` produces the

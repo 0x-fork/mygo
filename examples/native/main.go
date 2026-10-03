@@ -61,8 +61,8 @@ func (Native) Notify(title, body string) error {
 func (Native) ShowContextMenu(ctx context.Context) {
 	win := mygo.CallerWindow(ctx)
 	mygo.NewMenu([]*mygo.MenuItem{
-		{Label: "Reload", Click: func(*mygo.MenuItem, *mygo.Window) { win.Reload() }},
-		{Label: "Toggle Developer Tools", Click: func(*mygo.MenuItem, *mygo.Window) { win.ToggleDevTools() }},
+		{Label: "Reload", Click: func(*mygo.MenuItem, *mygo.Window) { win.Page().Reload() }},
+		{Label: "Toggle Developer Tools", Click: func(*mygo.MenuItem, *mygo.Window) { win.Page().ToggleDevTools() }},
 		mygo.Separator(),
 		{Role: mygo.RoleCopy},
 		{Role: mygo.RolePaste},
@@ -141,7 +141,7 @@ func main() {
 		show := func() {
 			if win == nil || win.IsDestroyed() {
 				win = mygo.NewWindow(mygo.WindowOptions{Title: "Native", Width: 720, Height: 520})
-				win.LoadHTML(page, "")
+				win.Page().LoadHTML(page, "")
 			}
 			win.Show()
 		}

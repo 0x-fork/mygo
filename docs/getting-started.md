@@ -102,7 +102,7 @@ the dev server, and starts it:
 
 Quit the app, or press Ctrl+C, to stop. Development builds have the web
 inspector: right-click the page and choose Inspect Element (Inspect on
-Windows), or call `win.OpenDevTools()`.
+Windows), or call `win.Page().OpenDevTools()`.
 
 On macOS the development app is a real app bundle, `My App Dev` with the
 identifier of the app plus `.dev`, so that it keeps its data, preferences

@@ -23,16 +23,16 @@ type PermissionRequest struct {
 // SetPermissionHandler decides what the pages of the window may use, such
 // as the camera: fn returns whether to grant a request, and runs on the main
 // thread. nil restores the default: the app's own pages (see
-// WindowOptions.TrustedOrigins) get what they ask for, other pages do not.
+// PageOptions.TrustedOrigins) get what they ask for, other pages do not.
 //
 // The operating system may still ask the user, like macOS does once per
 // app for the camera and the microphone. That needs usage descriptions in
 // macos.infoPlist of mygo.config.ts (NSCameraUsageDescription,
 // NSMicrophoneUsageDescription), without which macOS ends the app.
-func (w *Window) SetPermissionHandler(fn func(req PermissionRequest) bool) {
-	w.mu.Lock()
-	w.permissionHandler = fn
-	w.mu.Unlock()
+func (p *Page) SetPermissionHandler(fn func(req PermissionRequest) bool) {
+	p.w.mu.Lock()
+	p.w.permissionHandler = fn
+	p.w.mu.Unlock()
 }
 
 func (h *windowHandler) PermissionRequested(kinds []string, origin string) bool {

@@ -12,7 +12,7 @@ or `/settings?tab=general`:
 
 ```go
 mygo.NewWindow(mygo.WindowOptions{URL: "/"})
-win.LoadURL("/settings")
+win.Page().LoadURL("/settings")
 ```
 
 They resolve against:
@@ -45,11 +45,11 @@ under `mygo dev` (the dev server's origin) is not what the built app sees.
 Keep data you care about in Go, for example in a file in
 `App.Path(mygo.PathUserData)`, and hand it to pages through bound methods.
 
-Windows can also load other content:
+Windows can also load other content into their page:
 
-- `win.LoadURL("https://example.com")`, a web page;
-- `win.LoadHTML(html, baseURL)`, an HTML string;
-- `win.LoadFile("docs/index.html")`, a local file, resolved against the
+- `win.Page().LoadURL("https://example.com")`, a web page;
+- `win.Page().LoadHTML(html, baseURL)`, an HTML string;
+- `win.Page().LoadFile("docs/index.html")`, a local file, resolved against the
   working directory, then the executable's directory (and the Resources
   directory of a macOS app).
 
@@ -285,10 +285,10 @@ through the same media query.
 
 Links with `target="_blank"` and `window.open()` call the window's open
 handler. Without one, `http(s)` URLs open in the default browser and
-anything else is denied; `win.SetWindowOpenHandler` decides otherwise:
+anything else is denied; `win.Page().SetWindowOpenHandler` decides otherwise:
 
 ```go
-win.SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
+win.Page().SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
 	if strings.HasPrefix(req.URL, "https://docs.example.com/") {
 		return &mygo.WindowOptions{Width: 900, Height: 700} // a window of the app
 	}
@@ -297,17 +297,17 @@ win.SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
 })
 ```
 
-`win.OnWillNavigate` can cancel the page's own navigations, e.g. to keep the
+`win.Page().OnWillNavigate` can cancel the page's own navigations, e.g. to keep the
 app's window on the app: see [Windows](windows.md#pages).
 
 ## Preload scripts
 
-`WindowOptions.PreloadScript` runs JavaScript in every page of the window
+`PageOptions.PreloadScript` runs JavaScript in every page of the window
 before the page's own scripts, once `window.mygo` exists.
 
 ## The web inspector
 
 Development builds have the web inspector: right-click a page and choose
-Inspect Element (Inspect on Windows), or call `win.OpenDevTools()`.
-Production builds do not, unless built with `mygo build -debug` or a window
-sets `DevTools: mygo.DevToolsEnabled`.
+Inspect Element (Inspect on Windows), or call `win.Page().OpenDevTools()`.
+Production builds do not, unless built with `mygo build -debug` or a window's
+page sets `DevTools: mygo.DevToolsEnabled` in `WindowOptions.Page`.

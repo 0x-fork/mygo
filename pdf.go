@@ -2,7 +2,7 @@ package mygo
 
 import "github.com/egoist/mygo/internal/platform"
 
-// PDFOptions configures Window.PrintToPDF. The zero value prints Letter
+// PDFOptions configures Page.PrintToPDF. The zero value prints Letter
 // pages in portrait orientation with margins of 0.4 inch and without
 // backgrounds, like a browser's print dialog.
 type PDFOptions struct {
@@ -37,9 +37,9 @@ type Margins struct{ Top, Right, Bottom, Left float64 }
 // PrintToPDF renders the page as a PDF document, laid out for printing
 // (the page's print style sheets apply) on pages of the given size:
 //
-//	pdf, err := win.PrintToPDF(mygo.PDFOptions{PageSize: mygo.PageA4, Background: true})
-func (w *Window) PrintToPDF(opts PDFOptions) ([]byte, error) {
-	if w.content != nil {
+//	pdf, err := win.Page().PrintToPDF(mygo.PDFOptions{PageSize: mygo.PageA4, Background: true})
+func (p *Page) PrintToPDF(opts PDFOptions) ([]byte, error) {
+	if p.w.content != nil {
 		return nil, errNoPage
 	}
 	size := opts.PageSize
@@ -50,7 +50,7 @@ func (w *Window) PrintToPDF(opts PDFOptions) ([]byte, error) {
 	if opts.Margins != nil {
 		m = *opts.Margins
 	}
-	p := platform.PDFOptions{
+	pdfOpts := platform.PDFOptions{
 		Landscape: opts.Landscape, PageWidth: size.Width, PageHeight: size.Height,
 		MarginTop: m.Top, MarginRight: m.Right, MarginBottom: m.Bottom, MarginLeft: m.Left,
 		Background: opts.Background,
@@ -60,10 +60,10 @@ func (w *Window) PrintToPDF(opts PDFOptions) ([]byte, error) {
 		err error
 	}
 	ch := make(chan result, 1)
-	w.do(func(n platform.Window) {
-		n.PrintToPDF(p, func(pdf []byte, err error) { deliver(ch, result{pdf, err}) })
+	p.w.do(func(n platform.Window) {
+		n.PrintToPDF(pdfOpts, func(pdf []byte, err error) { deliver(ch, result{pdf, err}) })
 	})
-	if w.IsDestroyed() {
+	if p.w.IsDestroyed() {
 		return nil, errDestroyed
 	}
 	r := await(ch)

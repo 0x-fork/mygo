@@ -149,13 +149,13 @@ func TestPlugins(t *testing.T) {
 	srv := pluginServer()
 	defer srv.Close()
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
-	if err := w.LoadURL("app://localhost/plugins.html"); err != nil {
+	if err := w.Page().LoadURL("app://localhost/plugins.html"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, w, "window.plugins")
 
 	// No CORS, and headers a page may not set.
-	got, err := mygo.EvalAs[string](w, fmt.Sprintf(`(async () => {
+	got, err := mygo.EvalAs[string](w.Page(), fmt.Sprintf(`(async () => {
 		const res = await plugins.fetch(%q, { headers: { origin: "https://example.test" } });
 		return res.status + ":" + await res.text();
 	})()`, srv.URL+"/origin"))
@@ -164,7 +164,7 @@ func TestPlugins(t *testing.T) {
 	}
 
 	// The body streams, and aborting stops the request in Go.
-	got, err = mygo.EvalAs[string](w, fmt.Sprintf(`(async () => {
+	got, err = mygo.EvalAs[string](w.Page(), fmt.Sprintf(`(async () => {
 		const ctrl = new AbortController();
 		const res = await plugins.fetch(%q, { signal: ctrl.signal });
 		const reader = res.body.getReader();
@@ -182,7 +182,7 @@ func TestPlugins(t *testing.T) {
 	}
 
 	// Aborted right away, before Go even started the request.
-	got, err = mygo.EvalAs[string](w, fmt.Sprintf(`(async () => {
+	got, err = mygo.EvalAs[string](w.Page(), fmt.Sprintf(`(async () => {
 		const ctrl = new AbortController();
 		const res = plugins.fetch(%q, { signal: ctrl.signal });
 		ctrl.abort();
@@ -197,7 +197,7 @@ func TestPlugins(t *testing.T) {
 	case <-time.After(1500 * time.Millisecond):
 	}
 
-	got, err = mygo.EvalAs[string](w, fmt.Sprintf(`new Promise((resolve, reject) => {
+	got, err = mygo.EvalAs[string](w.Page(), fmt.Sprintf(`new Promise((resolve, reject) => {
 		const ws = new plugins.WebSocket(%q, [], { headers: { "x-token": "secret" } });
 		let data;
 		ws.onopen = () => ws.send("hi");

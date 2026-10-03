@@ -7,7 +7,7 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
-// FindOptions configures Window.FindInPage.
+// FindOptions configures Page.FindInPage.
 type FindOptions struct {
 	// MatchCase finds only text with the same capitalization.
 	MatchCase bool
@@ -18,7 +18,7 @@ type FindOptions struct {
 	FindNext bool
 }
 
-// FindResult reports the matches of Window.FindInPage.
+// FindResult reports the matches of Page.FindInPage.
 type FindResult struct {
 	// Matches is how many there are on the page, Active which of them is
 	// the current one, from 1; both are 0 without matches.
@@ -31,13 +31,13 @@ type FindResult struct {
 // browser: call it as the user types, and with FindNext to go to the next
 // match.
 //
-//	res, err := win.FindInPage("mygo", mygo.FindOptions{FindNext: true})
+//	res, err := win.Page().FindInPage("mygo", mygo.FindOptions{FindNext: true})
 //
 // Text split by markup, such as "my<b>go</b>", is not found.
-func (w *Window) FindInPage(text string, opts FindOptions) (FindResult, error) {
+func (p *Page) FindInPage(text string, opts FindOptions) (FindResult, error) {
 	t, _ := jsonv1.Marshal(text)
 	o, _ := jsonv1.Marshal(map[string]bool{"matchCase": opts.MatchCase, "backward": opts.Backward, "next": opts.FindNext})
-	res, err := EvalAs[FindResult](w, fmt.Sprintf("window.__mygo.find(%s, %s)", t, o))
+	res, err := EvalAs[FindResult](p, fmt.Sprintf("window.__mygo.find(%s, %s)", t, o))
 	if err != nil {
 		return FindResult{}, fmt.Errorf("mygo: finding in the page: %w", err)
 	}
@@ -45,6 +45,6 @@ func (w *Window) FindInPage(text string, opts FindOptions) (FindResult, error) {
 }
 
 // StopFindInPage removes the highlights of FindInPage.
-func (w *Window) StopFindInPage() {
-	w.page(func(n platform.Window) { n.Eval("window.__mygo && window.__mygo.stopFind()") })
+func (p *Page) StopFindInPage() {
+	p.w.page(func(n platform.Window) { n.Eval("window.__mygo && window.__mygo.stopFind()") })
 }

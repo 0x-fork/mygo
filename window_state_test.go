@@ -203,7 +203,7 @@ func TestWindowExtras(t *testing.T) {
 
 func TestPrintToPDFOptions(t *testing.T) {
 	w, fw := testWindow(t, WindowOptions{})
-	pdf, err := w.PrintToPDF(PDFOptions{})
+	pdf, err := w.Page().PrintToPDF(PDFOptions{})
 	if err != nil || string(pdf) != "%PDF-1.4 fake" {
 		t.Fatalf("PrintToPDF = %q, %v", pdf, err)
 	}
@@ -211,7 +211,7 @@ func TestPrintToPDFOptions(t *testing.T) {
 	if got := onMainValue(func() platform.PDFOptions { return fw.PDF }); got != want {
 		t.Errorf("defaults = %+v, want %+v", got, want)
 	}
-	w.PrintToPDF(PDFOptions{PageSize: PageA4, Landscape: true, Margins: &Margins{}, Background: true})
+	w.Page().PrintToPDF(PDFOptions{PageSize: PageA4, Landscape: true, Margins: &Margins{}, Background: true})
 	want = platform.PDFOptions{Landscape: true, PageWidth: 8.27, PageHeight: 11.69, Background: true}
 	if got := onMainValue(func() platform.PDFOptions { return fw.PDF }); got != want {
 		t.Errorf("options = %+v, want %+v", got, want)

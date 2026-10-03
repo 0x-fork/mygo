@@ -50,24 +50,29 @@ func TestContentDrawsAndHandlesInput(t *testing.T) {
 		t.Errorf("%d clicks", clicks)
 	}
 
-	// The window has no page.
-	if _, err := w.Eval("1"); !errors.Is(err, errNoPage) {
+	// The window has no page. The methods of its Page, which only MyGo
+	// reaches, report it or do nothing.
+	p := w.pg
+	if w.Page() != nil {
+		t.Error("a window showing Content has a page")
+	}
+	if _, err := p.Eval("1"); !errors.Is(err, errNoPage) {
 		t.Errorf("Eval: %v", err)
 	}
-	if err := w.LoadURL("https://example.com"); !errors.Is(err, errNoPage) || w.URL() != "" {
-		t.Errorf("LoadURL: %v, URL %q", err, w.URL())
+	if err := p.LoadURL("https://example.com"); !errors.Is(err, errNoPage) || p.URL() != "" {
+		t.Errorf("LoadURL: %v, URL %q", err, p.URL())
 	}
-	if err := w.LoadFile("index.html"); !errors.Is(err, errNoPage) {
+	if err := p.LoadFile("index.html"); !errors.Is(err, errNoPage) {
 		t.Errorf("LoadFile: %v", err)
 	}
-	if _, err := w.PrintToPDF(PDFOptions{}); !errors.Is(err, errNoPage) {
+	if _, err := p.PrintToPDF(PDFOptions{}); !errors.Is(err, errNoPage) {
 		t.Errorf("PrintToPDF: %v", err)
 	}
-	if _, err := w.FindInPage("x", FindOptions{}); !errors.Is(err, errNoPage) {
+	if _, err := p.FindInPage("x", FindOptions{}); !errors.Is(err, errNoPage) {
 		t.Errorf("FindInPage: %v", err)
 	}
-	w.StopFindInPage()
-	w.Reload()
+	p.StopFindInPage()
+	p.Reload()
 
 	data, err := w.CapturePage()
 	if err != nil {

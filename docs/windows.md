@@ -49,10 +49,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `SkipTaskbar` | leaves the window out of the taskbar (Linux, Windows) |
 | `AutoHideMenuBar` | shows the menu bar only while the keyboard is in it, from Alt or F10 (Linux, Windows), see [the menu bar](menus.md#the-menu-bar) |
 | `Parent`, `Modal` | a child window, modal to its parent |
-| `PreloadScript` | JavaScript run before every page's own scripts |
-| `TrustedOrigins` | other origins whose pages may call Go, see [who may call](bindings.md#who-may-call) |
-| `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled` |
-| `ZoomFactor`, `UserAgent` | the page's zoom (1 is 100%) and user agent |
+| `Page` | the options of the window's [page](#pages): its preload script, trusted origins, web inspector, zoom and user agent |
 
 ## Show windows without flashing
 
@@ -192,17 +189,36 @@ win.OnClose(func(e *mygo.CloseEvent) {
 
 ## Pages
 
-A window shows one page at a time and has a history, like a browser tab:
+A window shows one page at a time and has a history, like a browser tab.
+`win.Page()` returns it, or nil for a window that shows
+[native UI](ui.md):
 
 ```go
-win.LoadURL("/settings") // LoadHTML, LoadFile
-win.Reload()             // ReloadIgnoringCache, Stop
-win.GoBack()             // GoForward, CanGoBack, CanGoForward
-win.URL()                // the current page
-win.SetZoomFactor(1.25)  // ZoomFactor
+page := win.Page()
+page.LoadURL("/settings") // LoadHTML, LoadFile
+page.Reload()             // ReloadIgnoringCache, Stop
+page.GoBack()             // GoForward, CanGoBack, CanGoForward
+page.URL()                // the current page
+page.SetZoomFactor(1.25)  // ZoomFactor
 ```
 
-Page events:
+`WindowOptions.Page` sets up the page:
+
+```go
+mygo.NewWindow(mygo.WindowOptions{
+	URL:  "/",
+	Page: mygo.PageOptions{ZoomFactor: 1.25, DevTools: mygo.DevToolsEnabled},
+})
+```
+
+| Option | |
+|---|---|
+| `PreloadScript` | JavaScript run before every page's own scripts |
+| `TrustedOrigins` | other origins whose pages may call Go, see [who may call](bindings.md#who-may-call) |
+| `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled` |
+| `ZoomFactor`, `UserAgent` | the page's zoom (1 is 100%) and user agent |
+
+Page events, on `win.Page()`:
 
 | Event | When |
 |---|---|
@@ -217,7 +233,7 @@ Page events:
 Keep a window on the app's own pages and open other links in the browser:
 
 ```go
-win.OnWillNavigate(func(e *mygo.NavigateEvent) {
+win.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
 	if u, err := url.Parse(e.URL); err == nil && (u.Scheme == "http" || u.Scheme == "https") && e.UserInitiated {
 		e.PreventDefault()
 		go mygo.Shell.OpenExternal(e.URL)
@@ -238,24 +254,24 @@ are, like the find bar of a browser; call it as the user types, and with
 `FindNext` to go to the next match:
 
 ```go
-res, err := win.FindInPage("mygo", mygo.FindOptions{FindNext: true})
+res, err := win.Page().FindInPage("mygo", mygo.FindOptions{FindNext: true})
 fmt.Printf("%d of %d\n", res.Active, res.Matches)
-win.StopFindInPage()
+win.Page().StopFindInPage()
 ```
 
 ### Printing, PDF and screenshots
 
 ```go
-win.Print() // the print dialog
+win.Page().Print() // the print dialog
 
-pdf, err := win.PrintToPDF(mygo.PDFOptions{
+pdf, err := win.Page().PrintToPDF(mygo.PDFOptions{
 	PageSize:   mygo.PageA4,
 	Landscape:  false,
 	Margins:    &mygo.Margins{Top: 0.5, Right: 0.5, Bottom: 0.5, Left: 0.5}, // inches
 	Background: true, // print background colors and images
 })
 
-png, err := win.CapturePage() // the visible page as a PNG
+png, err := win.CapturePage() // what the window shows, as a PNG
 ```
 
 `PrintToPDF` lays the page out for printing, so its print style sheets
@@ -271,7 +287,7 @@ or the server suggests. `OnWillDownload` chooses another path or cancels
 the download, and `OnDownloadDone` reports how it ended:
 
 ```go
-win.OnWillDownload(func(e *mygo.DownloadEvent) {
+win.Page().OnWillDownload(func(e *mygo.DownloadEvent) {
 	if strings.HasSuffix(e.SuggestedName, ".exe") {
 		e.PreventDefault()
 		return
@@ -279,7 +295,7 @@ win.OnWillDownload(func(e *mygo.DownloadEvent) {
 	dir, _ := mygo.App.Path(mygo.PathDocuments)
 	e.Path = filepath.Join(dir, e.SuggestedName)
 })
-win.OnDownloadDone(func(d *mygo.Download) {
+win.Page().OnDownloadDone(func(d *mygo.Download) {
 	if d.Err == nil {
 		mygo.Shell.ShowItemInFolder(d.Path)
 	}
@@ -290,11 +306,11 @@ win.OnDownloadDone(func(d *mygo.Download) {
 
 Pages ask for the camera, the microphone, the location or notifications.
 By default the app's own pages get what they ask for and other pages get
-nothing. `SetPermissionHandler` decides instead; it runs on the main
+nothing. `Page.SetPermissionHandler` decides instead; it runs on the main
 thread:
 
 ```go
-win.SetPermissionHandler(func(req mygo.PermissionRequest) bool {
+win.Page().SetPermissionHandler(func(req mygo.PermissionRequest) bool {
 	return req.Origin == "https://meet.example.com" &&
 		!slices.Contains(req.Permissions, mygo.PermissionGeolocation)
 })
@@ -319,7 +335,7 @@ export default defineConfig({
 ### The web inspector
 
 `OpenDevTools`, `CloseDevTools`, `ToggleDevTools` and `IsDevToolsOpened`
-control the inspector of windows that have it, see
+of a page control its inspector, when it has one, see
 [the web inspector](frontend.md#the-web-inspector).
 
 ## Finding windows

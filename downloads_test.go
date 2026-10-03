@@ -25,7 +25,7 @@ func TestDownloadEvents(t *testing.T) {
 	if got := start("https://x/r", "../../etc/passwd"); got != filepath.Join(dir, "passwd") {
 		t.Errorf("unsafe name: path = %q", got)
 	}
-	off := w.OnWillDownload(func(e *DownloadEvent) { e.PreventDefault() })
+	off := w.Page().OnWillDownload(func(e *DownloadEvent) { e.PreventDefault() })
 	if got := start("https://x/r", "a.txt"); got != "" {
 		t.Errorf("a prevented download got path %q", got)
 	}
@@ -40,7 +40,7 @@ func TestDownloadEvents(t *testing.T) {
 	}
 	defer Protocol.Unhandle("dltest")
 	done := make(chan *Download, 1)
-	defer w.OnDownloadDone(func(d *Download) { done <- d })()
+	defer w.Page().OnDownloadDone(func(d *Download) { done <- d })()
 	onMain(func() { fw.H.SchemeDownload("dltest://localhost/export") })
 	select {
 	case d := <-done:

@@ -32,7 +32,7 @@ var reservedSchemes = map[string]bool{
 // files generated at run time:
 //
 //	mygo.Protocol.Handle("thumbs", mygo.FileServer(os.DirFS(cacheDir)))
-//	win.LoadURL("thumbs://localhost/")
+//	win.Page().LoadURL("thumbs://localhost/")
 //
 // Pages served this way are loaded like regular web pages: they can use
 // fetch, ES modules and relative URLs. Schemes must be registered before

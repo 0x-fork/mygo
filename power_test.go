@@ -103,7 +103,7 @@ func TestPermissionHandler(t *testing.T) {
 		t.Error("default permission decisions")
 	}
 	var got PermissionRequest
-	w.SetPermissionHandler(func(req PermissionRequest) bool {
+	w.Page().SetPermissionHandler(func(req PermissionRequest) bool {
 		got = req
 		return req.Origin == "https://meet.example"
 	})
@@ -113,7 +113,7 @@ func TestPermissionHandler(t *testing.T) {
 	if got.Origin != "mygo://localhost" || len(got.Permissions) != 1 || got.Permissions[0] != PermissionGeolocation {
 		t.Errorf("last request = %+v", got)
 	}
-	w.SetPermissionHandler(nil)
+	w.Page().SetPermissionHandler(nil)
 	if !ask([]string{"camera"}, "mygo://localhost") {
 		t.Error("SetPermissionHandler(nil) did not restore the default")
 	}

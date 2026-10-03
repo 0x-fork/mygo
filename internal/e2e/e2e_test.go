@@ -290,14 +290,14 @@ if (h) h.postMessage(` + "`" + forged + "`" + `);
 parent.postMessage(h ? "posted" : "no handler", "*");
 </script>`
 	src, _ := json.Marshal(frame)
-	w.LoadHTML(`<p>main</p><script>
+	w.Page().LoadHTML(`<p>main</p><script>
 addEventListener("message", (e) => { window.frameResult = e.data });
 const f = document.createElement("iframe");
 f.src = "data:text/html," + encodeURIComponent(`+string(src)+`);
 document.body.append(f);
 </script>`, "app://localhost/")
 	waitFor(t, w, "window.frameResult")
-	result, _ := mygo.EvalAs[string](w, "window.frameResult")
+	result, _ := mygo.EvalAs[string](w.Page(), "window.frameResult")
 	if result != "posted" {
 		t.Skipf("the iframe had no message handler (%q)", result)
 	}
@@ -305,7 +305,7 @@ document.body.append(f);
 	if n := probe.n.Load(); n != 0 {
 		t.Fatalf("a call forged by an iframe ran %d times", n)
 	}
-	if _, err := w.Eval("mygo.call('Probe.Touch')"); err != nil || probe.n.Load() != 1 {
+	if _, err := w.Page().Eval("mygo.call('Probe.Touch')"); err != nil || probe.n.Load() != 1 {
 		t.Errorf("the page's own call: %v, count %d", err, probe.n.Load())
 	}
 	probe.n.Store(0)
@@ -334,7 +334,7 @@ func TestPopupMenu(t *testing.T) {
 		t.Errorf("popup without a window: %d menus shown", n)
 	}
 	w := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200})
-	w.LoadHTML("<p>menu</p>", "")
+	w.Page().LoadHTML("<p>menu</p>", "")
 	waitFor(t, w, "document.readyState === 'complete'")
 	if n := popup(func() { menu.PopupAt(w, 20, 20) }); n != 1 {
 		t.Errorf("PopupAt: %d menus shown", n)
@@ -370,7 +370,7 @@ func waitFor(t *testing.T, w *mygo.Window, expr string) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if ok, _ := mygo.EvalAs[bool](w, "!!("+expr+")"); ok {
+		if ok, _ := mygo.EvalAs[bool](w.Page(), "!!("+expr+")"); ok {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -388,12 +388,12 @@ func newWindow(t *testing.T, opts mygo.WindowOptions) *mygo.Window {
 func TestIPCAndProtocol(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "IPC", Width: 400, Height: 300})
 	var dom atomic.Bool
-	w.OnDOMReady(func() { dom.Store(true) })
-	if err := w.LoadURL("app://localhost/"); err != nil {
+	w.Page().OnDOMReady(func() { dom.Store(true) })
+	if err := w.Page().LoadURL("app://localhost/"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, w, "window.run")
-	got, err := mygo.EvalAs[[]any](w, "run()")
+	got, err := mygo.EvalAs[[]any](w.Page(), "run()")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,26 +410,26 @@ func TestIPCAndProtocol(t *testing.T) {
 		}
 	}
 	waitFor(t, w, "results.includes('tick3')")
-	ticks, _ := mygo.EvalAs[string](w, "results.filter(r => String(r).startsWith('tick')).join(',')")
+	ticks, _ := mygo.EvalAs[string](w.Page(), "results.filter(r => String(r).startsWith('tick')).join(',')")
 	if ticks != "tick1,tick2,tick3" {
 		t.Errorf("events arrived as %q", ticks)
 	}
 	if title := w.Title(); title != "E2E" {
 		t.Errorf("window title should follow the page, got %q", title)
 	}
-	if u := w.URL(); u != "app://localhost/" {
+	if u := w.Page().URL(); u != "app://localhost/" {
 		t.Errorf("URL = %q", u)
 	}
 }
 
 func TestChannels(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
-	if err := w.LoadURL("app://localhost/"); err != nil {
+	if err := w.Page().LoadURL("app://localhost/"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, w, "window.run")
 	start := time.Now()
-	got, err := mygo.EvalAs[string](w, `(async () => {
+	got, err := mygo.EvalAs[string](w.Page(), `(async () => {
 		const ch = mygo.channel();
 		const done = mygo.call("Streams.Count", 100000, ch);
 		let n = 0, sum = 0;
@@ -446,7 +446,7 @@ func TestChannels(t *testing.T) {
 	t.Logf("100000 values in %v", time.Since(start))
 
 	// Leaving the loop stops the method: Send fails, the context is canceled.
-	got, err = mygo.EvalAs[string](w, `(async () => {
+	got, err = mygo.EvalAs[string](w.Page(), `(async () => {
 		const ch = mygo.channel();
 		const done = mygo.call("Streams.Forever", ch);
 		for await (const v of ch) if (v === 50000) break;
@@ -467,7 +467,7 @@ func TestChannels(t *testing.T) {
 
 func TestEvalForms(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
-	w.LoadHTML("<p>eval</p>", "")
+	w.Page().LoadHTML("<p>eval</p>", "")
 	waitFor(t, w, "document.querySelector('p')")
 	cases := []struct{ code, want string }{
 		{"1 + 1", "2"},
@@ -477,13 +477,13 @@ func TestEvalForms(t *testing.T) {
 		{"undefined", "<nil>"},
 	}
 	for _, c := range cases {
-		v, err := w.Eval(c.code)
+		v, err := w.Page().Eval(c.code)
 		if err != nil || fmt.Sprint(v) != c.want {
 			t.Errorf("Eval(%q) = %v, %v; want %s", c.code, v, err, c.want)
 		}
 	}
 	var evalErr *mygo.EvalError
-	if _, err := w.Eval("throw new Error('boom')"); !errors.As(err, &evalErr) || evalErr.Message != "boom" {
+	if _, err := w.Page().Eval("throw new Error('boom')"); !errors.As(err, &evalErr) || evalErr.Message != "boom" {
 		t.Errorf("Eval(throw) = %v", err)
 	}
 }
@@ -491,7 +491,7 @@ func TestEvalForms(t *testing.T) {
 func TestVibrancy(t *testing.T) {
 	for _, material := range []mygo.Vibrancy{mygo.VibrancySidebar, mygo.VibrancyMica, "no-such-material"} {
 		w := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200, Vibrancy: material, Transparent: true})
-		w.LoadHTML("<p>vibrancy</p>", "")
+		w.Page().LoadHTML("<p>vibrancy</p>", "")
 		waitFor(t, w, "document.readyState === 'complete'")
 		if attached, ok := webViewAttached(w); ok && !attached {
 			t.Errorf("vibrancy %q: the page is not in the window", material)
@@ -528,7 +528,7 @@ func TestTrafficLightPosition(t *testing.T) {
 		})
 	}
 	placed("in a new window")
-	w.LoadHTML("<title>Traffic lights</title>", "")
+	w.Page().LoadHTML("<title>Traffic lights</title>", "")
 	eventually(t, "the page's title", func() bool { return w.Title() == "Traffic lights" })
 	placed("once the window takes the page's title")
 	defer mygo.Theme.SetSource(mygo.Theme.Source())
@@ -547,7 +547,7 @@ func TestFramelessResizeEdges(t *testing.T) {
 	if _, ok := resizeCursor(w); !ok {
 		t.Skip("frameless windows keep native resize borders on this platform")
 	}
-	w.LoadHTML(`<body style="margin:0;height:100vh" onmousedown="window.pressed=(window.pressed||0)+1"></body>`, "")
+	w.Page().LoadHTML(`<body style="margin:0;height:100vh" onmousedown="window.pressed=(window.pressed||0)+1"></body>`, "")
 	waitFor(t, w, "document.readyState === 'complete'")
 	cursor := func(want string) {
 		t.Helper()
@@ -590,14 +590,14 @@ func TestFramelessResizeEdges(t *testing.T) {
 }
 
 func TestDockedDevTools(t *testing.T) {
-	w := newWindow(t, mygo.WindowOptions{Title: "DevTools", Width: 800, Height: 600, DevTools: mygo.DevToolsEnabled})
-	w.LoadHTML("<p>inspect me</p>", "")
+	w := newWindow(t, mygo.WindowOptions{Title: "DevTools", Width: 800, Height: 600, Page: mygo.PageOptions{DevTools: mygo.DevToolsEnabled}})
+	w.Page().LoadHTML("<p>inspect me</p>", "")
 	waitFor(t, w, "document.readyState === 'complete'")
 	if !dockDevTools(w) {
 		t.Skip("docking the inspector is not automated here")
 	}
-	defer w.CloseDevTools()
-	eventually(t, "the inspector to open", w.IsDevToolsOpened)
+	defer w.Page().CloseDevTools()
+	eventually(t, "the inspector to open", w.Page().IsDevToolsOpened)
 	// Docked anywhere else in the window, it breaks the title bar.
 	if place := dockedDevToolsPlace(w); place != "content" {
 		t.Errorf("docked inspector place = %q, want %q", place, "content")
@@ -642,8 +642,8 @@ func TestWindowGeometryAndState(t *testing.T) {
 	if o := w.Opacity(); o < 0.49 || o > 0.51 {
 		t.Errorf("opacity = %v", o)
 	}
-	w.SetZoomFactor(1.5)
-	if z := w.ZoomFactor(); z != 1.5 {
+	w.Page().SetZoomFactor(1.5)
+	if z := w.Page().ZoomFactor(); z != 1.5 {
 		t.Errorf("zoom = %v", z)
 	}
 }
@@ -653,11 +653,11 @@ func TestWindowGeometryAndState(t *testing.T) {
 // default size.
 func TestResizeFixedWindow(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 500, Height: 400, UseContentSize: true, DisableResize: true})
-	w.LoadHTML("<p>fixed</p>", "")
+	w.Page().LoadHTML("<p>fixed</p>", "")
 	for _, size := range [][2]int{{360, 240}, {540, 420}} {
 		w.SetContentSize(size[0], size[1])
 		eventually(t, fmt.Sprintf("a %dx%d page", size[0], size[1]), func() bool {
-			got, _ := mygo.EvalAs[[2]int](w, "[innerWidth, innerHeight]")
+			got, _ := mygo.EvalAs[[2]int](w.Page(), "[innerWidth, innerHeight]")
 			return got == size
 		})
 	}
@@ -670,7 +670,7 @@ func TestResizeFixedWindow(t *testing.T) {
 // talks to Go: the bridge and the messages it receives are not the page's.
 func TestStrictCSP(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200})
-	w.LoadHTML(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-e2e'">
+	w.Page().LoadHTML(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-e2e'">
 <script nonce="e2e">
 window.results = [];
 (async () => {
@@ -681,7 +681,7 @@ window.results = [];
 })().catch((e) => results.push("error: " + e.message));
 </script>`, "")
 	waitFor(t, w, "window.results && results.length === 2")
-	got, err := mygo.EvalAs[[]string](w, "results")
+	got, err := mygo.EvalAs[[]string](w.Page(), "results")
 	if err != nil || fmt.Sprint(got) != "[Hello, csp! 0,1,2]" {
 		t.Errorf("results = %q, %v", got, err)
 	}
@@ -754,11 +754,11 @@ func TestNewWindowBounds(t *testing.T) {
 // and asked for their previous size again from an early report of it.
 func TestSmallFixedWindow(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, UseContentSize: true, DisableResize: true})
-	w.LoadHTML("<p>small</p>", "")
+	w.Page().LoadHTML("<p>small</p>", "")
 	for _, size := range [][2]int{{300, 150}, {300, 100}, {280, 80}} {
 		w.SetContentSize(size[0], size[1])
 		page := func() [2]int {
-			got, _ := mygo.EvalAs[[2]int](w, "[innerWidth, innerHeight]")
+			got, _ := mygo.EvalAs[[2]int](w.Page(), "[innerWidth, innerHeight]")
 			return got
 		}
 		eventually(t, fmt.Sprintf("a %dx%d page", size[0], size[1]), func() bool { return page() == size })
@@ -776,13 +776,13 @@ func TestResizeBelowMinimum(t *testing.T) {
 		t.Skip("GTK keeps windows within their minimum size")
 	}
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, MinWidth: 320, MinHeight: 240, UseContentSize: true})
-	w.LoadHTML("<p>minimum</p>", "")
+	w.Page().LoadHTML("<p>minimum</p>", "")
 	w.SetContentSize(200, 100)
 	if width, height := w.ContentSize(); width != 320 || height != 240 {
 		t.Errorf("content size = %dx%d, want the minimum", width, height)
 	}
 	eventually(t, "a 320x240 page", func() bool {
-		got, _ := mygo.EvalAs[[2]int](w, "[innerWidth, innerHeight]")
+		got, _ := mygo.EvalAs[[2]int](w.Page(), "[innerWidth, innerHeight]")
 		return got == [2]int{320, 240}
 	})
 	w.SetContentSize(320, 200) // the window already has the size GTK gives
@@ -849,7 +849,7 @@ func TestFileDrop(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "Drop", Width: 400, Height: 300})
 	drops := make(chan *mygo.FileDropEvent, 4)
 	w.OnFileDrop(func(e *mygo.FileDropEvent) { drops <- e })
-	w.LoadHTML(`<body style="margin:0;height:300px"><div id=zone style="height:100px"></div><div id=item draggable=true>item</div><script>
+	w.Page().LoadHTML(`<body style="margin:0;height:300px"><div id=zone style="height:100px"></div><div id=item draggable=true>item</div><script>
 window.log = [];
 mygo.on("mygo:file-drop", (p) => log.push("event:" + p.paths.join(",") + "@" + p.x + "," + p.y));
 zone.addEventListener("dragover", (e) => { e.preventDefault(); log.push("zone:dragover"); });
@@ -882,7 +882,7 @@ window.drag = (target, type, x, y) => {
 	}
 	eval := func(js string) any {
 		t.Helper()
-		v, err := w.Eval(js)
+		v, err := w.Page().Eval(js)
 		if err != nil {
 			t.Fatalf("%s: %v", js, err)
 		}
@@ -1143,12 +1143,12 @@ func TestDockMenu(t *testing.T) {
 
 func TestPrintToPDF(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "PDF", Width: 400, Height: 300})
-	w.LoadHTML(`<style>p + p { page-break-before: always }</style><p>one</p><p>two</p><p>three</p>`, "")
+	w.Page().LoadHTML(`<style>p + p { page-break-before: always }</style><p>one</p><p>two</p><p>three</p>`, "")
 	waitFor(t, w, `document.readyState === "complete" && document.querySelectorAll("p").length === 3`)
 	pages := regexp.MustCompile(`/Type\s*/Page[^s]`)
 	mediaBox := regexp.MustCompile(`/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)`)
 	for _, landscape := range []bool{false, true} {
-		pdf, err := w.PrintToPDF(mygo.PDFOptions{PageSize: mygo.PageA4, Landscape: landscape})
+		pdf, err := w.Page().PrintToPDF(mygo.PDFOptions{PageSize: mygo.PageA4, Landscape: landscape})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1177,7 +1177,7 @@ func TestPrintToPDF(t *testing.T) {
 func TestPermissions(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "Permissions", Width: 300, Height: 200})
 	// A secure context: notifications are not for opaque origins.
-	if err := w.LoadURL("app://localhost/"); err != nil {
+	if err := w.Page().LoadURL("app://localhost/"); err != nil {
 		t.Fatal(err)
 	}
 	origin := "app://localhost"
@@ -1190,15 +1190,15 @@ func TestPermissions(t *testing.T) {
 	if got := mustEval(t, w, `[window.isSecureContext, typeof crypto.subtle].join(" ")`); got != "true object" {
 		t.Errorf("%s: %v", origin, got)
 	}
-	if ok, _ := mygo.EvalAs[bool](w, `typeof Notification !== "undefined" && !!Notification.requestPermission`); !ok {
+	if ok, _ := mygo.EvalAs[bool](w.Page(), `typeof Notification !== "undefined" && !!Notification.requestPermission`); !ok {
 		t.Skip("the engine has no Notification API")
 	}
 	asked := make(chan mygo.PermissionRequest, 4)
-	w.SetPermissionHandler(func(req mygo.PermissionRequest) bool {
+	w.Page().SetPermissionHandler(func(req mygo.PermissionRequest) bool {
 		asked <- req
 		return true
 	})
-	got, err := mygo.EvalAs[string](w, `Notification.requestPermission()`)
+	got, err := mygo.EvalAs[string](w.Page(), `Notification.requestPermission()`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1217,7 +1217,7 @@ func TestPermissions(t *testing.T) {
 
 func mustEval(t *testing.T, w *mygo.Window, js string) any {
 	t.Helper()
-	v, err := w.Eval(js)
+	v, err := w.Page().Eval(js)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1226,21 +1226,21 @@ func mustEval(t *testing.T, w *mygo.Window, js string) any {
 
 func TestDownloads(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "Downloads", Width: 300, Height: 200})
-	if err := w.LoadURL("app://localhost/"); err != nil {
+	if err := w.Page().LoadURL("app://localhost/"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, w, `window.run`)
 	dir := t.TempDir()
 	started := make(chan *mygo.DownloadEvent, 2)
 	done := make(chan *mygo.Download, 2)
-	w.OnWillDownload(func(e *mygo.DownloadEvent) {
+	w.Page().OnWillDownload(func(e *mygo.DownloadEvent) {
 		if e.Path == "" || filepath.Base(e.Path) != e.SuggestedName {
 			t.Errorf("default path %q for %q", e.Path, e.SuggestedName)
 		}
 		e.Path = filepath.Join(dir, e.SuggestedName)
 		started <- e
 	})
-	w.OnDownloadDone(func(d *mygo.Download) { done <- d })
+	w.Page().OnDownloadDone(func(d *mygo.Download) { done <- d })
 	check := func(what, name, content string) {
 		t.Helper()
 		select {
@@ -1273,7 +1273,7 @@ func TestDownloads(t *testing.T) {
 
 func TestClearBrowsingData(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "Data", Width: 300, Height: 200})
-	if err := w.LoadURL("app://localhost/"); err != nil {
+	if err := w.Page().LoadURL("app://localhost/"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, w, `window.run`)
@@ -1281,7 +1281,7 @@ func TestClearBrowsingData(t *testing.T) {
 	if err := mygo.App.ClearBrowsingData(); err != nil {
 		t.Fatal(err)
 	}
-	w.Reload()
+	w.Page().Reload()
 	waitFor(t, w, `window.run && !window.oldPage`)
 	if got := mustEval(t, w, `localStorage.getItem("token")`); got != nil {
 		t.Errorf("after ClearBrowsingData the token is %v", got)
@@ -1290,11 +1290,11 @@ func TestClearBrowsingData(t *testing.T) {
 
 func TestFindInPage(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "Find", Width: 400, Height: 300})
-	w.LoadHTML(`<p>MyGo is a framework. mygo apps are small.</p><p style="display:none">mygo hidden</p><p>Say mygo</p>`, "")
+	w.Page().LoadHTML(`<p>MyGo is a framework. mygo apps are small.</p><p style="display:none">mygo hidden</p><p>Say mygo</p>`, "")
 	waitFor(t, w, `document.readyState === "complete" && document.querySelectorAll("p").length === 3`)
 	find := func(text string, opts mygo.FindOptions) mygo.FindResult {
 		t.Helper()
-		res, err := w.FindInPage(text, opts)
+		res, err := w.Page().FindInPage(text, opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1318,7 +1318,7 @@ func TestFindInPage(t *testing.T) {
 	if res := find("nothing", mygo.FindOptions{}); res != (mygo.FindResult{}) {
 		t.Errorf("no match = %+v", res)
 	}
-	w.StopFindInPage()
+	w.Page().StopFindInPage()
 }
 
 func TestGlobalShortcut(t *testing.T) {
@@ -1414,7 +1414,7 @@ func TestCloseEvents(t *testing.T) {
 
 func TestCapturePage(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 320, Height: 240})
-	w.LoadHTML(`<body style="margin:0;background:rgb(255,0,0)"></body>`, "")
+	w.Page().LoadHTML(`<body style="margin:0;background:rgb(255,0,0)"></body>`, "")
 	waitFor(t, w, "document.readyState === 'complete'")
 	time.Sleep(200 * time.Millisecond)
 	png, err := w.CapturePage()
@@ -1457,13 +1457,13 @@ func TestMenuAndClipboard(t *testing.T) {
 func TestWindowOpenHandler(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	opened := make(chan string, 1)
-	w.SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
+	w.Page().SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
 		opened <- req.URL
 		return nil
 	})
-	w.LoadHTML(`<a id="l" href="https://example.com/x" target="_blank">x</a>`, "https://example.com/")
+	w.Page().LoadHTML(`<a id="l" href="https://example.com/x" target="_blank">x</a>`, "https://example.com/")
 	waitFor(t, w, "document.getElementById('l')")
-	if _, err := w.Eval("window.open('https://example.com/popup')"); err != nil {
+	if _, err := w.Page().Eval("window.open('https://example.com/popup')"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -1478,7 +1478,7 @@ func TestWindowOpenHandler(t *testing.T) {
 
 func TestMenuActivation(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300})
-	w.LoadHTML("<p>menus</p>", "")
+	w.Page().LoadHTML("<p>menus</p>", "")
 	clicks := make(chan string, 4)
 	menu := mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu},
@@ -1533,7 +1533,7 @@ func TestMenuActivation(t *testing.T) {
 
 func TestAutoHideMenuBar(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, AutoHideMenuBar: true})
-	w.LoadHTML("<p>menu bar</p>", "")
+	w.Page().LoadHTML("<p>menu bar</p>", "")
 	clicks := make(chan string, 4)
 	menu := mygo.NewMenu([]*mygo.MenuItem{
 		{Label: "Test", Submenu: []*mygo.MenuItem{
@@ -1593,10 +1593,10 @@ func TestHiddenTitleBar(t *testing.T) {
 		e.PreventDefault()
 		closing <- struct{}{}
 	})
-	w.LoadHTML("<p>hidden title bar</p>", "")
+	w.Page().LoadHTML("<p>hidden title bar</p>", "")
 	waitFor(t, w, "document.querySelector('p')")
 	room := func(win *mygo.Window) (r [3]string) {
-		v, _ := mygo.EvalAs[[]string](win, `(() => {
+		v, _ := mygo.EvalAs[[]string](win.Page(), `(() => {
 			const s = getComputedStyle(document.documentElement);
 			return ["height", "inset-left", "inset-right"].map((k) => s.getPropertyValue("--mygo-titlebar-" + k).trim());
 		})()`)
@@ -1624,7 +1624,7 @@ func TestHiddenTitleBar(t *testing.T) {
 
 	// The page of a window with its title bar hears nothing.
 	plain := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200})
-	plain.LoadHTML("<p>title bar</p>", "")
+	plain.Page().LoadHTML("<p>title bar</p>", "")
 	waitFor(t, plain, "document.querySelector('p')")
 	if r := room(plain); r != ([3]string{}) {
 		t.Errorf("a window with its title bar: room = %q", r)
@@ -1680,7 +1680,7 @@ func expectClick(t *testing.T, clicks chan string, want string) {
 
 func TestJavaScriptAlert(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300})
-	w.LoadHTML("<p>alert</p>", "")
+	w.Page().LoadHTML("<p>alert</p>", "")
 	waitFor(t, w, "document.querySelector('p')")
 	if _, ok := endSheet(w); !ok {
 		t.Skip("dialog automation not available on this platform")
@@ -1690,7 +1690,7 @@ func TestJavaScriptAlert(t *testing.T) {
 	// dismiss the sheet without waiting for the Eval.
 	evaluated := make(chan error, 1)
 	go func() {
-		_, err := w.Eval("setTimeout(() => { alert('hello'); window.alertDone = true }, 0)")
+		_, err := w.Page().Eval("setTimeout(() => { alert('hello'); window.alertDone = true }, 0)")
 		evaluated <- err
 	}()
 	deadline := time.Now().Add(5 * time.Second)
@@ -1719,14 +1719,14 @@ func TestWindowOpenAllowed(t *testing.T) {
 	created := make(chan *mygo.Window, 1)
 	off := mygo.App.OnWindowCreated(func(c *mygo.Window) { created <- c })
 	defer off()
-	w.SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
+	w.Page().SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
 		return &mygo.WindowOptions{Width: 320, Height: 240}
 	})
-	if err := w.LoadURL("app://localhost/"); err != nil {
+	if err := w.Page().LoadURL("app://localhost/"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, w, "window.run")
-	if _, err := w.Eval("void window.open('app://localhost/?child=1')"); err != nil {
+	if _, err := w.Page().Eval("void window.open('app://localhost/?child=1')"); err != nil {
 		t.Fatal(err)
 	}
 	var child *mygo.Window
@@ -1738,15 +1738,15 @@ func TestWindowOpenAllowed(t *testing.T) {
 	defer child.Destroy()
 	waitFor(t, child, "window.run && location.search === '?child=1'")
 	// The child has its own bridge: calls identify the child window.
-	same, err := mygo.EvalAs[bool](child, "mygo.call('Greeter.WindowID').then(id => id === mygo.windowId)")
+	same, err := mygo.EvalAs[bool](child.Page(), "mygo.call('Greeter.WindowID').then(id => id === mygo.windowId)")
 	if err != nil || !same {
 		t.Errorf("call from child: %v, %v", same, err)
 	}
-	if id, _ := mygo.EvalAs[int](child, "mygo.windowId"); id != child.ID() {
+	if id, _ := mygo.EvalAs[int](child.Page(), "mygo.windowId"); id != child.ID() {
 		t.Errorf("child bridge reports window %d, want %d", id, child.ID())
 	}
 	// On Linux new windows are independent pages (see Window.SetWindowOpenHandler).
-	if opener, _ := mygo.EvalAs[bool](child, "window.opener !== null"); !opener && runtime.GOOS == "darwin" {
+	if opener, _ := mygo.EvalAs[bool](child.Page(), "window.opener !== null"); !opener && runtime.GOOS == "darwin" {
 		t.Error("window.opener is not set")
 	}
 }
@@ -1754,7 +1754,7 @@ func TestWindowOpenAllowed(t *testing.T) {
 // TestClick is a regression test: clicking the page used to crash on macOS.
 func TestClick(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300})
-	w.LoadHTML(`<body style="margin:0"><button id="b" style="width:200px;height:100px" onclick="window.clicked=(window.clicked||0)+1">x</button></body>`, "")
+	w.Page().LoadHTML(`<body style="margin:0"><button id="b" style="width:200px;height:100px" onclick="window.clicked=(window.clicked||0)+1">x</button></body>`, "")
 	waitFor(t, w, "document.getElementById('b')")
 	if !click(w, 50, 50) {
 		t.Skip("click automation not available on this platform")
@@ -1764,7 +1764,7 @@ func TestClick(t *testing.T) {
 
 	// Clicking a drag region of a frameless window starts a native drag.
 	f := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, Frameless: true})
-	f.LoadHTML(`<body style="margin:0"><div id="bar" style="--app-region:drag;height:40px" onmousedown="window.pressed=true"></div></body>`, "")
+	f.Page().LoadHTML(`<body style="margin:0"><div id="bar" style="--app-region:drag;height:40px" onmousedown="window.pressed=true"></div></body>`, "")
 	waitFor(t, f, "document.getElementById('bar')")
 	click(f, 100, 20)
 	waitFor(t, f, "window.pressed === true")
@@ -1980,8 +1980,8 @@ func TestContentWindow(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "Content", Width: 400, Height: 300, Content: ui.View(view)})
 	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
 
-	if _, err := w.Eval("1"); err == nil {
-		t.Error("Eval worked in a window without a page")
+	if w.Page() != nil {
+		t.Error("a window showing Content has a page")
 	}
 	data, err := w.CapturePage()
 	if err != nil {

@@ -68,7 +68,7 @@ func main() {
 			// A translucent material behind the transparent page.
 			opts.Vibrancy = mygo.VibrancyUnderWindow
 		}
-		mygo.NewWindow(opts).LoadHTML(page, "")
+		mygo.NewWindow(opts).Page().LoadHTML(page, "")
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

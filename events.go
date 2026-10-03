@@ -29,7 +29,7 @@ type QuitEvent struct {
 	Preventable
 }
 
-// NavigateEvent is passed to Window.OnWillNavigate listeners. Preventing it
+// NavigateEvent is passed to Page.OnWillNavigate listeners. Preventing it
 // cancels the navigation.
 type NavigateEvent struct {
 	Preventable
@@ -39,7 +39,7 @@ type NavigateEvent struct {
 	UserInitiated bool
 }
 
-// TitleEvent is passed to Window.OnPageTitleUpdated listeners. Preventing
+// TitleEvent is passed to Page.OnPageTitleUpdated listeners. Preventing
 // it keeps the native window title unchanged.
 type TitleEvent struct {
 	Preventable

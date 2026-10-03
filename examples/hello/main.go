@@ -45,7 +45,7 @@ func main() {
 	mygo.Bind(Greeter{})
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{Width: 480, Height: 320})
-		win.LoadHTML(page, "")
+		win.Page().LoadHTML(page, "")
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

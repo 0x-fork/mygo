@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// DownloadEvent is passed to Window.OnWillDownload listeners. Setting Path
+// DownloadEvent is passed to Page.OnWillDownload listeners. Setting Path
 // chooses where the file goes; preventing the event cancels the download.
 type DownloadEvent struct {
 	Preventable
@@ -26,7 +26,7 @@ type DownloadEvent struct {
 	Path string
 }
 
-// Download is a finished download, passed to Window.OnDownloadDone.
+// Download is a finished download, passed to Page.OnDownloadDone.
 type Download struct {
 	URL  string
 	Path string
@@ -38,13 +38,13 @@ type Download struct {
 // download attribute, or a response the page cannot show, such as a file
 // sent as an attachment. Without listeners, downloads are saved to the
 // Downloads directory.
-func (w *Window) OnWillDownload(fn func(e *DownloadEvent)) (off func()) {
-	return w.onWillDownload.add(fn, false)
+func (p *Page) OnWillDownload(fn func(e *DownloadEvent)) (off func()) {
+	return p.w.onWillDownload.add(fn, false)
 }
 
 // OnDownloadDone is called when a download ended.
-func (w *Window) OnDownloadDone(fn func(d *Download)) (off func()) {
-	return w.onDownloadDone.add(fn, false)
+func (p *Page) OnDownloadDone(fn func(d *Download)) (off func()) {
+	return p.w.onDownloadDone.add(fn, false)
 }
 
 func (h *windowHandler) DownloadStarted(url, suggested string) string {

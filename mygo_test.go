@@ -160,7 +160,7 @@ func TestWindowOptions(t *testing.T) {
 	_, fw := testWindow(t, WindowOptions{
 		Title: "Custom", Width: 300, Height: 200, X: 10, Y: 20,
 		Hidden: true, DisableResize: true, BackgroundColor: "#11223380",
-		DevTools: DevToolsDisabled, PreloadScript: "window.x = 1", Parent: parent, URL: "https://example.com/",
+		Page: PageOptions{DevTools: DevToolsDisabled, PreloadScript: "window.x = 1"}, Parent: parent, URL: "https://example.com/",
 	})
 	o := fw.Opts
 	if o.Title != "Custom" || o.Width != 300 || o.Center || o.Resizable || o.DevTools {
@@ -313,7 +313,7 @@ func TestPageTitleUpdatesWindowTitle(t *testing.T) {
 	if w.Title() != "From Page" {
 		t.Errorf("title = %q", w.Title())
 	}
-	w.OnPageTitleUpdated(func(e *TitleEvent) { e.PreventDefault() })
+	w.Page().OnPageTitleUpdated(func(e *TitleEvent) { e.PreventDefault() })
 	onMain(func() { fw.H.TitleChanged("Ignored") })
 	if w.Title() != "From Page" {
 		t.Errorf("prevented title changed the window: %q", w.Title())
@@ -322,7 +322,7 @@ func TestPageTitleUpdatesWindowTitle(t *testing.T) {
 
 func TestWillNavigate(t *testing.T) {
 	w, fw := testWindow(t, WindowOptions{})
-	w.OnWillNavigate(func(e *NavigateEvent) {
+	w.Page().OnWillNavigate(func(e *NavigateEvent) {
 		if strings.Contains(e.URL, "blocked") {
 			e.PreventDefault()
 		}
@@ -344,7 +344,7 @@ func TestReadyToShowFiresOnce(t *testing.T) {
 	var n atomic.Int32
 	w.OnReadyToShow(func() { n.Add(1) })
 	var dom atomic.Int32
-	w.OnDOMReady(func() { dom.Add(1) })
+	w.Page().OnDOMReady(func() { dom.Add(1) })
 	page(fw, `{"t":"dom-ready"}`)
 	page(fw, `{"t":"dom-ready"}`)
 	onMain(fw.H.LoadFinished)
@@ -434,7 +434,7 @@ func TestUntrustedOriginsCannotCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer Protocol.Unhandle("trusted")
-	_, fw := readyWindow(t, WindowOptions{TrustedOrigins: []string{"https://partner.example"}})
+	_, fw := readyWindow(t, WindowOptions{Page: PageOptions{TrustedOrigins: []string{"https://partner.example"}}})
 	cases := []struct {
 		url string
 		ok  bool
@@ -844,7 +844,7 @@ func TestHiddenTitleBar(t *testing.T) {
 	received(t, fw, titleBar(46, 80, 0))
 
 	// The page gets CSS pixels, which zoom makes larger.
-	w.SetZoomFactor(2)
+	w.Page().SetZoomFactor(2)
 	received(t, fw, titleBar(23, 40, 0))
 
 	// A later page hears it once its DOM is ready: the script the backend
@@ -892,25 +892,25 @@ func TestEval(t *testing.T) {
 		}
 		return `{"ok":true}`, nil
 	}
-	v, err := w.Eval("document.title;")
+	v, err := w.Page().Eval("document.title;")
 	if err != nil || v != "Title" {
 		t.Errorf("Eval expression = %v, %v", v, err)
 	}
-	n, err := EvalAs[int](w, "let x = 1; return x")
+	n, err := EvalAs[int](w.Page(), "let x = 1; return x")
 	if err != nil || n != 1 {
 		t.Errorf("Eval statements = %v, %v (bodies %q)", n, err, bodies)
 	}
 	var evalErr *EvalError
-	if _, err := w.Eval("boom()"); !errors.As(err, &evalErr) || evalErr.Message != "boom" {
+	if _, err := w.Page().Eval("boom()"); !errors.As(err, &evalErr) || evalErr.Message != "boom" {
 		t.Errorf("Eval error = %v", err)
 	}
-	if v, err := w.Eval("void 0"); v != nil || err != nil {
+	if v, err := w.Page().Eval("void 0"); v != nil || err != nil {
 		t.Errorf("Eval undefined = %v, %v", v, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	fw.AsyncFunction = func(string) (string, error) { return "", fake.ErrNoReply }
-	if _, err := w.EvalContext(ctx, "1"); !errors.Is(err, context.Canceled) {
+	if _, err := w.Page().EvalContext(ctx, "1"); !errors.Is(err, context.Canceled) {
 		t.Errorf("EvalContext with canceled context = %v", err)
 	}
 
@@ -921,7 +921,7 @@ func TestEval(t *testing.T) {
 		bodies = append(bodies, body)
 		return "", errors.New("the page navigated")
 	}
-	if _, err := w.Eval("sideEffect()"); err == nil || len(bodies) != 1 {
+	if _, err := w.Page().Eval("sideEffect()"); err == nil || len(bodies) != 1 {
 		t.Errorf("Eval after a failure = %v, ran %d times", err, len(bodies))
 	}
 }
@@ -940,7 +940,7 @@ func TestEvalLateReply(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go onMain(func() {
-		_, err := w.EvalContext(ctx, "1")
+		_, err := w.Page().EvalContext(ctx, "1")
 		done <- err
 	})
 	select {
@@ -1137,7 +1137,7 @@ func TestFrontend(t *testing.T) {
 	}
 	load := func(url string) string {
 		t.Helper()
-		if err := w.LoadURL(url); err != nil {
+		if err := w.Page().LoadURL(url); err != nil {
 			t.Fatal(err)
 		}
 		return get(w, platform.Window.URL)
@@ -1311,7 +1311,7 @@ func TestMenuRolesOnWindow(t *testing.T) {
 		t.Errorf("zoom after two zoomIn = %v", z)
 	}
 	onMain(func() { performRole(RoleToggleDevTools, w) })
-	if !w.IsDevToolsOpened() {
+	if !w.Page().IsDevToolsOpened() {
 		t.Error("toggleDevTools")
 	}
 }

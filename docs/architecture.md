@@ -148,7 +148,7 @@ rules are:
      it is a plain channel receive. **On the main thread it pumps native events
      with `Backend.Step`** until the value arrives; whoever produces the value
      calls `deliver`, which sends and then `Backend.Wake`s the loop. This is
-     what makes `win.Eval`, `CapturePage` and dialogs usable from event
+     what makes `Page.Eval`, `CapturePage` and dialogs usable from event
      listeners without deadlocking. Nested runs of the dispatch source are
      expected and safe.
 4. **Event listeners run on the main thread**, synchronously, so cancelable
@@ -412,7 +412,7 @@ document start into the main frame. It installs:
   as the `mygo:file-drop` event, to trusted pages only. Event names starting
   with `mygo:` are reserved.
 
-- Find in page (`find.ts`, `Window.FindInPage`): the bridge walks the
+- Find in page (`find.ts`, `Page.FindInPage`): the bridge walks the
   visible text nodes, marks matches with the CSS Custom Highlight API (a
   constructed style sheet, which a Content Security Policy allows) and
   scrolls to the active one; engines without the API get the active match
@@ -543,7 +543,7 @@ never waits on the main thread, which receives the acknowledgments.
 
 ### Eval
 
-`Window.Eval(code)` uses the webview's native async-function API
+`Page.Eval(code)` uses the webview's native async-function API
 (`callAsyncJavaScript` on macOS, `webkit_web_view_call_async_javascript_function`
 on Linux), which awaits promises and ignores the page's Content Security
 Policy. The code is first wrapped as `return JSON.stringify({ok, v: await (code)})`;
@@ -556,7 +556,7 @@ twice. The result travels as a JSON string and is decoded in Go.
 Every page gets the runtime, but only trusted pages may call Go: the
 frontend (`mygo:` and the `mygo dev` server), custom-scheme pages
 (`Protocol.Handle`), `file:` and `about:` pages, loopback `http(s)` dev
-servers in development, and origins listed in `WindowOptions.TrustedOrigins`
+servers in development, and origins listed in `PageOptions.TrustedOrigins`
 (`"*"` trusts everything). The decision is
 recomputed on every committed navigation. Untrusted calls are rejected
 without running any Go code.
@@ -702,6 +702,9 @@ as in Tauri:
 - `NewWindow` validates options, waits for readiness when called off the main
   thread, builds `platform.WindowOptions` (all defaults applied, bridge and
   preload scripts, registered schemes) and registers the window.
+- A window's page API is on `Page`, a handle on the window that
+  `Window.Page` returns unless the window shows native UI; the page's state
+  stays in `Window`, where IPC and the backend's callbacks reach it.
 - The user's close (`WindowHandler.ShouldClose`) and `Window.Close` both emit
   `OnClose`, which can be prevented. `Destroy` skips it. The backend reports
   `Closed` synchronously; the core unregisters the window, closes child
