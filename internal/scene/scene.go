@@ -51,7 +51,9 @@ const (
 	OpFill Kind = iota
 	// OpShadow paints the blurred shadow of a rounded rectangle: Rect and
 	// Radii are the shadow's box, already offset and spread, Blur its blur
-	// radius and Color its color.
+	// radius and Color its color. Unless Cast is empty, the shadow shows
+	// only outside it, the box casting the shadow, as CSS's box-shadow
+	// does.
 	OpShadow
 	// OpGlyphs paints Scene.Glyphs[Start:End]. With a gradient Paint, its
 	// mask glyphs take the gradient from Color to Color2, times Opacity,
@@ -89,6 +91,9 @@ type Op struct {
 	Dashed      bool
 
 	Blur float32
+	// Cast is the box casting an OpShadow, with CastRadii.
+	Cast      Rect
+	CastRadii [4]float32
 
 	Start, End int32
 

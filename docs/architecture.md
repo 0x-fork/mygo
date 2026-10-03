@@ -967,10 +967,11 @@ either.
 - **Scenes** are flat lists of operations in device pixels: rounded
   rectangles with borders of a width per side, solid or dashed, filled
   with a color, a linear gradient mixed in sRGB or Oklab, or stripes;
-  shadows (blurred rounded rectangles); runs of glyphs, whose masks may
-  take a gradient (paths drawn with one); images, in color or gray; and
-  pushed and popped clips. Renderers draw the whole scene each frame and
-  retain only textures. Wavy underlines are stroked paths.
+  shadows (blurred rounded rectangles, cut by the box casting them, as
+  CSS's box-shadow is); runs of glyphs, whose masks may take a gradient
+  (paths drawn with one); images, in color or gray; and pushed and popped
+  clips. Renderers draw the whole scene each frame and retain only
+  textures. Wavy underlines are stroked paths.
 - **Text.** `internal/text` lays out text with the system's own text stack,
   behind a small `engine` interface: DirectWrite on Windows
   (`IDWriteTextLayout`, with an `IDWriteTextRenderer` implemented in Go

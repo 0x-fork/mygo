@@ -298,7 +298,7 @@ func Switch(c *Context, on *bool) *Element {
 		in := t.Space(0.5)
 		d := r.H - 2*in
 		knob := Rect{r.X + in + pos*(r.W-r.H), r.Y + in, d, d}
-		p.Shadow(Rect{knob.X, knob.Y + 1, knob.W, knob.H}, d/2, 3, RGBA(0, 0, 0, 0.25))
+		p.Shadow(knob, d/2, 0, 1, 3, 0, RGBA(0, 0, 0, 0.25))
 		p.Fill(knob, RGB(255, 255, 255), d/2)
 	})
 	return sw
@@ -317,7 +317,7 @@ func Slider(c *Context, value *float64, lo, hi float64) *Element {
 	if hi > lo {
 		frac = float32((*value - lo) / (hi - lo))
 	}
-	face, rim, drop := RGB(255, 255, 255), RGBA(0, 0, 0, 0.22), RGBA(0, 0, 0, 0.12)
+	face, rim, drop := RGB(255, 255, 255), RGBA(0, 0, 0, 0.22), RGBA(0, 0, 0, 0.14)
 	if t.Dark {
 		face, rim, drop = RGB(224, 225, 225), RGBA(0, 0, 0, 0.7), RGBA(0, 0, 0, 0.3)
 	}
@@ -331,17 +331,18 @@ func Slider(c *Context, value *float64, lo, hi float64) *Element {
 		k := Rect{x - kw*g/2, r.Y + r.H/2 - kh*g/2, kw * g, kh * g}
 		rad := k.H / 2
 		if held > 0 {
-			// The lens shows what is behind it, lightened, and the track
-			// through it: its shadow goes under both.
-			p.Shadow(Rect{k.X + 3, k.Y + 6, k.W - 6, k.H}, rad, 10, drop.Alpha(held))
-			p.Fill(k, s.backdrop().Mix(RGB(255, 255, 255), 0.1).Alpha(held), rad)
+			// The lens lightens what is behind it, under the track.
+			p.Fill(k, RGBA(255, 255, 255, 0.1*held), rad)
 		}
 		p.Fill(track, t.Border, h/2)
 		p.Fill(Rect{track.X, track.Y, x - track.X, h}, t.Accent, h/2)
+		if held > 0 {
+			p.Shadow(k, rad, 0, 8, 14, -3, drop.Alpha(held))
+		}
 		if held < 1 {
 			// A tight shadow edges the knob, a soft one lifts it.
-			p.Shadow(Rect{k.X, k.Y + 0.5, k.W, k.H}, rad, 1, RGBA(0, 0, 0, 0.08*(1-held)))
-			p.Shadow(Rect{k.X, k.Y + 1.5, k.W, k.H}, rad, 7, RGBA(0, 0, 0, 0.1*(1-held)))
+			p.Shadow(k, rad, 0, 0.5, 1, 0, RGBA(0, 0, 0, 0.08*(1-held)))
+			p.Shadow(k, rad, 0, 1.5, 7, 0, RGBA(0, 0, 0, 0.1*(1-held)))
 			p.Fill(k, face.Alpha(1-held), rad)
 		}
 		if held > 0 {
@@ -354,29 +355,6 @@ func Slider(c *Context, value *float64, lo, hi float64) *Element {
 		}
 	})
 	return s
-}
-
-// backdrop returns the color behind e: the backgrounds of its ancestors
-// over the window's.
-func (e *Element) backdrop() Color {
-	var layers []Color
-	for p := e.parent; p != nil; p = p.parent {
-		c := p.bg
-		if p.fill == fillGradient {
-			c = p.grad.From.Mix(p.grad.To, 0.5)
-		}
-		if c.A > 0 {
-			layers = append(layers, c)
-		}
-		if c.A == 255 {
-			break
-		}
-	}
-	c := e.c.theme.Background
-	for i := len(layers) - 1; i >= 0; i-- {
-		c = layers[i].Over(c)
-	}
-	return c
 }
 
 // Progress creates a progress bar filled to value between 0 and 1; a

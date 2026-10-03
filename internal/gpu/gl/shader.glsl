@@ -12,12 +12,12 @@
 // One instance per op, as internal/gpu builds them.
 layout(location = 0) in vec4 aRect;      // x, y, width, height in pixels
 layout(location = 1) in vec4 aRadii;     // top-left, top-right, bottom-right, bottom-left
-layout(location = 2) in vec4 aInner;     // radii of the border's inner edge
+layout(location = 2) in vec4 aInner;     // radii of the border's inner edge, or of the box casting a shadow
 layout(location = 3) in vec4 aColor;
 layout(location = 4) in vec4 aColor2;    // gradient end
 layout(location = 5) in vec4 aBorder;    // border color
 layout(location = 6) in vec4 aGrad;      // gradient start and end points, or stripes
-layout(location = 7) in vec4 aUV;        // texture rectangle, normalized, or border widths
+layout(location = 7) in vec4 aUV;        // texture rectangle, normalized, border widths, or the box casting a shadow
 layout(location = 8) in vec4 aClip;      // the innermost clip rectangle
 layout(location = 9) in vec4 aClipRadii;
 layout(location = 10) in vec4 aParams;   // kind, dashed or grayscale, sigma or paint, opacity
@@ -243,8 +243,13 @@ void main() {
 			res = b + res * (1.0 - b.a);
 		}
 	} else if (kind < 1.5) {
+		float sigma = vParams.z;
 		float corner = max(max(vRadii.x, vRadii.y), max(vRadii.z, vRadii.w));
-		res = premul(vColor) * boxShadow(p, vRect, vParams.z, corner);
+		float s = sigma > 0.0 ? boxShadow(p, vRect, sigma, corner) : coverage(sdRoundRect(p, vRect, vRadii));
+		if (vWidths.z > 0.0 && vWidths.w > 0.0) {
+			s *= 1.0 - coverage(sdRoundRect(p, vWidths, vInner)); // outside the box casting it
+		}
+		res = premul(vColor) * s;
 	} else if (kind < 2.5) {
 		res = paint(p, vParams.z, vRect, vColor, vColor2, vGrad) * texture(uMask, tex).r;
 	} else if (kind < 3.5) {

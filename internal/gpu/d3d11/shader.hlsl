@@ -14,12 +14,12 @@ cbuffer Globals : register(b0) {
 struct Inst {
 	float4 rect : RECT;         // x, y, width, height in pixels
 	float4 radii : RADII;       // top-left, top-right, bottom-right, bottom-left
-	float4 inner : INNER;       // radii of the border's inner edge
+	float4 inner : INNER;       // radii of the border's inner edge, or of the box casting a shadow
 	float4 color : COLOR0;
 	float4 color2 : COLOR1;     // gradient end
 	float4 border : COLOR2;     // border color
 	float4 grad : GRAD;         // gradient start and end points, or stripes
-	float4 uv : UV;             // texture rectangle, normalized, or border widths
+	float4 uv : UV;             // texture rectangle, normalized, border widths, or the box casting a shadow
 	float4 clip : CLIP;         // the innermost clip rectangle
 	float4 clipRadii : CLIPR;
 	float4 params : PARAMS;     // kind, dashed or grayscale, sigma or paint, opacity
@@ -226,8 +226,13 @@ float4 ps(VSOut i) : SV_Target {
 			res = b + res * (1 - b.a);
 		}
 	} else if (kind < 1.5) {
+		float sigma = i.params.z;
 		float corner = max(max(i.radii.x, i.radii.y), max(i.radii.z, i.radii.w));
-		res = premul(i.color) * boxShadow(i.p, i.rect, i.params.z, corner);
+		float s = sigma > 0 ? boxShadow(i.p, i.rect, sigma, corner) : coverage(sdRoundRect(i.p, i.rect, i.radii));
+		if (i.widths.z > 0 && i.widths.w > 0) {
+			s *= 1 - coverage(sdRoundRect(i.p, i.widths, i.inner)); // outside the box casting it
+		}
+		res = premul(i.color) * s;
 	} else if (kind < 2.5) {
 		res = paint(i.p, i.params.z, i.rect, i.color, i.color2, i.grad) * maskTex.Sample(samp, i.tex).r;
 	} else if (kind < 3.5) {

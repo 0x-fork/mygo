@@ -80,14 +80,7 @@ func (p *Painter) element(e *Element) {
 	own := p.visible(box, margin+4)
 	if own {
 		for _, sh := range e.shadows {
-			r := Rect{box.X + sh.x - sh.spread, box.Y + sh.y - sh.spread, box.W + 2*sh.spread, box.H + 2*sh.spread}
-			rad := e.radius
-			for i := range rad {
-				if rad[i] > 0 {
-					rad[i] = max(rad[i]+sh.spread, 0)
-				}
-			}
-			p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpShadow, Rect: p.snap(r), Radii: p.radii(rad), Color: sh.color.scene(), Blur: sh.blur * p.scale, Opacity: p.opacity})
+			p.shadow(box, e.radius, sh)
 		}
 		p.background(e, box)
 		if e.paintFn != nil {
@@ -561,9 +554,26 @@ func (p *Painter) StrokeDashed(r Rect, c Color, radius, width float32) {
 	p.s.Ops = append(p.s.Ops, op)
 }
 
-// Shadow paints a box shadow under a rounded rectangle.
-func (p *Painter) Shadow(r Rect, radius, blur float32, c Color) {
-	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpShadow, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}), Color: c.scene(), Blur: blur * p.scale, Opacity: p.opacity})
+// Shadow paints the box shadow of a rounded rectangle as Element.Shadow
+// does: offset by x and y, blurred by blur and grown by spread DIPs, and
+// only outside the rectangle, so that it does not show through what is
+// drawn there.
+func (p *Painter) Shadow(r Rect, radius, x, y, blur, spread float32, c Color) {
+	p.shadow(r, [4]float32{radius, radius, radius, radius}, shadow{x, y, blur, spread, c})
+}
+
+// shadow paints the shadow sh of box, rounded by rad, outside box, as
+// CSS's box-shadow does.
+func (p *Painter) shadow(box Rect, rad [4]float32, sh shadow) {
+	r := Rect{box.X + sh.x - sh.spread, box.Y + sh.y - sh.spread, box.W + 2*sh.spread, box.H + 2*sh.spread}
+	grown := rad
+	for i := range grown {
+		if grown[i] > 0 {
+			grown[i] = max(grown[i]+sh.spread, 0)
+		}
+	}
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpShadow, Rect: p.snap(r), Radii: p.radii(grown), Color: sh.color.scene(),
+		Blur: sh.blur * p.scale, Cast: p.snap(box), CastRadii: p.radii(rad), Opacity: p.opacity})
 }
 
 // Line paints a straight horizontal or vertical line between two points,

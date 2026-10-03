@@ -30,19 +30,21 @@ func SourceSum(src string) string {
 type Instance struct {
 	// Rect is x, y, width, height; Radii the corners' radii (top-left,
 	// top-right, bottom-right, bottom-left); Inner those of a border's
-	// inner edge.
+	// inner edge, or of the box casting a shadow.
 	Rect, Radii, Inner [4]float32
 	// Color and Color2 (a gradient's end) and Border are straight RGBA.
 	Color, Color2, Border [4]float32
 	// Grad holds a gradient's start and end points, or the stripes' unit
 	// vector across them, width and period; UV the texture rectangle,
-	// normalized, or a fill's border widths (top, right, bottom, left).
+	// normalized, a fill's border widths (top, right, bottom, left), or
+	// the box casting a shadow, which shows only outside it (none when
+	// empty).
 	Grad, UV [4]float32
 	// Clip and ClipRadii are the innermost clip, which the shader cuts.
 	Clip, ClipRadii [4]float32
 	// Params is the kind (0 fill, 1 shadow, 2 mask glyph, 3 color glyph, 4
 	// image); 1 for a dashed border or a grayscale image; the shadow's
-	// sigma or the paint (scene.Paint); and the opacity.
+	// sigma (0 for none) or the paint (scene.Paint); and the opacity.
 	Params [4]float32
 }
 
@@ -135,14 +137,17 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 				continue
 			}
 			sigma := op.Blur / 2
-			kind := float32(1)
 			if sigma < 0.5 {
-				kind, sigma = 0, 0
+				sigma = 0
 			}
-			b.add(Instance{
+			in := Instance{
 				Rect: rect(op.Rect), Radii: scene.FitRadii(op.Rect, op.Radii),
-				Color: straight(op.Color), Params: [4]float32{kind, 0, sigma, opacity(op.Opacity)},
-			}, 0)
+				Color: straight(op.Color), Params: [4]float32{1, 0, sigma, opacity(op.Opacity)},
+			}
+			if !op.Cast.Empty() {
+				in.UV, in.Inner = rect(op.Cast), scene.FitRadii(op.Cast, op.CastRadii)
+			}
+			b.add(in, 0)
 		case scene.OpGlyphs:
 			grad := op.Paint == scene.PaintLinear || op.Paint == scene.PaintOklab
 			for _, g := range s.Glyphs[op.Start:op.End] {

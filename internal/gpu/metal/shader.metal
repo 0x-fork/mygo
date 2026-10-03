@@ -12,12 +12,12 @@ using namespace metal;
 struct Inst {
 	float4 rect;      // x, y, width, height in pixels
 	float4 radii;     // top-left, top-right, bottom-right, bottom-left
-	float4 inner;     // radii of the border's inner edge
+	float4 inner;     // radii of the border's inner edge, or of the box casting a shadow
 	float4 color;
 	float4 color2;    // gradient end
 	float4 border;    // border color
 	float4 grad;      // gradient start and end points, or stripes
-	float4 uv;        // texture rectangle, normalized, or border widths
+	float4 uv;        // texture rectangle, normalized, border widths, or the box casting a shadow
 	float4 clip;      // the innermost clip rectangle
 	float4 clipRadii;
 	float4 params;    // kind, dashed or grayscale, sigma or paint, opacity
@@ -211,8 +211,13 @@ fragment float4 ps(VSOut v [[stage_in]],
 			res = b + res * (1.0f - b.a);
 		}
 	} else if (kind < 1.5f) {
+		float sigma = i.params.z;
 		float corner = max(max(i.radii.x, i.radii.y), max(i.radii.z, i.radii.w));
-		res = premul(i.color) * boxShadow(v.p, i.rect, i.params.z, corner);
+		float s = sigma > 0.0f ? boxShadow(v.p, i.rect, sigma, corner) : coverage(sdRoundRect(v.p, i.rect, i.radii));
+		if (i.uv.z > 0.0f && i.uv.w > 0.0f) {
+			s *= 1.0f - coverage(sdRoundRect(v.p, i.uv, i.inner)); // outside the box casting it
+		}
+		res = premul(i.color) * s;
 	} else if (kind < 2.5f) {
 		res = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad) * maskTex.sample(samp, v.tex).r;
 	} else if (kind < 3.5f) {

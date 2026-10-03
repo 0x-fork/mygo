@@ -25,7 +25,8 @@ func TestBuild(t *testing.T) {
 		{Kind: scene.OpPopClip},
 		{Kind: scene.OpPopClip},
 		{Kind: scene.OpFill, Rect: scene.Rect{X: 0, Y: 0, W: 0, H: 5}, Color: red},
-		{Kind: scene.OpShadow, Rect: scene.Rect{X: 5, Y: 5, W: 10, H: 10}, Color: red, Blur: 0.5, Opacity: 0.5},
+		{Kind: scene.OpShadow, Rect: scene.Rect{X: 5, Y: 5, W: 10, H: 10}, Color: red, Blur: 0.5, Opacity: 0.5,
+			Cast: scene.Rect{X: 4, Y: 3, W: 10, H: 10}, CastRadii: [4]float32{20, 0, 0, 0}},
 	}
 	textures := map[*scene.Image]uintptr{img1: 1, img2: 2}
 	var b Builder
@@ -41,8 +42,8 @@ func TestBuild(t *testing.T) {
 	if fill.Clip[2] < 1e5 || fill.Color != [4]float32{1, 0, 0, 1} {
 		t.Errorf("fill without a clip: %+v", fill)
 	}
-	if shadow.Params != [4]float32{1, 0, 4, 1} {
-		t.Errorf("shadow %+v", shadow.Params)
+	if shadow.Params != [4]float32{1, 0, 4, 1} || shadow.UV != [4]float32{} {
+		t.Errorf("shadow %+v", shadow)
 	}
 	if glyph.Rect != [4]float32{10, 21, 8, 9} || glyph.UV != [4]float32{0.25, 0.25, 0.375, 0.53125} || glyph.Params[0] != 2 {
 		t.Errorf("glyph %+v", glyph)
@@ -53,8 +54,11 @@ func TestBuild(t *testing.T) {
 	if im1.Params[0] != 4 || im2.UV != [4]float32{0, 0, 0.5, 1} {
 		t.Errorf("images %+v %+v", im1, im2)
 	}
-	if hard.Params != [4]float32{0, 0, 0, 0.5} {
-		t.Errorf("a shadow without blur draws as a fill: %+v", hard.Params)
+	if hard.Params != [4]float32{1, 0, 0, 0.5} {
+		t.Errorf("a shadow without blur has no sigma: %+v", hard.Params)
+	}
+	if hard.UV != [4]float32{4, 3, 10, 10} || hard.Inner != [4]float32{10, 0, 0, 0} {
+		t.Errorf("the box casting a shadow, its radii fitted: %v %v", hard.UV, hard.Inner)
 	}
 	want := []Batch{
 		{Start: 0, Count: 2, Scissor: Scissor{0, 0, 200, 100}},

@@ -16,12 +16,12 @@ import (
 	"github.com/egoist/mygo/internal/scene"
 )
 
-// Scene returns a 320×320 scene with fills, borders of every width and
-// dashed, gradients mixed in sRGB and Oklab, stripes, shadows, nested
-// rounded clips, glyphs from both atlases, plain and in gradients, and
-// images, in color and in gray.
+// Scene returns a 320×380 scene with fills, borders of every width and
+// dashed, gradients mixed in sRGB and Oklab, stripes, shadows, blurred or
+// not, and cut by the boxes casting them, nested rounded clips, glyphs from
+// both atlases, plain and in gradients, and images, in color and in gray.
 func Scene() *scene.Scene {
-	s := &scene.Scene{Width: 320, Height: 320, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255}}
+	s := &scene.Scene{Width: 320, Height: 380, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255}}
 	mask := scene.NewAtlas(1, 64, 64)
 	color := scene.NewAtlas(4, 32, 32)
 	s.MaskAtlas, s.ColorAtlas = mask, color
@@ -110,6 +110,18 @@ func Scene() *scene.Scene {
 	}
 	add(scene.Op{Kind: scene.OpGlyphs, Start: start, End: int32(len(s.Glyphs)), Paint: scene.PaintOklab, Color: red, Color2: blue, Gradient: [4]float32{200, 288, 252, 304}})
 	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 270, Y: 280, W: 32, H: 32}, Radii: r4(6), Image: img, Src: scene.Rect{W: 8, H: 8}, Grayscale: true})
+
+	// Shadows that show only outside the boxes casting them: under a
+	// translucent card, without blur, and alone.
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 0, Y: 320, W: 320, H: 60}, Color: yellow})
+	card := scene.Rect{X: 20, Y: 330, W: 90, H: 36}
+	add(scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 20, Y: 334, W: 90, H: 36}, Radii: r4(10), Color: scene.Color{A: 120}, Blur: 12, Cast: card, CastRadii: r4(10)})
+	add(scene.Op{Kind: scene.OpFill, Rect: card, Radii: r4(10), Color: scene.Color{R: 255, G: 255, B: 255, A: 140}})
+	card = scene.Rect{X: 130.5, Y: 330.25, W: 70, H: 30}
+	add(scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 133.5, Y: 333.25, W: 70, H: 30}, Radii: r4(8), Color: ink, Cast: card, CastRadii: r4(8)})
+	add(scene.Op{Kind: scene.OpFill, Rect: card, Radii: r4(8), Color: scene.Color{R: 37, G: 99, B: 235, A: 90}})
+	add(scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 218, Y: 334, W: 84, H: 32}, Radii: r4(16), Color: red, Blur: 6,
+		Cast: scene.Rect{X: 220, Y: 334, W: 80, H: 28}, CastRadii: r4(14)})
 	return s
 }
 

@@ -130,6 +130,48 @@ func shadowAt(px, py, hx, hy, sigma, corner float64) float64 {
 	return v
 }
 
+func TestShadowShowsOutsideItsCast(t *testing.T) {
+	r4 := func(r float32) [4]float32 { return [4]float32{r, r, r, r} }
+	for _, c := range []struct {
+		shadow, cast scene.Rect
+		radius, blur float32
+		clip         bool
+	}{
+		{scene.Rect{X: 40, Y: 46, W: 120, H: 80}, scene.Rect{X: 40, Y: 40, W: 120, H: 80}, 12, 16, false},
+		{scene.Rect{X: 63.5, Y: 70.25, W: 50, H: 40}, scene.Rect{X: 60.5, Y: 60.25, W: 56, H: 46}, 20, 9, true},
+		{scene.Rect{X: 30, Y: 30, W: 200, H: 20}, scene.Rect{X: 100, Y: 20, W: 40, H: 80}, 0, 30, false},
+		{scene.Rect{X: 52, Y: 54, W: 60, H: 30}, scene.Rect{X: 50, Y: 50, W: 60, H: 30}, 8, 0, true},
+	} {
+		render := func(cast scene.Rect) *Image {
+			s := &scene.Scene{Width: 240, Height: 160, Clear: scene.Color{R: 255, G: 255, B: 255, A: 255}}
+			if c.clip {
+				s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 20, Y: 20, W: 110.5, H: 100}, Radii: r4(10)})
+			}
+			s.Ops = append(s.Ops, scene.Op{Kind: scene.OpShadow, Rect: c.shadow, Radii: r4(c.radius), Color: scene.Color{A: 255},
+				Blur: c.blur, Cast: cast, CastRadii: r4(c.radius)})
+			if c.clip {
+				s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPopClip})
+			}
+			m := NewImage(s.Width, s.Height)
+			Render(m, s)
+			return m
+		}
+		plain, cut := render(scene.Rect{}), render(c.cast)
+		radii := fitRadii(c.cast, r4(c.radius))
+		worst := 0.0
+		for y := range 160 {
+			for x := range 240 {
+				out := 1 - float64(coverage(c.cast, radii, float32(x)+0.5, float32(y)+0.5))
+				want := 255 - (255-float64(pixel(plain, x, y)[0]))*out
+				worst = math.Max(worst, math.Abs(float64(pixel(cut, x, y)[0])-want))
+			}
+		}
+		if worst > 2 {
+			t.Errorf("%+v: off by %.1f of 255", c, worst)
+		}
+	}
+}
+
 func TestShadowMatchesItsFormula(t *testing.T) {
 	for _, c := range []struct {
 		rect         scene.Rect

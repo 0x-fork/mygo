@@ -535,10 +535,12 @@ func (r *renderer) fill(op *scene.Op) {
 }
 
 // shadow draws a Gaussian-blurred rounded rectangle, integrating the blur
-// along y numerically and along x exactly (Evan Wallace's method).
+// along y numerically and along x exactly (Evan Wallace's method), outside
+// the box casting it, if any.
 func (r *renderer) shadow(op *scene.Op) {
 	sigma := op.Blur / 2
-	if sigma < 0.5 {
+	cast := !op.Cast.Empty()
+	if sigma < 0.5 && !cast {
 		f := *op
 		f.Kind, f.Border, f.Paint = scene.OpFill, [4]float32{}, scene.PaintSolid
 		r.fill(&f)
@@ -550,6 +552,26 @@ func (r *renderer) shadow(op *scene.Op) {
 	}
 	c := op.Color.Premul(opacity)
 	radii := fitRadii(op.Rect, op.Radii)
+	castRadii := fitRadii(op.Cast, op.CastRadii)
+	// outside returns how much of pixel (x, y) the box casting the shadow
+	// leaves to it.
+	outside := func(x, y int) float32 {
+		return 1 - coverage(op.Cast, castRadii, float32(x)+0.5, float32(y)+0.5)
+	}
+	if sigma < 0.5 {
+		// The box itself, outside the box casting it.
+		x0, y0, x1, y1 := r.pixelBounds(op.Rect)
+		for y := y0; y < y1; y++ {
+			row := r.dst.Pix[y*r.dst.Stride:]
+			for x := x0; x < x1; x++ {
+				v := coverage(op.Rect, radii, float32(x)+0.5, float32(y)+0.5) * outside(x, y)
+				if v > 0 {
+					blend(row[4*x:4*x+4], c, v*r.clipCoverage(x, y))
+				}
+			}
+		}
+		return
+	}
 	corner := max(radii[0], radii[1], radii[2], radii[3])
 	ext := 3 * sigma
 	box := scene.Rect{X: op.Rect.X - ext, Y: op.Rect.Y - ext, W: op.Rect.W + 2*ext, H: op.Rect.H + 2*ext}
@@ -573,6 +595,13 @@ func (r *renderer) shadow(op *scene.Op) {
 		profile[x-x0] = 0.5 * (erf((px+hx)*k) - erf((px-hx)*k))
 	}
 	far := 2.6 / k // where erf passes 0.9997
+	// kx0..kx1 and ky0..ky1 are the pixels the box casting the shadow
+	// touches.
+	var kx0, ky0, kx1, ky1 int
+	if cast {
+		kx0, ky0 = int(math.Floor(float64(op.Cast.X))), int(math.Floor(float64(op.Cast.Y)))
+		kx1, ky1 = int(math.Ceil(float64(op.Cast.X+op.Cast.W))), int(math.Ceil(float64(op.Cast.Y+op.Cast.H)))
+	}
 	for y := y0; y < y1; y++ {
 		py := float32(y) + 0.5 - cy
 		low, high := py-hy, py+hy
@@ -601,10 +630,29 @@ func (r *renderer) shadow(op *scene.Op) {
 		cl, ch := r.clipSolid(y)
 		ml := max(int(math.Ceil(float64(cx-narrowest+far-0.5))), x0, cl)
 		mh := min(int(math.Floor(float64(cx+narrowest-far-0.5)))+1, x1, ch)
-		blendSpan(row, ml, mh, c, sum)
+		// On the row, the box casting the shadow touches kl..kh, which the
+		// middle leaves out, and hides it in sl..sh.
+		var kl, kh, sl, sh int
+		if cast && y >= ky0 && y < ky1 {
+			kl, kh = kx0, kx1
+			sl, sh = solidSpan(op.Cast, castRadii, float32(y), float32(y+1))
+		}
+		if kl < kh {
+			blendSpan(row, ml, min(mh, kl), c, sum)
+			blendSpan(row, max(ml, kh), mh, c, sum)
+		} else {
+			blendSpan(row, ml, mh, c, sum)
+		}
 		for x := x0; x < x1; x++ {
-			if x == ml && ml < mh {
+			if x >= ml && x < mh && (x < kl || x >= kh) {
 				x = mh - 1
+				if x < kl {
+					x = min(mh, kl) - 1
+				}
+				continue
+			}
+			if x >= sl && x < sh {
+				x = sh - 1
 				continue
 			}
 			var v float32
@@ -615,6 +663,9 @@ func (r *renderer) shadow(op *scene.Op) {
 				for i := range 4 {
 					v += weight[i] * 0.5 * (erf((px+half[i])*k) - erf((px-half[i])*k))
 				}
+			}
+			if x >= kl && x < kh {
+				v *= outside(x, y)
 			}
 			if v <= 0.002 {
 				continue

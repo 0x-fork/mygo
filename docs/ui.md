@@ -300,6 +300,9 @@ element's box, and `Cursor` sets the pointer over it:
   sets the sides apart, CSS style, with `BorderColor`, as a line under a
   header with `BorderWidth(0, 0, 1, 0)`, and `BorderStyle(ui.BorderDashed)`
   dashes it.
+- **Shadows.** `Shadow(x, y, blur, spread, c)` casts a box shadow, as CSS's
+  `box-shadow` does: several stack, and each shows only outside the box,
+  so a translucent background never shows its own shadow through.
 - **Gradients and stripes.** `Gradient(from, to, angle)` fills the box with
   a linear gradient; `LinearGradient` also places its colors along the line
   (`Start`, `End`) and mixes them in Oklab, which keeps their lightness,

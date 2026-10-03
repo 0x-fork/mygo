@@ -624,7 +624,8 @@ func (e *Element) Radius(r ...float32) *Element {
 }
 
 // Shadow adds a box shadow, offset by x and y, blurred by blur and grown by
-// spread DIPs.
+// spread DIPs. As CSS's box-shadow, it shows only outside the box: a
+// translucent background does not show it through.
 func (e *Element) Shadow(x, y, blur, spread float32, c Color) *Element {
 	e.shadows = append(e.shadows, shadow{x, y, blur, spread, c})
 	return e
