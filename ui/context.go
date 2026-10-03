@@ -25,6 +25,8 @@ type Context struct {
 	overlay  *Element
 	// tree is the Tree being built, for its items.
 	tree *treeBuild
+	// reveal lists the elements to scroll into view (ScrollIntoView).
+	reveal []*Element
 }
 
 const chunkSize = 256
@@ -52,6 +54,7 @@ func (c *Context) reset(now time.Time, w, h float32) {
 	c.w, c.h = w, h
 	c.theme = c.rt.defaultTheme()
 	c.tree = nil
+	c.reveal = c.reveal[:0]
 	root := c.alloc()
 	root.c = c
 	root.id = 1
@@ -237,6 +240,12 @@ type state struct {
 	scrollX, scrollY float32
 	contentW         float32
 	contentH         float32
+	// track is the ScrollState of the last frame's element, which events
+	// that scroll it update (scrollTo).
+	track *ScrollState
+	// startX and startY are the offset before frame moveFrame moved it.
+	moveFrame      uint64
+	startX, startY float32
 	// cx and cw are the left and width of the element's content box,
 	// inside its padding, in the last frame.
 	cx, cw float32

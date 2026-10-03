@@ -68,6 +68,10 @@ func base(v float32) float32 {
 // element its box relative to the window.
 func layoutTree(root *Element, w, h float32) {
 	layoutBox(root, w, h)
+	if rt := root.c.rt; len(rt.revealIDs) > 0 {
+		revealAll(root, rt.revealIDs)
+		rt.revealIDs = rt.revealIDs[:0]
+	}
 	place(root, 0, 0)
 }
 
@@ -79,17 +83,25 @@ func place(e *Element, x, y float32) {
 	cx, cy := e.x, e.y
 	if e.scrolls() {
 		// The content may no longer reach as far as the offset, as when a
-		// page gives way to a shorter one: keep the offset within it, and
-		// build the next frame with it, for what the build put where the
-		// old offset showed, as List's rows.
+		// page gives way to a shorter one, or the app asked for the end:
+		// keep the offset within it.
+		e.adoptScroll()
 		s := e.st
-		sx, sy := max(0, min(s.scrollX, e.contentW-e.w)), max(0, min(s.scrollY, e.contentH-e.h))
-		if sx != s.scrollX || sy != s.scrollY {
-			s.scrollX, s.scrollY = sx, sy
+		mx, my := e.maxScroll()
+		if sx, sy := max(0, min(s.scrollX, mx)), max(0, min(s.scrollY, my)); sx != s.scrollX || sy != s.scrollY {
+			s.beginMove(e.c.rt.frame)
+			s.scrollTo(sx, sy)
+		}
+		if t := e.track; t != nil {
+			t.MaxX, t.MaxY = mx, my
+		}
+		if s.movedIn(e.c.rt.frame) {
+			// What was built read the old offset, as List's rows or the
+			// app from its ScrollState: build the next frame with the new.
 			e.c.rt.animating = true
 		}
-		cx -= sx
-		cy -= sy
+		cx -= s.scrollX
+		cy -= s.scrollY
 	}
 	for ch := e.first; ch != nil; ch = ch.next {
 		if ch.flags&flagAbsolute != 0 {

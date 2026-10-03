@@ -172,6 +172,29 @@ ui.List(c, len(app.rows), 32, func(i int) {
 }).Grow(1)
 ```
 
+A scroll container keeps its offset as it keeps its other state, by its
+place in the view or its `Key`. To read the offset, set it or keep it in
+the app's state, give the container a `ui.ScrollState` with `TrackScroll`:
+the container shows its content from the state's `X` and `Y`, writes them
+as the user scrolls, and sets `MaxX` and `MaxY` to how far they go. `Y = 0`
+scrolls to the top and `math.MaxFloat32` to the end, and a `ScrollState`
+for each page a container shows keeps each page's place. A log that follows
+its end, unless the user scrolled up from it:
+
+```go
+if app.log.Y >= app.log.MaxY {
+	app.log.Y = math.MaxFloat32
+}
+ui.Scroll(c).TrackScroll(&app.log).Grow(1).Children(app.lines)
+```
+
+`ScrollIntoView` scrolls the containers around an element as little as
+shows it, once the frame is laid out, so that it works in the frame that
+adds the element: a new message, or the item the keys chose. Call it in
+that frame only, or the user could not scroll the element away. A `List`
+builds only the rows in view: to show row `i`, set its `ScrollState`'s `Y`
+to `float32(i) * rowHeight`.
+
 ### Grids
 
 `ui.Grid` lays its children out in columns and rows, as CSS grid does:

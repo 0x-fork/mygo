@@ -174,6 +174,8 @@ type Element struct {
 	nchild int
 	depth  int
 	st     *state
+	// track is the ScrollState of a scroll container (TrackScroll).
+	track *ScrollState
 
 	// Layout.
 	row                    bool

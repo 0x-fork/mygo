@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"sync"
 	"time"
 
@@ -74,6 +75,9 @@ type engine struct {
 
 	consumed  bool
 	animating bool
+	// revealIDs are the elements to scroll into view once the frame is
+	// laid out.
+	revealIDs []uint64
 	wakeMu    sync.Mutex
 	wakeAt    time.Time
 	timer     *time.Timer
@@ -231,6 +235,12 @@ func (rt *engine) endPass() {
 	}
 	rt.menu.chosen = 0
 	rt.delivered = rt.delivered[:0]
+	// The next pass may not ask again, as when the view cleared what asked.
+	for _, e := range rt.c.reveal {
+		if !slices.Contains(rt.revealIDs, e.id) {
+			rt.revealIDs = append(rt.revealIDs, e.id)
+		}
+	}
 }
 
 // prune forgets the elements the frame did not build.

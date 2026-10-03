@@ -424,8 +424,11 @@ func List(c *Context, n int, rowHeight float32, row func(i int)) *Element {
 	if view <= 0 {
 		view = c.h
 	}
-	first := max(0, int(st.scrollY/rowHeight)-2)
-	last := min(n, int((st.scrollY+view)/rowHeight)+3)
+	// The offset the layout keeps, within the rows, as after a TrackScroll
+	// to the end or rows taken away.
+	top := max(0, min(st.scrollY, float32(n)*rowHeight-view))
+	first := max(0, int(top/rowHeight)-2)
+	last := min(n, int((top+view)/rowHeight)+3)
 	e.Children(func() {
 		if first > 0 {
 			Box(c).Height(float32(first) * rowHeight).Shrink(0)

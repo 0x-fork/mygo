@@ -128,10 +128,10 @@ func (rt *engine) pointerMove(x, y float32) {
 		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.contentW, s.contentH, s.scrollX, s.scrollY, s.flags, rt.c.theme.scrollbarWidth())
 		if d.horizontal {
 			if travel := g.hTrack.W - 4 - g.h.W; travel > 0 {
-				s.scrollX = max(0, min(s.contentW-s.w, d.from+(x-d.start)*(s.contentW-s.w)/travel))
+				s.scrollTo(max(0, min(s.contentW-s.w, d.from+(x-d.start)*(s.contentW-s.w)/travel)), s.scrollY)
 			}
 		} else if travel := g.vTrack.H - 4 - g.v.H; travel > 0 {
-			s.scrollY = max(0, min(s.contentH-s.h, d.from+(y-d.start)*(s.contentH-s.h)/travel))
+			s.scrollTo(s.scrollX, max(0, min(s.contentH-s.h, d.from+(y-d.start)*(s.contentH-s.h)/travel)))
 		}
 		rt.pointerX, rt.pointerY = x, y
 		rt.requestFrame()
@@ -272,20 +272,18 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers) {
 // scrollBy scrolls a container by dx, dy within its content, and reports
 // whether it moved.
 func scrollBy(s *state, dx, dy float32) bool {
-	moved := false
+	x, y := s.scrollX, s.scrollY
 	if dy != 0 && s.flags&flagScrollY != 0 {
-		to := max(0, min(s.scrollY+dy, s.contentH-s.h))
-		if to != s.scrollY {
-			s.scrollY, moved = to, true
-		}
+		y = max(0, min(y+dy, s.contentH-s.h))
 	}
 	if dx != 0 && s.flags&flagScrollX != 0 {
-		to := max(0, min(s.scrollX+dx, s.contentW-s.w))
-		if to != s.scrollX {
-			s.scrollX, moved = to, true
-		}
+		x = max(0, min(x+dx, s.contentW-s.w))
 	}
-	return moved
+	if x == s.scrollX && y == s.scrollY {
+		return false
+	}
+	s.scrollTo(x, y)
+	return true
 }
 
 // scrollKey scrolls with the keys that scroll pages in browsers the
@@ -445,36 +443,7 @@ func (rt *engine) moveFocus(back bool) {
 	if s := rt.states[rt.focused]; s != nil && s.editor != nil {
 		s.editor.selectAll()
 	}
-	rt.scrollIntoView(rt.focused)
-}
-
-// scrollIntoView scrolls the containers around element id until its box
-// shows.
-func (rt *engine) scrollIntoView(id uint64) {
-	s := rt.states[id]
-	if s == nil {
-		return
-	}
-	x, y, w, h := s.x, s.y, s.w, s.h
-	for p := rt.states[s.parent]; p != nil; p = rt.states[p.parent] {
-		if p.flags&flagScrollY != 0 {
-			if y < p.y {
-				p.scrollY = max(0, p.scrollY-(p.y-y))
-			} else if y+h > p.y+p.h {
-				p.scrollY = min(p.contentH-p.h, p.scrollY+(y+h-p.y-p.h))
-			}
-		}
-		if p.flags&flagScrollX != 0 {
-			if x < p.x {
-				p.scrollX = max(0, p.scrollX-(p.x-x))
-			} else if x+w > p.x+p.w {
-				p.scrollX = min(p.contentW-p.w, p.scrollX+(x+w-p.x-p.w))
-			}
-		}
-		if p.parent == 0 {
-			break
-		}
-	}
+	rt.reveal(rt.focused)
 }
 
 // routeKeys delivers the keys pressed since the last frame to the
@@ -749,18 +718,18 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 			case y >= g.v.Y && y < g.v.Y+g.v.H:
 				d.st, d.start, d.from, d.horizontal = s, y, s.scrollY, false
 			case y < g.v.Y:
-				s.scrollY = max(0, s.scrollY-s.h*0.9)
+				s.scrollTo(s.scrollX, max(0, s.scrollY-s.h*0.9))
 			default:
-				s.scrollY = min(s.contentH-s.h, s.scrollY+s.h*0.9)
+				s.scrollTo(s.scrollX, min(s.contentH-s.h, s.scrollY+s.h*0.9))
 			}
 		case g.horizontal && g.hTrack.Contains(x, y):
 			switch {
 			case x >= g.h.X && x < g.h.X+g.h.W:
 				d.st, d.start, d.from, d.horizontal = s, x, s.scrollX, true
 			case x < g.h.X:
-				s.scrollX = max(0, s.scrollX-s.w*0.9)
+				s.scrollTo(max(0, s.scrollX-s.w*0.9), s.scrollY)
 			default:
-				s.scrollX = min(s.contentW-s.w, s.scrollX+s.w*0.9)
+				s.scrollTo(min(s.contentW-s.w, s.scrollX+s.w*0.9), s.scrollY)
 			}
 		default:
 			continue

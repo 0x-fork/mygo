@@ -122,10 +122,10 @@ func Table(c *Context, columns []TableColumn, n int, selected *int, cell func(ro
 		top, bottom := float32(*selected)*tableRow, float32(*selected+1)*tableRow
 		switch {
 		case top < st.scrollY:
-			st.scrollY = top
+			st.scrollTo(st.scrollX, top)
 			c.AnimationFrame()
 		case st.h > 0 && bottom > st.scrollY+st.h:
-			st.scrollY = bottom - st.h
+			st.scrollTo(st.scrollX, bottom-st.h)
 			c.AnimationFrame()
 		}
 	}

@@ -279,5 +279,5 @@ func (rt *engine) focusOn(s *state) {
 		rt.blinkStart = time.Now()
 	}
 	rt.focusVisible = true
-	rt.scrollIntoView(s.id)
+	rt.reveal(s.id)
 }

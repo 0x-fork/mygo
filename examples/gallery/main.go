@@ -12,6 +12,7 @@ import (
 	"log"
 	"math"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,6 +52,9 @@ type gallery struct {
 	pinned   bool
 	fruit    string
 	eased    bool
+	// places keeps where each page is scrolled, and rowsAt the list's.
+	places map[string]*ui.ScrollState
+	rowsAt ui.ScrollState
 }
 
 var pages = []string{"Overview", "Controls", "Text", "List", "Styling", "Drawing", "Overlays"}
@@ -93,7 +97,13 @@ var (
 func (g *gallery) view(c *ui.Context) {
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		g.sidebar(c)
-		ui.Scroll(c).Grow(1).Padding(28, 32).Gap(18).Children(func() {
+		// Each page keeps its place.
+		place := g.places[g.page]
+		if place == nil {
+			place = new(ui.ScrollState)
+			g.places[g.page] = place
+		}
+		ui.Scroll(c).TrackScroll(place).Grow(1).Padding(28, 32).Gap(18).Children(func() {
 			ui.Text(c, g.page).FontSize(26).Bold()
 			switch g.page {
 			case "Overview":
@@ -371,7 +381,14 @@ func (g *gallery) list(c *ui.Context) {
 			rows = append(rows, i)
 		}
 	}
-	ui.Textf(c, "%d rows; only those in view are built. Right-click one for its menu.", len(rows)).TextColor(t.TextMuted)
+	ui.Row(c).Gap(12).Children(func() {
+		ui.Textf(c, "%d rows; only those in view are built. Right-click one for its menu.", len(rows)).TextColor(t.TextMuted).Grow(1)
+		at := slices.Index(rows, g.picked)
+		if ui.Button(c, "Show picked").Disabled(at < 0).Clicked() {
+			// The row may not be built: scroll to where it is.
+			g.rowsAt.Y = float32(at) * 32
+		}
+	})
 	ui.List(c, len(rows), 32, func(i int) {
 		n := rows[i]
 		row := ui.Row(c).Fill().PaddingX(12).Gap(10).Radius(6)
@@ -404,7 +421,7 @@ func (g *gallery) list(c *ui.Context) {
 			ui.Text(c, label).Grow(1)
 			ui.Textf(c, "%d²  =  %d", n, n*n).Font("monospace").FontSize(12)
 		})
-	}).Height(420).Border(1, t.Border).Radius(8).Padding(4)
+	}).TrackScroll(&g.rowsAt).Height(420).Border(1, t.Border).Radius(8).Padding(4)
 	ui.Row(c).Gap(18).AlignItems(ui.Stretch).Height(260).Children(func() {
 		card(c, "Tree", func() {
 			item := func(path, label string, children func()) {
@@ -665,7 +682,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now()}
+	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now()}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

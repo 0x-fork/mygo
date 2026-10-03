@@ -954,8 +954,13 @@ either.
   paints a `scene.Scene`; and presents it. Input between frames goes to the
   states of the last frame's elements. An element's identity hashes its
   parent's with its position or `Key`, so focus, scroll offsets, editors and
-  animations survive rebuilding. Frames happen only when asked: input,
-  `Invalidate`, `After`, or `AnimationFrame` while something moves.
+  animations survive rebuilding. Scroll offsets move in the layout too
+  (`ui/scroll.go`): elements that asked to `ScrollIntoView`, and the focus,
+  come into view before the boxes are placed, and placing keeps each offset
+  within its content; a `ScrollState` mirrors an offset both ways, and a
+  frame that moved one builds another for what read the old one. Frames
+  happen only when asked: input, `Invalidate`, `After`, or `AnimationFrame`
+  while something moves.
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
   menu key marks the element, from the states of the last frame, and the
   next frame runs its `ContextMenu` function to collect a `platform.Menu`;
