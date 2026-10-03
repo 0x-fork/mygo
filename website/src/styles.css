@@ -135,6 +135,23 @@
   @apply font-mono text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase;
 }
 
+/* The "!" of the wordmark come in one after another, --bang-delay apart:
+   each from large, raised and blurred, springing to its size. */
+@theme inline {
+  --animate-bang: bang 0.4s linear var(--bang-delay, 0s) both;
+}
+@keyframes bang {
+  0% { opacity: 0; scale: 2.2; translate: 0 -0.25em; filter: blur(0.04em); }
+  10% { opacity: 0.5; scale: 1.39; translate: 0 -0.15em; filter: blur(0.024em); }
+  20% { opacity: 1; scale: 0.93; translate: 0 -0.08em; filter: blur(0.013em); }
+  30% { scale: 0.85; translate: 0 -0.04em; filter: blur(0.007em); }
+  40% { scale: 0.92; translate: 0 -0.02em; filter: blur(0.003em); }
+  50% { scale: 0.99; translate: 0 -0.01em; filter: blur(0); }
+  60% { scale: 1.015; translate: 0 0; }
+  80% { scale: 1.004; }
+  100% { scale: 1; }
+}
+
 /* Shiki, for both color schemes. */
 .shiki,
 .shiki span {
