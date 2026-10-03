@@ -129,6 +129,11 @@ func enterMenuBar(w *mygo.Window, key string) (during, after, supported bool) {
 	return during, after, true
 }
 
+// Alt opens the menus in the bar here (enterMenuBar), and the items of GTK
+// menus have no letters.
+func openMenus(*mygo.Window, byte) bool { return false }
+func closeMenus()                       {}
+
 // titleButtons returns GTK's title buttons over the page of a window with
 // a hidden title bar.
 func titleButtons(w *mygo.Window) (names []string, supported bool) {

@@ -31,7 +31,7 @@ var (
 	cbMenuActivate   ptr
 	cbMenuDeactivate ptr
 
-	// Menu bars that hide (window.autoHideMenu).
+	// Menu bars that hide (window.menuHides).
 	cbMenuKey, cbCanActivateAccel, cbMenuBarDeactivate ptr
 )
 
@@ -77,7 +77,7 @@ func initMenuCallbacks() {
 		if w == nil {
 			return false
 		}
-		if !w.autoHideMenu || w.menubar == 0 || gtkWidgetGetVisible(w.menubar) {
+		if !w.menuHides() || w.menubar == 0 || gtkWidgetGetVisible(w.menubar) {
 			w.altAlone = false
 			return false
 		}
@@ -103,10 +103,10 @@ func initMenuCallbacks() {
 	// hides keeps its own.
 	cbCanActivateAccel = purego.NewCallback(func(widget ptr, signal uint32, data ptr) bool {
 		w := theBackend.window(data)
-		return w != nil && w.autoHideMenu
+		return w != nil && w.menuHides()
 	})
 	cbMenuBarDeactivate = purego.NewCallback(func(shell, data ptr) {
-		if w := theBackend.window(data); w != nil && w.autoHideMenu {
+		if w := theBackend.window(data); w != nil && w.menuHides() {
 			gtkWidgetHide(shell)
 		}
 	})
@@ -275,9 +275,9 @@ func (w *window) installMenu(m *platform.Menu) {
 	gtkBoxPackStart(w.box, w.menubar, false, false, 0)
 	gtkBoxReorderChild(w.box, w.menubar, 0)
 	gtkWidgetShowAll(w.menubar)
-	// The bar shows as autoHideMenu says, whatever shows the window.
+	// The bar shows as menuHides says, whatever shows the window.
 	gtkWidgetSetNoShowAll(w.menubar, true)
-	gtkWidgetSetVisible(w.menubar, !w.autoHideMenu)
+	gtkWidgetSetVisible(w.menubar, !w.menuHides())
 	data := ptr(w.id)
 	connect(w.menubar, "can-activate-accel", cbCanActivateAccel, data)
 	connect(w.menubar, "deactivate", cbMenuBarDeactivate, data)
@@ -286,9 +286,14 @@ func (w *window) installMenu(m *platform.Menu) {
 func (w *window) SetAutoHideMenu(v bool) {
 	w.autoHideMenu = v
 	if w.menubar != 0 {
-		gtkWidgetSetVisible(w.menubar, !v)
+		gtkWidgetSetVisible(w.menubar, !w.menuHides())
 	}
 }
+
+// menuHides reports whether the menu bar shows only while its menus are
+// open: one that hides, and any in full screen, which leaves the page the
+// whole screen.
+func (w *window) menuHides() bool { return w.autoHideMenu || w.state&stateFullscreen != 0 }
 
 // revealMenu shows a menu bar that hides and opens its first menu, as F10
 // does in GTK, while the key event is current: the menu grabs its device.

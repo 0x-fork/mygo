@@ -404,6 +404,13 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 			s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: k, Mods: mods()})
 		}
 		return 0, m == wmKeyUp
+	case wmSysChar:
+		// Alt and a letter go to the window, which opens the menu of the
+		// letter: DefWindowProc would open the window's bar without it.
+		if wp > ' ' {
+			procSendMessageW.Call(s.w.hwnd, wmSysCommand, scKeyMenu, wp)
+			return 0, true
+		}
 	case wmChar:
 		c := uint16(wp)
 		switch {

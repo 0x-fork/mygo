@@ -99,6 +99,26 @@ func enterMenuBar(w *mygo.Window, _ string) (during, after, supported bool) {
 	return during, after, true
 }
 
+// openMenus opens the window's menus from the keyboard: Alt alone, or Alt
+// and letter (a virtual key, such as 'A'). Their loop runs the app's work
+// until closeMenus.
+func openMenus(w *mygo.Window, letter byte) (supported bool) {
+	hwnd := w.NativeHandle()
+	mygo.RunOnMain(func() { supported = win.TestForeground(hwnd) })
+	if !supported {
+		return false
+	}
+	if letter == 0 {
+		go mygo.RunOnMain(func() { win.TestEnterMenuBar(hwnd) }) // returns once the menus close
+	} else {
+		mygo.RunOnMain(func() { win.TestPressKeys(0x12, letter) }) // VK_MENU
+	}
+	return true
+}
+
+// closeMenus leaves the menus, as Escape does.
+func closeMenus() { mygo.RunOnMain(win.TestEndMenu) }
+
 // titleButtons returns the window controls of a hidden title bar, named
 // after the hit-test codes over them.
 func titleButtons(w *mygo.Window) (names []string, supported bool) {

@@ -151,11 +151,15 @@ func (w *window) installMenu(m *platform.Menu) {
 }
 
 // menuShown reports whether the menu bar is on the window. One that hides
-// is there only while the keyboard is in it, and a window without a caption
-// has no room for it.
+// is there only while the keyboard is in it, and a window without a caption,
+// or in full screen, has no room for it.
 func (w *window) menuShown() bool {
-	return w.hmenu != 0 && !w.captionless() && (!w.autoHideMenu || w.revealed)
+	return w.hmenu != 0 && !w.barless() && (!w.autoHideMenu || w.revealed)
 }
+
+// barless reports a window that has no room for a menu bar: Alt and F10
+// open its menus in a popup instead.
+func (w *window) barless() bool { return w.captionless() || w.fullScreen }
 
 // attachMenu puts the menu bar on the window, or takes it off one whose bar
 // hides. Its shortcuts work either way: they come from the webview.
@@ -181,11 +185,12 @@ func (w *window) revealMenu(wp, lp uintptr) uintptr {
 }
 
 // popupMenuBar opens the menus of the menu bar from the top-left corner of
-// a window without a caption, below its title bar, when Alt or F10 would
-// take the keyboard to the bar. The popup holds the bar's own submenus, so
-// their items keep their states and commands, and gives them back before
-// it is destroyed.
-func (w *window) popupMenuBar() {
+// a window without room for the bar, below the title bar the page draws,
+// when Alt or F10 would take the keyboard to the bar; Alt and a letter
+// (key) open the menu of the letter in it, as in the bar. The popup holds
+// the bar's own submenus, so their items keep their states and commands,
+// and gives them back before it is destroyed.
+func (w *window) popupMenuBar(key uintptr) {
 	n, _, _ := procGetMenuItemCount.Call(w.hmenu)
 	count := int(int32(n))
 	if count <= 0 {
@@ -205,12 +210,15 @@ func (w *window) popupMenuBar() {
 		}
 		procAppendMenuW.Call(popup, flags, item, uintptr(unsafe.Pointer(&buf[0])))
 	}
-	pt := point{}
-	if w.caption != nil {
-		pt.Y = toPx(w.titleBarHeight(), dpiOf(w.hwnd))
-	}
+	pt := point{Y: toPx(w.TitleBar().Height, dpiOf(w.hwnd))}
 	procClientToScreen.Call(w.hwnd, uintptr(unsafe.Pointer(&pt)))
+	if key != 0 {
+		// The menu loop takes the letter as typed in the popup.
+		w.menuKey = menuKey{popup: popup, key: key}
+		postMessage(w.hwnd, wmChar, key, 0)
+	}
 	cmd := w.b.trackPopup(popup, w.hwnd, pt)
+	w.menuKey = menuKey{}
 	for i := count - 1; i >= 0; i-- {
 		procRemoveMenu.Call(popup, uintptr(i), mfByPosition)
 	}
@@ -218,6 +226,21 @@ func (w *window) popupMenuBar() {
 	if cmd != 0 && !w.closed {
 		w.b.menuCommand(cmd, w)
 	}
+}
+
+// menuKey is the letter of Alt and a letter that opened popupMenuBar, and
+// the popup.
+type menuKey struct{ popup, key uintptr }
+
+// menuChar answers WM_MENUCHAR, which a menu sends its window for a letter
+// that names none of its items. Alt and a letter that names no menu of the
+// bar open none, as in the bar: the popup closes. A letter typed in it
+// later cannot be that one, which names none of its items.
+func (w *window) menuChar(wp, lp uintptr) (uintptr, bool) {
+	if k := w.menuKey; k.popup != 0 && lp == k.popup && wp&0xFFFF == k.key {
+		return mncClose << 16, true
+	}
+	return 0, false
 }
 
 func (b *Backend) SetApplicationMenu(m *platform.Menu) {

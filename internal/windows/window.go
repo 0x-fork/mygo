@@ -34,6 +34,7 @@ type window struct {
 	hiddenTitleBar         bool        // a TitleBarStyle that hides the caption
 	caption                *captionBar // the controls in its place, nil if they failed
 	fullScreen             bool
+	reframing              bool     // SetFullScreen is changing the frame
 	showMaximized          bool     // on the first show (WindowOptions.Maximized)
 	dropped                []string // DroppedFiles
 	skipTaskbar            bool
@@ -64,6 +65,8 @@ type window struct {
 	// autoHideMenu keeps hmenu off the window except while revealed, when
 	// the keyboard is in the menu bar.
 	autoHideMenu, revealed bool
+	inMenu                 bool    // in a menu loop, of the bar or a popup
+	menuKey                menuKey // the letter that opened popupMenuBar
 
 	programmatic bool
 	loading      bool
@@ -255,37 +258,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		w.h.Closed()
 		return 0, true
 	case wmSize:
-		w.resizeWebView()
-		if w.surface != nil {
-			w.surface.fit()
+		if !w.reframing { // SetFullScreen lays the window out once it is done
+			w.sized(wp)
 		}
-		if w.caption != nil && wp != sizeMinimized {
-			w.caption.layout()
-		}
-		switch wp {
-		case sizeMinimized:
-			if w.state != sizeMinimized {
-				w.state = sizeMinimized
-				w.h.Minimized()
-			}
-		case sizeMaximized:
-			if w.state != sizeMaximized {
-				if w.state == sizeMinimized {
-					w.h.Restored()
-				}
-				w.state = sizeMaximized
-				w.h.Maximized()
-			}
-		case sizeRestored:
-			switch w.state {
-			case sizeMinimized:
-				w.h.Restored()
-			case sizeMaximized:
-				w.h.Unmaximized()
-			}
-			w.state = sizeRestored
-		}
-		w.h.Resized()
 		return 0, true
 	case wmMove:
 		if w.controller != 0 {
@@ -349,15 +324,25 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			w.b.menuCommand(loword(wp), w)
 			return 0, true
 		}
+	case wmEnterMenuLoop:
+		w.inMenu = true
+	case wmExitMenuLoop:
+		w.inMenu = false
+	case wmMenuChar:
+		if r, ok := w.menuChar(wp, lp); ok {
+			return r, true
+		}
 	case wmSysCommand:
-		// Alt or F10 alone (lp 0) take the keyboard to the menu bar. WebView2
-		// passes no Alt+letter on, so mnemonics never reach the window.
-		if wp&0xFFF0 == scKeyMenu && lp == 0 && w.hmenu != 0 {
-			if w.captionless() {
-				w.popupMenuBar()
+		// Alt or F10 alone (lp 0) take the keyboard to the menu bar, and Alt
+		// and a letter (lp the letter) open the menu of the letter; Alt and
+		// Space open the window menu. WebView2 passes no Alt+letter on: the
+		// letters come from native UI only.
+		if wp&0xFFF0 == scKeyMenu && lp != ' ' && w.hmenu != 0 {
+			if w.barless() {
+				w.popupMenuBar(lp)
 				return 0, true
 			}
-			if w.autoHideMenu && !w.revealed {
+			if lp == 0 && w.autoHideMenu && !w.revealed {
 				return w.revealMenu(wp, lp), true
 			}
 		}
@@ -365,8 +350,44 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 	return 0, false
 }
 
+// sized lays the window out after it changed size or state (a WM_SIZE kind),
+// and tells the app.
+func (w *window) sized(kind uintptr) {
+	w.resizeWebView()
+	if w.surface != nil {
+		w.surface.fit()
+	}
+	if w.caption != nil && kind != sizeMinimized {
+		w.caption.layout()
+	}
+	switch kind {
+	case sizeMinimized:
+		if w.state != sizeMinimized {
+			w.state = sizeMinimized
+			w.h.Minimized()
+		}
+	case sizeMaximized:
+		if w.state != sizeMaximized {
+			if w.state == sizeMinimized {
+				w.h.Restored()
+			}
+			w.state = sizeMaximized
+			w.h.Maximized()
+		}
+	case sizeRestored:
+		switch w.state {
+		case sizeMinimized:
+			w.h.Restored()
+		case sizeMaximized:
+			w.h.Unmaximized()
+		}
+		w.state = sizeRestored
+	}
+	w.h.Resized()
+}
+
 // captionless reports a window without a caption: frameless, or with a
-// hidden title bar. It has no room for a menu bar either.
+// hidden title bar.
 func (w *window) captionless() bool { return w.frameless || w.hiddenTitleBar }
 
 // frameCalcSize removes the title bar of windows without a caption.
@@ -675,10 +696,16 @@ func (w *window) IsMaximized() bool {
 
 func (w *window) Restore() { procShowWindow.Call(w.hwnd, swRestore) }
 
+// SetFullScreen takes the window's frame and menu bar away, or gives them
+// back. Each step sizes the window again: it is laid out once, at the end.
 func (w *window) SetFullScreen(v bool) {
 	if v == w.fullScreen {
 		return
 	}
+	if w.inMenu {
+		procEndMenu.Call() // its menus come from a bar that comes or goes
+	}
+	w.reframing = true
 	if v {
 		w.saved.style = windowLong(w.hwnd, gwlStyle)
 		w.saved.exStyle = windowLong(w.hwnd, gwlExStyle)
@@ -687,19 +714,31 @@ func (w *window) SetFullScreen(v bool) {
 		w.fullScreen = true
 		style := w.saved.style &^ (wsCaption | wsThickFrame)
 		setWindowLong(w.hwnd, gwlStyle, style)
+		w.attachMenu() // no menu bar in full screen
 		m := monitorInfo(w.monitor()).Monitor
 		procSetWindowPos.Call(w.hwnd, 0, uintptr(m.Left), uintptr(m.Top), uintptr(m.Right-m.Left), uintptr(m.Bottom-m.Top), swpNoZOrder|swpFrameChanged)
-		w.h.EnteredFullScreen()
-		w.captionChanged() // hidden in full screen
-		return
+	} else {
+		w.fullScreen = false
+		setWindowLong(w.hwnd, gwlStyle, w.saved.style)
+		setWindowLong(w.hwnd, gwlExStyle, w.saved.exStyle)
+		w.attachMenu()
+		procSetWindowPlacement.Call(w.hwnd, uintptr(unsafe.Pointer(&w.saved.placement)))
+		procSetWindowPos.Call(w.hwnd, 0, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoZOrder|swpFrameChanged)
 	}
-	w.fullScreen = false
-	setWindowLong(w.hwnd, gwlStyle, w.saved.style)
-	setWindowLong(w.hwnd, gwlExStyle, w.saved.exStyle)
-	procSetWindowPlacement.Call(w.hwnd, uintptr(unsafe.Pointer(&w.saved.placement)))
-	procSetWindowPos.Call(w.hwnd, 0, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoZOrder|swpFrameChanged)
-	w.h.LeftFullScreen()
-	w.captionChanged()
+	w.reframing = false
+	kind := uintptr(sizeRestored)
+	if w.IsMinimized() {
+		kind = sizeMinimized
+	} else if zoomed, _, _ := procIsZoomed.Call(w.hwnd); zoomed != 0 {
+		kind = sizeMaximized
+	}
+	w.sized(kind)
+	if v {
+		w.h.EnteredFullScreen()
+	} else {
+		w.h.LeftFullScreen()
+	}
+	w.captionChanged() // hidden in full screen
 }
 
 func (w *window) IsFullScreen() bool { return w.fullScreen }

@@ -55,6 +55,8 @@ func resizeCursor(*mygo.Window) (string, bool) { return "", false }
 func menuBarShown(*mygo.Window) (bool, bool)                { return false, false }
 func activateAccelerator(*mygo.Window, string) (bool, bool) { return false, false }
 func enterMenuBar(*mygo.Window, string) (bool, bool, bool)  { return false, false, false }
+func openMenus(*mygo.Window, byte) bool                     { return false }
+func closeMenus()                                           {}
 
 func titleButtons(*mygo.Window) ([]string, bool) { return nil, false }
 func pressTitleButton(*mygo.Window, string) bool { return false }

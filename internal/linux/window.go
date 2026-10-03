@@ -1031,6 +1031,9 @@ func initWindowCallbacks() {
 			} else {
 				w.h.LeftFullScreen()
 			}
+			if w.menubar != 0 {
+				gtkWidgetSetVisible(w.menubar, !w.menuHides())
+			}
 			if w.controls != nil {
 				w.fullScreenChanged()
 			}

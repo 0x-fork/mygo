@@ -61,16 +61,23 @@ func TestMenuBarShown(hwnd uintptr) bool {
 // F10 do, and returns once it leaves the menus. It reports false when the
 // window cannot come to the front, which the keyboard needs.
 func TestEnterMenuBar(hwnd uintptr) bool {
-	procSetForegroundWindow.Call(hwnd)
-	if fg, _, _ := procGetForegroundWindow.Call(); fg != hwnd {
+	if !TestForeground(hwnd) {
 		return false
 	}
 	procSendMessageW.Call(hwnd, wmSysCommand, scKeyMenu, 0)
 	return true
 }
 
+// TestForeground brings a window to the front, where the keyboard types,
+// and reports whether it came.
+func TestForeground(hwnd uintptr) bool {
+	procSetForegroundWindow.Call(hwnd)
+	fg, _, _ := procGetForegroundWindow.Call()
+	return fg == hwnd
+}
+
 // TestEndMenu leaves the menus, as Escape does.
-func TestEndMenu() { user32.NewProc("EndMenu").Call() }
+func TestEndMenu() { procEndMenu.Call() }
 
 // TestActivateAccelerator runs the menu item of a window's shortcut, as its
 // keys do in the page, and reports whether there is one.

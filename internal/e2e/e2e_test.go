@@ -710,6 +710,136 @@ func TestEmptyWindowMenu(t *testing.T) {
 	}
 }
 
+// A window in full screen has no menu bar, so the page fills the screen,
+// and Alt opens its menus all the same. It gets the bar back, and its size,
+// when it leaves full screen, and the app hears of no size in between.
+func TestFullScreenMenuBar(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("the macOS menu bar belongs to the application")
+	}
+	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300})
+	prev := mygo.App.Menu()
+	defer mygo.App.SetMenu(prev)
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))
+	if shown, _ := menuBarShown(w); !shown {
+		t.Fatal("the window has no menu bar of the application")
+	}
+	width, height := w.ContentSize()
+	var heard []string // the content sizes of OnResize, on the main thread
+	w.OnResize(func() {
+		width, height := w.ContentSize()
+		heard = append(heard, fmt.Sprintf("%dx%d", width, height))
+	})
+	// Windows lays the window out at each step of SetFullScreen, which runs
+	// on the main thread: the app hears of the last only.
+	heardOnce := func(when string) {
+		t.Helper()
+		var got []string
+		mygo.RunOnMain(func() { got, heard = heard, nil })
+		width, height := w.ContentSize()
+		want := fmt.Sprintf("%dx%d", width, height)
+		if runtime.GOOS == "windows" && slices.ContainsFunc(got, func(s string) bool { return s != want }) {
+			t.Errorf("%s, the app heard of the sizes %q, want %s only", when, got, want)
+		}
+	}
+
+	w.SetFullScreen(true)
+	for deadline := time.Now().Add(5 * time.Second); !w.IsFullScreen(); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Skip("full screen needs a window manager, which Xvfb lacks")
+		}
+	}
+	if shown, _ := menuBarShown(w); shown {
+		t.Error("the menu bar shows in full screen")
+	}
+	eventually(t, "the page to fill the window in full screen", func() bool {
+		_, h := w.Size()
+		_, ch := w.ContentSize()
+		return ch == h
+	})
+	heardOnce("entering full screen")
+	w.Focus()
+	time.Sleep(200 * time.Millisecond)
+	if openMenus(w, 0) { // Windows: in a popup
+		var menus [][]string
+		eventually(t, "Alt to open the menus in full screen", func() bool {
+			menus, _ = popupMenus()
+			return len(menus) > 0
+		})
+		if fmt.Sprint(menus) != "[[App]]" {
+			t.Errorf("Alt opened %q, want the menus of the bar", menus)
+		}
+		closeMenus()
+		eventually(t, "the menus to close", func() bool { menus, _ = popupMenus(); return len(menus) == 0 })
+	} else if during, after, ok := enterMenuBar(w, "Alt_L"); ok { // Linux: in the bar
+		if !during {
+			t.Error("Alt did not open the menus in full screen")
+		}
+		if after {
+			t.Error("the menu bar still shows in full screen once its menus closed")
+		}
+	}
+
+	w.SetFullScreen(false)
+	eventually(t, "the window out of full screen", func() bool { return !w.IsFullScreen() })
+	eventually(t, "the menu bar back after full screen", func() bool { shown, _ := menuBarShown(w); return shown })
+	eventually(t, "the size from before full screen", func() bool {
+		cw, ch := w.ContentSize()
+		return cw == width && ch == height
+	})
+	heardOnce("leaving full screen")
+}
+
+// Alt and a letter open the menu of the letter in native UI, which passes
+// them on, unlike the page: in the bar, and in the popup of a window in
+// full screen. Full screen closes the menus of the bar it takes away.
+func TestMenuLetters(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows menus take letters here")
+	}
+	prev := mygo.App.Menu()
+	defer mygo.App.SetMenu(prev)
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))
+	view := func(c *ui.Context) { ui.Box(c).Fill() }
+	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, FullScreen: true, Content: ui.View(view)})
+	eventually(t, "the window in full screen", w.IsFullScreen)
+	if shown, _ := menuBarShown(w); shown {
+		t.Error("a window created in full screen shows its menu bar")
+	}
+	menusAfter := func(letter byte, want [][]string) {
+		t.Helper()
+		if !openMenus(w, letter) {
+			t.Skip("the window cannot come to the front, where the keyboard types")
+		}
+		var menus [][]string
+		if len(want) == 0 {
+			time.Sleep(500 * time.Millisecond)
+			menus, _ = popupMenus()
+		}
+		for deadline := time.Now().Add(3 * time.Second); fmt.Sprint(menus) != fmt.Sprint(want) && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			menus, _ = popupMenus()
+		}
+		if fmt.Sprint(menus) != fmt.Sprint(want) {
+			t.Errorf("Alt+%c opened %q, want %q", letter, menus, want)
+		}
+	}
+
+	menusAfter('A', [][]string{{"Item"}, {"App"}}) // the menu of the letter above the popup
+	closeMenus()
+	menusAfter('Z', nil) // names no menu
+	closeMenus()
+
+	w.SetFullScreen(false)
+	eventually(t, "the menu bar back after full screen", func() bool { shown, _ := menuBarShown(w); return shown })
+	menusAfter('A', [][]string{{"Item"}}) // the bar is no popup
+	w.SetFullScreen(true)
+	eventually(t, "full screen to close the menus of the bar", func() bool { menus, _ := popupMenus(); return len(menus) == 0 })
+	closeMenus()
+	if shown, _ := menuBarShown(w); shown {
+		t.Error("the menu bar shows in full screen")
+	}
+}
+
 // Resizing a centered window keeps its position, also when it was
 // resized right before, which GTK has not confirmed yet.
 func TestCenterThenResize(t *testing.T) {

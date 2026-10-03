@@ -82,6 +82,7 @@ var (
 	procTranslateMessage              = user32.NewProc("TranslateMessage")
 	procDispatchMessageW              = user32.NewProc("DispatchMessageW")
 	procPostMessageW                  = user32.NewProc("PostMessageW")
+	procEndMenu                       = user32.NewProc("EndMenu")
 	procSendMessageW                  = user32.NewProc("SendMessageW")
 	procPostQuitMessage               = user32.NewProc("PostQuitMessage")
 	procMsgWaitForMultipleObjectsEx   = user32.NewProc("MsgWaitForMultipleObjectsEx")
@@ -243,6 +244,9 @@ const (
 	wmMouseLeave        = 0x02A3
 	wmCommand           = 0x0111
 	wmSysCommand        = 0x0112
+	wmMenuChar          = 0x0120
+	wmEnterMenuLoop     = 0x0211
+	wmExitMenuLoop      = 0x0212
 	wmLButtonUp         = 0x0202
 	wmRButtonUp         = 0x0205
 	wmContextMenu       = 0x007B
@@ -345,6 +349,7 @@ const (
 
 	tpmRightButton = 0x0002
 	tpmReturnCmd   = 0x0100
+	mncClose       = 1
 
 	monitorDefaultToNearest = 2
 	monitorDefaultToPrimary = 1
