@@ -307,27 +307,32 @@ func Switch(c *Context, on *bool) *Element {
 // Slider creates a slider setting *value between lo and hi.
 func Slider(c *Context, value *float64, lo, hi float64) *Element {
 	t := c.theme
-	// The knob moves across the content box, half of it inside the
-	// padding on each side, so it stays on the track, which spans the
-	// slider.
-	knob := t.Space(4)
-	s := SliderBase(c, value, lo, hi).Height(t.Space(5)).MinWidth(t.Space(20)).PaddingX(knob / 2).FocusRing(false)
+	// The knob, a capsule like AppKit's, moves across the content box,
+	// half of it inside the padding on each side, so it stays on the
+	// track, which spans the slider.
+	kw, kh := t.Space(5), t.Space(4)
+	s := SliderBase(c, value, lo, hi).Height(t.Space(5)).MinWidth(t.Space(20)).PaddingX(kw / 2).FocusRing(false)
 	frac := float32(0)
 	if hi > lo {
 		frac = float32((*value - lo) / (hi - lo))
+	}
+	face := RGB(255, 255, 255)
+	if t.Dark {
+		face = RGB(224, 225, 225)
 	}
 	s.Draw(func(p *Painter, r Rect) {
 		// As thick as Progress.
 		h := t.Space(1.5)
 		track := Rect{r.X, r.Y + r.H/2 - h/2, r.W, h}
-		k := Rect{r.X + (r.W-knob)*frac, r.Y + r.H/2 - knob/2, knob, knob}
+		k := Rect{r.X + (r.W-kw)*frac, r.Y + r.H/2 - kh/2, kw, kh}
 		p.Fill(track, t.Border, h/2)
-		p.Fill(Rect{track.X, track.Y, k.X + knob/2 - track.X, h}, t.Accent, h/2)
-		p.Shadow(Rect{k.X, k.Y + 1, k.W, k.H}, knob/2, 3, RGBA(0, 0, 0, 0.3))
-		p.Fill(k, RGB(255, 255, 255), knob/2)
-		p.Stroke(k, t.Border, knob/2, 1)
+		p.Fill(Rect{track.X, track.Y, k.X + kw/2 - track.X, h}, t.Accent, h/2)
+		// A tight shadow edges the knob, a soft one lifts it.
+		p.Shadow(Rect{k.X, k.Y + 0.5, k.W, k.H}, kh/2, 1, RGBA(0, 0, 0, 0.08))
+		p.Shadow(Rect{k.X, k.Y + 1.5, k.W, k.H}, kh/2, 7, RGBA(0, 0, 0, 0.1))
+		p.Fill(k, face, kh/2)
 		if s.FocusVisible() {
-			p.FocusRing(k, [4]float32{knob / 2, knob / 2, knob / 2, knob / 2})
+			p.FocusRing(k, [4]float32{kh / 2, kh / 2, kh / 2, kh / 2})
 		}
 	})
 	return s
