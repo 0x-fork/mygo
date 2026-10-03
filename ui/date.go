@@ -43,7 +43,10 @@ func DateInput(c *Context, date *time.Time) *Element {
 		*open = false
 		b.Focus()
 	}
-	Popover(c, b, open, func() {
+	// The calendar keeps its own width under a wide field: not Popover,
+	// whose panel is as wide as the field at least.
+	PopoverBase(c, b, open, func(panel *Element) {
+		stylePanel(c, panel)
 		cur := *cursor
 		month := time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, time.UTC)
 		grid := Column(c).Gap(t.Space(0.5)).Focusable().AutoFocus().Role(RoleTable).Label(month.Format("January 2006"))

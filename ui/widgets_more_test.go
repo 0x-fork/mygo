@@ -317,6 +317,22 @@ func TestDateInput(t *testing.T) {
 	}
 }
 
+func TestDateInputWide(t *testing.T) {
+	date := time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)
+	tt := NewTester(func(c *Context) {
+		Column(c).Padding(10).Children(func() { DateInput(c, &date).Label("Due") })
+	}, 800, 420)
+	tt.Click("Due")
+	field, _ := tt.Find("Due")
+	next, ok := tt.Find("Next month")
+	if !ok {
+		t.Fatalf("no calendar after a click: %q", tt.Texts())
+	}
+	if next.X+next.W > field.X+field.W/2 {
+		t.Errorf("the calendar under a field %v wide reaches %v", field.W, next.X+next.W)
+	}
+}
+
 func TestProgressReverse(t *testing.T) {
 	for _, reverse := range []bool{false, true} {
 		img := Render(func(c *Context) {
