@@ -1,0 +1,557 @@
+//go:build windows
+
+// Package d3d11 draws scenes with Direct3D 11 into a window through a DXGI
+// flip model swap chain, called through syscall like the rest of the
+// Windows backend (no cgo). Every op of a scene is an instanced quad drawn
+// by one shader (shader.hlsl, compiled ahead of time into shaders.go);
+// clips are scissor rectangles, with the innermost rounded clip computed
+// in the shader.
+package d3d11
+
+//go:generate go run gen.go
+
+import (
+	"errors"
+	"fmt"
+	"math"
+	"syscall"
+	"unsafe"
+
+	"github.com/egoist/mygo/internal/gpu"
+	"github.com/egoist/mygo/internal/scene"
+)
+
+var (
+	d3d11dll              = syscall.NewLazyDLL(systemDir() + `\d3d11.dll`)
+	procD3D11CreateDevice = d3d11dll.NewProc("D3D11CreateDevice")
+)
+
+func systemDir() string {
+	buf := make([]uint16, 260)
+	n, _, _ := syscall.NewLazyDLL("kernel32.dll").NewProc("GetSystemDirectoryW").Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if n == 0 || int(n) > len(buf) {
+		return `C:\Windows\System32`
+	}
+	return syscall.UTF16ToString(buf[:n])
+}
+
+type guid struct {
+	Data1 uint32
+	Data2 uint16
+	Data3 uint16
+	Data4 [8]byte
+}
+
+var (
+	iidIDXGIDevice     = guid{0x54ec77fa, 0x1377, 0x44e6, [8]byte{0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c}}
+	iidIDXGIFactory2   = guid{0x50c83a1c, 0xe072, 0x4c48, [8]byte{0x87, 0xb0, 0x36, 0x30, 0xfa, 0x36, 0xa6, 0xd0}}
+	iidID3D11Texture2D = guid{0x6f15aaf2, 0xd208, 0x4e89, [8]byte{0x9a, 0xb4, 0x48, 0x95, 0x35, 0xd3, 0x4f, 0x9c}}
+)
+
+// Vtable indices, from the Windows SDK headers.
+const (
+	release = 2
+
+	// ID3D11Device
+	devCreateBuffer             = 3
+	devCreateTexture2D          = 5
+	devCreateShaderResourceView = 7
+	devCreateRenderTargetView   = 9
+	devCreateInputLayout        = 11
+	devCreateVertexShader       = 12
+	devCreatePixelShader        = 15
+	devCreateBlendState         = 20
+	devCreateRasterizerState    = 22
+	devCreateSamplerState       = 23
+
+	// ID3D11DeviceContext
+	ctxVSSetConstantBuffers    = 7
+	ctxPSSetShaderResources    = 8
+	ctxPSSetShader             = 9
+	ctxPSSetSamplers           = 10
+	ctxVSSetShader             = 11
+	ctxMap                     = 14
+	ctxUnmap                   = 15
+	ctxIASetInputLayout        = 17
+	ctxIASetVertexBuffers      = 18
+	ctxDrawInstanced           = 21
+	ctxIASetPrimitiveTopology  = 24
+	ctxOMSetRenderTargets      = 33
+	ctxOMSetBlendState         = 35
+	ctxRSSetState              = 43
+	ctxRSSetViewports          = 44
+	ctxRSSetScissorRects       = 45
+	ctxUpdateSubresource       = 48
+	ctxClearRenderTargetView   = 50
+	ctxClearState              = 110
+	ctxFlush                   = 111
+	dxgiDevGetAdapter          = 7
+	dxgiGetParent              = 6
+	factoryMakeWindowAssoc     = 8
+	factoryCreateSwapChainHwnd = 15
+	scPresent                  = 8
+	scGetBuffer                = 9
+	scResizeBuffers            = 13
+)
+
+const (
+	formatR32G32B32A32Float = 2
+	formatR8G8B8A8Unorm     = 28
+	formatB8G8R8A8Unorm     = 87
+	formatR8Unorm           = 61
+
+	usageDefault = 0
+	usageDynamic = 2
+
+	bindVertexBuffer   = 0x1
+	bindConstantBuffer = 0x4
+	bindShaderResource = 0x8
+
+	cpuAccessWrite  = 0x10000
+	mapWriteDiscard = 4
+
+	topologyTriangleStrip = 5
+)
+
+// ptr turns an address from native code into a pointer.
+func ptr(a uintptr) unsafe.Pointer { return *(*unsafe.Pointer)(unsafe.Pointer(&a)) }
+
+// call calls method i of a COM object; the pointers passed as uintptr stay
+// valid until it returns.
+//
+//go:uintptrescapes
+func call(obj uintptr, i int, args ...uintptr) uintptr {
+	vtbl := *(*uintptr)(ptr(obj))
+	fn := *(*uintptr)(unsafe.Add(ptr(vtbl), i*int(unsafe.Sizeof(uintptr(0)))))
+	var a [16]uintptr
+	a[0] = obj
+	n := copy(a[1:], args)
+	r, _, _ := syscall.SyscallN(fn, a[:n+1]...)
+	return r
+}
+
+func failed(hr uintptr) bool { return int32(uint32(hr)) < 0 }
+
+func free(obj *uintptr) {
+	if *obj != 0 {
+		call(*obj, release)
+		*obj = 0
+	}
+}
+
+type bufferDesc struct {
+	ByteWidth, Usage, BindFlags, CPUAccessFlags, MiscFlags, StructureByteStride uint32
+}
+
+type subresourceData struct {
+	SysMem                   uintptr
+	SysMemPitch, SysMemSlice uint32
+}
+
+type texture2DDesc struct {
+	Width, Height, MipLevels, ArraySize, Format uint32
+	SampleCount, SampleQuality                  uint32
+	Usage, BindFlags, CPUAccessFlags, MiscFlags uint32
+}
+
+type inputElement struct {
+	SemanticName         *byte
+	SemanticIndex        uint32
+	Format               uint32
+	InputSlot            uint32
+	AlignedByteOffset    uint32
+	InputSlotClass       uint32
+	InstanceDataStepRate uint32
+}
+
+type rtBlend struct {
+	BlendEnable                                 int32
+	SrcBlend, DestBlend, BlendOp                uint32
+	SrcBlendAlpha, DestBlendAlpha, BlendOpAlpha uint32
+	WriteMask                                   uint8
+	_                                           [3]byte
+}
+
+type blendDesc struct {
+	AlphaToCoverage, IndependentBlend int32
+	RenderTarget                      [8]rtBlend
+}
+
+type rasterizerDesc struct {
+	FillMode, CullMode   uint32
+	FrontCCW             int32
+	DepthBias            int32
+	DepthBiasClamp       float32
+	SlopeScaledDepthBias float32
+	DepthClip, Scissor   int32
+	Multisample, AALines int32
+}
+
+type samplerDesc struct {
+	Filter                       uint32
+	AddressU, AddressV, AddressW uint32
+	MipLODBias                   float32
+	MaxAnisotropy                uint32
+	ComparisonFunc               uint32
+	BorderColor                  [4]float32
+	MinLOD, MaxLOD               float32
+}
+
+type viewport struct{ X, Y, W, H, MinDepth, MaxDepth float32 }
+
+type box struct{ Left, Top, Front, Right, Bottom, Back uint32 }
+
+type mapped struct {
+	Data                 uintptr
+	RowPitch, DepthPitch uint32
+}
+
+type swapChainDesc1 struct {
+	Width, Height, Format          uint32
+	Stereo                         int32
+	SampleCount, SampleQuality     uint32
+	BufferUsage, BufferCount       uint32
+	Scaling, SwapEffect, AlphaMode uint32
+	Flags                          uint32
+}
+
+type texture struct {
+	tex, srv  uintptr
+	w, h      int
+	gen, ver  uint64
+	lastFrame uint64
+}
+
+// Renderer draws scenes into a window.
+type Renderer struct {
+	hwnd      uintptr
+	device    uintptr
+	ctx       uintptr
+	factory   uintptr
+	swapChain uintptr
+	rtv       uintptr
+	w, h      int
+	warp      bool // the device is WARP, Windows' software rasterizer
+
+	vs, ps, layout      uintptr
+	blend, raster, samp uintptr
+	cbuf                uintptr
+	instBuf             uintptr
+	instCap             int
+
+	mask, color texture
+	images      map[uint64]*texture
+	frame       uint64
+
+	b gpu.Builder
+}
+
+// New creates a renderer drawing into the window hwnd, on the GPU or, when
+// there is none, with Windows' software rasterizer (WARP).
+func New(hwnd uintptr) (*Renderer, error) {
+	if hwnd == 0 {
+		return nil, errors.New("d3d11: no window")
+	}
+	if err := procD3D11CreateDevice.Find(); err != nil {
+		return nil, err
+	}
+	r := &Renderer{hwnd: hwnd, images: map[uint64]*texture{}}
+	levels := []uint32{0xb000, 0xa100, 0xa000} // 11_0, 10_1, 10_0
+	const bgraSupport = 0x20
+	var hr uintptr
+	const hardware, warp = 1, 5
+	for _, driver := range []uintptr{hardware, warp} {
+		var level uint32
+		hr, _, _ = procD3D11CreateDevice.Call(0, driver, 0, bgraSupport,
+			uintptr(unsafe.Pointer(&levels[0])), uintptr(len(levels)), 7,
+			uintptr(unsafe.Pointer(&r.device)), uintptr(unsafe.Pointer(&level)), uintptr(unsafe.Pointer(&r.ctx)))
+		if !failed(hr) {
+			r.warp = driver == warp
+			break
+		}
+	}
+	if failed(hr) {
+		return nil, fmt.Errorf("d3d11: cannot create a device: %#x", uint32(hr))
+	}
+	if err := r.init(); err != nil {
+		r.Release()
+		return nil, err
+	}
+	return r, nil
+}
+
+func (r *Renderer) init() error {
+	// The factory that made the device's adapter makes the swap chain.
+	var dxgiDev, adapter uintptr
+	if failed(call(r.device, 0, uintptr(unsafe.Pointer(&iidIDXGIDevice)), uintptr(unsafe.Pointer(&dxgiDev)))) {
+		return errors.New("d3d11: no DXGI device")
+	}
+	defer free(&dxgiDev)
+	if failed(call(dxgiDev, dxgiDevGetAdapter, uintptr(unsafe.Pointer(&adapter)))) {
+		return errors.New("d3d11: no adapter")
+	}
+	defer free(&adapter)
+	if failed(call(adapter, dxgiGetParent, uintptr(unsafe.Pointer(&iidIDXGIFactory2)), uintptr(unsafe.Pointer(&r.factory)))) {
+		return errors.New("d3d11: DXGI 1.2 is required")
+	}
+
+	vsCode, psCode, err := shaderCode()
+	if err != nil {
+		return err
+	}
+	if failed(call(r.device, devCreateVertexShader, uintptr(unsafe.Pointer(&vsCode[0])), uintptr(len(vsCode)), 0, uintptr(unsafe.Pointer(&r.vs)))) {
+		return errors.New("d3d11: cannot create the vertex shader")
+	}
+	if failed(call(r.device, devCreatePixelShader, uintptr(unsafe.Pointer(&psCode[0])), uintptr(len(psCode)), 0, uintptr(unsafe.Pointer(&r.ps)))) {
+		return errors.New("d3d11: cannot create the pixel shader")
+	}
+	names := []string{"RECT", "RADII", "INNER", "COLOR", "COLOR", "COLOR", "GRAD", "UV", "CLIP", "CLIPR", "PARAMS"}
+	indices := []uint32{0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0}
+	elems := make([]inputElement, len(names))
+	cstr := make([][]byte, len(names))
+	for i, n := range names {
+		cstr[i] = append([]byte(n), 0)
+		elems[i] = inputElement{SemanticName: &cstr[i][0], SemanticIndex: indices[i], Format: formatR32G32B32A32Float,
+			AlignedByteOffset: uint32(16 * i), InputSlotClass: 1, InstanceDataStepRate: 1}
+	}
+	if failed(call(r.device, devCreateInputLayout, uintptr(unsafe.Pointer(&elems[0])), uintptr(len(elems)),
+		uintptr(unsafe.Pointer(&vsCode[0])), uintptr(len(vsCode)), uintptr(unsafe.Pointer(&r.layout)))) {
+		return errors.New("d3d11: cannot create the input layout")
+	}
+
+	bd := blendDesc{}
+	bd.RenderTarget[0] = rtBlend{BlendEnable: 1, SrcBlend: 2, DestBlend: 6, BlendOp: 1, SrcBlendAlpha: 2, DestBlendAlpha: 6, BlendOpAlpha: 1, WriteMask: 0xf}
+	if failed(call(r.device, devCreateBlendState, uintptr(unsafe.Pointer(&bd)), uintptr(unsafe.Pointer(&r.blend)))) {
+		return errors.New("d3d11: cannot create the blend state")
+	}
+	rd := rasterizerDesc{FillMode: 3, CullMode: 1, DepthClip: 1, Scissor: 1}
+	if failed(call(r.device, devCreateRasterizerState, uintptr(unsafe.Pointer(&rd)), uintptr(unsafe.Pointer(&r.raster)))) {
+		return errors.New("d3d11: cannot create the rasterizer state")
+	}
+	sd := samplerDesc{Filter: 0x15, AddressU: 3, AddressV: 3, AddressW: 3, ComparisonFunc: 1, MaxLOD: math.MaxFloat32}
+	if failed(call(r.device, devCreateSamplerState, uintptr(unsafe.Pointer(&sd)), uintptr(unsafe.Pointer(&r.samp)))) {
+		return errors.New("d3d11: cannot create the sampler")
+	}
+	cd := bufferDesc{ByteWidth: 16, Usage: usageDefault, BindFlags: bindConstantBuffer}
+	if failed(call(r.device, devCreateBuffer, uintptr(unsafe.Pointer(&cd)), 0, uintptr(unsafe.Pointer(&r.cbuf)))) {
+		return errors.New("d3d11: cannot create the constant buffer")
+	}
+	return nil
+}
+
+// resize makes the swap chain w×h pixels.
+func (r *Renderer) resize(w, h int) error {
+	if r.swapChain != 0 && w == r.w && h == r.h {
+		return nil
+	}
+	free(&r.rtv)
+	if r.swapChain == 0 {
+		desc := swapChainDesc1{Width: uint32(w), Height: uint32(h), Format: formatB8G8R8A8Unorm, SampleCount: 1,
+			BufferUsage: 0x20, BufferCount: 2, Scaling: 0, SwapEffect: 4 /* flip discard */}
+		if hr := call(r.factory, factoryCreateSwapChainHwnd, r.device, r.hwnd, uintptr(unsafe.Pointer(&desc)), 0, 0, uintptr(unsafe.Pointer(&r.swapChain))); failed(hr) {
+			return fmt.Errorf("d3d11: cannot create the swap chain: %#x", uint32(hr))
+		}
+		const noAltEnter = 2
+		call(r.factory, factoryMakeWindowAssoc, r.hwnd, noAltEnter)
+	} else if hr := call(r.swapChain, scResizeBuffers, 0, uintptr(w), uintptr(h), 0, 0); failed(hr) {
+		return fmt.Errorf("d3d11: cannot resize the swap chain: %#x", uint32(hr))
+	}
+	var back uintptr
+	if hr := call(r.swapChain, scGetBuffer, 0, uintptr(unsafe.Pointer(&iidID3D11Texture2D)), uintptr(unsafe.Pointer(&back))); failed(hr) {
+		return fmt.Errorf("d3d11: no back buffer: %#x", uint32(hr))
+	}
+	defer free(&back)
+	if hr := call(r.device, devCreateRenderTargetView, back, 0, uintptr(unsafe.Pointer(&r.rtv))); failed(hr) {
+		return fmt.Errorf("d3d11: cannot create the render target view: %#x", uint32(hr))
+	}
+	r.w, r.h = w, h
+	return nil
+}
+
+// Software reports whether the renderer draws with WARP, on the CPU, for
+// want of a GPU.
+func (r *Renderer) Software() bool { return r.warp }
+
+// Release frees the renderer's GPU objects.
+func (r *Renderer) Release() {
+	if r.ctx != 0 {
+		call(r.ctx, ctxClearState)
+		call(r.ctx, ctxFlush)
+	}
+	for _, t := range r.images {
+		free(&t.srv)
+		free(&t.tex)
+	}
+	r.images = nil
+	for _, t := range []*texture{&r.mask, &r.color} {
+		free(&t.srv)
+		free(&t.tex)
+	}
+	for _, p := range []*uintptr{&r.rtv, &r.swapChain, &r.instBuf, &r.cbuf, &r.samp, &r.raster, &r.blend, &r.layout, &r.ps, &r.vs, &r.factory, &r.ctx, &r.device} {
+		free(p)
+	}
+}
+
+// newTexture creates a texture of w×h pixels from pix.
+func (r *Renderer) newTexture(t *texture, w, h int, format uint32, pix []byte, bpp int) error {
+	free(&t.srv)
+	free(&t.tex)
+	desc := texture2DDesc{Width: uint32(w), Height: uint32(h), MipLevels: 1, ArraySize: 1, Format: format, SampleCount: 1, Usage: usageDefault, BindFlags: bindShaderResource}
+	var init *subresourceData
+	if len(pix) >= w*h*bpp {
+		init = &subresourceData{SysMem: uintptr(unsafe.Pointer(&pix[0])), SysMemPitch: uint32(w * bpp)}
+	}
+	if hr := call(r.device, devCreateTexture2D, uintptr(unsafe.Pointer(&desc)), uintptr(unsafe.Pointer(init)), uintptr(unsafe.Pointer(&t.tex))); failed(hr) {
+		return fmt.Errorf("d3d11: cannot create a %dx%d texture: %#x", w, h, uint32(hr))
+	}
+	if hr := call(r.device, devCreateShaderResourceView, t.tex, 0, uintptr(unsafe.Pointer(&t.srv))); failed(hr) {
+		return fmt.Errorf("d3d11: cannot create a texture view: %#x", uint32(hr))
+	}
+	t.w, t.h = w, h
+	return nil
+}
+
+// syncAtlas uploads what changed in an atlas.
+func (r *Renderer) syncAtlas(t *texture, a *scene.Atlas, format uint32) error {
+	if a == nil {
+		return nil
+	}
+	if t.tex == 0 || t.gen != a.Generation() || t.w != a.W || t.h != a.H {
+		if err := r.newTexture(t, a.W, a.H, format, a.Pix, a.BPP); err != nil {
+			return err
+		}
+		t.gen, t.ver = a.Generation(), a.Version()
+		return nil
+	}
+	rects, full := a.Changes(t.gen, t.ver)
+	if full {
+		call(r.ctx, ctxUpdateSubresource, t.tex, 0, 0, uintptr(unsafe.Pointer(&a.Pix[0])), uintptr(a.W*a.BPP), 0)
+	}
+	for _, rc := range rects {
+		b := box{Left: uint32(rc.Min.X), Top: uint32(rc.Min.Y), Front: 0, Right: uint32(rc.Max.X), Bottom: uint32(rc.Max.Y), Back: 1}
+		src := a.Pix[(rc.Min.Y*a.W+rc.Min.X)*a.BPP:]
+		call(r.ctx, ctxUpdateSubresource, t.tex, 0, uintptr(unsafe.Pointer(&b)), uintptr(unsafe.Pointer(&src[0])), uintptr(a.W*a.BPP), 0)
+	}
+	t.ver = a.Version()
+	return nil
+}
+
+// imageView returns the texture view of an image, uploading it when new or
+// changed.
+func (r *Renderer) imageView(img *scene.Image) uintptr {
+	t := r.images[img.ID()]
+	if t == nil {
+		t = &texture{}
+		if err := r.newTexture(t, img.W, img.H, formatR8G8B8A8Unorm, img.Pix, 4); err != nil {
+			return 0
+		}
+		t.ver = img.Version()
+		r.images[img.ID()] = t
+	} else if t.ver != img.Version() {
+		call(r.ctx, ctxUpdateSubresource, t.tex, 0, 0, uintptr(unsafe.Pointer(&img.Pix[0])), uintptr(img.W*4), 0)
+		t.ver = img.Version()
+	}
+	t.lastFrame = r.frame
+	return t.srv
+}
+
+// Render draws s into the window and presents it.
+func (r *Renderer) Render(s *scene.Scene) error {
+	if s.Width <= 0 || s.Height <= 0 {
+		return nil
+	}
+	if err := r.draw(s); err != nil {
+		return err
+	}
+	return r.present()
+}
+
+// draw draws s into the swap chain's back buffer.
+func (r *Renderer) draw(s *scene.Scene) error {
+	r.frame++
+	if err := r.resize(s.Width, s.Height); err != nil {
+		return err
+	}
+	if err := r.syncAtlas(&r.mask, s.MaskAtlas, formatR8Unorm); err != nil {
+		return err
+	}
+	if err := r.syncAtlas(&r.color, s.ColorAtlas, formatR8G8B8A8Unorm); err != nil {
+		return err
+	}
+	r.b.Build(s, r.imageView)
+
+	// Upload the instances, growing the buffer as needed.
+	if n := len(r.b.Instances); n > 0 {
+		if n > r.instCap {
+			free(&r.instBuf)
+			capacity := max(n*3/2, 1024)
+			bd := bufferDesc{ByteWidth: uint32(capacity * gpu.InstanceSize), Usage: usageDynamic, BindFlags: bindVertexBuffer, CPUAccessFlags: cpuAccessWrite}
+			if hr := call(r.device, devCreateBuffer, uintptr(unsafe.Pointer(&bd)), 0, uintptr(unsafe.Pointer(&r.instBuf))); failed(hr) {
+				r.instCap = 0
+				return fmt.Errorf("d3d11: cannot create the instance buffer: %#x", uint32(hr))
+			}
+			r.instCap = capacity
+		}
+		var m mapped
+		if hr := call(r.ctx, ctxMap, r.instBuf, 0, mapWriteDiscard, 0, uintptr(unsafe.Pointer(&m))); failed(hr) {
+			return fmt.Errorf("d3d11: cannot map the instance buffer: %#x", uint32(hr))
+		}
+		dst := unsafe.Slice((*gpu.Instance)(ptr(m.Data)), n)
+		copy(dst, r.b.Instances)
+		call(r.ctx, ctxUnmap, r.instBuf, 0)
+	}
+	globals := [4]float32{float32(s.Width), float32(s.Height), 0, 0}
+	call(r.ctx, ctxUpdateSubresource, r.cbuf, 0, 0, uintptr(unsafe.Pointer(&globals[0])), 0, 0)
+
+	ctx := r.ctx
+	call(ctx, ctxOMSetRenderTargets, 1, uintptr(unsafe.Pointer(&r.rtv)), 0)
+	clear := s.Clear.Premul(1)
+	call(ctx, ctxClearRenderTargetView, r.rtv, uintptr(unsafe.Pointer(&clear[0])))
+	vp := viewport{W: float32(s.Width), H: float32(s.Height), MaxDepth: 1}
+	call(ctx, ctxRSSetViewports, 1, uintptr(unsafe.Pointer(&vp)))
+	call(ctx, ctxRSSetState, r.raster)
+	call(ctx, ctxOMSetBlendState, r.blend, 0, 0xffffffff)
+	call(ctx, ctxIASetPrimitiveTopology, topologyTriangleStrip)
+	call(ctx, ctxIASetInputLayout, r.layout)
+	stride, offset := uint32(gpu.InstanceSize), uint32(0)
+	call(ctx, ctxIASetVertexBuffers, 0, 1, uintptr(unsafe.Pointer(&r.instBuf)), uintptr(unsafe.Pointer(&stride)), uintptr(unsafe.Pointer(&offset)))
+	call(ctx, ctxVSSetShader, r.vs, 0, 0)
+	call(ctx, ctxVSSetConstantBuffers, 0, 1, uintptr(unsafe.Pointer(&r.cbuf)))
+	call(ctx, ctxPSSetShader, r.ps, 0, 0)
+	call(ctx, ctxPSSetSamplers, 0, 1, uintptr(unsafe.Pointer(&r.samp)))
+	views := [3]uintptr{r.mask.srv, r.color.srv, 0}
+	call(ctx, ctxPSSetShaderResources, 0, 3, uintptr(unsafe.Pointer(&views[0])))
+	bound := uintptr(0)
+	for _, b := range r.b.Batches {
+		if b.Count == 0 {
+			continue
+		}
+		if b.Image != 0 && b.Image != bound {
+			bound = b.Image
+			call(ctx, ctxPSSetShaderResources, 2, 1, uintptr(unsafe.Pointer(&bound)))
+		}
+		sc := b.Scissor // a D3D11_RECT
+		call(ctx, ctxRSSetScissorRects, 1, uintptr(unsafe.Pointer(&sc)))
+		call(ctx, ctxDrawInstanced, 4, uintptr(b.Count), 0, uintptr(b.Start))
+	}
+	return nil
+}
+
+// present shows the back buffer.
+func (r *Renderer) present() error {
+	hr := call(r.swapChain, scPresent, 1, 0)
+	if failed(hr) {
+		return fmt.Errorf("d3d11: present failed: %#x", uint32(hr))
+	}
+	// Forget the textures of images no frame drew for a while.
+	if r.frame%120 == 0 {
+		for id, t := range r.images {
+			if r.frame-t.lastFrame > 240 {
+				free(&t.srv)
+				free(&t.tex)
+				delete(r.images, id)
+			}
+		}
+	}
+	return nil
+}

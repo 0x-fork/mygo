@@ -462,6 +462,13 @@ func performRole(role MenuRole, win *Window) {
 		return
 	}
 	n := win.native
+	// A window showing native UI has no page to reload, inspect or zoom.
+	switch role {
+	case RoleReload, RoleForceReload, RoleToggleDevTools, RoleResetZoom, RoleZoomIn, RoleZoomOut:
+		if win.content != nil {
+			return
+		}
+	}
 	switch role {
 	case RoleReload:
 		n.Reload(false)
@@ -496,6 +503,10 @@ func performRole(role MenuRole, win *Window) {
 			RoleUndo: "undo", RoleRedo: "redo", RoleCut: "cut", RoleCopy: "copy", RolePaste: "paste",
 			RoleDelete: "delete", RoleSelectAll: "selectAll", RolePasteAndMatchStyle: "paste",
 		}[role]
+		if win.content != nil {
+			win.contentCommand(cmd)
+			return
+		}
 		n.Eval("document.execCommand(" + `"` + cmd + `"` + ")")
 	}
 }

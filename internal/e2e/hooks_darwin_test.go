@@ -95,3 +95,62 @@ func titleButtons(*mygo.Window) ([]string, bool) { return nil, false }
 func pressTitleButton(*mygo.Window, string) bool { return false }
 
 func topNonClient(*mygo.Window) (int32, int32, bool) { return 0, 0, false }
+
+func clickAndType(w *mygo.Window, x, y float64, text string) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestClickAndType(w.NativeHandle(), x, y, text) })
+	return ok
+}
+
+func compose(w *mygo.Window, text string, caret int, commit bool) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestCompose(w.NativeHandle(), text, caret, commit) })
+	return ok
+}
+
+func controlClick(w *mygo.Window, x, y float64) bool {
+	mygo.RunOnMain(func() { darwin.TestControlClick(w.NativeHandle(), x, y) })
+	return true
+}
+
+func composeOver(w *mygo.Window, text string, caret int, commit bool, from, length int) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestComposeOver(w.NativeHandle(), text, caret, commit, from, length) })
+	return ok
+}
+
+func inputClient(w *mygo.Window) (selected [2]int, document string, ok bool) {
+	mygo.RunOnMain(func() { selected, document = darwin.TestInputClient(w.NativeHandle()) })
+	return selected, document, true
+}
+
+func dropFiles(w *mygo.Window, x, y float64, paths []string) (over, dropped, ok bool) {
+	mygo.RunOnMain(func() { over, dropped = darwin.TestDropFiles(w.NativeHandle(), x, y, paths) })
+	return over, dropped, true
+}
+
+// The roles of elements in the accessibility API of AppKit.
+const roleText, roleButton, roleCheckBox, roleTextField, roleSlider = "AXStaticText", "AXButton", "AXCheckBox", "AXTextField", "AXSlider"
+
+func accessibility(w *mygo.Window) (nodes []accessNode, ok bool) {
+	mygo.RunOnMain(func() {
+		for _, n := range darwin.TestAccessibility(w.NativeHandle()) {
+			role := n.Role
+			if n.Subrole != "" {
+				role += "/" + n.Subrole
+			}
+			nodes = append(nodes, accessNode{role, n.Label, n.Value})
+		}
+	})
+	return nodes, true
+}
+
+func accessPerform(w *mygo.Window, label, action, value string) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestAccessibilityPerform(w.NativeHandle(), label, action, value) })
+	return ok
+}
+
+// Only Linux draws native UI in a GtkGLArea.
+func glSurface(*mygo.Window) (string, []byte, int, int, bool) { return "", nil, 0, 0, false }
+
+// Context menus are not automated on macOS: one shown waits for the user.
+func rightClick(*mygo.Window, float64, float64) bool { return false }
+func popupMenus() ([][]string, bool)                 { return nil, false }
+func choosePopupItem(string) bool                    { return false }

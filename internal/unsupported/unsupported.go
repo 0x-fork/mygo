@@ -110,6 +110,7 @@ type theme struct{}
 
 func (theme) IsDark() bool     { return false }
 func (theme) SetSource(string) {}
+func (theme) UIFont() string   { return "" }
 
 type power struct{}
 

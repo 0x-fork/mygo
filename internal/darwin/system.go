@@ -193,6 +193,9 @@ func (screen) CursorPoint() platform.Point {
 
 type theme struct{ b *Backend }
 
+// UIFont is Core Text's to find: the system font.
+func (theme) UIFont() string { return "" }
+
 func (t theme) IsDark() bool {
 	var dark bool
 	withPool(func() {

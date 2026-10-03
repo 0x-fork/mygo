@@ -241,7 +241,7 @@ func TestListBuildInputs(t *testing.T) {
 		t.Errorf("trees = %q, resources = %q", in.trees, in.resources)
 	}
 	// The CLI embeds its project template.
-	if !slices.Contains(in.fileDirs, filepath.Join(root, "cmd", "mygo", "template")) {
+	if !slices.Contains(in.fileDirs, filepath.Join(root, "cmd", "mygo", "template", "web")) {
 		t.Errorf("fileDirs lacks the embedded template: %q", in.fileDirs)
 	}
 }

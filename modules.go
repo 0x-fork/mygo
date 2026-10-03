@@ -260,6 +260,7 @@ func (t *ThemeModule) SetSource(s ThemeSource) {
 		t.apply()
 		// Not every backend reports its own change.
 		updateBackgrounds()
+		contentThemeChanged()
 	})
 }
 

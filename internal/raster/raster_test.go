@@ -1,0 +1,163 @@
+package raster
+
+import (
+	"image"
+	"image/png"
+	"math"
+	"os"
+	"testing"
+
+	"github.com/egoist/mygo/internal/scene"
+	"github.com/egoist/mygo/internal/text"
+)
+
+// writePNG saves an image for inspection when MYGO_RASTER_PNG names a
+// directory.
+func writePNG(t *testing.T, name string, m *Image) {
+	dir := os.Getenv("MYGO_RASTER_PNG")
+	if dir == "" {
+		return
+	}
+	img := &image.RGBA{Pix: m.RGBA(), Stride: 4 * m.W, Rect: image.Rect(0, 0, m.W, m.H)}
+	f, err := os.Create(dir + "/" + name + ".png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func pixel(m *Image, x, y int) [4]byte {
+	p := m.Pix[y*m.Stride+4*x:]
+	return [4]byte{p[2], p[1], p[0], p[3]} // RGBA
+}
+
+func near(a, b byte) bool { return a >= b-2 && a <= b+2 || a == b }
+
+func TestRenderShapes(t *testing.T) {
+	s := &scene.Scene{Width: 200, Height: 120, Clear: scene.Color{R: 255, G: 255, B: 255, A: 255}}
+	s.Ops = append(s.Ops,
+		scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 20, Y: 24, W: 80, H: 60}, Radii: [4]float32{12, 12, 12, 12}, Color: scene.Color{R: 0, G: 0, B: 0, A: 80}, Blur: 16},
+		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 20, Y: 20, W: 80, H: 60}, Radii: [4]float32{12, 12, 12, 12}, Color: scene.Color{R: 37, G: 99, B: 235, A: 255}, Border: 2, BorderColor: scene.Color{R: 0, G: 0, B: 0, A: 255}},
+		scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 120, Y: 20, W: 60, H: 60}, Radii: [4]float32{30, 30, 30, 30}},
+		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 110, Y: 10, W: 80, H: 80}, Color: scene.Color{R: 220, G: 38, B: 38, A: 255}, Color2: scene.Color{R: 250, G: 204, B: 21, A: 255}, HasGrad: true, Gradient: [4]float32{110, 10, 190, 90}},
+		scene.Op{Kind: scene.OpPopClip},
+	)
+	dst := NewImage(s.Width, s.Height)
+	Render(dst, s)
+	writePNG(t, "shapes", dst)
+
+	if p := pixel(dst, 60, 50); p != [4]byte{37, 99, 235, 255} {
+		t.Errorf("inside the rectangle: %v", p)
+	}
+	if p := pixel(dst, 20, 50); p[0] > 40 || p[2] > 40 {
+		t.Errorf("on the border: %v", p)
+	}
+	if p := pixel(dst, 21, 21); p[0] < 200 {
+		t.Errorf("outside the rounded corner: %v", p)
+	}
+	if p := pixel(dst, 60, 90); p[0] > 250 || p[0] < 150 {
+		t.Errorf("in the shadow below: %v", p)
+	}
+	if p := pixel(dst, 150, 50); p[3] != 255 || p[0] < 200 {
+		t.Errorf("in the clipped gradient: %v", p)
+	}
+	if p := pixel(dst, 122, 22); p != [4]byte{255, 255, 255, 255} {
+		t.Errorf("outside the round clip: %v", p)
+	}
+}
+
+func TestRenderText(t *testing.T) {
+	sys := text.Shared()
+	l := sys.Layout(text.Params{Text: "Hello, MyGo", Style: text.Style{Size: 20}})
+	s := &scene.Scene{Width: 160, Height: 40, Clear: scene.Color{R: 255, G: 255, B: 255, A: 255}, MaskAtlas: sys.MaskAtlas, ColorAtlas: sys.ColorAtlas}
+	start := len(s.Glyphs)
+	for _, g := range l.Lines[0].Glyphs {
+		gi := sys.Glyph(g.Font, g.ID, 1, 0)
+		if !gi.OK {
+			continue
+		}
+		s.Glyphs = append(s.Glyphs, scene.Glyph{X: 8 + g.X + gi.Left, Y: 4 + g.Y + gi.Top, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: scene.Color{R: 17, G: 24, B: 39, A: 255}})
+	}
+	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: int32(start), End: int32(len(s.Glyphs))})
+	dst := NewImage(s.Width, s.Height)
+	Render(dst, s)
+	writePNG(t, "text", dst)
+	dark := 0
+	for y := 0; y < dst.H; y++ {
+		for x := 0; x < dst.W; x++ {
+			if pixel(dst, x, y)[0] < 100 {
+				dark++
+			}
+		}
+	}
+	if dark < 100 {
+		t.Errorf("%d dark pixels", dark)
+	}
+}
+
+func BenchmarkRenderFullFrame(b *testing.B) {
+	s := &scene.Scene{Width: 1600, Height: 1000, Clear: scene.Color{R: 250, G: 250, B: 250, A: 255}}
+	for i := 0; i < 20; i++ {
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: float32(40 + i*60), Y: 40, W: 50, H: 900}, Radii: [4]float32{8, 8, 8, 8}, Color: scene.Color{R: 37, G: 99, B: 235, A: 255}, Border: 1, BorderColor: scene.Color{R: 0, G: 0, B: 0, A: 40}})
+	}
+	dst := NewImage(s.Width, s.Height)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Render(dst, s)
+	}
+}
+
+// shadowAt is the blurred rounded box of Evan Wallace, computed for every
+// pixel with the exact error function: what shadow approximates.
+func shadowAt(px, py, hx, hy, sigma, corner float64) float64 {
+	low, high := py-hy, py+hy
+	start := math.Min(math.Max(-3*sigma, low), high)
+	end := math.Min(math.Max(3*sigma, low), high)
+	step := (end - start) / 4
+	y := start + step/2
+	var v float64
+	for range 4 {
+		delta := math.Min(hy-corner-math.Abs(py-y), 0)
+		curved := hx - corner + math.Sqrt(math.Max(0, corner*corner-delta*delta))
+		k := math.Sqrt(0.5) / sigma
+		g := math.Exp(-y*y/(2*sigma*sigma)) / (math.Sqrt(2*math.Pi) * sigma)
+		v += 0.5 * (math.Erf((px+curved)*k) - math.Erf((px-curved)*k)) * g * step
+		y += step
+	}
+	return v
+}
+
+func TestShadowMatchesItsFormula(t *testing.T) {
+	for _, c := range []struct {
+		rect         scene.Rect
+		radius, blur float32
+	}{
+		{scene.Rect{X: 40, Y: 30, W: 200, H: 120}, 16, 24},
+		{scene.Rect{X: 60, Y: 50, W: 120, H: 40}, 4, 6},
+		{scene.Rect{X: 30.5, Y: 20.25, W: 50, H: 180}, 30, 60},
+		{scene.Rect{X: 80, Y: 80, W: 10, H: 10}, 0, 40},
+	} {
+		s := &scene.Scene{Width: 320, Height: 240, Clear: scene.Color{R: 255, G: 255, B: 255, A: 255}}
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpShadow, Rect: c.rect, Radii: [4]float32{c.radius, c.radius, c.radius, c.radius},
+			Color: scene.Color{A: 255}, Blur: c.blur})
+		m := NewImage(s.Width, s.Height)
+		Render(m, s)
+		cx, cy := float64(c.rect.X+c.rect.W/2), float64(c.rect.Y+c.rect.H/2)
+		corner := float64(min(c.radius, c.rect.W/2, c.rect.H/2))
+		worst := 0.0
+		for y := range s.Height {
+			for x := range s.Width {
+				v := shadowAt(float64(x)+0.5-cx, float64(y)+0.5-cy, float64(c.rect.W/2), float64(c.rect.H/2), float64(c.blur/2), corner)
+				want := 255 * (1 - math.Min(v, 1))
+				got := float64(pixel(m, x, y)[0])
+				worst = math.Max(worst, math.Abs(got-want))
+			}
+		}
+		if worst > 3 {
+			t.Errorf("%+v: off by %.1f of 255", c, worst)
+		}
+	}
+}

@@ -39,6 +39,9 @@ type Margins struct{ Top, Right, Bottom, Left float64 }
 //
 //	pdf, err := win.PrintToPDF(mygo.PDFOptions{PageSize: mygo.PageA4, Background: true})
 func (w *Window) PrintToPDF(opts PDFOptions) ([]byte, error) {
+	if w.content != nil {
+		return nil, errNoPage
+	}
 	size := opts.PageSize
 	if size.Width <= 0 || size.Height <= 0 {
 		size = PageLetter

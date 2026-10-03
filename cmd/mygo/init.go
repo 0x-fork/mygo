@@ -37,11 +37,22 @@ type templateData struct {
 	ConfigImport string
 }
 
+// The templates of mygo init: a TypeScript frontend, and native UI.
+const (
+	webTemplate    = "web"
+	nativeTemplate = "native"
+)
+
+// cliTool is the package of the CLI, which projects of native UI depend on
+// as a tool of their module.
+const cliTool = "github.com/egoist/mygo/cmd/mygo"
+
 func runInit(args []string) error {
-	flags := newFlags("init", "[flags] <dir>", "Creates a new MyGo project with a TypeScript frontend built with Vite.\nBun installs its dependencies, the mygo-cli package among them, and runs\nits scripts: bun run dev and bun run build.")
+	flags := newFlags("init", "[flags] <dir>", "Creates a new MyGo project. The web template has a TypeScript frontend built\nwith Vite: Bun installs its dependencies, the mygo-cli package among them,\nand runs its scripts, bun run dev and bun run build. The native template\nshows a user interface MyGo draws itself, written in Go with package ui:\nthe module has the CLI as a tool, for go tool mygo dev and go tool mygo\nbuild.")
 	name := flags.String("name", "", "application name (default: directory name)")
 	module := flags.String("module", "", "Go module path (default: directory name)")
 	local := flags.String("mygo", "", "path to a local checkout of MyGo to use via a replace directive")
+	tmpl := flags.String("template", webTemplate, "the project: web (a TypeScript frontend) or native (native UI in Go)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -49,23 +60,16 @@ func runInit(args []string) error {
 		flags.Usage()
 		return flag2Err("missing project directory")
 	}
-	dir, err := filepath.Abs(flags.Arg(0))
+	if *tmpl != webTemplate && *tmpl != nativeTemplate {
+		return flag2Err(fmt.Sprintf("unknown template %q: web or native", *tmpl))
+	}
+	dir, data, err := newProject(flags.Arg(0), *name, *module)
 	if err != nil {
 		return err
 	}
-	if entries, err := os.ReadDir(dir); err == nil && len(entries) > 0 {
-		return fmt.Errorf("%s is not empty", dir)
+	if *tmpl == nativeTemplate {
+		return initNative(dir, data, *local)
 	}
-	base := filepath.Base(dir)
-	data := templateData{Name: *name, Module: *module}
-	if data.Name == "" {
-		data.Name = base
-	}
-	data.Slug = slugify(data.Name)
-	if data.Module == "" {
-		data.Module = data.Slug
-	}
-	data.Identifier = "com.example." + strings.ReplaceAll(data.Slug, "-", "")
 	data.Runtime, data.CLI, data.Mygo, data.ConfigImport = "^"+version, "^"+version, "mygo", "mygo-cli"
 	if *local != "" {
 		// The packages of the local checkout, like the Go module, and its
@@ -87,34 +91,8 @@ func runInit(args []string) error {
 	}
 
 	logf("creating %s", dir)
-	if err := writeTemplate(dir, data); err != nil {
+	if err := writeProject(dir, webTemplate, data, *local, false); err != nil {
 		return err
-	}
-	if err := os.MkdirAll(filepath.Join(dir, resourcesDir), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(dir, resourcesDir, "icon.png"), defaultIcon(), 0o644); err != nil {
-		return err
-	}
-
-	gomod := fmt.Sprintf("module %s\n\ngo %s\n", data.Module, goVersion())
-	if *local != "" {
-		abs, err := filepath.Abs(*local)
-		if err != nil {
-			return err
-		}
-		gomod += fmt.Sprintf("\nrequire github.com/egoist/mygo v0.0.0\n\nreplace github.com/egoist/mygo => %s\n", abs)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o644); err != nil {
-		return err
-	}
-	if *local == "" {
-		if err := goCommand(dir, nil, "get", "github.com/egoist/mygo@latest").Run(); err != nil {
-			logf("could not fetch github.com/egoist/mygo: %v", err)
-		}
-	}
-	if err := goCommand(dir, nil, "mod", "tidy").Run(); err != nil {
-		logf("go mod tidy failed: %v", err)
 	}
 
 	if _, err := exec.LookPath("bun"); err != nil {
@@ -132,14 +110,94 @@ func runInit(args []string) error {
 		}
 	}
 
-	rel := dir
-	if wd, err := os.Getwd(); err == nil {
-		if r, err := filepath.Rel(wd, dir); err == nil && !strings.HasPrefix(r, "..") {
-			rel = r
+	fmt.Printf("\nCreated %s. Next steps:\n\n  cd %s\n  bun run dev      # develop with live reload\n  bun run build    # package the app\n\n", data.Name, relPath(dir))
+	return nil
+}
+
+// newProject returns the absolute directory of a new project, which must
+// be empty or not exist, and what its template is filled with.
+func newProject(path, name, module string) (string, templateData, error) {
+	dir, err := filepath.Abs(path)
+	if err != nil {
+		return "", templateData{}, err
+	}
+	if entries, err := os.ReadDir(dir); err == nil && len(entries) > 0 {
+		return "", templateData{}, fmt.Errorf("%s is not empty", dir)
+	}
+	data := templateData{Name: name, Module: module}
+	if data.Name == "" {
+		data.Name = filepath.Base(dir)
+	}
+	data.Slug = slugify(data.Name)
+	if data.Module == "" {
+		data.Module = data.Slug
+	}
+	data.Identifier = "com.example." + strings.ReplaceAll(data.Slug, "-", "")
+	return dir, data, nil
+}
+
+// initNative creates a project of native UI in dir: a Go module, without
+// a frontend.
+func initNative(dir string, data templateData, local string) error {
+	logf("creating %s", dir)
+	if err := writeProject(dir, nativeTemplate, data, local, true); err != nil {
+		return err
+	}
+	fmt.Printf("\nCreated %s. Next steps:\n\n  cd %s\n  go tool mygo dev      # develop with live reload\n  go test               # test the view without a window\n  go tool mygo build    # package the app\n\n", data.Name, relPath(dir))
+	return nil
+}
+
+// writeProject writes a template into dir with the app's icon and its Go
+// module, which depends on MyGo, from local when it is a checkout, and,
+// with tool, has the CLI as a tool.
+func writeProject(dir, tmpl string, data templateData, local string, tool bool) error {
+	if err := writeTemplate(dir, tmpl, data); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(dir, resourcesDir), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, resourcesDir, "icon.png"), defaultIcon(), 0o644); err != nil {
+		return err
+	}
+	gomod := fmt.Sprintf("module %s\n\ngo %s\n", data.Module, goVersion())
+	if local != "" {
+		abs, err := filepath.Abs(local)
+		if err != nil {
+			return err
+		}
+		if tool {
+			gomod += "\ntool " + cliTool + "\n"
+		}
+		gomod += fmt.Sprintf("\nrequire github.com/egoist/mygo v0.0.0\n\nreplace github.com/egoist/mygo => %s\n", abs)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o644); err != nil {
+		return err
+	}
+	if local == "" {
+		get := []string{"get", "github.com/egoist/mygo@latest"}
+		if tool {
+			get = []string{"get", "-tool", cliTool + "@latest"}
+		}
+		if err := goCommand(dir, nil, get...).Run(); err != nil {
+			logf("could not fetch github.com/egoist/mygo: %v", err)
 		}
 	}
-	fmt.Printf("\nCreated %s. Next steps:\n\n  cd %s\n  bun run dev      # develop with live reload\n  bun run build    # package the app\n\n", data.Name, rel)
+	if err := goCommand(dir, nil, "mod", "tidy").Run(); err != nil {
+		logf("go mod tidy failed: %v", err)
+	}
 	return nil
+}
+
+// relPath returns dir relative to the working directory when it is below
+// it, for showing.
+func relPath(dir string) string {
+	if wd, err := os.Getwd(); err == nil {
+		if r, err := filepath.Rel(wd, dir); err == nil && !strings.HasPrefix(r, "..") {
+			return r
+		}
+	}
+	return dir
 }
 
 // moduleSpecifier returns how a module in dir imports the file target: a
@@ -177,12 +235,14 @@ var templateFuncs = template.FuncMap{
 	},
 }
 
-func writeTemplate(dir string, data templateData) error {
-	return fs.WalkDir(templateFS, "template", func(path string, d fs.DirEntry, err error) error {
+// writeTemplate writes the files of template/<tmpl> into dir.
+func writeTemplate(dir, tmpl string, data templateData) error {
+	root := "template/" + tmpl
+	return fs.WalkDir(templateFS, root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel("template", path)
+		rel, _ := filepath.Rel(root, path)
 		target := filepath.Join(dir, rel)
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)

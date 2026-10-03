@@ -182,14 +182,51 @@ func TestMovePointer(x, y int) bool {
 }
 
 // TestPressButton presses or releases the first mouse button the same way.
-func TestPressButton(press bool) bool {
+func TestPressButton(press bool) bool { return pressButton(1, press) }
+
+// pressButton presses or releases a mouse button, 1 the primary, 3 the
+// secondary.
+func pressButton(button uint32, press bool) bool {
 	dpy := loadXTest()
 	if dpy == 0 {
 		return false
 	}
-	xtest.button(dpy, 1, press, 0)
+	xtest.button(dpy, button, press, 0)
 	x11.flush(dpy)
 	return true
+}
+
+// TestPopups returns the labels of the items of the context menus being
+// shown, "-" for separators.
+func TestPopups() [][]string {
+	var menus [][]string
+	for _, m := range theBackend.popups {
+		labels := []string{}
+		list := gtkContainerGetChildren(m)
+		for node := list; node != 0; node = field[ptr](node, 8) {
+			label := goStr(gtkMenuItemGetLabel(field[ptr](node, 0)))
+			if label == "" {
+				label = "-"
+			}
+			labels = append(labels, label)
+		}
+		gListFree(list)
+		menus = append(menus, labels)
+	}
+	return menus
+}
+
+// TestChoosePopupItem chooses the item labeled label of a context menu
+// being shown, and closes the menu, and reports whether it has one.
+func TestChoosePopupItem(label string) bool {
+	for _, m := range theBackend.popups {
+		if item := findMenuItem(m, label); item != 0 {
+			gtkMenuItemActivate(item)
+			gtkMenuShellDeactivate(m)
+			return true
+		}
+	}
+	return false
 }
 
 // TestResizeCursor returns the name of the resize cursor a frameless
@@ -278,4 +315,35 @@ func TestPressTitleButton(handle uintptr, name string) bool {
 		}
 	}
 	return false
+}
+
+// TestClickSurface clicks (x, y), in DIPs, in a window showing native UI,
+// through the XTEST extension like a mouse would. It reports false for a
+// window showing a web page, and without an X server.
+func TestClickSurface(handle uintptr, x, y float64) bool {
+	return clickSurface(handle, x, y, 1)
+}
+
+func clickSurface(handle uintptr, x, y float64, button uint32) bool {
+	w := windowByHandle(handle)
+	if w == nil || w.surface == nil {
+		return false
+	}
+	var origin func(window ptr, x, y *int32) int32
+	if !bind(libGDK, &origin, "gdk_window_get_origin") {
+		return false
+	}
+	var ox, oy int32
+	origin(w.surface.eventWindow(), &ox, &oy)
+	scale := float64(gtkWidgetGetScaleFactor(w.surface.area))
+	if !TestMovePointer(int((float64(ox)+x)*scale), int((float64(oy)+y)*scale)) {
+		return false
+	}
+	return pressButton(button, true) && pressButton(button, false)
+}
+
+// TestRightClickSurface clicks (x, y) with the secondary button, as
+// TestClickSurface does with the primary.
+func TestRightClickSurface(handle uintptr, x, y float64) bool {
+	return clickSurface(handle, x, y, 3)
 }

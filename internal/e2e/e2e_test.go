@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 )
 
 type Greeter struct{}
@@ -1770,4 +1771,316 @@ func TestClick(t *testing.T) {
 	if !f.IsVisible() {
 		t.Error("frameless window disappeared after a drag click")
 	}
+}
+
+// deviceScale returns the device pixels per DIP of the display w shows on.
+func deviceScale(w *mygo.Window) float64 {
+	b := w.Bounds()
+	return mygo.Screen.DisplayNearestPoint(mygo.Point{X: b.X + b.Width/2, Y: b.Y + b.Height/2}).ScaleFactor
+}
+
+// TestContentWindowInputMethod checks that input methods see the text
+// around the caret of native UI and replace what was typed, as macOS's
+// press and hold does with the letter it accents.
+func TestContentWindowInputMethod(t *testing.T) {
+	var frames atomic.Int32
+	name := "cafe"
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Column(c).Fill().Padding(20).Children(func() { ui.TextInput(c, &name) })
+	}
+	text := func() (s string) {
+		mygo.RunOnMain(func() { s = name })
+		return s
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Input method", Width: 400, Height: 200, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	if _, _, ok := inputClient(w); !ok {
+		t.Skip("input method automation not available on this platform")
+	}
+	if !click(w, 300, 36) { // after the text
+		t.Skip("click automation not available on this platform")
+	}
+	eventually(t, "the caret after the text", func() bool {
+		sel, doc, _ := inputClient(w)
+		return sel == [2]int{4, 0} && doc == "cafe"
+	})
+	composeOver(w, "e", 1, false, 3, 1)
+	// The text input methods get on macOS holds what they compose, the text
+	// they get through GTK and IMM32 does not.
+	doc, sel := "cafe", [2]int{4, 0}
+	if runtime.GOOS != "darwin" {
+		doc, sel = "caf", [2]int{3, 0}
+	}
+	eventually(t, "the composition over the e", func() bool {
+		s, d, _ := inputClient(w)
+		return text() == "caf" && d == doc && s == sel
+	})
+	composeOver(w, "é", 1, true, -1, 0)
+	eventually(t, "the accented letter", func() bool { return text() == "café" })
+}
+
+// TestContentWindowFileDrop drops files on native UI: on the element that
+// takes them, and elsewhere for OnFileDrop.
+func TestContentWindowFileDrop(t *testing.T) {
+	var frames atomic.Int32
+	var zone []string
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		if files := ui.Box(c).Size(200, 100).Background(ui.RGB(200, 200, 200)).DroppedFiles(); files != nil {
+			zone = files
+		}
+	}
+	got := func() (s []string) {
+		mygo.RunOnMain(func() { s = zone })
+		return s
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Drop", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	over, dropped, ok := dropFiles(w, 50, 50, []string{"/tmp/a.txt", "/tmp/b.txt"})
+	if !ok {
+		t.Skip("drag and drop automation not available on this platform")
+	}
+	if !over || !dropped {
+		t.Fatalf("the drop zone took files: over %v, dropped %v", over, dropped)
+	}
+	eventually(t, "the files in the zone", func() bool { return slices.Equal(got(), []string{"/tmp/a.txt", "/tmp/b.txt"}) })
+	if over, _, _ := dropFiles(w, 300, 250, []string{"/tmp/c.txt"}); over {
+		t.Error("files were taken outside of the zone without OnFileDrop listeners")
+	}
+	var events atomic.Pointer[mygo.FileDropEvent]
+	w.OnFileDrop(func(e *mygo.FileDropEvent) { events.Store(e) })
+	if over, dropped, _ := dropFiles(w, 300, 250, []string{"/tmp/c.txt"}); !over || !dropped {
+		t.Errorf("OnFileDrop did not take files outside of the zone: over %v, dropped %v", over, dropped)
+	}
+	if e := events.Load(); e == nil || !slices.Equal(e.Paths, []string{"/tmp/c.txt"}) || e.X != 300 || e.Y != 250 {
+		t.Errorf("OnFileDrop got %+v", e)
+	}
+}
+
+// accessNode is an element as assistive technology reads it.
+type accessNode struct{ role, label, value string }
+
+// TestContentWindowAccessibility reads native UI as assistive technology,
+// such as VoiceOver, does, and acts on it.
+func TestContentWindowAccessibility(t *testing.T) {
+	var frames atomic.Int32
+	count, agree, name, volume := 0, false, "Ada", 30.0
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Column(c).Fill().Padding(20).Gap(10).Children(func() {
+			ui.Text(c, "Settings")
+			if ui.Button(c, "Save").Clicked() {
+				count++
+			}
+			ui.Checkbox(c, &agree, "Agree")
+			ui.TextInput(c, &name).Label("Name")
+			ui.Slider(c, &volume, 0, 100).Label("Volume")
+		})
+	}
+	state := func(fn func()) { mygo.RunOnMain(fn) }
+	w := newWindow(t, mygo.WindowOptions{Title: "Accessibility", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	nodes, ok := accessibility(w)
+	if !ok {
+		t.Skip("accessibility automation not available on this platform")
+	}
+	find := func(role, label string) (accessNode, bool) {
+		nodes, _ = accessibility(w)
+		for _, n := range nodes {
+			if n.role == role && n.label == label {
+				return n, true
+			}
+		}
+		return accessNode{}, false
+	}
+	want := []accessNode{{roleText, "Settings", "Settings"}, {roleButton, "Save", ""}, {roleCheckBox, "Agree", "0"},
+		{roleTextField, "Name", "Ada"}, {roleSlider, "Volume", "30"}}
+	for _, n := range want {
+		eventually(t, n.role+" "+n.label, func() bool {
+			got, ok := find(n.role, n.label)
+			return ok && got.value == n.value
+		})
+	}
+	if !accessPerform(w, "Save", "press", "") {
+		t.Fatal("cannot press the button")
+	}
+	eventually(t, "the press", func() bool {
+		var c int
+		state(func() { c = count })
+		return c == 1
+	})
+	accessPerform(w, "Agree", "press", "")
+	eventually(t, "the check box checked", func() bool {
+		n, _ := find(roleCheckBox, "Agree")
+		return n.value == "1"
+	})
+	accessPerform(w, "Name", "value", "Grace")
+	eventually(t, "the text field's new value", func() bool {
+		var s string
+		state(func() { s = name })
+		return s == "Grace"
+	})
+	accessPerform(w, "Volume", "increment", "")
+	eventually(t, "the slider incremented", func() bool {
+		var v float64
+		state(func() { v = volume })
+		return v > 30
+	})
+	if accessPerform(w, "Settings", "press", "") {
+		t.Error("a text could be pressed")
+	}
+}
+
+// TestContentWindowTyping types into native UI right after a click, before
+// the window draws another frame, and composes text with an input method.
+func TestContentWindowTyping(t *testing.T) {
+	var frames atomic.Int32
+	var name string
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Column(c).Fill().Padding(20).Children(func() {
+			ui.TextInput(c, &name)
+		})
+	}
+	text := func() (s string) {
+		mygo.RunOnMain(func() { s = name })
+		return s
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Typing", Width: 400, Height: 200, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	if !clickAndType(w, 100, 36, "héllo") {
+		t.Skip("typing automation not available on this platform or input source")
+	}
+	eventually(t, "the typed text", func() bool { return text() == "héllo" })
+	compose(w, "にほん", 3, false)
+	compose(w, "日本", 0, true)
+	eventually(t, "the composed text", func() bool { return text() == "héllo日本" })
+}
+
+// TestContentWindow shows native UI: frames, input from the platform,
+// Update, capture, and page methods that fail.
+func TestContentWindow(t *testing.T) {
+	var frames, clicks, rightClicks atomic.Int32
+	var label atomic.Value
+	label.Store("before")
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Box(c).Fill().Background(ui.RGB(30, 144, 255)).Children(func() {
+			b := ui.Box(c).Size(200, 100).Background(ui.RGB(255, 0, 0))
+			if b.Clicked() {
+				clicks.Add(1)
+			}
+			if b.RightClicked() {
+				rightClicks.Add(1)
+			}
+			ui.Text(c, label.Load().(string))
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Content", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+
+	if _, err := w.Eval("1"); err == nil {
+		t.Error("Eval worked in a window without a page")
+	}
+	data, err := w.CapturePage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := img.Bounds()
+	// The capture has the window's device pixels, which a tiling window
+	// manager may have made more than 400 DIPs wide.
+	s := deviceScale(w)
+	at := func(x, y float64) color.RGBA {
+		return color.RGBAModel.Convert(img.At(b.Min.X+int(x*s), b.Min.Y+int(y*s))).(color.RGBA)
+	}
+	if c := at(100, 50); c.R < 200 || c.B > 60 {
+		t.Errorf("the red box is %v", c)
+	}
+	if c := at(300, 250); c.B < 200 || c.R > 60 {
+		t.Errorf("the background is %v", c)
+	}
+	// With MYGO_GPU=1 Linux draws with OpenGL without a GPU too: the
+	// capture is drawn on the CPU, the GtkGLArea shows what OpenGL drew.
+	if os.Getenv("MYGO_GPU") == "1" {
+		if how, pix, gw, _, ok := glSurface(w); ok {
+			if how != "opengl" || len(pix) == 0 {
+				t.Fatalf("the surface draws %q, not with OpenGL", how)
+			}
+			bgra := func(x, y float64) []byte {
+				return pix[(int(y*s)*gw+int(x*s))*4:][:4]
+			}
+			if c := bgra(100, 50); c[2] < 200 || c[0] > 60 {
+				t.Errorf("the red box is %v (BGRA) in the GtkGLArea", c)
+			}
+			if c := bgra(300, 250); c[0] < 200 || c[2] > 60 {
+				t.Errorf("the background is %v (BGRA) in the GtkGLArea", c)
+			}
+		}
+	}
+
+	before := frames.Load()
+	w.Update(func() { label.Store("after") })
+	eventually(t, "a frame after Update", func() bool { return frames.Load() > before })
+
+	if !click(w, 100, 50) {
+		t.Skip("click automation not available on this platform")
+	}
+	eventually(t, "the click", func() bool { return clicks.Load() == 1 })
+	click(w, 300, 250) // outside the box
+	click(w, 150, 80)
+	eventually(t, "the second click", func() bool { return clicks.Load() == 2 })
+
+	// A Control-click is a secondary click on macOS.
+	if controlClick(w, 100, 50) {
+		eventually(t, "the Control-click", func() bool { return rightClicks.Load() == 1 })
+		if clicks.Load() != 2 {
+			t.Errorf("the Control-click clicked: %d clicks", clicks.Load())
+		}
+	}
+}
+
+func TestContentWindowContextMenu(t *testing.T) {
+	var frames atomic.Int32
+	var chosen atomic.Value
+	chosen.Store("")
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Box(c).Fill().Children(func() {
+			ui.Box(c).Size(200, 100).Background(ui.RGB(255, 0, 0)).ContextMenu(func(m *ui.Menu) {
+				for _, label := range []string{"First", "Second"} {
+					if m.Item(label).Chosen() {
+						chosen.Store(label)
+					}
+				}
+				m.Separator()
+				m.Item("Third").Disabled(true)
+			})
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Context menu", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	if _, ok := popupMenus(); !ok || !rightClick(w, 100, 50) {
+		t.Skip("context menu automation not available on this platform")
+	}
+	var menus [][]string
+	eventually(t, "the context menu", func() bool {
+		menus, _ = popupMenus()
+		return len(menus) == 1
+	})
+	if want := []string{"First", "Second", "-", "Third"}; !slices.Equal(menus[0], want) {
+		t.Errorf("the menu shows %q, want %q", menus[0], want)
+	}
+	if !choosePopupItem("Second") {
+		t.Fatal("the menu has no item Second")
+	}
+	eventually(t, "the choice", func() bool { return chosen.Load() == "Second" })
+	eventually(t, "the menu to close", func() bool {
+		menus, _ = popupMenus()
+		return len(menus) == 0
+	})
 }

@@ -42,7 +42,9 @@ type window struct {
 		value float64
 	}
 	icons [2]uintptr // small and big, from SetIcon
-	saved struct {
+	// surface shows the content MyGo draws, in place of the webview.
+	surface *surface
+	saved   struct {
 		style, exStyle uintptr
 		placement      windowPlacement
 	}
@@ -111,6 +113,12 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if w.hiddenTitleBar {
 		w.caption = newCaptionBar(w)
 	}
+	if o.Surface {
+		if w.surface = newSurface(w); w.surface == nil {
+			procDestroyWindow.Call(w.hwnd)
+			return nil, errors.New("mygo: cannot create the window's surface")
+		}
+	}
 	b.applyWindowTheme(w)
 	if o.Vibrancy != "" {
 		w.SetVibrancy(o.Vibrancy)
@@ -133,7 +141,9 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if w.caption != nil {
 		w.caption.layout()
 	}
-	b.whenEnvironment(w.createWebView)
+	if !o.Surface {
+		b.whenEnvironment(w.createWebView)
+	}
 	return w, nil
 }
 
@@ -241,6 +251,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		return 0, true
 	case wmSize:
 		w.resizeWebView()
+		if w.surface != nil {
+			w.surface.fit()
+		}
 		if w.caption != nil && wp != sizeMinimized {
 			w.caption.layout()
 		}
@@ -286,7 +299,11 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		}
 		return 0, false
 	case wmSetFocus:
-		w.focusWebView()
+		if w.surface != nil {
+			procSetFocus.Call(w.surface.hwnd)
+		} else {
+			w.focusWebView()
+		}
 		return 0, true
 	case wmGetMinMaxInfo:
 		info := (*minMaxInfo)(native(lp))

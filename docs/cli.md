@@ -49,11 +49,18 @@ TypeScript frontend built with Vite, side by side, a default icon in
 and `generate`. It installs the dependencies with Bun and generates the
 TypeScript client. See [the project](getting-started.md#the-project).
 
+With `-template native` the project is a Go module alone, whose window
+shows [native UI](ui.md): `main.go`, a test of its view, `mygo.json` and the
+icon. The module has the CLI as a [tool](https://go.dev/doc/modules/managing-dependencies#tools),
+so `go tool mygo dev` and `go tool mygo build` run the version it pins,
+without Bun. See [a project of native UI](getting-started.md#a-project-of-native-ui).
+
 | Flag | |
 |---|---|
+| `-template` | `web`, a TypeScript frontend (the default), or `native`, native UI in Go |
 | `-name` | the app's name (default: the directory's name) |
 | `-module` | the Go module path (default: the directory's name) |
-| `-mygo` | a checkout of MyGo to use, through a `replace` directive, instead of the released module; the scripts then run the checkout's CLI with `go run`; run `bun install && bun run build` in the checkout first |
+| `-mygo` | a checkout of MyGo to use, through a `replace` directive, instead of the released module; the scripts then run the checkout's CLI with `go run`; run `bun install && bun run build` in the checkout first, for the web template |
 
 ## mygo dev
 
@@ -115,7 +122,8 @@ mygo generate [-o file] [dir]
 Writes the typed TypeScript client for the services bound with `mygo.Bind`
 and the events declared with `mygo.NewEvent`, to `bindings` of the
 configuration unless `-o` names another file. `mygo dev` and `mygo build` run
-it for you. See [the generated client](bindings.md#the-generated-client).
+it for you; apps without a frontend get no client. See
+[the generated client](bindings.md#the-generated-client).
 
 ## mygo keygen
 

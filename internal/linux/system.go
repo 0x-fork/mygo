@@ -52,6 +52,7 @@ func initSystemCallbacks() {
 
 	settings := gtkSettingsGetDefault()
 	connect(settings, "notify::gtk-theme-name", cbThemeChanged, 0)
+	connect(settings, "notify::gtk-font-name", cbThemeChanged, 0) // Theme.UIFont
 	connect(settings, "notify::gtk-decoration-layout", cbDecorationLayout, 0)
 	connect(settings, "notify::gtk-application-prefer-dark-theme", cbThemeChanged, 0)
 	if d := gdkDisplayGetDefault(); d != 0 {
@@ -247,6 +248,32 @@ func (screen) CursorPoint() platform.Point {
 // Theme.
 
 type theme struct{ b *Backend }
+
+// UIFont returns the family of the font GTK apps show their interface
+// in, gtk-font-name, such as "Cantarell 11" on GNOME, which the desktop's
+// settings daemon or settings.ini gives; fontconfig knows only a default
+// sans-serif.
+func (theme) UIFont() string {
+	var name ptr
+	gObjectGetPtr(gtkSettingsGetDefault(), cs("gtk-font-name"), unsafe.Pointer(&name), 0)
+	spec := takeStr(name)
+	if spec == "" {
+		return ""
+	}
+	var (
+		fromString func(s *byte) ptr
+		getFamily  func(d ptr) ptr
+		free       func(d ptr)
+	)
+	pango, err := open("libpango-1.0.so.0")
+	if err != nil || !bind(pango, &fromString, "pango_font_description_from_string") ||
+		!bind(pango, &getFamily, "pango_font_description_get_family") || !bind(pango, &free, "pango_font_description_free") {
+		return ""
+	}
+	desc := fromString(cs(spec))
+	defer free(desc)
+	return goStr(getFamily(desc))
+}
 
 // portalColorScheme reads the desktop wide preference (1 = dark, 2 =
 // light, 0 = no preference) from the settings portal.

@@ -22,11 +22,11 @@ import (
 )
 
 func runDev(args []string) error {
-	flags := newFlags("dev", "[flags] [dir]", `Develops the app with live reload. It writes the TypeScript client, runs
-devCommand from mygo.json (such as a Vite dev server), waits for devUrl to
-answer, then builds a development app, which loads devUrl in place of its
-built frontend, and launches it. Without devUrl, the app serves
-frontendDist from disk. The development app is "<name> Dev" with the
+	flags := newFlags("dev", "[flags] [dir]", `Develops the app with live reload. It writes the TypeScript client of a
+frontend, runs devCommand from mygo.json (such as a Vite dev server),
+waits for devUrl to answer, then builds a development app, which loads
+devUrl in place of its built frontend, and launches it. Without devUrl,
+the app serves frontendDist from disk. The development app is "<name> Dev" with the
 identifier "<identifier>.dev", in .mygo/dev: a real bundle on macOS, and
 on Windows an executable with the icon, manifest and version information
 that mygo build embeds.

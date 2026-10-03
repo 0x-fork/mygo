@@ -14,12 +14,17 @@ func activateMenu(w *mygo.Window, path ...string) (err error) {
 	return err
 }
 
-// Keyboard, dialog, click and popup automation are not wired on Windows.
+// Keyboard, dialog and popup automation are not wired on Windows.
 func pressShortcut(string, bool) (bool, bool) { return false, false }
 
 func endSheet(*mygo.Window) (bool, bool) { return false, false }
 
-func click(*mygo.Window, float64, float64) bool { return false }
+// Clicks reach windows showing native UI only: WebView2 takes the mouse in
+// windows of its own process.
+func click(w *mygo.Window, x, y float64) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestClickSurface(w.NativeHandle(), x, y) })
+	return ok
+}
 
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
@@ -111,4 +116,76 @@ func pressTitleButton(w *mygo.Window, name string) (ok bool) {
 func topNonClient(w *mygo.Window) (px, want int32, supported bool) {
 	mygo.RunOnMain(func() { px, want = win.TestTopNonClient(w.NativeHandle()) })
 	return px, want, true
+}
+
+// A Control-click is a secondary click on macOS only.
+func controlClick(*mygo.Window, float64, float64) bool { return false }
+
+// composeOver does what an input method that converts typed text again
+// does through IMM32: it settles the range it reconverts, then composes or
+// commits.
+func composeOver(w *mygo.Window, text string, caret int, commit bool, from, length int) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestComposeOver(w.NativeHandle(), text, caret, commit, from, length) })
+	return ok
+}
+
+// inputClient returns the selection and the text around it that input
+// methods get with IMR_DOCUMENTFEED, which holds no composition.
+func inputClient(w *mygo.Window) (selected [2]int, document string, ok bool) {
+	mygo.RunOnMain(func() {
+		var start, length int
+		document, start, length, ok = win.TestDocumentFeed(w.NativeHandle())
+		selected = [2]int{start, length}
+	})
+	return selected, document, ok
+}
+
+func dropFiles(w *mygo.Window, x, y float64, paths []string) (over, dropped, ok bool) {
+	mygo.RunOnMain(func() { over, dropped = win.TestDropFiles(w.NativeHandle(), x, y, paths) })
+	return over, dropped, true
+}
+
+// The control types of elements in UI Automation.
+const roleText, roleButton, roleCheckBox, roleTextField, roleSlider = "Text", "Button", "CheckBox", "Edit", "Slider"
+
+func accessibility(w *mygo.Window) (nodes []accessNode, ok bool) {
+	mygo.RunOnMain(func() {
+		var list []win.TestAccessNode
+		list, ok = win.TestAccessibility(w.NativeHandle())
+		for _, n := range list {
+			nodes = append(nodes, accessNode{n.Role, n.Label, n.Value})
+		}
+	})
+	return nodes, ok
+}
+
+func accessPerform(w *mygo.Window, label, action, value string) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestAccessibilityPerform(w.NativeHandle(), label, action, value) })
+	return ok
+}
+
+// Typing into native UI is only automated on macOS.
+func clickAndType(*mygo.Window, float64, float64, string) bool { return false }
+func compose(*mygo.Window, string, int, bool) bool             { return false }
+
+// Only Linux draws native UI in a GtkGLArea.
+func glSurface(*mygo.Window) (string, []byte, int, int, bool) { return "", nil, 0, 0, false }
+
+// rightClick clicks (x, y) in a window showing native UI with the
+// secondary button, with the messages a mouse sends.
+func rightClick(w *mygo.Window, x, y float64) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestRightClickSurface(w.NativeHandle(), x, y) })
+	return ok
+}
+
+// popupMenus returns the labels of the items of the context menus shown.
+// The modal loop of a menu runs the main thread's work.
+func popupMenus() (menus [][]string, supported bool) {
+	mygo.RunOnMain(func() { menus = win.TestPopups() })
+	return menus, true
+}
+
+func choosePopupItem(label string) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestChoosePopupItem(label) })
+	return ok
 }

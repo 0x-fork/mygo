@@ -1,0 +1,950 @@
+//go:build linux && (amd64 || arm64)
+
+package linux
+
+import (
+	"math"
+	"slices"
+	"sync"
+	"unicode"
+	"unicode/utf8"
+	"unsafe"
+
+	"github.com/ebitengine/purego"
+
+	"github.com/egoist/mygo/internal/platform"
+)
+
+// Assistive technology, such as Orca, reads applications through AT-SPI,
+// which GTK bridges to ATK. The widget of a surface is a subclass of
+// GtkDrawingArea whose accessible, a subclass of GtkWidgetAccessible, has
+// the nodes of the content's tree below it: ATK objects of types
+// registered here, which answer from the last tree and turn what assistive
+// technology does into AccessAction events.
+//
+// Registering types writes functions into ATK's class and interface
+// structures at offsets of its headers. The class's size is checked
+// against the one GObject reports, and the interfaces' layout against
+// ATK's version; native UI goes without accessibility rather than write
+// past them.
+
+var (
+	accessOnce sync.Once
+
+	// The types: the drawing area, its accessible, and the nodes', by
+	// the interfaces they implement.
+	areaType, glAreaType, rootType, nodeType, rangeType, textType, editableType uintptr
+
+	gTypeRegisterStaticSimple func(parent uintptr, name *byte, classSize uint32, classInit ptr, instanceSize uint32, instanceInit ptr, flags uint32) uintptr
+	gTypeAddInterfaceStatic   func(instanceType, ifaceType uintptr, info *gInterfaceInfo)
+	gTypeQuery                func(t uintptr, q *gTypeQueryInfo)
+	gObjectNew                func(t uintptr, end ptr) ptr
+	gValueInit                func(v ptr, t uintptr) ptr
+	gValueSetDouble           func(v ptr, d float64)
+	gStrdup                   func(s *byte) ptr
+	gMalloc0                  func(n uintptr) ptr
+	gSlistAppend              func(list, data ptr) ptr
+	gSignalEmitChild          func(obj ptr, signal *byte, index uint32, child ptr)
+	gSignalEmitText           func(obj ptr, signal *byte, pos, length int32, text *byte)
+	gSignalEmitInt            func(obj ptr, signal *byte, v int32)
+	gSignalEmit               func(obj ptr, signal *byte)
+	gObjectNotify             func(obj ptr, property *byte)
+
+	gtkWidgetAccessibleGetType      func() uintptr
+	gtkDrawingAreaGetType           func() uintptr
+	gtkGLAreaGetType                func() uintptr
+	gtkWidgetClassSetAccessibleType func(class ptr, t uintptr)
+	gtkWidgetClassSetAccessibleRole func(class ptr, role int32)
+	gtkAccessibleGetWidget          func(accessible ptr) ptr
+	gtkWidgetGetAccessible          func(widget ptr) ptr
+
+	atkGetMajorVersion, atkGetMinorVersion                  func() uint32
+	atkObjectGetType, atkComponentGetType, atkActionGetType func() uintptr
+	atkValueGetType, atkTextGetType, atkEditableTextGetType func() uintptr
+	atkRoleForName, atkStateTypeForName                     func(name *byte) int32
+	atkObjectSetName                                        func(obj ptr, name *byte)
+	atkObjectSetRole                                        func(obj ptr, role int32)
+	atkObjectSetParent                                      func(obj, parent ptr)
+	atkObjectNotifyStateChange                              func(obj ptr, state uint64, value bool)
+	atkStateSetNew                                          func() ptr
+	atkStateSetAddState                                     func(set ptr, state int32) bool
+	atkRangeNew                                             func(lower, upper float64, description *byte) ptr
+	atkComponentGetExtents                                  func(obj ptr, x, y, w, h *int32, coords int32)
+
+	cbAreaClassInit, cbRootClassInit, cbNodeClassInit, cbRootComponent     ptr
+	cbComponentInit, cbActionInit, cbValueInit, cbTextInit, cbEditableInit ptr
+
+	atkRoles  = map[platform.AccessRole]int32{}
+	atkRole   struct{ panel, text, password int32 }
+	atkStates struct {
+		enabled, sensitive, visible, showing, focusable, focused, checkable, checked, indeterminate,
+		expandable, expanded, editable, readOnly, multiLine, singleLine, selectableText, defunct int32
+		selectable, selected int32
+	}
+
+	// The trees of surfaces, by the surface and by its accessible, and the
+	// nodes, by their ATK object.
+	surfaceTrees  = map[*surface]*accessTree{}
+	accessTrees   = map[ptr]*accessTree{}
+	accessObjects = map[ptr]*accessNode{}
+
+	// Static strings of actions.
+	clickName, emptyName = []byte("click\x00"), []byte("\x00")
+)
+
+// gTypeQueryInfo is GTypeQuery.
+type gTypeQueryInfo struct {
+	typ                     uintptr
+	name                    ptr
+	classSize, instanceSize uint32
+}
+
+// gInterfaceInfo is GInterfaceInfo.
+type gInterfaceInfo struct{ init, finalize, data ptr }
+
+const (
+	atkObjectClassSize = 352 // GObjectClass, 26 functions and a pad
+	gTypeDouble        = 15 << 2
+	atkXYParent        = 2
+)
+
+// Offsets of the functions of AtkObjectClass.
+const (
+	atkGetNChildren      = 160
+	atkRefChild          = 168
+	atkGetIndexInParent  = 176
+	atkRefStateSet       = 216
+	atkGetAttributes     = 328
+	gTypeInterfaceHeader = 16 // the functions of interfaces follow a GTypeInterface
+)
+
+// newSurfaceArea creates the widget of a surface, a GtkGLArea or a drawing
+// area, that assistive technology sees the content of when ATK allows it.
+func newSurfaceArea(gl bool) ptr {
+	accessOnce.Do(registerAccess)
+	switch {
+	case gl && glAreaType != 0:
+		return gObjectNew(glAreaType, 0)
+	case gl:
+		return gtkGLAreaNew()
+	case areaType != 0:
+		return gObjectNew(areaType, 0)
+	}
+	return gtkDrawingAreaNew()
+}
+
+// slot returns the address of a function pointer in a C structure.
+func slot(p ptr, offset uintptr) *ptr {
+	return (*ptr)(unsafe.Add(*(*unsafe.Pointer)(unsafe.Pointer(&p)), offset))
+}
+
+func setIface(iface ptr, fns map[int]ptr) {
+	for i, fn := range fns {
+		*slot(iface, gTypeInterfaceHeader+uintptr(i)*8) = fn
+	}
+}
+
+func registerAccess() {
+	libATK, err := open("libatk-1.0.so.0")
+	if err != nil {
+		return
+	}
+	a, o, g, t := libATK, libGObject, libGLib, libGTK
+	ok := bind(a, &atkGetMajorVersion, "atk_get_major_version") && bind(a, &atkGetMinorVersion, "atk_get_minor_version")
+	for _, b := range []struct {
+		lib  ptr
+		fn   any
+		name string
+	}{
+		{o, &gTypeRegisterStaticSimple, "g_type_register_static_simple"}, {o, &gTypeAddInterfaceStatic, "g_type_add_interface_static"},
+		{o, &gTypeQuery, "g_type_query"}, {o, &gObjectNew, "g_object_new"}, {o, &gValueInit, "g_value_init"},
+		{o, &gValueSetDouble, "g_value_set_double"}, {g, &gStrdup, "g_strdup"}, {g, &gMalloc0, "g_malloc0"},
+		{g, &gSlistAppend, "g_slist_append"}, {o, &gSignalEmitChild, "g_signal_emit_by_name"},
+		{o, &gSignalEmitText, "g_signal_emit_by_name"}, {o, &gSignalEmitInt, "g_signal_emit_by_name"},
+		{o, &gSignalEmit, "g_signal_emit_by_name"}, {o, &gObjectNotify, "g_object_notify"},
+		{t, &gtkWidgetAccessibleGetType, "gtk_widget_accessible_get_type"}, {t, &gtkDrawingAreaGetType, "gtk_drawing_area_get_type"},
+		{t, &gtkWidgetClassSetAccessibleType, "gtk_widget_class_set_accessible_type"},
+		{t, &gtkWidgetClassSetAccessibleRole, "gtk_widget_class_set_accessible_role"},
+		{t, &gtkAccessibleGetWidget, "gtk_accessible_get_widget"}, {t, &gtkWidgetGetAccessible, "gtk_widget_get_accessible"},
+		{a, &atkObjectGetType, "atk_object_get_type"}, {a, &atkComponentGetType, "atk_component_get_type"},
+		{a, &atkActionGetType, "atk_action_get_type"}, {a, &atkValueGetType, "atk_value_get_type"},
+		{a, &atkTextGetType, "atk_text_get_type"}, {a, &atkEditableTextGetType, "atk_editable_text_get_type"},
+		{a, &atkRoleForName, "atk_role_for_name"}, {a, &atkStateTypeForName, "atk_state_type_for_name"},
+		{a, &atkObjectSetName, "atk_object_set_name"}, {a, &atkObjectSetRole, "atk_object_set_role"},
+		{a, &atkObjectSetParent, "atk_object_set_parent"}, {a, &atkObjectNotifyStateChange, "atk_object_notify_state_change"},
+		{a, &atkStateSetNew, "atk_state_set_new"}, {a, &atkStateSetAddState, "atk_state_set_add_state"},
+		{a, &atkRangeNew, "atk_range_new"}, {a, &atkComponentGetExtents, "atk_component_get_extents"},
+	} {
+		ok = ok && bind(b.lib, b.fn, b.name)
+	}
+	// The value and text functions written below arrived in ATK 2.12.
+	if !ok || atkGetMajorVersion() < 2 || atkGetMajorVersion() == 2 && atkGetMinorVersion() < 12 {
+		return
+	}
+	var q gTypeQueryInfo
+	if gTypeQuery(atkObjectGetType(), &q); q.classSize != atkObjectClassSize {
+		return
+	}
+	loadAccessNames()
+	initAccessCallbacks()
+	register := func(parent uintptr, name string, classInit ptr) uintptr {
+		var q gTypeQueryInfo
+		gTypeQuery(parent, &q)
+		return gTypeRegisterStaticSimple(parent, cs(name), q.classSize, classInit, q.instanceSize, 0, 0)
+	}
+	implement := func(t, iface uintptr, init ptr) {
+		gTypeAddInterfaceStatic(t, iface, &gInterfaceInfo{init: init})
+	}
+	rootType = register(gtkWidgetAccessibleGetType(), "MyGoSurfaceAccessible", cbRootClassInit)
+	nodeType = register(atkObjectGetType(), "MyGoAccessible", cbNodeClassInit)
+	if rootType == 0 || nodeType == 0 {
+		return
+	}
+	rangeType = register(nodeType, "MyGoAccessibleRange", 0)
+	textType = register(nodeType, "MyGoAccessibleText", 0)
+	editableType = register(textType, "MyGoAccessibleEditable", 0)
+	if rangeType == 0 || textType == 0 || editableType == 0 {
+		return
+	}
+	implement(rootType, atkComponentGetType(), cbRootComponent)
+	implement(nodeType, atkComponentGetType(), cbComponentInit)
+	implement(nodeType, atkActionGetType(), cbActionInit)
+	implement(rangeType, atkValueGetType(), cbValueInit)
+	implement(textType, atkTextGetType(), cbTextInit)
+	implement(editableType, atkEditableTextGetType(), cbEditableInit)
+	areaType = register(gtkDrawingAreaGetType(), "MyGoSurfaceArea", cbAreaClassInit)
+	// GtkGLArea came in GTK 3.16.
+	if bind(t, &gtkGLAreaGetType, "gtk_gl_area_get_type") {
+		glAreaType = register(gtkGLAreaGetType(), "MyGoSurfaceGLArea", cbAreaClassInit)
+	}
+}
+
+// loadAccessNames finds ATK's roles and states by name, which, unlike
+// their numbers, do not change between versions.
+func loadAccessNames() {
+	role := func(names ...string) int32 {
+		for _, n := range names {
+			if r := atkRoleForName(cs(n)); r != 0 {
+				return r
+			}
+		}
+		return 0
+	}
+	atkRole.panel, atkRole.text, atkRole.password = role("panel"), role("text"), role("password text")
+	for r, names := range map[platform.AccessRole][]string{
+		platform.RoleGroup: {"panel"}, platform.RoleText: {"label"}, platform.RoleButton: {"push button", "button"},
+		platform.RoleLink: {"link"}, platform.RoleCheckBox: {"check box"}, platform.RoleRadio: {"radio button"},
+		platform.RoleSwitch: {"switch", "toggle button"}, platform.RoleSlider: {"slider"},
+		platform.RoleProgress: {"progress bar"}, platform.RoleTextField: {"entry"}, platform.RoleImage: {"image"},
+		platform.RoleList: {"list"}, platform.RoleScroll: {"scroll pane"}, platform.RoleDialog: {"dialog"},
+		platform.RolePopup: {"popup menu"}, platform.RoleTooltip: {"tool tip"}, platform.RolePopUpButton: {"combo box"},
+		platform.RoleTabList: {"page tab list"}, platform.RoleTab: {"page tab"}, platform.RoleSplitter: {"separator"},
+		platform.RoleStatus: {"notification", "status bar"}, platform.RoleTable: {"table"}, platform.RoleRow: {"table row"},
+		platform.RoleCell: {"table cell"}, platform.RoleColumnHeader: {"column header", "table column header"},
+		platform.RoleTree: {"tree", "tree table"}, platform.RoleTreeItem: {"tree item", "list item"},
+	} {
+		atkRoles[r] = role(names...)
+	}
+	st := &atkStates
+	for p, name := range map[*int32]string{
+		&st.enabled: "enabled", &st.sensitive: "sensitive", &st.visible: "visible", &st.showing: "showing",
+		&st.focusable: "focusable", &st.focused: "focused", &st.checkable: "checkable", &st.checked: "checked",
+		&st.indeterminate: "indeterminate", &st.expandable: "expandable", &st.expanded: "expanded",
+		&st.editable: "editable", &st.readOnly: "read-only", &st.multiLine: "multi-line",
+		&st.singleLine: "single-line", &st.selectableText: "selectable-text", &st.defunct: "defunct",
+		&st.selectable: "selectable", &st.selected: "selected",
+	} {
+		*p = atkStateTypeForName(cs(name))
+	}
+}
+
+// accessTree is what assistive technology sees of a surface.
+type accessTree struct {
+	s     *surface
+	root  ptr // the surface's accessible
+	nodes map[uint64]*accessNode
+	top   []*accessNode
+	focus uint64
+	quiet bool // building the tree assistive technology asked for
+}
+
+// accessNode is a node of the tree, with its ATK object.
+type accessNode struct {
+	obj      ptr // owned
+	typ      uintptr
+	tree     *accessTree
+	parent   *accessNode
+	children []*accessNode
+	n        platform.AccessNode
+}
+
+// rootTree returns the tree below a surface's accessible, asking the
+// content for it while it has none, as before its first frame.
+func rootTree(root ptr) *accessTree {
+	t := accessTrees[root]
+	if t == nil {
+		s := surfaceAreas[gtkAccessibleGetWidget(root)]
+		if s == nil || s.w.closed {
+			return nil
+		}
+		t = &accessTree{s: s, root: root, nodes: map[uint64]*accessNode{}}
+		accessTrees[root], surfaceTrees[s] = t, t
+	}
+	if len(t.top) == 0 {
+		t.quiet = true
+		t.s.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+		t.quiet = false
+	}
+	return t
+}
+
+// UpdateAccessibility shows assistive technology the content's last
+// frame, and tells it what changed.
+func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
+	if t := surfaceTrees[s]; t != nil && tree != nil {
+		t.update(tree)
+	}
+}
+
+func (s *surface) destroyAccess() {
+	t := surfaceTrees[s]
+	if t == nil {
+		return
+	}
+	delete(surfaceTrees, s)
+	delete(accessTrees, t.root)
+	for _, an := range t.nodes {
+		an.release()
+	}
+	t.nodes, t.top = nil, nil
+}
+
+// release lets go of a node that left the tree.
+func (an *accessNode) release() {
+	atkObjectNotifyStateChange(an.obj, uint64(atkStates.defunct), true)
+	delete(accessObjects, an.obj)
+	gObjectUnref(an.obj)
+}
+
+func accessType(r platform.AccessRole) uintptr {
+	switch r {
+	case platform.RoleSlider, platform.RoleProgress:
+		return rangeType
+	case platform.RoleTextField:
+		return editableType
+	case platform.RoleText:
+		return textType
+	}
+	return nodeType
+}
+
+func (an *accessNode) role() int32 {
+	r := atkRoles[an.n.Role]
+	if an.n.Role == platform.RoleTextField {
+		switch {
+		case an.n.States&platform.AccessPassword != 0:
+			r = atkRole.password
+		case an.n.States&platform.AccessMultiline != 0:
+			r = atkRole.text
+		}
+	}
+	if r == 0 {
+		r = atkRole.panel
+	}
+	return r
+}
+
+func (t *accessTree) update(tree *platform.AccessTree) {
+	notify := !t.quiet
+	old := t.nodes
+	t.nodes = make(map[uint64]*accessNode, len(tree.Nodes))
+	list := make([]*accessNode, len(tree.Nodes))
+	prev := make([]platform.AccessNode, len(tree.Nodes))
+	fresh := make([]bool, len(tree.Nodes))
+	oldKids := map[*accessNode][]*accessNode{nil: t.top}
+	for i, n := range tree.Nodes {
+		typ := accessType(n.Role)
+		an := old[n.ID]
+		if an != nil && an.typ == typ {
+			delete(old, n.ID)
+			oldKids[an] = an.children
+			prev[i] = an.n
+		} else {
+			an = &accessNode{obj: gObjectNew(typ, 0), typ: typ, tree: t}
+			accessObjects[an.obj] = an
+			fresh[i] = true
+		}
+		an.n, an.children = n, nil
+		t.nodes[n.ID] = an
+		list[i] = an
+	}
+	t.top = nil
+	for i, an := range list {
+		parent, parentObj := (*accessNode)(nil), t.root
+		if an.n.Parent >= 0 {
+			parent = list[an.n.Parent]
+			parentObj = parent.obj
+			parent.children = append(parent.children, an)
+		} else {
+			t.top = append(t.top, an)
+		}
+		if fresh[i] || an.parent != parent {
+			atkObjectSetParent(an.obj, parentObj)
+		}
+		an.parent = parent
+		if fresh[i] || prev[i].Role != an.n.Role || prev[i].States&(platform.AccessPassword|platform.AccessMultiline) != an.n.States&(platform.AccessPassword|platform.AccessMultiline) {
+			atkObjectSetRole(an.obj, an.role())
+		}
+		if fresh[i] || prev[i].Label != an.n.Label {
+			atkObjectSetName(an.obj, cs(an.n.Label))
+		}
+	}
+	if notify {
+		// Children that left their parent, then those that joined it, for
+		// the parents that were in the tree before.
+		for parent, kids := range oldKids {
+			obj, now := t.root, t.top
+			if parent != nil {
+				obj, now = parent.obj, parent.children
+			}
+			for i := len(kids) - 1; i >= 0; i-- {
+				if !slices.Contains(now, kids[i]) {
+					gSignalEmitChild(obj, cs("children-changed::remove"), uint32(i), kids[i].obj)
+				}
+			}
+			for i, kid := range now {
+				if !slices.Contains(kids, kid) {
+					gSignalEmitChild(obj, cs("children-changed::add"), uint32(i), kid.obj)
+				}
+			}
+		}
+		for i, an := range list {
+			if !fresh[i] {
+				an.notifyChanges(prev[i])
+			}
+		}
+	}
+	for _, an := range old {
+		an.release()
+	}
+	if focus := tree.Focus; focus != t.focus {
+		if an := t.nodes[t.focus]; an != nil && notify {
+			atkObjectNotifyStateChange(an.obj, uint64(atkStates.focused), false)
+		}
+		t.focus = focus
+		if an := t.nodes[focus]; an != nil && notify {
+			atkObjectNotifyStateChange(an.obj, uint64(atkStates.focused), true)
+		}
+	}
+}
+
+// notifyChanges tells assistive technology how a node changed since the
+// last tree, but for its focus.
+func (an *accessNode) notifyChanges(prev platform.AccessNode) {
+	n := an.n
+	before, after := stateList(prev, false), stateList(n, false)
+	for _, s := range before {
+		if !slices.Contains(after, s) {
+			atkObjectNotifyStateChange(an.obj, uint64(s), false)
+		}
+	}
+	for _, s := range after {
+		if !slices.Contains(before, s) {
+			atkObjectNotifyStateChange(an.obj, uint64(s), true)
+		}
+	}
+	switch an.typ {
+	case rangeType:
+		if prev.Now != n.Now || prev.Min != n.Min || prev.Max != n.Max {
+			gObjectNotify(an.obj, cs("accessible-value"))
+		}
+	case editableType:
+		if prev.Value != n.Value {
+			// What changed, between the text both have at their ends.
+			a, b := []rune(prev.Value), []rune(n.Value)
+			start := 0
+			for start < len(a) && start < len(b) && a[start] == b[start] {
+				start++
+			}
+			end := 0
+			for end < len(a)-start && end < len(b)-start && a[len(a)-1-end] == b[len(b)-1-end] {
+				end++
+			}
+			if removed := a[start : len(a)-end]; len(removed) > 0 {
+				gSignalEmitText(an.obj, cs("text-remove"), int32(start), int32(len(removed)), cs(string(removed)))
+			}
+			if inserted := b[start : len(b)-end]; len(inserted) > 0 {
+				gSignalEmitText(an.obj, cs("text-insert"), int32(start), int32(len(inserted)), cs(string(inserted)))
+			}
+		}
+		if prev.SelEnd != n.SelEnd {
+			gSignalEmitInt(an.obj, cs("text-caret-moved"), int32(n.SelEnd))
+		}
+		if prev.SelStart != n.SelStart || prev.SelEnd != n.SelEnd {
+			if prev.SelStart != prev.SelEnd || n.SelStart != n.SelEnd {
+				gSignalEmit(an.obj, cs("text-selection-changed"))
+			}
+		}
+	}
+}
+
+// stateList returns the ATK states of a node.
+func stateList(n platform.AccessNode, focused bool) []int32 {
+	st := &atkStates
+	list := []int32{st.visible, st.showing}
+	if n.States&platform.AccessDisabled == 0 {
+		list = append(list, st.enabled, st.sensitive)
+	}
+	if n.States&platform.AccessFocusable != 0 {
+		list = append(list, st.focusable)
+	}
+	if focused {
+		list = append(list, st.focused)
+	}
+	switch n.Role {
+	case platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch:
+		list = append(list, st.checkable)
+	case platform.RoleTab, platform.RoleTreeItem, platform.RoleRow:
+		list = append(list, st.selectable)
+		if n.States&platform.AccessChecked != 0 {
+			list = append(list, st.selected) // not checked
+		}
+	case platform.RolePopUpButton:
+		list = append(list, st.expandable)
+	case platform.RoleTextField:
+		list = append(list, st.selectableText)
+		if n.States&platform.AccessReadOnly == 0 {
+			list = append(list, st.editable)
+		} else {
+			list = append(list, st.readOnly)
+		}
+		if n.States&platform.AccessMultiline != 0 {
+			list = append(list, st.multiLine)
+		} else {
+			list = append(list, st.singleLine)
+		}
+	}
+	if n.States&platform.AccessChecked != 0 && n.Role != platform.RoleTab && n.Role != platform.RoleTreeItem && n.Role != platform.RoleRow {
+		list = append(list, st.checked)
+	}
+	if n.States&platform.AccessMixed != 0 || n.Now < n.Min {
+		list = append(list, st.indeterminate) // a progress of unknown length
+	}
+	if n.States&platform.AccessExpanded != 0 {
+		list = append(list, st.expanded)
+	}
+	return slices.DeleteFunc(list, func(s int32) bool { return s == 0 })
+}
+
+// act performs an action of assistive technology on the node.
+func (an *accessNode) act(action platform.AccessActionKind, text string) {
+	an.tree.s.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: an.n.ID, Action: action, Text: text})
+}
+
+// extents returns the node's bounds in ATK's coordinates.
+func (an *accessNode) extents(coords int32) (x, y, w, h int32) {
+	b := an.n.Bounds
+	if coords == atkXYParent {
+		if an.parent != nil {
+			b.X, b.Y = b.X-an.parent.n.Bounds.X, b.Y-an.parent.n.Bounds.Y
+		}
+	} else {
+		var rx, ry, rw, rh int32
+		atkComponentGetExtents(an.tree.root, &rx, &ry, &rw, &rh, coords)
+		if rx == math.MinInt32 {
+			return rx, rx, int32(b.W), int32(b.H) // not on the screen
+		}
+		b.X, b.Y = b.X+float64(rx), b.Y+float64(ry)
+	}
+	return int32(math.Floor(b.X)), int32(math.Floor(b.Y)), int32(math.Round(b.W)), int32(math.Round(b.H))
+}
+
+func (an *accessNode) contains(x, y, coords int32) bool {
+	nx, ny, w, h := an.extents(coords)
+	return x >= nx && y >= ny && x < nx+w && y < ny+h
+}
+
+// at returns a new reference to the topmost of nodes at a point, or 0.
+func at(nodes []*accessNode, x, y, coords int32) ptr {
+	for i := len(nodes) - 1; i >= 0; i-- {
+		if nodes[i].contains(x, y, coords) {
+			return gObjectRef(nodes[i].obj)
+		}
+	}
+	return 0
+}
+
+// text returns the text of a node that ATK reads as text.
+func (an *accessNode) text() []rune {
+	if an.typ == textType {
+		return []rune(an.n.Label)
+	}
+	return []rune(an.n.Value)
+}
+
+// span clamps a range of runes of ATK, whose end is -1 for the end.
+func span(start, end int32, n int) (int, int) {
+	if end < 0 || int(end) > n {
+		end = int32(n)
+	}
+	a := max(0, min(int(start), n))
+	return a, max(a, int(end))
+}
+
+// segment returns the range of the character, word, or line, for the
+// granularities of ATK 0, 1, and above, at a rune offset.
+func segment(r []rune, offset, granularity int) (int, int) {
+	offset = max(0, min(offset, len(r)))
+	switch granularity {
+	case 0:
+		return offset, min(offset+1, len(r))
+	case 1:
+		start := offset
+		for start > 0 && unicode.IsSpace(r[start-1]) && (start == len(r) || unicode.IsSpace(r[start])) {
+			start-- // between words: the one before
+		}
+		for start > 0 && !unicode.IsSpace(r[start-1]) {
+			start--
+		}
+		end := start
+		for end < len(r) && !unicode.IsSpace(r[end]) {
+			end++
+		}
+		for end < len(r) && unicode.IsSpace(r[end]) {
+			end++
+		}
+		return start, end
+	}
+	start, end := offset, offset
+	for start > 0 && r[start-1] != '\n' {
+		start--
+	}
+	for end < len(r) && r[end] != '\n' {
+		end++
+	}
+	return start, min(end+1, len(r))
+}
+
+func cString(s string) ptr { return gStrdup(cs(s)) }
+
+func setInt(p ptr, v int) {
+	if p != 0 {
+		*(*int32)(unsafe.Pointer(slot(p, 0))) = int32(v)
+	}
+}
+
+func setDouble(gvalue ptr, v float64) {
+	gValueInit(gvalue, gTypeDouble)
+	gValueSetDouble(gvalue, v)
+}
+
+// cBytes copies length bytes of a C string, or all of it for -1.
+func cBytes(p ptr, length int32) string {
+	if length < 0 || p == 0 {
+		return goStr(p)
+	}
+	return string(unsafe.Slice((*byte)(unsafe.Pointer(slot(p, 0))), length))
+}
+
+func initAccessCallbacks() {
+	node := func(obj ptr) *accessNode { return accessObjects[obj] }
+	cbAreaClassInit = purego.NewCallback(func(class, data ptr) {
+		gtkWidgetClassSetAccessibleType(class, rootType)
+		gtkWidgetClassSetAccessibleRole(class, atkRole.panel)
+	})
+	rootChildren := purego.NewCallback(func(root ptr) int32 {
+		if t := rootTree(root); t != nil {
+			return int32(len(t.top))
+		}
+		return 0
+	})
+	rootChild := purego.NewCallback(func(root ptr, i int32) ptr {
+		if t := rootTree(root); t != nil && i >= 0 && int(i) < len(t.top) {
+			return gObjectRef(t.top[i].obj)
+		}
+		return 0
+	})
+	cbRootClassInit = purego.NewCallback(func(class, data ptr) {
+		*slot(class, atkGetNChildren) = rootChildren
+		*slot(class, atkRefChild) = rootChild
+	})
+	rootAt := purego.NewCallback(func(root ptr, x, y, coords int32) ptr {
+		if t := rootTree(root); t != nil {
+			return at(t.top, x, y, coords)
+		}
+		return 0
+	})
+	cbRootComponent = purego.NewCallback(func(iface, data ptr) {
+		setIface(iface, map[int]ptr{2: rootAt}) // ref_accessible_at_point; the rest is GtkWidgetAccessible's
+	})
+
+	children := purego.NewCallback(func(obj ptr) int32 {
+		if an := node(obj); an != nil {
+			return int32(len(an.children))
+		}
+		return 0
+	})
+	child := purego.NewCallback(func(obj ptr, i int32) ptr {
+		if an := node(obj); an != nil && i >= 0 && int(i) < len(an.children) {
+			return gObjectRef(an.children[i].obj)
+		}
+		return 0
+	})
+	index := purego.NewCallback(func(obj ptr) int32 {
+		an := node(obj)
+		if an == nil {
+			return -1
+		}
+		siblings := an.tree.top
+		if an.parent != nil {
+			siblings = an.parent.children
+		}
+		return int32(slices.Index(siblings, an))
+	})
+	states := purego.NewCallback(func(obj ptr) ptr {
+		set := atkStateSetNew()
+		an := node(obj)
+		if an == nil {
+			atkStateSetAddState(set, atkStates.defunct)
+			return set
+		}
+		for _, s := range stateList(an.n, an.n.ID == an.tree.focus) {
+			atkStateSetAddState(set, s)
+		}
+		return set
+	})
+	attributes := purego.NewCallback(func(obj ptr) ptr {
+		an := node(obj)
+		if an == nil || an.n.Placeholder == "" {
+			return 0
+		}
+		attr := gMalloc0(16) // AtkAttribute: name, value
+		*slot(attr, 0), *slot(attr, 8) = cString("placeholder-text"), cString(an.n.Placeholder)
+		return gSlistAppend(0, attr)
+	})
+	cbNodeClassInit = purego.NewCallback(func(class, data ptr) {
+		*slot(class, atkGetNChildren) = children
+		*slot(class, atkRefChild) = child
+		*slot(class, atkGetIndexInParent) = index
+		*slot(class, atkRefStateSet) = states
+		*slot(class, atkGetAttributes) = attributes
+	})
+
+	contains := purego.NewCallback(func(obj ptr, x, y, coords int32) bool {
+		an := node(obj)
+		return an != nil && an.contains(x, y, coords)
+	})
+	nodeAt := purego.NewCallback(func(obj ptr, x, y, coords int32) ptr {
+		if an := node(obj); an != nil {
+			return at(an.children, x, y, coords)
+		}
+		return 0
+	})
+	extents := purego.NewCallback(func(obj, px, py, pw, ph ptr, coords int32) {
+		if an := node(obj); an != nil {
+			x, y, w, h := an.extents(coords)
+			setInt(px, int(x))
+			setInt(py, int(y))
+			setInt(pw, int(w))
+			setInt(ph, int(h))
+		}
+	})
+	grabFocus := purego.NewCallback(func(obj ptr) bool {
+		an := node(obj)
+		if an == nil || an.n.Actions&platform.ActionFocus == 0 {
+			return false
+		}
+		gtkWidgetGrabFocus(an.tree.s.area)
+		an.act(platform.AccessFocus, "")
+		return true
+	})
+	cbComponentInit = purego.NewCallback(func(iface, data ptr) {
+		setIface(iface, map[int]ptr{1: contains, 2: nodeAt, 3: extents, 6: grabFocus})
+	})
+
+	pressable := func(obj ptr, i int32) *accessNode {
+		if an := node(obj); an != nil && i == 0 && an.n.Actions&platform.ActionPress != 0 {
+			return an
+		}
+		return nil
+	}
+	doAction := purego.NewCallback(func(obj ptr, i int32) bool {
+		an := pressable(obj, i)
+		if an != nil {
+			an.act(platform.AccessPress, "")
+		}
+		return an != nil
+	})
+	nActions := purego.NewCallback(func(obj ptr) int32 {
+		if pressable(obj, 0) != nil {
+			return 1
+		}
+		return 0
+	})
+	actionName := purego.NewCallback(func(obj ptr, i int32) ptr {
+		if pressable(obj, i) != nil {
+			return ptr(unsafe.Pointer(&clickName[0]))
+		}
+		return 0
+	})
+	actionEmpty := purego.NewCallback(func(obj ptr, i int32) ptr {
+		if pressable(obj, i) != nil {
+			return ptr(unsafe.Pointer(&emptyName[0]))
+		}
+		return 0
+	})
+	cbActionInit = purego.NewCallback(func(iface, data ptr) {
+		// do_action, get_n_actions, get_description, get_name,
+		// get_keybinding and get_localized_name.
+		setIface(iface, map[int]ptr{0: doAction, 1: nActions, 2: actionEmpty, 3: actionName, 4: actionEmpty, 6: actionName})
+	})
+
+	valueOf := func(pick func(n platform.AccessNode) float64) ptr {
+		return purego.NewCallback(func(obj, gvalue ptr) {
+			if an := node(obj); an != nil {
+				setDouble(gvalue, pick(an.n))
+			}
+		})
+	}
+	current := valueOf(func(n platform.AccessNode) float64 { return max(n.Now, n.Min) })
+	maximum := valueOf(func(n platform.AccessNode) float64 { return n.Max })
+	minimum := valueOf(func(n platform.AccessNode) float64 { return n.Min })
+	valueAndText := purego.NewCallback(func(obj, value, text ptr) {
+		if an := node(obj); an != nil && value != 0 {
+			*(*float64)(unsafe.Pointer(slot(value, 0))) = max(an.n.Now, an.n.Min)
+		}
+		if text != 0 {
+			*slot(text, 0) = 0
+		}
+	})
+	valueRange := purego.NewCallback(func(obj ptr) ptr {
+		if an := node(obj); an != nil {
+			return atkRangeNew(an.n.Min, an.n.Max, nil)
+		}
+		return 0
+	})
+	// Values change as the arrow keys change them.
+	setValue := purego.NewCallback(func(obj ptr, v float64) {
+		an := node(obj)
+		switch {
+		case an == nil || an.n.Actions&platform.ActionIncrement == 0:
+		case v > an.n.Now:
+			an.act(platform.AccessIncrement, "")
+		case v < an.n.Now:
+			an.act(platform.AccessDecrement, "")
+		}
+	})
+	cbValueInit = purego.NewCallback(func(iface, data ptr) {
+		// get_current_value, get_maximum_value, get_minimum_value,
+		// get_value_and_text, get_range and set_value.
+		setIface(iface, map[int]ptr{0: current, 1: maximum, 2: minimum, 5: valueAndText, 6: valueRange, 9: setValue})
+	})
+
+	getText := purego.NewCallback(func(obj ptr, start, end int32) ptr {
+		an := node(obj)
+		if an == nil {
+			return 0
+		}
+		r := an.text()
+		a, b := span(start, end, len(r))
+		return cString(string(r[a:b]))
+	})
+	charAt := purego.NewCallback(func(obj ptr, offset int32) uint32 {
+		if an := node(obj); an != nil {
+			if r := an.text(); offset >= 0 && int(offset) < len(r) {
+				return uint32(r[offset])
+			}
+		}
+		return 0
+	})
+	caret := purego.NewCallback(func(obj ptr) int32 {
+		if an := node(obj); an != nil && an.typ == editableType {
+			return int32(an.n.SelEnd)
+		}
+		return -1
+	})
+	count := purego.NewCallback(func(obj ptr) int32 {
+		if an := node(obj); an != nil {
+			return int32(len(an.text()))
+		}
+		return 0
+	})
+	selections := purego.NewCallback(func(obj ptr) int32 {
+		if an := node(obj); an != nil && an.n.SelStart != an.n.SelEnd {
+			return 1
+		}
+		return 0
+	})
+	selection := purego.NewCallback(func(obj ptr, i int32, start, end ptr) ptr {
+		an := node(obj)
+		if an == nil || i != 0 || an.n.SelStart == an.n.SelEnd {
+			setInt(start, 0)
+			setInt(end, 0)
+			return 0
+		}
+		r := an.text()
+		a, b := span(int32(an.n.SelStart), int32(an.n.SelEnd), len(r))
+		setInt(start, a)
+		setInt(end, b)
+		return cString(string(r[a:b]))
+	})
+	stringAt := func(obj ptr, offset int32, granularity int, start, end ptr) ptr {
+		an := node(obj)
+		if an == nil {
+			return 0
+		}
+		r := an.text()
+		a, b := segment(r, int(offset), granularity)
+		setInt(start, a)
+		setInt(end, b)
+		return cString(string(r[a:b]))
+	}
+	stringAtOffset := purego.NewCallback(func(obj ptr, offset, granularity int32, start, end ptr) ptr {
+		return stringAt(obj, offset, int(granularity), start, end)
+	})
+	// Boundaries of the older text_at_offset: characters, the starts and
+	// ends of words, sentences and lines.
+	textAtOffset := purego.NewCallback(func(obj ptr, offset, boundary int32, start, end ptr) ptr {
+		return stringAt(obj, offset, int([]int32{0, 1, 1, 3, 3, 3, 3}[max(0, min(boundary, 6))]), start, end)
+	})
+	cbTextInit = purego.NewCallback(func(iface, data ptr) {
+		// get_text, get_text_at_offset, get_character_at_offset,
+		// get_caret_offset, get_character_count, get_n_selections,
+		// get_selection and get_string_at_offset.
+		setIface(iface, map[int]ptr{0: getText, 2: textAtOffset, 3: charAt, 5: caret, 9: count, 11: selections,
+			12: selection, 23: stringAtOffset})
+	})
+
+	editable := func(obj ptr) *accessNode {
+		if an := node(obj); an != nil && an.n.Actions&platform.ActionSetValue != 0 {
+			return an
+		}
+		return nil
+	}
+	setContents := purego.NewCallback(func(obj, text ptr) {
+		if an := editable(obj); an != nil {
+			an.act(platform.AccessSetValue, goStr(text))
+		}
+	})
+	insert := purego.NewCallback(func(obj, text ptr, length int32, position ptr) {
+		an := editable(obj)
+		if an == nil || position == 0 {
+			return
+		}
+		s, r := cBytes(text, length), an.text()
+		at := max(0, min(int(*(*int32)(unsafe.Pointer(slot(position, 0)))), len(r)))
+		an.act(platform.AccessSetValue, string(r[:at])+s+string(r[at:]))
+		setInt(position, at+utf8.RuneCountInString(s))
+	})
+	remove := purego.NewCallback(func(obj ptr, start, end int32) {
+		if an := editable(obj); an != nil {
+			r := an.text()
+			a, b := span(start, end, len(r))
+			an.act(platform.AccessSetValue, string(r[:a])+string(r[b:]))
+		}
+	})
+	cbEditableInit = purego.NewCallback(func(iface, data ptr) {
+		// set_text_contents, insert_text and delete_text.
+		setIface(iface, map[int]ptr{1: setContents, 2: insert, 5: remove})
+	})
+}

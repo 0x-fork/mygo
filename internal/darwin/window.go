@@ -64,6 +64,8 @@ type window struct {
 	closed        bool
 	sheet         bool
 	trafficLights *platform.Point
+	// surface shows the content MyGo draws, in place of the web view.
+	surface *surface
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
@@ -149,12 +151,21 @@ func (w *window) create() {
 		send(w.win, "setBackgroundColor:", uintptr(nsColor(*o.BackgroundColor)))
 	}
 
-	w.createWebView(content)
+	if o.Surface {
+		w.createSurface(content)
+	} else {
+		w.createWebView(content)
+	}
 	// WebKit docks the inspector next to the web view, in its superview.
 	// That must not be the window's frame view: AppKit would draw a broken
 	// legacy title bar from then on.
 	w.view = msgInitRect(send(class("NSView"), "alloc"), sel("initWithFrame:"), NSRect{Size: content.Size})
-	send(w.view, "addSubview:", uintptr(w.web))
+	if w.surface != nil {
+		send(w.view, "addSubview:", uintptr(w.surface.view))
+		send(w.win, "makeFirstResponder:", uintptr(w.surface.view))
+	} else {
+		send(w.view, "addSubview:", uintptr(w.web))
+	}
 	send(w.win, "setContentView:", uintptr(w.view))
 	if o.Vibrancy != "" {
 		w.SetVibrancy(o.Vibrancy)
@@ -277,6 +288,9 @@ func (w *window) cleanup() {
 	release(w.lastMouseDown)
 	w.lastMouseDown = 0
 	release(w.ucc)
+	if w.surface != nil {
+		w.surface.destroy()
+	}
 	release(w.effect)
 	release(w.web)
 	release(w.view)
@@ -1002,11 +1016,13 @@ func registerWindowClasses() {
 			method("windowDidBecomeKey:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {
 					w.h.Focused()
+					w.surfaceKeyChanged(true)
 				}
 			}),
 			method("windowDidResignKey:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {
 					w.h.Blurred()
+					w.surfaceKeyChanged(false)
 				}
 			}),
 			method("windowDidResize:", func(self id, _ objc.SEL, n id) {

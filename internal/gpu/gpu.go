@@ -1,0 +1,216 @@
+// Package gpu turns scenes into what the GPU renderers draw: one instanced
+// quad per operation, for a shader that computes rounded rectangles,
+// borders, gradients, shadows and atlas coverage itself, in batches that
+// share a scissor rectangle and an image. Every renderer (d3d11, metal)
+// draws the same instances, the way internal/raster draws scenes on the
+// CPU.
+package gpu
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"math"
+	"strings"
+	"unsafe"
+
+	"github.com/egoist/mygo/internal/scene"
+)
+
+// SourceSum returns the SHA-256, in hex, of a shader's source as the
+// repository holds it, with LF line endings, which shaders compiled ahead
+// of time record: the source matches them however it was checked out, as
+// with CRLF endings on Windows.
+func SourceSum(src string) string {
+	sum := sha256.Sum256([]byte(strings.ReplaceAll(src, "\r\n", "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+// Instance is the data of one quad, in device pixels, as the shaders read
+// it: eleven float4s.
+type Instance struct {
+	// Rect is x, y, width, height; Radii the corners' radii (top-left,
+	// top-right, bottom-right, bottom-left); Inner those of a border's
+	// inner edge.
+	Rect, Radii, Inner [4]float32
+	// Color and Color2 (a gradient's end) and Border are straight RGBA.
+	Color, Color2, Border [4]float32
+	// Grad holds a gradient's start and end points; UV the texture
+	// rectangle, normalized.
+	Grad, UV [4]float32
+	// Clip and ClipRadii are the innermost clip, which the shader cuts.
+	Clip, ClipRadii [4]float32
+	// Params is the kind (0 fill, 1 shadow, 2 mask glyph, 3 color glyph, 4
+	// image), the border width, the shadow's sigma or 1 for a gradient,
+	// and the opacity.
+	Params [4]float32
+}
+
+// InstanceSize is the size of an Instance in bytes.
+const InstanceSize = int(unsafe.Sizeof(Instance{}))
+
+// Scissor is a scissor rectangle in device pixels, the layout of a
+// Direct3D RECT.
+type Scissor struct{ Left, Top, Right, Bottom int32 }
+
+// Empty reports whether the rectangle has no pixels.
+func (s Scissor) Empty() bool { return s.Right <= s.Left || s.Bottom <= s.Top }
+
+// Batch is a run of instances that draw with the same scissor rectangle
+// and image.
+type Batch struct {
+	Start, Count int
+	Scissor      Scissor
+	// Image is the renderer's texture of the batch's image, or 0.
+	Image uintptr
+}
+
+// Builder builds the instances and batches of scenes, reusing its memory
+// from frame to frame.
+type Builder struct {
+	Instances []Instance
+	Batches   []Batch
+	stack     []clip
+}
+
+type clip struct {
+	rect    scene.Rect
+	radii   [4]float32
+	bounds  scene.Rect
+	scissor Scissor
+}
+
+// Build turns the operations of s into Instances and Batches. image
+// returns the renderer's texture of an image, uploading it when new or
+// changed, or 0 to leave the image out.
+func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
+	b.Instances = b.Instances[:0]
+	b.Batches = b.Batches[:0]
+	everything := scene.Rect{X: -1e6, Y: -1e6, W: 2e6, H: 2e6}
+	b.stack = append(b.stack[:0], clip{rect: everything, bounds: scene.Rect{W: float32(s.Width), H: float32(s.Height)},
+		scissor: Scissor{0, 0, int32(s.Width), int32(s.Height)}})
+	for i := range s.Ops {
+		op := &s.Ops[i]
+		switch op.Kind {
+		case scene.OpPushClip:
+			top := b.stack[len(b.stack)-1]
+			bounds := top.bounds.Intersect(op.Rect)
+			// The innermost clip shapes its edges in the shader, the
+			// others cut with the scissor rectangle.
+			c := clip{rect: op.Rect, radii: scene.FitRadii(op.Rect, op.Radii), bounds: bounds}
+			if bounds.W > 0 && bounds.H > 0 {
+				c.scissor = Scissor{int32(math.Floor(float64(bounds.X))), int32(math.Floor(float64(bounds.Y))),
+					int32(math.Ceil(float64(bounds.X + bounds.W))), int32(math.Ceil(float64(bounds.Y + bounds.H)))}
+			}
+			b.stack = append(b.stack, c)
+		case scene.OpPopClip:
+			if len(b.stack) > 1 {
+				b.stack = b.stack[:len(b.stack)-1]
+			}
+		case scene.OpFill:
+			if op.Rect.Empty() {
+				continue
+			}
+			bw := op.Border
+			if op.BorderColor.A == 0 {
+				bw = 0
+			}
+			radii := scene.FitRadii(op.Rect, op.Radii)
+			var inner [4]float32
+			if bw > 0 {
+				ir := scene.Rect{X: op.Rect.X + bw, Y: op.Rect.Y + bw, W: op.Rect.W - 2*bw, H: op.Rect.H - 2*bw}
+				for k, rad := range radii {
+					inner[k] = max(rad-bw, 0)
+				}
+				inner = scene.FitRadii(ir, inner)
+			}
+			grad := float32(0)
+			if op.HasGrad {
+				grad = 1
+			}
+			b.add(Instance{
+				Rect: rect(op.Rect), Radii: radii, Inner: inner,
+				Color: straight(op.Color), Color2: straight(op.Color2), Border: straight(op.BorderColor), Grad: op.Gradient,
+				Params: [4]float32{0, bw, grad, opacity(op.Opacity)},
+			}, 0)
+		case scene.OpShadow:
+			if op.Rect.Empty() {
+				continue
+			}
+			sigma := op.Blur / 2
+			kind := float32(1)
+			if sigma < 0.5 {
+				kind, sigma = 0, 0
+			}
+			b.add(Instance{
+				Rect: rect(op.Rect), Radii: scene.FitRadii(op.Rect, op.Radii),
+				Color: straight(op.Color), Params: [4]float32{kind, 0, sigma, opacity(op.Opacity)},
+			}, 0)
+		case scene.OpGlyphs:
+			for _, g := range s.Glyphs[op.Start:op.End] {
+				a, kind := s.MaskAtlas, float32(2)
+				if g.Colored {
+					a, kind = s.ColorAtlas, 3
+				}
+				if a == nil {
+					continue
+				}
+				aw, ah := float32(a.W), float32(a.H)
+				b.add(Instance{
+					Rect:   [4]float32{float32(math.Round(float64(g.X))), float32(math.Round(float64(g.Y))), float32(g.UW), float32(g.VH)},
+					UV:     [4]float32{float32(g.U) / aw, float32(g.V) / ah, float32(g.U+g.UW) / aw, float32(g.V+g.VH) / ah},
+					Color:  straight(g.Color),
+					Params: [4]float32{kind, 0, 0, 1},
+				}, 0)
+			}
+		case scene.OpImage:
+			img := op.Image
+			if img == nil || op.Rect.Empty() || img.W == 0 || img.H == 0 {
+				continue
+			}
+			tex := image(img)
+			if tex == 0 {
+				continue
+			}
+			iw, ih := float32(img.W), float32(img.H)
+			b.add(Instance{
+				Rect:   rect(op.Rect),
+				Radii:  scene.FitRadii(op.Rect, op.Radii),
+				UV:     [4]float32{op.Src.X / iw, op.Src.Y / ih, (op.Src.X + op.Src.W) / iw, (op.Src.Y + op.Src.H) / ih},
+				Params: [4]float32{4, 0, 0, opacity(op.Opacity)},
+			}, tex)
+		}
+	}
+}
+
+// add appends an instance within the current clip, starting a batch when
+// the scissor rectangle or the image changes.
+func (b *Builder) add(in Instance, image uintptr) {
+	cur := &b.stack[len(b.stack)-1]
+	if cur.scissor.Empty() {
+		return
+	}
+	in.Clip = rect(cur.rect)
+	in.ClipRadii = cur.radii
+	n := len(b.Batches)
+	if n == 0 || b.Batches[n-1].Scissor != cur.scissor || (image != 0 && b.Batches[n-1].Image != 0 && b.Batches[n-1].Image != image) {
+		b.Batches = append(b.Batches, Batch{Start: len(b.Instances), Scissor: cur.scissor, Image: image})
+		n++
+	} else if image != 0 {
+		b.Batches[n-1].Image = image
+	}
+	b.Instances = append(b.Instances, in)
+	b.Batches[n-1].Count++
+}
+
+func rect(r scene.Rect) [4]float32 { return [4]float32{r.X, r.Y, r.W, r.H} }
+
+func straight(c scene.Color) [4]float32 {
+	return [4]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255, float32(c.A) / 255}
+}
+
+func opacity(o float32) float32 {
+	if o == 0 {
+		return 1
+	}
+	return o
+}

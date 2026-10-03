@@ -60,3 +60,29 @@ func titleButtons(*mygo.Window) ([]string, bool) { return nil, false }
 func pressTitleButton(*mygo.Window, string) bool { return false }
 
 func topNonClient(*mygo.Window) (int32, int32, bool) { return 0, 0, false }
+
+// A Control-click is a secondary click on macOS only.
+func controlClick(*mygo.Window, float64, float64) bool { return false }
+
+// Input methods, file drops and assistive technology are only automated
+// on macOS.
+func composeOver(*mygo.Window, string, int, bool, int, int) bool { return false }
+func inputClient(*mygo.Window) ([2]int, string, bool)            { return [2]int{}, "", false }
+func dropFiles(*mygo.Window, float64, float64, []string) (bool, bool, bool) {
+	return false, false, false
+}
+func accessibility(*mygo.Window) ([]accessNode, bool)         { return nil, false }
+func accessPerform(*mygo.Window, string, string, string) bool { return false }
+
+const roleText, roleButton, roleCheckBox, roleTextField, roleSlider = "text", "button", "check box", "text field", "slider"
+
+// Typing into native UI is only automated on macOS.
+func clickAndType(*mygo.Window, float64, float64, string) bool { return false }
+func compose(*mygo.Window, string, int, bool) bool             { return false }
+
+// Only Linux draws native UI in a GtkGLArea.
+func glSurface(*mygo.Window) (string, []byte, int, int, bool) { return "", nil, 0, 0, false }
+
+func rightClick(*mygo.Window, float64, float64) bool { return false }
+func popupMenus() ([][]string, bool)                 { return nil, false }
+func choosePopupItem(string) bool                    { return false }

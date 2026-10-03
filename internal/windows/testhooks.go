@@ -4,6 +4,8 @@ package windows
 
 import (
 	"fmt"
+	"strings"
+	"syscall"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/accelerator"
@@ -176,4 +178,138 @@ func TestTopNonClient(hwnd uintptr) (px, want int32) {
 		want = 1
 	}
 	return origin.Y - r.Top, want
+}
+
+// TestClickSurface clicks (x, y), in DIPs, in a window showing native UI,
+// with the messages a mouse sends. It reports false for a window showing a
+// web page.
+func TestClickSurface(hwnd uintptr, x, y float64) bool {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.surface == nil {
+		return false
+	}
+	scale := float64(w.surface.dpi()) / 96
+	lp := uintptr(uint16(int16(y*scale)))<<16 | uintptr(uint16(int16(x*scale)))
+	const mkLButton = 1
+	procSendMessageW.Call(w.surface.hwnd, wmMouseMove, 0, lp)
+	procSendMessageW.Call(w.surface.hwnd, wmLButtonDown, mkLButton, lp)
+	procSendMessageW.Call(w.surface.hwnd, wmLButtonUp, 0, lp)
+	return true
+}
+
+// TestRightClickSurface clicks (x, y), in DIPs, in a window showing native
+// UI with the secondary button, as TestClickSurface does with the primary.
+func TestRightClickSurface(hwnd uintptr, x, y float64) bool {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.surface == nil {
+		return false
+	}
+	scale := float64(w.surface.dpi()) / 96
+	lp := uintptr(uint16(int16(y*scale)))<<16 | uintptr(uint16(int16(x*scale)))
+	const mkRButton = 2
+	procSendMessageW.Call(w.surface.hwnd, wmMouseMove, 0, lp)
+	procSendMessageW.Call(w.surface.hwnd, wmRButtonDown, mkRButton, lp)
+	procSendMessageW.Call(w.surface.hwnd, wmRButtonUp, 0, lp)
+	return true
+}
+
+// TestPopups returns the labels of the items of the popup menus the main
+// thread shows, "-" for separators.
+func TestPopups() [][]string {
+	var menus [][]string
+	for _, h := range threadPopups() {
+		menus = append(menus, popupLabels(h))
+	}
+	return menus
+}
+
+// TestChoosePopupItem chooses the item labeled label of a popup menu the
+// main thread shows, with the keys a keyboard presses in it, and reports
+// whether there is one.
+func TestChoosePopupItem(label string) bool {
+	const vkReturn, vkUp, vkDown = 0x0D, 0x26, 0x28
+	for _, h := range threadPopups() {
+		labels := popupLabels(h)
+		target := -1
+		for i, l := range labels {
+			if l == label {
+				target = i
+			}
+		}
+		if target < 0 {
+			continue
+		}
+		// The arrows move to the next item past separators, from the one
+		// highlighted; Down to the first when none is.
+		hmenu, _, _ := procSendMessageW.Call(h, mnGetHMenu, 0, 0)
+		from := -1
+		for i := range labels {
+			if state, _, _ := procGetMenuState.Call(hmenu, uintptr(i), mfByPosition); state&mfHilite != 0 {
+				from = i
+			}
+		}
+		for i := from + 1; i <= target; i++ {
+			if labels[i] != "-" {
+				postMessage(h, wmKeyDown, vkDown, 0)
+			}
+		}
+		for i := target; i < from; i++ {
+			if labels[i] != "-" {
+				postMessage(h, wmKeyDown, vkUp, 0)
+			}
+		}
+		postMessage(h, wmKeyDown, vkReturn, 0)
+		return true
+	}
+	return false
+}
+
+const (
+	mnGetHMenu = 0x01E1
+	mfHilite   = 0x0080
+)
+
+// threadPopups returns the windows of the popup menus the main thread
+// shows: menus of other threads and processes are not the app's.
+func threadPopups() []uintptr {
+	findWindowEx := user32.NewProc("FindWindowExW")
+	threadOf := user32.NewProc("GetWindowThreadProcessId")
+	class := u16("#32768")
+	thread := uintptr(currentThreadID())
+	var popups []uintptr
+	for after := uintptr(0); ; {
+		h, _, _ := findWindowEx.Call(0, after, uintptr(unsafe.Pointer(class)), 0)
+		if h == 0 {
+			return popups
+		}
+		after = h
+		if t, _, _ := threadOf.Call(h, 0); t != thread {
+			continue
+		}
+		if visible, _, _ := procIsWindowVisible.Call(h); visible != 0 {
+			popups = append(popups, h)
+		}
+	}
+}
+
+// popupLabels returns the labels of the items of the popup menu of a
+// menu window, without the accelerators they show.
+func popupLabels(h uintptr) []string {
+	hmenu, _, _ := procSendMessageW.Call(h, mnGetHMenu, 0, 0)
+	if hmenu == 0 {
+		return nil
+	}
+	n, _, _ := procGetMenuItemCount.Call(hmenu)
+	labels := []string{}
+	for i := range int(int32(n)) {
+		if state, _, _ := procGetMenuState.Call(hmenu, uintptr(i), mfByPosition); state&mfSeparator != 0 {
+			labels = append(labels, "-")
+			continue
+		}
+		buf := make([]uint16, 256)
+		procGetMenuStringW.Call(hmenu, uintptr(i), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), mfByPosition)
+		label, _, _ := strings.Cut(syscall.UTF16ToString(buf), "\t")
+		labels = append(labels, label)
+	}
+	return labels
 }

@@ -17,9 +17,11 @@ wire protocol, TypeScript generation, and the checklist for adding features.
   packages, the plugins' packages in `plugins/`, and examples with a frontend, which keep it at their root like
   the project template, and `website`); Bun also installs and runs the template's scripts
   (Vite, the mygo-cli package). Nothing in an app may need Bun at run time.
-- **Scope:** system webview on macOS, Linux and Windows (WebView2). The
-  bundled CEF option is out of scope until asked. Other platforms must keep
-  compiling through `internal/unsupported`.
+- **Scope:** system webview on macOS, Linux and Windows (WebView2), and
+  native UI that MyGo draws itself (`WindowOptions.Content`, package `ui`;
+  see "Native UI" in the architecture guide). The bundled CEF option is out
+  of scope until asked. Other platforms must keep compiling through
+  `internal/unsupported`.
 - **Great DX over Electron parity.** Keep the familiar feel (app lifecycle,
   windows, menus) but design Go-first APIs: typed IPC via `mygo.Bind` and
   `mygo.NewEvent[T]` with the generated client, not string channels.
@@ -42,6 +44,9 @@ bun run --cwd packages/cli binaries        # cross-compile the CLI into the mygo
 go run ./cmd/mygo generate examples/todo   # regenerate an example's TypeScript client
 go run ./cmd/mygo dev examples/todo        # live reload (dev bundle in examples/todo/.mygo)
 go run ./cmd/mygo build examples/todo      # .app + .dmg in examples/todo/build
+go run ./examples/gallery                  # the native UI toolkit's tour
+go generate ./internal/gpu/d3d11           # recompile the Direct3D shader (on Windows)
+go generate ./internal/gpu/metal           # recompile the Metal shader (on macOS, with Xcode)
 bun run --cwd website dev                  # the website, with docs/ at /docs (see website/README.md)
 ```
 

@@ -54,7 +54,13 @@ func initMenuCallbacks() {
 		id := int(data)
 		if cmd, ok := editCommands[itemRoles[id]]; ok {
 			for _, w := range b.windows {
-				if gtkWindowIsActive(w.win) {
+				if gtkWindowIsActive(w.win) && w.surface != nil {
+					role := itemRoles[id]
+					if role == "pasteAndMatchStyle" {
+						role = "paste"
+					}
+					w.h.SurfaceEvent(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: role})
+				} else if gtkWindowIsActive(w.win) {
 					webkitWebViewExecuteEditingCommand(w.web, cs(cmd))
 				}
 			}
@@ -344,7 +350,7 @@ func (b *Backend) PopupMenu(m *platform.Menu, pw platform.Window, pos *platform.
 		gtkWidgetDestroy(menu) // nowhere to show it
 		return
 	}
-	event, anchor := w.press.event, gtkWidgetGetWindow(w.web)
+	event, anchor := w.popupTrigger(), w.contentWindow()
 	const northWest = 1 // GDK_GRAVITY_NORTH_WEST
 	switch {
 	case pos != nil && anchor != 0:

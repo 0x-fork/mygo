@@ -40,7 +40,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth dbus-x11
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth dbus-x11 libgl1-mesa-dri libglx-mesa0 libegl-mesa0
       - run: bun install --frozen-lockfile
       - name: Build the JavaScript packages
         run: bun run build
@@ -82,3 +82,42 @@ jobs:
           XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
           XDG_CONFIG_HOME: ${{ runner.temp }}/xdg-config
         run: xvfb-run -a dbus-run-session -- go test ./internal/e2e
+      # Runners have no GPU, so native UI draws on the CPU above; MYGO_GPU=1
+      # draws it with OpenGL all the same, on Mesa's llvmpipe.
+      - name: GUI tests of native UI drawn with OpenGL
+        if: runner.os == 'Linux'
+        env:
+          MYGO_E2E: 1
+          MYGO_GPU: 1
+        run: xvfb-run -a dbus-run-session -- go test -run 'TestContentWindow' ./internal/e2e
+
+  # Windows on ARM64, which no machine of the maintainers runs: DirectWrite's
+  # methods taking floats go through purego, which sets the floating point
+  # registers syscall leaves alone there, and Direct3D 11 draws native UI.
+  # The JavaScript packages are the same everywhere, so Bun is left out.
+  windows-arm64:
+    name: Windows ARM64
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Restore NSIS
+        id: nsis
+        uses: actions/cache/restore@v6
+        with:
+          path: ~\AppData\Local\mygo\nsis-*
+          key: nsis-${{ hashFiles('cmd/mygo/nsis.go') }}
+      - run: go test ./...
+      - name: Save NSIS
+        if: always() && steps.nsis.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~\AppData\Local\mygo\nsis-*
+          key: ${{ steps.nsis.outputs.cache-primary-key }}
+      - name: GUI tests of native UI
+        env:
+          MYGO_E2E: 1
+        run: go test -run 'TestContentWindow' ./internal/e2e

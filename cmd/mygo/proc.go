@@ -75,6 +75,9 @@ func buildBinaryContext(ctx context.Context, c *Config, out string, env []string
 // generateBindings runs a compiled app in generate mode, which writes the
 // TypeScript client when it changed.
 func generateBindings(c *Config, binary string) error {
+	if c.Bindings == "" {
+		return nil // no frontend
+	}
 	out := c.path(c.Bindings)
 	before, _ := os.ReadFile(out)
 	cmd := exec.Command(binary)
@@ -92,8 +95,11 @@ func generateBindings(c *Config, binary string) error {
 }
 
 // writeClient builds the app for this computer and writes its TypeScript
-// client.
+// client, when it has a frontend.
 func writeClient(c *Config) error {
+	if c.Bindings == "" {
+		return nil
+	}
 	bin := tempBinary(c.executableName())
 	defer os.Remove(bin)
 	if err := buildBinary(c, bin, nil); err != nil {

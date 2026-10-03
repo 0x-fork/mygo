@@ -36,6 +36,7 @@ before changing anything under `internal/`.
 .                       package mygo: the public API
 ├── app.go              lifecycle, quit sequence, Dock, paths (paths.go)
 ├── window.go           Window: native window + its page, events, Eval
+├── content.go          Content: windows showing native UI instead of a page
 ├── ipc.go              Bind/BindAs, method calls, Event[T], CallerWindow
 ├── plugin.go           Plugin and Use: services bound as "plugin:<name>"
 ├── channel.go          Channel[T]: values streamed to a call's page
@@ -57,6 +58,14 @@ before changing anything under `internal/`.
 │   ├── unsupported/    stub for other platforms
 │   ├── fake/           in-memory backend for unit tests
 │   ├── bridge/         embeds bridge.js, built from packages/bridge
+│   ├── surface/        the connection between a window and its native UI
+│   ├── scene/          display lists and glyph atlases, what renderers draw
+│   ├── text/           fonts, shaping, line breaking, editing, glyph rasterization
+│   ├── vec/            the coverage rasterizer of glyphs and paths
+│   ├── raster/         the CPU renderer of scenes
+│   ├── gpu/            the instances GPU renderers draw, and gputest/ for their tests
+│   ├── gpu/d3d11/      the Direct3D 11 renderer of scenes
+│   ├── gpu/metal/      the Metal renderer of scenes
 │   ├── tsgen/          TypeScript client generator
 │   ├── accelerator/    parses "CmdOrCtrl+Shift+K"
 │   ├── update/         update manifests, signatures, archives and delta updates
@@ -69,8 +78,10 @@ before changing anything under `internal/`.
 ├── plugins/            official plugins, each a Go package and its npm
 │                       package (@mygo-plugins/<name>) side by side: fetch,
 │                       websocket; and updater, the update window, Go only
+├── ui/                 native UI: views, layout, widgets, text editing, Tester
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
-├── examples/           hello, todo, frameless, native, vibrancy
+├── examples/           hello, todo, frameless, native, vibrancy; counter-native
+│                       and gallery (native UI)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
@@ -207,10 +218,15 @@ purego gives three primitives, used everywhere:
 
 ### Linux (`internal/linux`)
 
-- `ffi.go` `dlopen`s GLib, GObject, GIO, GDK, GTK 3, WebKitGTK 4.1 (4.0),
-  JavaScriptCore, libsoup 3 (2.4), cairo, GdkPixbuf and, when installed,
-  AppIndicator. Symbols from newer WebKitGTK versions are bound optionally
-  and feature-detected (`webkitWebViewCallAsyncJavascriptFunction != nil`).
+- `ffi.go` `dlopen`s GLib, GObject, GIO, GDK, GTK 3, cairo, GdkPixbuf
+  and, when installed, AppIndicator. WebKitGTK 4.1 (4.0), JavaScriptCore
+  and libsoup 3 (2.4), which only windows showing web pages need, load
+  with the first such window (`webKit`), or to clear browsing data: an app
+  that shows only native UI never maps them and the 75 or so libraries
+  they bring, some 7 MB and 20 ms of startup. Without them, `errWebKit`
+  says what to install when such a window is created. Symbols from newer
+  WebKitGTK versions are bound optionally and feature-detected
+  (`webkitWebViewCallAsyncJavascriptFunction != nil`).
 - Signals are connected with `g_signal_connect_data`, passing the window id as
   user data; `Backend.window(data)` resolves it and ignores closed windows.
   GDK event structs are read at fixed 64-bit offsets (`field[T]`).
@@ -320,7 +336,11 @@ purego gives three primitives, used everywhere:
 - **ABI.** On x64, structs over 8 bytes are passed by reference and Go
   mirrors the first integer arguments into the XMM registers, so doubles can
   be passed as bits. On ARM64, 16-byte structs travel in two registers and
-  floats cannot be passed, so zoom falls back to CSS (`abi_*.go`).
+  floats cannot be passed, so zoom falls back to CSS (`abi_*.go`). Go
+  callbacks read only integer registers: the two methods of UI Automation
+  that take doubles enter through thunks in assembly (`uia_*.s`), which
+  move the doubles' bits to the integer registers of their positions,
+  touching only registers a call may change, and jump to the callbacks.
 - DPI: the process is per-monitor aware (v2); the backend converts between
   pixels and DIPs with the window's or monitor's DPI. Frameless windows, and
   those with a hidden title bar, drop the caption in `WM_NCCALCSIZE` but
@@ -827,12 +847,258 @@ backend, which:
   bar, tray, popup) so `UpdateMenuItem` can change label/state in place and
   rebuilt menus release their items,
 - performs edit roles natively (first responder on macOS,
-  `webkit_web_view_execute_editing_command` on Linux) and reports everything
+  `webkit_web_view_execute_editing_command` on Linux), or sends them to a
+  window showing native UI as a `SurfaceCommand`, and reports everything
   else through `AppHandler.MenuItemClicked`; the core toggles checkbox/radio
   state, performs window and view roles and calls `Click`.
 
 macOS gets a default menu bar (App, File, Edit, View, Window), which is what
 makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
+
+## Native UI (`ui`)
+
+A window with `WindowOptions.Content` shows a user interface MyGo draws
+itself instead of a web page. The layers stay as everywhere else: the
+toolkit (`ui`) is plain Go above the platform contract, a backend only
+provides a surface to draw on and its input, and renderers know nothing of
+either.
+
+```
+ view (Go) ──► ui: build, layout, paint ──► internal/scene ──► internal/gpu/d3d11 | internal/raster
+                 ▲       └─ internal/text: DirectWrite | Core Text | Pango, glyph and mask atlases
+                 │
+ internal/surface.Conn ◄── content.go (package mygo) ◄── platform.Surface: darwin | linux | windows | fake
+```
+
+- **The surface.** With `platform.WindowOptions.Surface`, a backend creates
+  a view MyGo draws in place of the webview: a layer-backed NSView on
+  macOS, a GtkGLArea on Linux (a GtkDrawingArea where OpenGL would not run
+  on a GPU), a child window of class `MyGoSurface` on Windows.
+  `platform.Surface` gives its native handles (for a swap chain, a layer,
+  or the GtkGLArea while its `render` signal draws a frame, with its
+  context current), size and scale; asks for a frame (`RequestFrame`: a
+  paused `CADisplayLink`, before macOS 14 an `NSTimer` at the display's
+  rate, `gtk_widget_queue_draw`, `InvalidateRect`); presents
+  pixels drawn on the CPU (`PresentPixels`: a CGImage as the layer's
+  contents, cairo in the `draw` signal, `SetDIBitsToDevice` in `WM_PAINT`);
+  sets the cursor; and turns the input method on and off at the caret
+  (NSTextInputClient, GtkIMContext, IMM32), with the text around it, up to
+  512 runes on each side (`SetTextInput`). Everything else comes through
+  `WindowHandler.SurfaceEvent`, in DIPs: frames, resizes, the pointer, the
+  wheel, keys, text, compositions, focus, the edit roles of menus
+  (`SurfaceCommand`), files dragged and dropped, and assistive technology.
+  Input methods name what text and compositions replace in the text
+  around the caret (`Replace`, `From`, `To`): NSTextInputClient's
+  replacement ranges, GtkIMContext's `delete-surrounding`, IMM32's
+  reconversion (`IMR_CONFIRMRECONVERTSTRING`). Files dragged over the
+  surface (NSDraggingDestination, a GTK drag destination, an OLE
+  `IDropTarget`) are `FileDragOver` events, whose answer the drag source
+  shows, and a drop a `FileDrop`; files the content does not take go to
+  `OnFileDrop`.
+- **Assistive technology.** Once it asks for a surface's content, the
+  backend sends `AccessibilityOn`, and the engine describes every frame
+  (`ui/access.go`) as a `platform.AccessTree`: nodes in pre-order with
+  roles, names, values, ranges, states, bounds and actions, under
+  `UpdateAccessibility`. Backends keep a native object per node ID and
+  tell the system what changed between trees: subclasses of
+  `NSAccessibilityElement` and AppKit's notifications on macOS; on Linux,
+  ATK objects of GObject types registered through purego below the
+  accessible of a `GtkGLArea` or `GtkDrawingArea` subclass, with ATK's
+  signals, which GTK bridges to AT-SPI; on Windows, UI Automation
+  fragments, COM objects with control patterns, answering `WM_GETOBJECT`,
+  with UI Automation's events.
+  What assistive technology does comes back as `AccessAction` events,
+  which the engine performs as the pointer or the keyboard would.
+- **The connection.** `content.go` attaches the content to its window
+  through `internal/surface.Conn`, which carries the surface and, as
+  functions, what the content needs of the app (the clipboard, dragging
+  the window, the appearance, the room of a hidden title bar's controls,
+  opening URLs, context menus), so `ui` imports neither
+  `mygo` nor a backend, and an app without native UI links none of it.
+  `Window.Update` and `Invalidate` coalesce redraws asked from any goroutine
+  into one frame on the main thread. Page methods return `errNoPage` or do
+  nothing.
+- **Frames.** The engine (`ui/runtime.go`) calls the view to build a
+  frame, again (up to three times) when a handler changed the state while
+  it built, so the frame shows the outcome; lays it out with flexbox
+  (`layout.go`); commits the boxes to the elements' states with the hit
+  list in paint order, the focus order and the labels; paints a
+  `scene.Scene`; and presents it. Input between frames goes to the states
+  of the last frame's elements. An element's identity hashes its parent's
+  with its position or `Key`, so focus, scroll offsets, editors and
+  animations survive rebuilding. Frames happen only when asked: input,
+  `Invalidate`, `After`, or `AnimationFrame` while something moves.
+- **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
+  menu key marks the element, from the states of the last frame, and the
+  next frame runs its `ContextMenu` function to collect a `platform.Menu`;
+  after the frame, package mygo shows it with `Menu.popup`, posted to the
+  main loop, since native menus wait in a loop of their own. A choice
+  comes back as the item's place and label, which the next frame's run of
+  the function matches to report `Chosen`; text inputs' menus queue their
+  editing commands instead.
+- **Scenes** are flat lists of operations in device pixels: rounded
+  rectangles with borders and linear gradients, shadows (blurred rounded
+  rectangles), runs of glyphs, images, and pushed and popped clips.
+  Renderers draw the whole scene each frame and retain only textures.
+- **Text.** `internal/text` lays out text with the system's own text stack,
+  behind a small `engine` interface: DirectWrite on Windows
+  (`IDWriteTextLayout`, with an `IDWriteTextRenderer` implemented in Go
+  collecting its glyph runs), Core Text on macOS (`CTTypesetter`, with
+  `NSFont` for the system font's weights) and Pango on Linux (with
+  fontconfig and HarfBuzz underneath, as in GTK). They find the fonts, fall
+  back to other fonts for what one lacks, shape, run the bidirectional
+  algorithm and break lines; font files stay memory mapped and shared with
+  every other process. The package assembles their lines into layouts, with
+  its own whitespace trimming, ellipsis, alignment, carets and selection, so
+  those behave the same everywhere, and caches layouts by their parameters.
+  The engines rasterize glyphs too (`IDWriteGlyphRunAnalysis`,
+  `CTFontDrawGlyphs`, cairo), at four subpixel offsets, into a coverage
+  atlas, and color glyphs (emoji) into a color atlas; paths drawn with
+  `Painter` are masks in the coverage atlas, rasterized by `internal/vec`.
+  So are icons: `internal/svg` parses SVG documents (with `encoding/xml`
+  and its own small CSS cascade) into nodes of paths, paints and layers,
+  and draws them on the CPU with `internal/vec`, compositing gradients,
+  group opacity, clip paths and masks in layers of premultiplied pixels;
+  `ui.Icon` keeps the coverage of that drawing for each size, which the
+  GPU tints like a glyph, and `ui.Image` the colored pixels, as images
+  whose textures it updates in place when only the text color changes.
+  An atlas logs the rectangles that change, so renderers upload only those.
+  DirectWrite methods taking floats are called through purego, which sets
+  the floating point registers that `syscall` leaves alone on ARM64.
+  Letter spacing and OpenType features go to each engine's own, so lines
+  break with them: `IDWriteTextLayout1`'s character spacing and an
+  `IDWriteTypography`, Core Text's tracking and a font copied with feature
+  settings, Pango's attributes. So do the spans of rich text, which style
+  ranges of runes (`text.Span`): DirectWrite's setters over a range, the
+  fonts of a Core Text attributed string's ranges, Pango's attributes
+  between byte indices. `Params.Spans` holds them encoded as a string, so
+  `Params` stays a key of the layout cache. Colors, underlines and
+  strikethroughs of spans only paint, by the rune each glyph starts.
+  Fontconfig knows no desktop's interface font, so on Linux `system-ui`
+  stands for the family of GTK's `gtk-font-name` first
+  (`platform.Theme.UIFont`, which package ui gives `SetUIFamily` with each
+  change of the appearance).
+- **Atlas lifetime.** A mask drawn for the first time goes to the
+  transient zone at the bottom of the atlas, which the next frame frees,
+  and moves to the lasting zone at the top once another frame draws it, so
+  animated shapes never fill the atlas. When an atlas fills up during a
+  frame anyway, the engine calls `MakeRoom`, which repacks what the frame
+  drew, grows the atlas when that is much of it and forgets the rest, and
+  paints the frame again: no frame shows with glyphs missing.
+- **Renderers.** `internal/gpu` turns a scene into one instanced quad per
+  operation, in batches that share a scissor rectangle and an image, for
+  one shader that computes the signed distance to rounded rectangles, Evan
+  Wallace's blurred rounded box, gradients, atlas coverage and the
+  innermost rounded clip; outer clips are scissor rectangles. Every GPU
+  renderer draws these instances:
+  - `internal/gpu/d3d11` with a shader compiled to DXBC ahead of time
+    (`go generate ./internal/gpu/d3d11` on Windows, with the system's
+    `d3dcompiler_47.dll`), so apps carry no shader compiler. The
+    generated file records the SHA-256 of the source it came from, line
+    endings aside (`gpu.SourceSum`), as Metal's does: bytecode older than
+    `shader.hlsl` falls back to compiling that with the same DLL, which
+    Windows has, and its test fails. It draws into a flip-model swap
+    chain on the surface's window, with WARP when no hardware device
+    works;
+  - `internal/gpu/metal` with a shader in Metal Shading Language
+    compiled into a Metal library ahead of time (`go generate
+    ./internal/gpu/metal` on macOS, with Xcode's `metal` tools), which
+    spares a first launch the 100 to 150 ms Metal takes to compile the
+    source until it has cached it; a library older than `shader.metal`
+    falls back to that, and its test fails. It draws into a CAMetalLayer
+    it adds to the surface view's layer. Its frames present with the Core
+    Animation transaction (`presentsWithTransaction`), so a live resize
+    shows no stretched frames, and each frame waits for the GPU to finish
+    the last before it updates the textures and the instance buffer the
+    last read, so two drawables do rather than the three a layer makes
+    while a window animates. Two seconds after the last frame, as the
+    driver frees its own memory of frames, a timer shrinks the drawables,
+    which frees all but the one shown, until the next frame makes them
+    again: an idle window keeps one frame of memory. It also presents
+    frames drawn on the CPU without the GPU (`PresentPixels`): it locks
+    the next drawable's IOSurface and copies what changed since the frame
+    drawn in memory that drawable holds (it keeps the damage of the last
+    four, and whether the GPU drew into a drawable since), all of it after
+    the GPU did, and presents it, with no command buffer: the driver
+    allocates its 32 to 44 MB only for frames that run on the GPU, and the
+    CPU draws a small change in a fraction of the time the GPU takes to
+    start. Its drawables are not `framebufferOnly` for that;
+  - `internal/gpu/gl` with the shader in GLSL 3.30 or GLSL ES 3.00, which
+    the driver compiles when the renderer starts, since these versions
+    have no compiled form every driver takes, and drivers keep what they
+    compiled between launches, as Mesa and NVIDIA's do. It draws into
+    the framebuffer of the GtkGLArea, which GTK shows. GL functions come
+    from libepoxy, as GTK's do. Instances draw from per-instance
+    attributes, pointed at each batch's first since OpenGL ES 3.0 has no
+    base instance. The area's `create-context` asks GDK for OpenGL 3.3,
+    else OpenGL ES 3.0, as GPUs with OpenGL ES alone have, and so does
+    the probe below (`glContext`).
+
+  Linux draws with OpenGL only where it runs on a GPU: the backend makes
+  one context, on a window that never shows, when the first surface is
+  created, and reads its renderer. A software renderer such as Mesa's
+  llvmpipe (in virtual machines, in WSL without `GALLIUM_DRIVER=d3d12`)
+  redraws every pixel of every frame on the CPU, ten times the CPU
+  renderer's work on an animated page; and once a window has a GL context
+  GTK composites it with OpenGL, so the choice is made before any surface
+  has one; `MYGO_GPU=1` skips it and draws with OpenGL wherever GDK makes a
+  context, as the GUI tests of CI do on llvmpipe. The context loads Mesa
+  for good, about 20 MB, so the devices answer first where they can: no
+  probe without NVIDIA's devices or a render node of a DRM driver with 3D
+  (simpledrm, bochs, VirtualBox's or Hyper-V's only show what the CPU
+  drew), nor on WSL's device without `GALLIUM_DRIVER=d3d12`. A GtkGLArea shows only
+  what OpenGL draws into it: when its GL renderer fails all the same, the
+  frames drawn in memory go through OpenGL too (`gl.Presenter` uploads
+  them and blits them into the area's framebuffer).
+
+  `internal/raster` draws the same scene with the same formulas on the CPU,
+  solid spans inside shapes and only the edges of shadows computed, and
+  redraws only what differs from the last scene (`raster.Renderer`): it is
+  the renderer of tests, of `MYGO_GPU=0` and of Linux without a GPU, and
+  the one a window falls back to when its GPU renderer fails. Frames that
+  are not the surface's (a capture before the first frame) are kept, not
+  drawn: OpenGL's context is current only in the surface's.
+
+  Where the GPU renderer presents frames drawn in memory (Metal's), the
+  window host draws on the CPU the frames that change little, measuring
+  first what `raster.Renderer` would redraw (`Changes`): a frame after a
+  pause of 50 ms or more, unless it redraws more than 8 million pixels,
+  and in a burst of frames one that redraws at most a sixteenth of the
+  window: clocks, typing, the pointer over a button, a progress bar.
+  Scrolling, resizing and animations of much of the window draw on the
+  GPU, and the next frame after a pause catches up on the CPU. Once the
+  GPU has drawn alone for a second, the host frees the CPU's frame. The
+  gallery, which updates once a second, takes 0.2 to 0.4% of a core and
+  67 to 77 MB on macOS this way, against 0.4 to 0.5% and 110 to 116 MB on
+  the GPU alone.
+
+  A GPU renderer that fails (a driver reset, a GPU unplugged, sleep) is
+  released and another made in the same frame (`ui/window.go`): the GPU
+  may be back already, and on Windows WARP stands in, presenting through a
+  swap chain, as GDI cannot show frames once a flip-model swap chain has
+  drawn into a window. Without one, frames are drawn in memory, and a
+  frame tries again after a wait that doubles from one second to half a
+  minute; a renderer drawing in software in place of a GPU the window had
+  tries for it the same way. A window without a GPU at its first frame
+  draws in memory for good.
+- **Tests.** `ui.Tester` runs views against a host in memory
+  (`ui/headless.go`) with the CPU renderer; the fake backend's surface lets
+  the core's tests drive content windows through `package mygo`.
+  `BenchmarkFrame` in `ui` measures a frame of a large window on the CPU.
+  The GPU renderers' tests draw `gputest.Scene` and compare it with the
+  CPU renderer's drawing: on Windows in a hidden window, on macOS into an
+  offscreen texture, on Linux into a framebuffer of a context EGL makes
+  without a window (Mesa's surfaceless platform, llvmpipe without a GPU),
+  once with OpenGL 3.3 and once with OpenGL ES 3.0.
+
+A new widget composes elements (`ui/widgets.go`), keeps what it needs from
+frame to frame with `Local` or in `state`, declares its interaction with
+element flags (`flagClickable`, `flagFocusable`, …), paints in `Draw`, and
+gets a test with `Tester`. A new GPU renderer draws the instances of
+`gpu.Builder` with a port of the shader, syncs atlases with
+`Atlas.Changes`, is created in `ui/gpu_<os>.go` behind `gpuRenderer`, and
+has a test that compares its drawing of `gputest.Scene` with the CPU
+renderer's (`gputest.Compare`).
 
 ## CLI (`cmd/mygo`)
 
@@ -850,6 +1116,12 @@ makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
   do not meet); `vite.config.ts` pins the dev server to the port of `devUrl`
   and does not watch the development app and builds. Names reach the
   templates escaped for their language (`json`, `printf "%q"`, `html`).
+  `-template native` renders `cmd/mygo/template/native` instead (the
+  frontend's is `template/web`): an app of native UI with a test of its
+  view and a `mygo.json`, whose module has the CLI as a tool (`go get
+  -tool`, or a `tool` line beside the `replace` of a checkout), for
+  `go tool mygo dev` and `build`; no Bun. Without a frontend in the
+  configuration, `bindings` stays empty and the CLI writes no client.
 - The configuration is `mygo.config.ts`, or `mygo.json` (`config.go`,
   `config_ts.go`). For the former, Bun, else Node.js 22.6 or later (with
   `--experimental-strip-types` before 22.18 and 23.6), runs a loader that
@@ -1024,7 +1296,8 @@ profile).
 | CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, resources (platform directories, universal pairs, staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime, `mygo-runtime` and the plugins' packages (against a fake Go side on the real runtime, `plugins/fake-go.ts`) |
 | plugins | `go test ./plugins/...` | the fetch plugin against `httptest` servers, the WebSocket client against a test server (ordering, fragments, pings, closing handshakes) |
-| GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, channels, protocol, Eval, geometry, capture, menus, window.open; on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
+| native UI | `go test ./ui ./internal/text ./internal/scene ./internal/raster ./internal/svg ./internal/gpu/...` | the GPU renderers against the CPU renderer (Direct3D on Windows, Metal on macOS, OpenGL on Linux); views through `Tester`: input, focus, editing, lists, overlays, frames that fill the glyph atlas; text layout and caret geometry; atlas zones and repacking; the CPU renderer against its formulas; SVG parsing and drawing, with `FuzzParse`; `go test -run '^$' -bench . ./ui` times a frame |
+| GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, channels, protocol, Eval, geometry, capture, menus, window.open, native UI (frames, clicks, input methods replacing typed text, file drops, assistive technology reading and acting; on macOS typing, skipped while an input method is selected, and composing; on Linux with `MYGO_GPU=1`, what OpenGL drew in the GtkGLArea); on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
 
 The XDG variables let the URL scheme test check that GLib opens the scheme
 with the handler it registered; without them it writes to temporary
@@ -1162,3 +1435,7 @@ which npm allows only for packages that exist: the first release uses an
 | content protection, click-through | yes | ignored | yes |
 | custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `http://<scheme>.localhost` (the page's `location`) |
 | window.open | keeps the opener | independent window | independent window |
+| native UI surface | layer-backed NSView, frames from `CADisplayLink` (a timer at the display's rate before macOS 14), input methods through NSTextInputClient | GtkGLArea (GtkDrawingArea without a GPU), GtkIMMulticontext | `MyGoSurface` child window, IMM32 |
+| native UI file drops | NSDraggingDestination | GTK drag destination (`text/uri-list`) | OLE `IDropTarget` |
+| native UI accessibility | `NSAccessibilityElement` subclasses | ATK objects (GObject types registered through purego), bridged to AT-SPI by GTK | UI Automation fragments (COM objects; assembly thunks for the methods taking doubles) |
+| native UI rendering | Metal, into a CAMetalLayer presenting with the Core Animation transaction | OpenGL 3.3 or ES 3.0 in the GtkGLArea's render signal; on the CPU, painted with cairo, where OpenGL runs on the CPU | Direct3D 11 (WARP without a GPU), flip-model swap chain |

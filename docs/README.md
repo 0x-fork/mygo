@@ -5,7 +5,8 @@ in the webview of the operating system (WKWebView on macOS, WebKitGTK on
 Linux, WebView2 on Windows) instead of a bundled browser, so an app is a
 single Go program of a few megabytes. The frontend calls your Go code
 through a TypeScript client that MyGo generates from it, with the types of
-your Go structs and the documentation of your methods.
+your Go structs and the documentation of your methods. Windows can also
+show a [native UI](ui.md) that MyGo draws itself, written in Go alone.
 
 ```go
 type Greeter struct{}
@@ -44,6 +45,9 @@ document.body.textContent = await Greeter.greet("Ada");
 - [Windows](windows.md): creating and arranging windows, their events, and
   what they do with their pages: navigation, downloads, permissions,
   printing.
+- [Native UI](ui.md) (experimental): windows whose interface MyGo draws
+  itself, on the GPU, written in Go with package `ui` instead of a web
+  page.
 - [The application](app.md): the lifecycle, quitting, a single instance,
   deep links, file associations, starting at login and well-known
   directories.
@@ -90,7 +94,7 @@ Apps run on:
 | Platform | Needs |
 |---|---|
 | macOS 12 or later | nothing: WKWebView is part of macOS |
-| Linux (x64, arm64) | GTK 3 and WebKitGTK 4.1 (or 4.0): `libwebkit2gtk-4.1-0` on Debian and Ubuntu, `webkit2gtk4.1` on Fedora. Tray icons also need `libayatana-appindicator3`. |
+| Linux (x64, arm64) | GTK 3 and WebKitGTK 4.1 (or 4.0): `libwebkit2gtk-4.1-0` on Debian and Ubuntu, `webkit2gtk4.1` on Fedora; apps whose windows all show [native UI](ui.md) need GTK 3 alone. Tray icons also need `libayatana-appindicator3`. |
 | Windows 10 and 11 (x64, arm64) | the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/), which Windows 11 includes |
 
 `mygo doctor` checks a development machine.

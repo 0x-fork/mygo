@@ -1,0 +1,178 @@
+// Package text lays out text and rasterizes glyphs with the system's own
+// text stack: DirectWrite on Windows, Core Text on macOS and Pango with
+// cairo on Linux. They find the fonts, fall back to other fonts for what
+// one lacks, shape and break lines; the package assembles their lines into
+// layouts, with carets, selection and truncation of its own, and keeps the
+// glyphs in the atlases scenes draw from. All methods of System are safe
+// from any goroutine; the ui package uses them from the main thread.
+package text
+
+import (
+	"strconv"
+	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
+)
+
+// An engine is the system's own text stack: DirectWrite on Windows, Core
+// Text on macOS and Pango on Linux. It finds fonts, falling back to the
+// system's choices for what a font lacks, shapes and breaks paragraphs
+// into lines, and rasterizes glyphs. The System calls it with its lock
+// held, so engines need no locking of their own.
+type engine interface {
+	// font returns the font a style asks for, at its size, which sets the
+	// default line height: the first family of the style the system has,
+	// or its user interface font.
+	font(style Style) *Font
+	// shape breaks text, a paragraph without newlines, into lines of at
+	// most width DIPs, or into one line when width is 0, and shapes them.
+	// rtl sets the paragraph's direction; wholeWords lets a word longer
+	// than a line overflow it instead of breaking it. spans style runs of
+	// the text apart from style, with their ends relative to it.
+	shape(text []rune, style Style, spans []Span, width float32, rtl, wholeWords bool) []shapedLine
+	// glyph rasterizes glyph id of f at scale pixels per DIP, its origin
+	// dx pixels (0 ≤ dx < 1) right of the left edge of a pixel.
+	glyph(f *Font, id uint32, scale, dx float32) bitmap
+	// register adds the fonts of a font file under family, or under their
+	// own family names when family is "".
+	register(data []byte, family string) error
+}
+
+// shapedLine is a line of a paragraph as an engine laid it out.
+type shapedLine struct {
+	// start and end are the runes of the paragraph the line holds,
+	// whitespace ending it included.
+	start, end int
+	runs       []shapedRun
+}
+
+// shapedRun is a run of glyphs of one font and direction.
+type shapedRun struct {
+	font *Font
+	// start and end are the runes of the paragraph the run holds.
+	start, end int
+	// glyphs are positioned relative to the start of the line's pen, Y
+	// down from the baseline, with Cluster the paragraph's rune that
+	// starts the glyph's cluster; Runes is set later.
+	glyphs []Glyph
+}
+
+// bitmap is a rasterized glyph.
+type bitmap struct {
+	// left, top, w and h are the image's box in pixels relative to the
+	// glyph's origin, y down.
+	left, top, w, h int
+	// pix holds a byte of coverage per pixel, or for color glyphs four
+	// bytes of premultiplied RGBA.
+	pix   []byte
+	color bool
+}
+
+// Font is a font of the system, or of the app, at a size. Layouts and
+// glyphs refer to fonts by pointer: an engine returns the same Font for
+// the same font and size.
+type Font struct {
+	// Size is the em size in DIPs.
+	Size float32
+	// Ascent, Descent and LineGap are the font's vertical metrics in
+	// DIPs.
+	Ascent, Descent, LineGap float32
+
+	native uintptr // the engine's font
+}
+
+// generic names the families "system-ui", "sans-serif", "serif" and
+// "monospace" stand for, and their aliases: "" when family is none.
+func generic(family string) string {
+	switch strings.ToLower(family) {
+	case "", "system-ui", "ui-sans-serif", "-apple-system", "blinkmacsystemfont":
+		return "system-ui"
+	case "sans-serif":
+		return "sans-serif"
+	case "serif", "ui-serif":
+		return "serif"
+	case "monospace", "ui-monospace":
+		return "monospace"
+	}
+	return ""
+}
+
+// feature is an OpenType feature of Style.Features: its tag and value, 0
+// to turn it off, 1 on, or the alternate to pick.
+type feature struct {
+	tag   [4]byte
+	value uint32
+}
+
+// features parses Style.Features, leaving out what is not a tag of four
+// printable characters with an optional =value.
+func features(list string) []feature {
+	var out []feature
+	for _, item := range strings.Split(list, ",") {
+		tag, value, set := strings.Cut(strings.TrimSpace(item), "=")
+		tag = strings.TrimSpace(tag)
+		f := feature{value: 1}
+		if set {
+			v, err := strconv.ParseUint(strings.TrimSpace(value), 10, 32)
+			if err != nil {
+				continue
+			}
+			f.value = uint32(v)
+		}
+		if len(tag) != 4 || strings.ContainsFunc(tag, func(r rune) bool { return r < 0x20 || r > 0x7e }) {
+			continue
+		}
+		copy(f.tag[:], tag)
+		out = append(out, f)
+	}
+	return out
+}
+
+// familyList splits a comma-separated list of families, without quotes.
+func familyList(family string) []string {
+	var out []string
+	for _, f := range strings.Split(family, ",") {
+		if f = strings.Trim(strings.TrimSpace(f), `"'`); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// utf16Text encodes runes as UTF-16, with the rune index of every code
+// unit and of the end.
+func utf16Text(runes []rune) (text []uint16, index []int) {
+	text = make([]uint16, 0, len(runes)+1)
+	index = make([]int, 0, len(runes)+1)
+	for i, r := range runes {
+		if r >= 0x10000 && r <= utf8.MaxRune {
+			a, b := utf16.EncodeRune(r)
+			text = append(text, uint16(a), uint16(b))
+			index = append(index, i, i)
+			continue
+		}
+		if r > 0xFFFF || (r >= 0xD800 && r < 0xE000) {
+			r = utf8.RuneError
+		}
+		text = append(text, uint16(r))
+		index = append(index, i)
+	}
+	index = append(index, len(runes))
+	return text, index
+}
+
+// utf8Text encodes runes as UTF-8, with the rune index of every byte and
+// of the end.
+func utf8Text(runes []rune) (text []byte, index []int) {
+	text = make([]byte, 0, len(runes)+1)
+	index = make([]int, 0, len(runes)+1)
+	for i, r := range runes {
+		n := len(text)
+		text = utf8.AppendRune(text, r)
+		for range len(text) - n {
+			index = append(index, i)
+		}
+	}
+	index = append(index, len(runes))
+	return text, index
+}

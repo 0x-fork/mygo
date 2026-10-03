@@ -57,6 +57,32 @@ Builds go to `dist/` (the frontend) and `build/` (the packaged apps), and
 the development app to `.mygo/`; `.gitignore` leaves them out. See
 [configuration](configuration.md) for the fields of `mygo.config.ts`.
 
+### A project of native UI
+
+`mygo init -template native my-app` creates an app whose window shows
+[native UI](ui.md), a user interface written in Go that MyGo draws itself:
+no frontend, no Bun.
+
+```
+my-app/
+├── main.go          the app: its state, its view and its window
+├── main_test.go     a test of the view, which runs without a window
+├── go.mod           with the CLI as a tool
+├── mygo.json        the app's name, identifier and version
+└── resources/
+    └── icon.png
+```
+
+```sh
+cd my-app
+go tool mygo dev      # develop with live reload
+go test               # test the view
+go tool mygo build    # package the app
+```
+
+`go tool mygo` runs the CLI at the version `go.mod` pins, which
+`go get -tool github.com/egoist/mygo/cmd/mygo@latest` updates with MyGo.
+
 ## Develop
 
 ```sh

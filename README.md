@@ -11,6 +11,9 @@ binary of a few megabytes, focused on low memory and CPU use.
   typed events; the TypeScript client is generated from your Go code.
 - **Desktop APIs**: windows, menus, tray, dialogs, notifications, global
   shortcuts, deep links, file associations and more.
+- **Native UI** (experimental): windows can also show an interface MyGo
+  draws itself on the GPU, written in Go alone with flexbox layout, widgets,
+  text editing and SVG icons, instead of a web page.
 - **Ready to ship**: app bundles and disk images, Windows installers, Debian
   packages and a Linux install script, code signing, notarization, and signed
   auto-updates with delta updates and an update window in the manner of

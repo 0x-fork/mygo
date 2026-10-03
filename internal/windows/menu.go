@@ -275,6 +275,16 @@ func editRole(w *window, role string) bool {
 		"undo": "undo", "redo": "redo", "cut": "cut", "copy": "copy",
 		"delete": "delete", "selectAll": "selectAll",
 	}
+	if w.surface != nil {
+		if role == "pasteAndMatchStyle" {
+			role = "paste"
+		}
+		if _, ok := commands[role]; !ok && role != "paste" {
+			return false
+		}
+		w.h.SurfaceEvent(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: role})
+		return true
+	}
 	switch role {
 	case "paste", "pasteAndMatchStyle":
 		text := clipboard{w.b}.ReadText()

@@ -197,6 +197,7 @@ func initCallbacks() {
 			return 0
 		})
 		initWindowCallbacks()
+		initSurfaceCallbacks()
 		initDownloadCallbacks()
 		initMenuCallbacks()
 		initSystemCallbacks()
@@ -289,6 +290,12 @@ func (a appController) Locale() string {
 func (a appController) Package() (platform.PackageInfo, bool) { return platform.PackageInfo{}, false }
 
 func (a appController) ClearBrowsingData(done func(error)) {
+	// Web views of earlier runs kept their data on disk: WebKitGTK clears
+	// it, loaded for that when no window has shown a web page yet.
+	if webKit() != nil {
+		done(nil) // no web view kept any data
+		return
+	}
 	const all = 1<<14 - 1 // WEBKIT_WEBSITE_DATA_ALL
 	manager := webkitWebContextGetWebsiteDataManager(webkitWebContextGetDefault())
 	id := pending.add(func(source, res ptr) {

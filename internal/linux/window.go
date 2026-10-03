@@ -48,6 +48,8 @@ type window struct {
 	// autoHideMenu shows the menu bar only while its menus are open;
 	// altAlone is an Alt press no other key or click has joined.
 	autoHideMenu, altAlone bool
+	// surface shows the content MyGo draws, in place of the web view.
+	surface *surface
 	// controls are the title buttons over the page of a window with a
 	// hidden title bar (titlebar.go), in an overlay with the web view.
 	controls *windowControls
@@ -101,6 +103,11 @@ func (b *Backend) window(data ptr) *window {
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
+	if !o.Surface {
+		if err := webKit(); err != nil {
+			return nil, err
+		}
+	}
 	b.nextID++
 	w := &window{b: b, id: b.nextID, h: h, opts: o, autoHideMenu: o.AutoHideMenu}
 	data := ptr(w.id)
@@ -152,11 +159,15 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if w.hiddenTitleBar() {
 		w.newControls()
 	}
-	w.createWebView()
-	if w.controls != nil {
-		gtkContainerAdd(w.controls.overlay, w.web)
+	if o.Surface {
+		w.createSurface()
 	} else {
-		gtkBoxPackStart(w.box, w.web, true, true, 0)
+		w.createWebView()
+	}
+	if w.controls != nil {
+		gtkContainerAdd(w.controls.overlay, w.contentWidget())
+	} else {
+		gtkBoxPackStart(w.box, w.contentWidget(), true, true, 0)
 	}
 	w.accel = gtkAccelGroupNew()
 	gtkWindowAddAccelGroup(w.win, w.accel)
@@ -174,7 +185,9 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	connect(w.win, "key-release-event", cbMenuKey, data)
 
 	b.windows[w.id] = w
-	b.byWebView[w.web] = w
+	if w.web != 0 {
+		b.byWebView[w.web] = w
+	}
 	gtkWidgetShowAll(w.box)
 	if o.FullScreen {
 		gtkWindowFullscreen(w.win)
@@ -273,9 +286,14 @@ func (w *window) cleanup() {
 	delete(w.b.windows, w.id)
 	delete(w.b.byWebView, w.web)
 	dropOwner(w.owner)
-	webkitUserContentManagerUnregisterHandler(w.ucm, cs("mygo"))
-	webkitUserContentManagerRemoveAllScripts(w.ucm)
-	gObjectUnref(w.ucm)
+	if w.surface != nil {
+		w.surface.destroy()
+	}
+	if w.ucm != 0 {
+		webkitUserContentManagerUnregisterHandler(w.ucm, cs("mygo"))
+		webkitUserContentManagerRemoveAllScripts(w.ucm)
+		gObjectUnref(w.ucm)
+	}
 	if w.press.event != 0 {
 		gdkEventFree(w.press.event)
 		w.press.event = 0
@@ -493,7 +511,9 @@ func (w *window) Center() {
 }
 
 func (w *window) SetBackgroundColor(c platform.Color) {
-	webkitWebViewSetBackgroundColor(w.web, &gdkRGBA{float64(c.R) / 255, float64(c.G) / 255, float64(c.B) / 255, float64(c.A) / 255})
+	if w.web != 0 {
+		webkitWebViewSetBackgroundColor(w.web, &gdkRGBA{float64(c.R) / 255, float64(c.G) / 255, float64(c.B) / 255, float64(c.A) / 255})
+	}
 }
 
 func (w *window) SetOpacity(v float64)      { gtkWidgetSetOpacity(w.win, v) }
@@ -539,12 +559,12 @@ var resizeEdges = [8]struct {
 func (w *window) resizeEdge(event ptr) int32 {
 	// GdkEventMotion and GdkEventButton: window 8, x 24, y 32.
 	if !w.undecorated() || w.state&(stateMaximized|stateFullscreen) != 0 ||
-		field[ptr](event, 8) != gtkWidgetGetWindow(w.web) || !gtkWindowGetResizable(w.win) {
+		field[ptr](event, 8) != w.contentWindow() || !gtkWindowGetResizable(w.win) {
 		return -1
 	}
 	x, y := field[float64](event, 24), field[float64](event, 32)
 	var page gdkRectangle
-	gtkWidgetGetAllocation(w.web, &page)
+	gtkWidgetGetAllocation(w.contentWidget(), &page)
 	width, height := float64(page.Width), float64(page.Height)
 	atTop := page.Y == 0 // no menu bar above the page
 	top, bottom := atTop && y < resizeInset, y >= height-resizeInset
@@ -593,7 +613,7 @@ func (w *window) showResizeCursor(edge int32) {
 	if edge < 0 && !c.on {
 		return
 	}
-	page := gtkWidgetGetWindow(w.web)
+	page := w.contentWindow()
 	current := gdkWindowGetCursor(page)
 	if edge < 0 {
 		if c.on && current == c.shown {
@@ -1068,23 +1088,9 @@ func initWindowCallbacks() {
 	// WebKit asks for the data of a drag while it moves over the page,
 	// before the drop; the uri-list of files gives their paths.
 	cbDragData = purego.NewCallback(func(widget, context ptr, x, y int32, sel ptr, info, time uint32, data ptr) {
-		w := b().window(data)
-		uris := gtkSelectionDataGetUris(sel)
-		if w == nil || uris == 0 {
-			return
+		if w := b().window(data); w != nil {
+			w.dragged = selectionPaths(sel)
 		}
-		defer gStrfreev(uris)
-		var paths []string
-		for i := uintptr(0); ; i++ {
-			uri := *(*ptr)(unsafe.Add(*(*unsafe.Pointer)(unsafe.Pointer(&uris)), i*unsafe.Sizeof(uris)))
-			if uri == 0 {
-				break
-			}
-			if p := takeStr(gFilenameFromURI(goStr(uri), 0, 0)); p != "" {
-				paths = append(paths, p)
-			}
-		}
-		w.dragged = paths
 	})
 	// Runs before WebKit's own handler, which gets the drop to the page.
 	cbDragDrop = purego.NewCallback(func(widget, context ptr, x, y int32, time uint32, data ptr) bool {

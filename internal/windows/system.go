@@ -405,6 +405,9 @@ type theme struct{ b *Backend }
 
 func (t theme) IsDark() bool { return t.b.isDark() }
 
+// UIFont is DirectWrite's to find: Segoe UI.
+func (theme) UIFont() string { return "" }
+
 func (t theme) SetSource(source string) {
 	t.b.themeSource = source
 	t.b.applyTheme()

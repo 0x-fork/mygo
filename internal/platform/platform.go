@@ -232,6 +232,11 @@ type WindowOptions struct {
 	// Native carries backend specific state, e.g. the WKWebViewConfiguration
 	// WebKit hands us for window.open().
 	Native uintptr
+
+	// Surface creates the window with a Surface, which content MyGo draws
+	// itself fills, instead of a webview: Window.Surface returns it, the
+	// webview methods do nothing and the webview options are ignored.
+	Surface bool
 }
 
 // UserScript is JavaScript injected into pages.
@@ -250,6 +255,9 @@ type Window interface {
 	Handle() uintptr
 	// WebViewHandle returns the native webview object.
 	WebViewHandle() uintptr
+	// Surface returns the drawing surface of a window created with
+	// WindowOptions.Surface, nil for others.
+	Surface() Surface
 
 	SetTitle(title string)
 	Title() string
@@ -405,6 +413,11 @@ type WindowHandler interface {
 	// PermissionRequested asks whether the page at origin may use kinds:
 	// "camera", "microphone", "geolocation" or "notifications".
 	PermissionRequested(kinds []string, origin string) bool
+
+	// SurfaceEvent delivers input on the window's Surface, and changes of
+	// it. For FileDragOver and FileDrop it reports whether the content
+	// takes the files where they are; it returns false for other events.
+	SurfaceEvent(ev SurfaceEvent) bool
 }
 
 // Navigation describes a pending navigation.
@@ -599,6 +612,9 @@ type Theme interface {
 	IsDark() bool
 	// SetSource is "system", "light" or "dark".
 	SetSource(source string)
+	// UIFont returns the family of the desktop's interface font where the
+	// system's text stack does not know it, as on Linux, else "".
+	UIFont() string
 }
 
 // PDFOptions configures Window.PrintToPDF; lengths are in inches.

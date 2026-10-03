@@ -57,6 +57,9 @@ type Backend struct {
 	// title bar (titlebar.go), captionFonts their glyphs by DPI.
 	captions     map[uintptr]*captionBar
 	captionFonts map[int]captionFont
+
+	// surfaces are the windows of the content MyGo draws (surface.go).
+	surfaces map[uintptr]*surface
 }
 
 var (
@@ -74,6 +77,7 @@ func New() *Backend {
 		themeSource:   "system",
 		captions:      map[uintptr]*captionBar{},
 		captionFonts:  map[int]captionFont{},
+		surfaces:      map[uintptr]*surface{},
 	}
 }
 
@@ -261,6 +265,10 @@ func wndProc(hwnd, m, wp, lp uintptr) uintptr {
 			}
 		} else if c := b.captions[hwnd]; c != nil {
 			if r, ok := c.message(hwnd, uint32(m), wp, lp); ok {
+				return r
+			}
+		} else if s := b.surfaces[hwnd]; s != nil {
+			if r, ok := s.message(hwnd, uint32(m), wp, lp); ok {
 				return r
 			}
 		}

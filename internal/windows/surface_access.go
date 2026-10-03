@@ -1,0 +1,846 @@
+//go:build windows && (amd64 || arm64)
+
+package windows
+
+import (
+	"math"
+	"slices"
+	"sync"
+	"syscall"
+	"unsafe"
+
+	"github.com/egoist/mygo/internal/platform"
+)
+
+// Assistive technology, such as Narrator, reads native UI through UI
+// Automation. The surface's window answers WM_GETOBJECT with a fragment
+// root whose fragments are the nodes of the content's tree: COM objects
+// with the control patterns of their roles. Invoke presses buttons and
+// links, Toggle check boxes and switches, SelectionItem radio buttons;
+// RangeValue gives sliders and progress bars, Value text fields and
+// pop-up buttons, which ExpandCollapse opens.
+//
+// Two methods take doubles, which Go callbacks cannot read: thunks in
+// assembly move their bits to integer registers first (uia_*.s).
+
+var (
+	uiaCore  = systemDLL("uiautomationcore.dll")
+	oleaut32 = systemDLL("oleaut32.dll")
+
+	procUiaReturnRawElementProvider            = uiaCore.NewProc("UiaReturnRawElementProvider")
+	procUiaHostProviderFromHwnd                = uiaCore.NewProc("UiaHostProviderFromHwnd")
+	procUiaRaiseAutomationEvent                = uiaCore.NewProc("UiaRaiseAutomationEvent")
+	procUiaRaiseAutomationPropertyChangedEvent = uiaCore.NewProc("UiaRaiseAutomationPropertyChangedEvent")
+	procUiaRaiseStructureChangedEvent          = uiaCore.NewProc("UiaRaiseStructureChangedEvent")
+	procUiaClientsAreListening                 = uiaCore.NewProc("UiaClientsAreListening")
+	procUiaDisconnectProvider                  = uiaCore.NewProc("UiaDisconnectProvider")
+	procSysAllocString                         = oleaut32.NewProc("SysAllocString")
+	procSysFreeString                          = oleaut32.NewProc("SysFreeString")
+	procSafeArrayCreateVector                  = oleaut32.NewProc("SafeArrayCreateVector")
+	procSafeArrayPutElement                    = oleaut32.NewProc("SafeArrayPutElement")
+	procVariantClear                           = oleaut32.NewProc("VariantClear")
+
+	uiaOnce sync.Once
+	// The vtables of the interfaces, by uiaIface index.
+	uiaVtbls [uiaIfaces][]uintptr
+	// uiaElements keeps the elements COM holds alive.
+	uiaElements = map[*uiaElement]bool{}
+
+	// The callbacks of the methods that take doubles, which the thunks
+	// call with their bits as integers.
+	uiaFromPointCallback, uiaSetValueCallback uintptr
+)
+
+// uiaThunks returns the entries of the methods that take doubles.
+func uiaThunks() (fromPoint, setValue uintptr)
+
+// The thunks, in assembly, called by UI Automation only.
+func uiaFromPointThunk()
+func uiaSetValueThunk()
+
+// The interfaces of elements.
+const (
+	ifaceSimple = iota
+	ifaceFragment
+	ifaceRoot
+	ifaceInvoke
+	ifaceToggle
+	ifaceSelectionItem
+	ifaceRangeValue
+	ifaceValue
+	ifaceExpandCollapse
+	uiaIfaces
+)
+
+var uiaIIDs = [uiaIfaces]GUID{
+	guid("d6dd68d1-86fd-4332-8666-9abedea2d24c"), // IRawElementProviderSimple
+	guid("f7063da8-8359-439c-9297-bbc5299a7d87"), // IRawElementProviderFragment
+	guid("620ce2a5-ab8f-40a9-86cb-de3c75599b58"), // IRawElementProviderFragmentRoot
+	guid("54fcb24b-e18e-47a2-b4d3-eccbe77599a2"), // IInvokeProvider
+	guid("56d00bd0-c4f4-433c-a836-1a52a57e0892"), // IToggleProvider
+	guid("2acad808-b2d4-452d-a407-91ff1ad167b2"), // ISelectionItemProvider
+	guid("36dc7aef-33e6-4691-afe1-2be7274b3d33"), // IRangeValueProvider
+	guid("c7935180-6fb3-4201-b174-7df73adbf64a"), // IValueProvider
+	guid("d847d3a5-cab0-4a98-8c32-ecb45c59ad24"), // IExpandCollapseProvider
+}
+
+// Pattern identifiers of UI Automation, by interface.
+var uiaPatterns = map[uintptr]int{10000: ifaceInvoke, 10002: ifaceValue, 10003: ifaceRangeValue,
+	10005: ifaceExpandCollapse, 10010: ifaceSelectionItem, 10015: ifaceToggle}
+
+const (
+	uiaRootObjectID = -25
+
+	uiaRuntimeIDProperty        = 30000
+	uiaControlTypeProperty      = 30003
+	uiaLocalizedControlProperty = 30004
+	uiaNameProperty             = 30005
+	uiaHasKeyboardFocusProperty = 30008
+	uiaIsFocusableProperty      = 30009
+	uiaIsEnabledProperty        = 30010
+	uiaHelpTextProperty         = 30013
+	uiaIsPasswordProperty       = 30019
+	uiaFrameworkIDProperty      = 30024
+	uiaValueProperty            = 30045
+	uiaRangeValueProperty       = 30047
+	uiaExpandStateProperty      = 30070
+	uiaIsSelectedProperty       = 30079
+	uiaToggleStateProperty      = 30086
+	uiaIsDialogProperty         = 30174
+
+	uiaFocusChangedEvent = 20005
+
+	vtEmpty = 0
+	vtI4    = 3
+	vtR8    = 5
+	vtBSTR  = 8
+	vtBool  = 11
+
+	uiaElementNotEnabled   = 0x80040200
+	uiaElementNotAvailable = 0x80040201
+	uiaInvalidOperation    = 0x80131509
+)
+
+// Control types of roles.
+var uiaControlTypes = map[platform.AccessRole]int32{
+	platform.RoleGroup: 50026, platform.RoleText: 50020, platform.RoleButton: 50000, platform.RoleLink: 50005,
+	platform.RoleCheckBox: 50002, platform.RoleRadio: 50013, platform.RoleSwitch: 50000, platform.RoleSlider: 50015,
+	platform.RoleProgress: 50012, platform.RoleTextField: 50004, platform.RoleImage: 50006, platform.RoleList: 50008,
+	platform.RoleScroll: 50033, platform.RoleDialog: 50033, platform.RolePopup: 50033, platform.RoleTooltip: 50022,
+	platform.RolePopUpButton: 50003, platform.RoleTabList: 50018, platform.RoleTab: 50019, platform.RoleSplitter: 50038,
+	platform.RoleStatus: 50017, platform.RoleTable: 50036, platform.RoleRow: 50029, platform.RoleCell: 50025,
+	platform.RoleColumnHeader: 50035, platform.RoleTree: 50023, platform.RoleTreeItem: 50024,
+}
+
+// variant is VARIANT, with the value of the types used here.
+type variant struct {
+	VT  uint16
+	_   [3]uint16
+	Val uint64
+	_   uintptr
+}
+
+// uiaRect is UiaRect.
+type uiaRect struct{ Left, Top, Width, Height float64 }
+
+// uiaIface is an interface pointer of an element: COM calls its methods
+// with its address.
+type uiaIface struct {
+	vtbl *uintptr
+	e    *uiaElement
+}
+
+// uiaElement is a node of the tree as UI Automation sees it, or the root.
+type uiaElement struct {
+	ifaces   [uiaIfaces]uiaIface
+	refs     int32
+	tree     *uiaTree
+	root     bool
+	dead     bool
+	n        platform.AccessNode
+	parent   *uiaElement
+	children []*uiaElement
+}
+
+// uiaTree is what UI Automation sees of a surface.
+type uiaTree struct {
+	s     *surface
+	root  *uiaElement
+	nodes map[uint64]*uiaElement
+	order []*uiaElement // in the order of the content's tree
+	focus uint64
+	quiet bool // building the tree a client asked for
+}
+
+func (e *uiaElement) ptr(i int) uintptr { return uintptr(unsafe.Pointer(&e.ifaces[i])) }
+
+func uiaOf(this uintptr) *uiaElement { return (*uiaIface)(native(this)).e }
+
+func newUIAElement(t *uiaTree) *uiaElement {
+	e := &uiaElement{refs: 1, tree: t}
+	for i := range e.ifaces {
+		e.ifaces[i] = uiaIface{vtbl: &uiaVtbls[i][0], e: e}
+	}
+	uiaElements[e] = true
+	return e
+}
+
+func (e *uiaElement) addRef() int32 {
+	e.refs++
+	return e.refs
+}
+
+func (e *uiaElement) release() int32 {
+	if e.refs--; e.refs == 0 {
+		delete(uiaElements, e)
+	}
+	return e.refs
+}
+
+// supports reports whether the element implements an interface.
+func (e *uiaElement) supports(i int) bool {
+	n := e.n
+	switch i {
+	case ifaceSimple, ifaceFragment:
+		return true
+	case ifaceRoot:
+		return e.root
+	}
+	if e.root {
+		return false
+	}
+	switch i {
+	case ifaceInvoke:
+		switch n.Role {
+		case platform.RoleCheckBox, platform.RoleSwitch, platform.RoleRadio, platform.RolePopUpButton, platform.RoleTab:
+			return false
+		}
+		return n.Actions&platform.ActionPress != 0
+	case ifaceToggle:
+		return n.Role == platform.RoleCheckBox || n.Role == platform.RoleSwitch
+	case ifaceSelectionItem:
+		return n.Role == platform.RoleRadio || n.Role == platform.RoleTab || n.Role == platform.RoleTreeItem || n.Role == platform.RoleRow
+	case ifaceRangeValue:
+		return n.Role == platform.RoleSlider || n.Role == platform.RoleProgress
+	case ifaceValue:
+		return n.Role == platform.RoleTextField || n.Role == platform.RolePopUpButton
+	case ifaceExpandCollapse:
+		return n.Role == platform.RolePopUpButton || n.Role == platform.RoleTreeItem
+	}
+	return false
+}
+
+// out stores an interface of an element, with a reference, at a pointer.
+func out(p uintptr, e *uiaElement, i int) uintptr {
+	if e == nil {
+		*(*uintptr)(native(p)) = 0
+		return sOK
+	}
+	e.addRef()
+	*(*uintptr)(native(p)) = e.ptr(i)
+	return sOK
+}
+
+func setBool(p uintptr, v bool) {
+	*(*int32)(native(p)) = 0
+	if v {
+		*(*int32)(native(p)) = 1
+	}
+}
+
+func setFloat(p uintptr, v float64) { *(*float64)(native(p)) = v }
+
+func bstr(s string) uintptr {
+	b, _, _ := procSysAllocString.Call(uintptr(unsafe.Pointer(u16(s))))
+	return b
+}
+
+func boolVariant(v bool) variant {
+	if v {
+		return variant{VT: vtBool, Val: 0xFFFF} // VARIANT_TRUE
+	}
+	return variant{VT: vtBool}
+}
+
+// accessRoot returns the root of the tree UI Automation sees, asking the
+// content for the tree while it has none, as before its first frame.
+func (s *surface) accessRoot() *uiaElement {
+	uiaOnce.Do(initUIA)
+	t := s.access
+	if t == nil {
+		t = &uiaTree{s: s, nodes: map[uint64]*uiaElement{}}
+		t.root = newUIAElement(t)
+		t.root.root = true
+		s.access = t
+	}
+	if len(t.order) == 0 {
+		t.quiet = true
+		s.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+		t.quiet = false
+	}
+	return t.root
+}
+
+// getObject answers WM_GETOBJECT for UI Automation.
+func (s *surface) getObject(wp, lp uintptr) (uintptr, bool) {
+	if int32(uint32(lp)) != uiaRootObjectID || s.w.closed {
+		return 0, false
+	}
+	root := s.accessRoot()
+	r, _, _ := procUiaReturnRawElementProvider.Call(s.hwnd, wp, lp, root.ptr(ifaceSimple))
+	return r, true
+}
+
+// UpdateAccessibility shows UI Automation the content's last frame, and
+// tells its clients what changed.
+func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
+	if t := s.access; t != nil && tree != nil {
+		t.update(tree)
+	}
+}
+
+// destroyAccess disconnects the tree when the surface's window goes.
+func (s *surface) destroyAccess() {
+	t := s.access
+	if t == nil {
+		return
+	}
+	s.access = nil
+	procUiaReturnRawElementProvider.Call(s.hwnd, 0, 0, 0)
+	for _, e := range t.order {
+		e.disconnect()
+	}
+	t.root.disconnect()
+	t.nodes, t.order = nil, nil
+}
+
+// disconnect lets go of an element that left the tree.
+func (e *uiaElement) disconnect() {
+	e.dead = true
+	if has(procUiaDisconnectProvider) {
+		procUiaDisconnectProvider.Call(e.ptr(ifaceSimple))
+	}
+	e.release()
+}
+
+func listening() bool {
+	r, _, _ := procUiaClientsAreListening.Call()
+	return r != 0
+}
+
+func (t *uiaTree) update(tree *platform.AccessTree) {
+	notify := !t.quiet && listening()
+	old := t.nodes
+	t.nodes = make(map[uint64]*uiaElement, len(tree.Nodes))
+	order := make([]*uiaElement, len(tree.Nodes))
+	prev := make([]platform.AccessNode, len(tree.Nodes))
+	fresh := make([]bool, len(tree.Nodes))
+	oldKids := map[*uiaElement][]*uiaElement{t.root: t.root.children}
+	for i, n := range tree.Nodes {
+		e := old[n.ID]
+		if e != nil {
+			delete(old, n.ID)
+			oldKids[e] = e.children
+			prev[i] = e.n
+		} else {
+			e = newUIAElement(t)
+			fresh[i] = true
+		}
+		e.n, e.children = n, nil
+		t.nodes[n.ID] = e
+		order[i] = e
+	}
+	t.root.children = nil
+	for _, e := range order {
+		e.parent = t.root
+		if e.n.Parent >= 0 {
+			e.parent = order[e.n.Parent]
+		}
+		e.parent.children = append(e.parent.children, e)
+	}
+	t.order = order
+	if notify {
+		for parent, kids := range oldKids {
+			var added, removed []*uiaElement
+			for _, k := range kids {
+				if !slices.Contains(parent.children, k) {
+					removed = append(removed, k)
+				}
+			}
+			for _, k := range parent.children {
+				if !slices.Contains(kids, k) {
+					added = append(added, k)
+				}
+			}
+			switch {
+			case len(added)+len(removed) > 1:
+				id := parent.runtimeID()
+				procUiaRaiseStructureChangedEvent.Call(parent.ptr(ifaceSimple), 2, // StructureChangeType_ChildrenInvalidated
+					uintptr(unsafe.Pointer(unsafe.SliceData(id))), uintptr(len(id)))
+			case len(added) == 1:
+				id := added[0].runtimeID()
+				procUiaRaiseStructureChangedEvent.Call(added[0].ptr(ifaceSimple), 0, // StructureChangeType_ChildAdded
+					uintptr(unsafe.Pointer(&id[0])), uintptr(len(id)))
+			case len(removed) == 1:
+				id := removed[0].runtimeID()
+				procUiaRaiseStructureChangedEvent.Call(parent.ptr(ifaceSimple), 1, // StructureChangeType_ChildRemoved
+					uintptr(unsafe.Pointer(&id[0])), uintptr(len(id)))
+			}
+		}
+		for i, e := range order {
+			if !fresh[i] {
+				e.notifyChanges(prev[i])
+			}
+		}
+	}
+	for _, e := range old {
+		e.disconnect()
+	}
+	if tree.Focus != t.focus {
+		t.focus = tree.Focus
+		if e := t.nodes[t.focus]; e != nil && notify {
+			procUiaRaiseAutomationEvent.Call(e.ptr(ifaceSimple), uiaFocusChangedEvent)
+		}
+	}
+}
+
+// notifyChanges tells UI Automation's clients how an element changed since
+// the last tree.
+func (e *uiaElement) notifyChanges(prev platform.AccessNode) {
+	n := e.n
+	changed := func(property int, before, after variant) {
+		procUiaRaiseAutomationPropertyChangedEvent.Call(e.ptr(ifaceSimple), uintptr(property),
+			uintptr(unsafe.Pointer(&before)), uintptr(unsafe.Pointer(&after)))
+	}
+	str := func(property int, before, after string) {
+		b, a := variant{VT: vtBSTR, Val: uint64(bstr(before))}, variant{VT: vtBSTR, Val: uint64(bstr(after))}
+		changed(property, b, a)
+		procVariantClear.Call(uintptr(unsafe.Pointer(&b)))
+		procVariantClear.Call(uintptr(unsafe.Pointer(&a)))
+	}
+	if prev.Label != n.Label {
+		str(uiaNameProperty, prev.Label, n.Label)
+	}
+	if prev.States&platform.AccessDisabled != n.States&platform.AccessDisabled {
+		changed(uiaIsEnabledProperty, boolVariant(prev.States&platform.AccessDisabled == 0), boolVariant(n.States&platform.AccessDisabled == 0))
+	}
+	switch {
+	case e.supports(ifaceToggle):
+		if before, after := toggleState(prev), toggleState(n); before != after {
+			changed(uiaToggleStateProperty, variant{VT: vtI4, Val: uint64(before)}, variant{VT: vtI4, Val: uint64(after)})
+		}
+	case e.supports(ifaceSelectionItem):
+		if before, after := prev.States&platform.AccessChecked != 0, n.States&platform.AccessChecked != 0; before != after {
+			changed(uiaIsSelectedProperty, boolVariant(before), boolVariant(after))
+		}
+	case e.supports(ifaceRangeValue):
+		if prev.Now != n.Now {
+			changed(uiaRangeValueProperty, variant{VT: vtR8, Val: math.Float64bits(rangeValue(prev))},
+				variant{VT: vtR8, Val: math.Float64bits(rangeValue(n))})
+		}
+	}
+	if e.supports(ifaceValue) && prev.Value != n.Value {
+		str(uiaValueProperty, prev.Value, n.Value)
+	}
+	if e.supports(ifaceExpandCollapse) && prev.States&platform.AccessExpanded != n.States&platform.AccessExpanded {
+		changed(uiaExpandStateProperty, variant{VT: vtI4, Val: uint64(expandState(prev))}, variant{VT: vtI4, Val: uint64(expandState(n))})
+	}
+}
+
+func toggleState(n platform.AccessNode) int32 {
+	switch {
+	case n.States&platform.AccessMixed != 0:
+		return 2 // ToggleState_Indeterminate
+	case n.States&platform.AccessChecked != 0:
+		return 1
+	}
+	return 0
+}
+
+func expandState(n platform.AccessNode) int32 {
+	if n.States&platform.AccessExpanded != 0 {
+		return 1 // ExpandCollapseState_Expanded
+	}
+	return 0
+}
+
+// rangeValue is the value of a slider or progress bar, the minimum for a
+// progress of unknown length.
+func rangeValue(n platform.AccessNode) float64 { return max(n.Now, n.Min) }
+
+// runtimeID returns the element's runtime identifier: UiaAppendRuntimeId
+// and its node's identifier, or nothing for the root, which its window
+// identifies.
+func (e *uiaElement) runtimeID() []int32 {
+	if e.root {
+		return nil
+	}
+	return []int32{3, int32(uint32(e.n.ID)), int32(uint32(e.n.ID >> 32))}
+}
+
+// act performs an action of assistive technology on the element.
+func (e *uiaElement) act(action platform.AccessActionKind, text string) uintptr {
+	switch {
+	case e.dead:
+		return uiaElementNotAvailable
+	case e.n.States&platform.AccessDisabled != 0:
+		return uiaElementNotEnabled
+	}
+	e.tree.s.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: e.n.ID, Action: action, Text: text})
+	return sOK
+}
+
+// screenRect returns the element's bounds in pixels of the screen.
+func (e *uiaElement) screenRect() uiaRect {
+	s := e.tree.s
+	var origin point
+	procClientToScreen.Call(s.hwnd, uintptr(unsafe.Pointer(&origin)))
+	scale := float64(s.dpi()) / 96
+	b := e.n.Bounds
+	return uiaRect{float64(origin.X) + b.X*scale, float64(origin.Y) + b.Y*scale, b.W * scale, b.H * scale}
+}
+
+// at returns the deepest element at a point of the screen, in pixels,
+// the topmost of those that overlap.
+func (t *uiaTree) at(x, y float64) *uiaElement {
+	for i := len(t.order) - 1; i >= 0; i-- {
+		r := t.order[i].screenRect()
+		if x >= r.Left && y >= r.Top && x < r.Left+r.Width && y < r.Top+r.Height {
+			return t.order[i]
+		}
+	}
+	return nil
+}
+
+func initUIA() {
+	cb := syscall.NewCallback
+	unknown := []uintptr{
+		cb(func(this, riid, p uintptr) uintptr {
+			e := uiaOf(this)
+			iid := *(*GUID)(native(riid))
+			if iid == iidIUnknown {
+				return out(p, e, ifaceSimple)
+			}
+			for i, id := range uiaIIDs {
+				if id == iid && e.supports(i) {
+					return out(p, e, i)
+				}
+			}
+			*(*uintptr)(native(p)) = 0
+			return eNoInterface
+		}),
+		cb(func(this uintptr) uintptr { return uintptr(uiaOf(this).addRef()) }),
+		cb(func(this uintptr) uintptr { return uintptr(uiaOf(this).release()) }),
+	}
+	vtbl := func(methods ...uintptr) []uintptr { return append(slices.Clone(unknown), methods...) }
+	live := func(this uintptr) (*uiaElement, uintptr) {
+		e := uiaOf(this)
+		if e.dead {
+			return nil, uiaElementNotAvailable
+		}
+		return e, sOK
+	}
+
+	uiaVtbls[ifaceSimple] = vtbl(
+		cb(func(this, p uintptr) uintptr { // get_ProviderOptions
+			*(*int32)(native(p)) = 0x1 | 0x20 // ServerSideProvider, UseComThreading
+			return sOK
+		}),
+		cb(func(this, pattern, p uintptr) uintptr { // GetPatternProvider
+			e, hr := live(this)
+			if e == nil {
+				return hr
+			}
+			if i, ok := uiaPatterns[pattern]; ok && e.supports(i) {
+				return out(p, e, i)
+			}
+			return out(p, nil, 0)
+		}),
+		cb(func(this, property, p uintptr) uintptr { // GetPropertyValue
+			e, hr := live(this)
+			v := (*variant)(native(p))
+			*v = variant{}
+			if e == nil {
+				return hr
+			}
+			e.property(int(property), v)
+			return sOK
+		}),
+		cb(func(this, p uintptr) uintptr { // get_HostRawElementProvider
+			e := uiaOf(this)
+			if e.root && !e.dead {
+				r, _, _ := procUiaHostProviderFromHwnd.Call(e.tree.s.hwnd, p)
+				return r
+			}
+			return out(p, nil, 0)
+		}),
+	)
+
+	uiaVtbls[ifaceFragment] = vtbl(
+		cb(func(this, direction, p uintptr) uintptr { // Navigate
+			e, hr := live(this)
+			if e == nil {
+				return hr
+			}
+			var to *uiaElement
+			siblings := func(d int) *uiaElement {
+				if e.root {
+					return nil
+				}
+				kids := e.parent.children
+				if i := slices.Index(kids, e) + d; i >= 0 && i < len(kids) {
+					return kids[i]
+				}
+				return nil
+			}
+			switch direction {
+			case 0: // NavigateDirection_Parent
+				if !e.root {
+					to = e.parent
+				}
+			case 1: // NextSibling
+				to = siblings(1)
+			case 2: // PreviousSibling
+				to = siblings(-1)
+			case 3: // FirstChild
+				if len(e.children) > 0 {
+					to = e.children[0]
+				}
+			case 4: // LastChild
+				if len(e.children) > 0 {
+					to = e.children[len(e.children)-1]
+				}
+			}
+			return out(p, to, ifaceFragment)
+		}),
+		cb(func(this, p uintptr) uintptr { // GetRuntimeId
+			e, hr := live(this)
+			*(*uintptr)(native(p)) = 0
+			if e == nil {
+				return hr
+			}
+			id := e.runtimeID()
+			if id == nil {
+				return sOK
+			}
+			sa, _, _ := procSafeArrayCreateVector.Call(vtI4, 0, uintptr(len(id)))
+			for i := range id {
+				index := int32(i)
+				procSafeArrayPutElement.Call(sa, uintptr(unsafe.Pointer(&index)), uintptr(unsafe.Pointer(&id[i])))
+			}
+			*(*uintptr)(native(p)) = sa
+			return sOK
+		}),
+		cb(func(this, p uintptr) uintptr { // get_BoundingRectangle
+			e, hr := live(this)
+			*(*uiaRect)(native(p)) = uiaRect{}
+			if e == nil {
+				return hr
+			}
+			if !e.root { // the root's window gives the root's
+				*(*uiaRect)(native(p)) = e.screenRect()
+			}
+			return sOK
+		}),
+		cb(func(this, p uintptr) uintptr { // GetEmbeddedFragmentRoots
+			*(*uintptr)(native(p)) = 0
+			return sOK
+		}),
+		cb(func(this uintptr) uintptr { // SetFocus
+			e, hr := live(this)
+			if e == nil {
+				return hr
+			}
+			procSetFocus.Call(e.tree.s.hwnd)
+			if e.root || e.n.Actions&platform.ActionFocus == 0 {
+				return sOK
+			}
+			return e.act(platform.AccessFocus, "")
+		}),
+		cb(func(this, p uintptr) uintptr { // get_FragmentRoot
+			e, hr := live(this)
+			if e == nil {
+				return hr
+			}
+			return out(p, e.tree.root, ifaceRoot)
+		}),
+	)
+
+	uiaFromPointCallback = cb(func(this, x, y, p uintptr) uintptr { // ElementProviderFromPoint
+		out(p, nil, 0)
+		e, hr := live(this)
+		if e == nil {
+			return hr
+		}
+		return out(p, e.tree.at(math.Float64frombits(uint64(x)), math.Float64frombits(uint64(y))), ifaceFragment)
+	})
+	uiaSetValueCallback = cb(func(this, v uintptr) uintptr { // IRangeValueProvider::SetValue
+		e, hr := live(this)
+		if e == nil {
+			return hr
+		}
+		return e.setRangeValue(math.Float64frombits(uint64(v)))
+	})
+	fromPoint, setValue := uiaThunks()
+
+	uiaVtbls[ifaceRoot] = vtbl(
+		fromPoint,
+		cb(func(this, p uintptr) uintptr { // GetFocus
+			e, hr := live(this)
+			if e == nil {
+				return hr
+			}
+			return out(p, e.tree.nodes[e.tree.focus], ifaceFragment)
+		}),
+	)
+
+	press := func(this uintptr) uintptr {
+		e, hr := live(this)
+		if e == nil {
+			return hr
+		}
+		return e.act(platform.AccessPress, "")
+	}
+	uiaVtbls[ifaceInvoke] = vtbl(cb(press))
+
+	uiaVtbls[ifaceToggle] = vtbl(
+		cb(press),
+		cb(func(this, p uintptr) uintptr { // get_ToggleState
+			*(*int32)(native(p)) = toggleState(uiaOf(this).n)
+			return sOK
+		}),
+	)
+
+	selected := func(e *uiaElement) bool { return e.n.States&platform.AccessChecked != 0 }
+	selectItem := cb(func(this uintptr) uintptr { // Select, AddToSelection
+		e, hr := live(this)
+		if e == nil || selected(e) {
+			return hr
+		}
+		return e.act(platform.AccessPress, "")
+	})
+	uiaVtbls[ifaceSelectionItem] = vtbl(
+		selectItem,
+		selectItem,
+		cb(func(this uintptr) uintptr { return uiaInvalidOperation }), // RemoveFromSelection
+		cb(func(this, p uintptr) uintptr { // get_IsSelected
+			setBool(p, selected(uiaOf(this)))
+			return sOK
+		}),
+		cb(func(this, p uintptr) uintptr { return out(p, nil, 0) }), // get_SelectionContainer
+	)
+
+	rangeOf := func(get func(n platform.AccessNode) float64) uintptr {
+		return cb(func(this, p uintptr) uintptr {
+			setFloat(p, get(uiaOf(this).n))
+			return sOK
+		})
+	}
+	uiaVtbls[ifaceRangeValue] = vtbl(
+		setValue,
+		rangeOf(rangeValue),
+		cb(func(this, p uintptr) uintptr { // get_IsReadOnly
+			setBool(p, uiaOf(this).n.Actions&platform.ActionIncrement == 0)
+			return sOK
+		}),
+		rangeOf(func(n platform.AccessNode) float64 { return n.Max }),
+		rangeOf(func(n platform.AccessNode) float64 { return n.Min }),
+		rangeOf(func(n platform.AccessNode) float64 { return (n.Max - n.Min) / 10 }),  // LargeChange
+		rangeOf(func(n platform.AccessNode) float64 { return (n.Max - n.Min) / 100 }), // SmallChange, as the arrow keys
+	)
+
+	uiaVtbls[ifaceValue] = vtbl(
+		cb(func(this, s uintptr) uintptr { // SetValue
+			e, hr := live(this)
+			if e == nil {
+				return hr
+			}
+			if e.n.Actions&platform.ActionSetValue == 0 {
+				return uiaInvalidOperation
+			}
+			return e.act(platform.AccessSetValue, wstr(s))
+		}),
+		cb(func(this, p uintptr) uintptr { // get_Value
+			*(*uintptr)(native(p)) = bstr(uiaOf(this).n.Value)
+			return sOK
+		}),
+		cb(func(this, p uintptr) uintptr { // get_IsReadOnly
+			setBool(p, uiaOf(this).n.Actions&platform.ActionSetValue == 0)
+			return sOK
+		}),
+	)
+
+	expand := func(open bool) uintptr {
+		return cb(func(this uintptr) uintptr {
+			e, hr := live(this)
+			if e == nil || (e.n.States&platform.AccessExpanded != 0) == open {
+				return hr
+			}
+			return e.act(platform.AccessPress, "")
+		})
+	}
+	uiaVtbls[ifaceExpandCollapse] = vtbl(
+		expand(true),
+		expand(false),
+		cb(func(this, p uintptr) uintptr { // get_ExpandCollapseState
+			*(*int32)(native(p)) = expandState(uiaOf(this).n)
+			return sOK
+		}),
+	)
+}
+
+// setRangeValue moves a slider toward a value, as the arrow keys do.
+func (e *uiaElement) setRangeValue(v float64) uintptr {
+	switch {
+	case e.n.Actions&platform.ActionIncrement == 0:
+		return uiaInvalidOperation
+	case v > e.n.Now:
+		return e.act(platform.AccessIncrement, "")
+	case v < e.n.Now:
+		return e.act(platform.AccessDecrement, "")
+	}
+	return sOK
+}
+
+// property fills in a property of the element, leaving the ones it has
+// not empty for UI Automation's defaults.
+func (e *uiaElement) property(id int, v *variant) {
+	if e.root {
+		return // the window's
+	}
+	n := e.n
+	str := func(s string) {
+		if s != "" {
+			*v = variant{VT: vtBSTR, Val: uint64(bstr(s))}
+		}
+	}
+	switch id {
+	case uiaControlTypeProperty:
+		*v = variant{VT: vtI4, Val: uint64(uiaControlTypes[n.Role])}
+	case uiaLocalizedControlProperty:
+		switch n.Role {
+		case platform.RoleSwitch:
+			str("toggle switch")
+		case platform.RoleDialog:
+			str("dialog")
+		case platform.RolePopup:
+			str("popup")
+		}
+	case uiaNameProperty:
+		str(n.Label)
+	case uiaHasKeyboardFocusProperty:
+		*v = boolVariant(n.ID == e.tree.focus)
+	case uiaIsFocusableProperty:
+		*v = boolVariant(n.States&platform.AccessFocusable != 0)
+	case uiaIsEnabledProperty:
+		*v = boolVariant(n.States&platform.AccessDisabled == 0)
+	case uiaHelpTextProperty:
+		str(n.Placeholder)
+	case uiaIsPasswordProperty:
+		*v = boolVariant(n.States&platform.AccessPassword != 0)
+	case uiaFrameworkIDProperty:
+		str("MyGo")
+	case uiaIsDialogProperty:
+		*v = boolVariant(n.Role == platform.RoleDialog)
+	}
+}

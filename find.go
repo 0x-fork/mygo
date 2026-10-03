@@ -46,5 +46,5 @@ func (w *Window) FindInPage(text string, opts FindOptions) (FindResult, error) {
 
 // StopFindInPage removes the highlights of FindInPage.
 func (w *Window) StopFindInPage() {
-	w.do(func(n platform.Window) { n.Eval("window.__mygo && window.__mygo.stopFind()") })
+	w.page(func(n platform.Window) { n.Eval("window.__mygo && window.__mygo.stopFind()") })
 }

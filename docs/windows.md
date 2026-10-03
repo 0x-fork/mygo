@@ -30,6 +30,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 |---|---|
 | `Title` | the window title; defaults to the app name, then follows the page's `<title>` |
 | `URL` | loaded once the window exists; `/` and other URLs without a scheme are pages of the [frontend](frontend.md#how-pages-load) |
+| `Content` | shows a [native UI](ui.md) that MyGo draws, instead of a page |
 | `Width`, `Height` | the size of the window, or of its page with `UseContentSize` |
 | `X`, `Y` | the top-left corner; the window is centered when both are 0 |
 | `MinWidth`, `MinHeight`, `MaxWidth`, `MaxHeight` | limits of resizing; 0 means none |
@@ -37,7 +38,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `Hidden` | creates the window without showing it |
 | `Maximized`, `FullScreen` | creates it maximized or in full screen |
 | `Frameless` | no title bar and borders: the page draws them, see [custom title bars](frontend.md#custom-title-bars) |
-| `TitleBarStyle` | hides the title bar but keeps the window buttons over the page, see [custom title bars](frontend.md#custom-title-bars) |
+| `TitleBarStyle` | hides the title bar but keeps the window buttons over the page, see [custom title bars](frontend.md#custom-title-bars), or over [native UI](ui.md#windows-with-native-ui) |
 | `TrafficLightPosition` | moves the window buttons of a hidden title bar (macOS) |
 | `TitleBarHeight` | the height of the title bar the page draws under the window buttons (Linux, Windows) |
 | `Transparent`, `Vibrancy` | a transparent window, and the material behind a transparent page (macOS, Windows 11) |

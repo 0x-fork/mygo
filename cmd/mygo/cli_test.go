@@ -157,7 +157,7 @@ func TestTemplate(t *testing.T) {
 	dir := t.TempDir()
 	data := templateData{Name: `The "Demo" App`, Slug: "demo-app", Module: "demo-app", Identifier: "com.example.demoapp",
 		Runtime: "^0.1.0", CLI: "^0.1.0", Mygo: "mygo", ConfigImport: "mygo-cli"}
-	if err := writeTemplate(dir, data); err != nil {
+	if err := writeTemplate(dir, webTemplate, data); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"main.go", tsConfig, ".gitignore", "package.json", "vite.config.ts", "index.html", "tsconfig.json", "src/main.ts", "src/style.css"} {
@@ -195,7 +195,7 @@ func TestTemplate(t *testing.T) {
 	cli, _ := filepath.Abs(filepath.Join("..", "..", "packages", "cli", "index.js"))
 	local2 := data
 	local2.CLI, local2.Mygo, local2.ConfigImport = "", "go run github.com/egoist/mygo/cmd/mygo", moduleSpecifier(local, cli)
-	if err := writeTemplate(local, local2); err != nil {
+	if err := writeTemplate(local, webTemplate, local2); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ = os.ReadFile(filepath.Join(local, "package.json"))
@@ -235,6 +235,56 @@ func TestTemplate(t *testing.T) {
 	}
 	if slugify("Hello, World!") != "hello-world" || slugify("!!!") != "app" {
 		t.Error("slugify")
+	}
+}
+
+// TestNativeTemplate writes the template of native UI, which has no
+// frontend, and builds its app and runs its test against this checkout.
+func TestNativeTemplate(t *testing.T) {
+	dir := t.TempDir()
+	data := templateData{Name: `The "Demo" App`, Slug: "demo-app", Module: "demo-app", Identifier: "com.example.demoapp"}
+	if err := writeTemplate(dir, nativeTemplate, data); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"main.go", "main_test.go", jsonConfig, ".gitignore"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("missing %s", f)
+		}
+	}
+	for _, f := range []string{"package.json", "index.html", "src"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+			t.Errorf("the native template has %s", f)
+		}
+	}
+	main, _ := os.ReadFile(filepath.Join(dir, "main.go"))
+	if !strings.Contains(string(main), `Title:     "The \"Demo\" App"`) {
+		t.Errorf("name not rendered into main.go:\n%s", main)
+	}
+	c, err := loadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Name != data.Name || c.Identifier != data.Identifier || c.Out != "build" || c.Bindings != "" || c.DevURL != "" || c.FrontendDist != "" {
+		t.Errorf("template configuration: %+v", c)
+	}
+
+	if testing.Short() {
+		t.Skip("building the app")
+	}
+	checkout, _ := filepath.Abs(filepath.Join("..", ".."))
+	sum, _ := os.ReadFile(filepath.Join(checkout, "go.sum"))
+	gomod := "module demo-app\n\ngo " + goVersion() + "\n\nrequire github.com/egoist/mygo v0.0.0\n\nreplace github.com/egoist/mygo => " + checkout + "\n"
+	if os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o644) != nil || os.WriteFile(filepath.Join(dir, "go.sum"), sum, 0o644) != nil {
+		t.Fatal("cannot write the module")
+	}
+	// The modules MyGo needs are in the cache: nothing is downloaded.
+	for _, args := range [][]string{{"vet", "."}, {"test", "-count=1", "."}} {
+		cmd := goCommand(dir, []string{"GOFLAGS=-mod=mod", "GOPROXY=off", "GOWORK=off"}, args...)
+		var out bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, &out
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("go %s in the native template: %v\n%s", strings.Join(args, " "), err, out.String())
+		}
 	}
 }
 

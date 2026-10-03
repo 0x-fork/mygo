@@ -197,6 +197,9 @@ func (b *Backend) PopupMenu(m *platform.Menu, pw platform.Window, pos *platform.
 		var loc NSPoint
 		if w, ok := pw.(*window); ok && w != nil && !w.closed {
 			view = w.web
+			if w.surface != nil {
+				view = w.surface.view
+			}
 			if pos != nil {
 				loc = NSPoint{float64(pos.X), float64(pos.Y)}
 				if !sendBool(view, "isFlipped") {

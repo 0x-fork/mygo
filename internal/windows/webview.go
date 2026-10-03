@@ -65,7 +65,7 @@ func (w *window) hasScheme(s string) bool {
 
 // withWebView runs fn once the webview exists.
 func (w *window) withWebView(fn func()) {
-	if w.closed {
+	if w.closed || w.surface != nil {
 		return
 	}
 	if w.ready {

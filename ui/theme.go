@@ -1,0 +1,110 @@
+package ui
+
+import "runtime"
+
+// Theme holds the colors and metrics widgets use. Change a copy of
+// LightTheme or DarkTheme and set it with Context.SetTheme.
+type Theme struct {
+	Dark bool
+	// Background fills the window.
+	Background Color
+	// Surface is the face of buttons, inputs and other controls;
+	// SurfaceHover and SurfacePressed while hovered or pressed.
+	Surface        Color
+	SurfaceHover   Color
+	SurfacePressed Color
+	// Border outlines controls.
+	Border Color
+	// Text and TextMuted color text; TextMuted is for secondary text and
+	// placeholders.
+	Text      Color
+	TextMuted Color
+	// Accent colors primary buttons, checked controls and focus rings;
+	// AccentText is text on it.
+	Accent        Color
+	AccentHover   Color
+	AccentPressed Color
+	AccentText    Color
+	Danger        Color
+	// Selection highlights selected text.
+	Selection Color
+	// Focus is the ring around the control with the keyboard focus.
+	Focus Color
+	// Scrollbar colors scroll bar thumbs.
+	Scrollbar Color
+	// Radius rounds the corners of controls.
+	Radius float32
+	// Spacing is the unit of the room widgets leave inside and between
+	// their parts: their paddings and gaps, and the sizes of check boxes,
+	// switches, sliders and the rows of tables and trees, are multiples
+	// of it. 4 by default: 3 makes widgets compact, 5 roomy; 0 is 4.
+	Spacing float32
+	// FontSize is the size of text, Font its family ("" is the system's).
+	FontSize float32
+	Font     string
+}
+
+// space returns n units of the theme's spacing.
+func (t *Theme) space(n float32) float32 {
+	s := t.Spacing
+	if s <= 0 {
+		s = 4
+	}
+	return n * s
+}
+
+func defaultFontSize() float32 {
+	if runtime.GOOS == "darwin" {
+		return 13
+	}
+	return 14
+}
+
+// LightTheme returns the theme for a light appearance.
+func LightTheme() *Theme {
+	return &Theme{
+		Background:     Hex("#ffffff"),
+		Surface:        Hex("#f4f4f5"),
+		SurfaceHover:   Hex("#e9e9ec"),
+		SurfacePressed: Hex("#dddde1"),
+		Border:         Hex("#d9d9de"),
+		Text:           Hex("#18181b"),
+		TextMuted:      Hex("#71717a"),
+		Accent:         Hex("#2563eb"),
+		AccentHover:    Hex("#1d4ed8"),
+		AccentPressed:  Hex("#1e40af"),
+		AccentText:     Hex("#ffffff"),
+		Danger:         Hex("#dc2626"),
+		Selection:      RGBA(37, 99, 235, 0.25),
+		Focus:          RGBA(37, 99, 235, 0.55),
+		Scrollbar:      RGBA(0, 0, 0, 0.32),
+		Radius:         6,
+		Spacing:        4,
+		FontSize:       defaultFontSize(),
+	}
+}
+
+// DarkTheme returns the theme for a dark appearance.
+func DarkTheme() *Theme {
+	return &Theme{
+		Dark:           true,
+		Background:     Hex("#18181b"),
+		Surface:        Hex("#27272a"),
+		SurfaceHover:   Hex("#323236"),
+		SurfacePressed: Hex("#3c3c41"),
+		Border:         Hex("#3f3f46"),
+		Text:           Hex("#f4f4f5"),
+		TextMuted:      Hex("#a1a1aa"),
+		Accent:         Hex("#3b82f6"),
+		AccentHover:    Hex("#60a5fa"),
+		AccentPressed:  Hex("#2563eb"),
+		AccentText:     Hex("#ffffff"),
+		Danger:         Hex("#ef4444"),
+		Selection:      RGBA(59, 130, 246, 0.4),
+		Focus:          RGBA(96, 165, 250, 0.6),
+		Scrollbar:      RGBA(255, 255, 255, 0.35),
+		Radius:         6,
+		Spacing:        4,
+		FontSize:       defaultFontSize(),
+	}
+}

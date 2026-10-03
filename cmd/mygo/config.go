@@ -36,7 +36,8 @@ type Config struct {
 	// Bindings is the path of the generated TypeScript client (default:
 	// frontend/src/mygo.ts when there is a frontend directory,
 	// src/mygo.ts when the frontend is the project itself (package.json),
-	// else mygo.ts).
+	// else mygo.ts when the configuration has a frontend, and no client
+	// for an app without one, such as an app of native UI).
 	Bindings string `json:"bindings"`
 
 	// DevURL is what the app loads during `mygo dev` in place of its built
@@ -299,7 +300,7 @@ func (c *Config) applyDefaults() {
 			c.Bindings = filepath.Join("frontend", "src", "mygo.ts")
 		case fileExists(filepath.Join(c.root, "package.json")):
 			c.Bindings = filepath.Join("src", "mygo.ts")
-		default:
+		case c.DevURL != "" || c.DevCommand != "" || c.BuildCommand != "" || c.FrontendDist != "":
 			c.Bindings = "mygo.ts"
 		}
 	}

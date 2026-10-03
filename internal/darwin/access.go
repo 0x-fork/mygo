@@ -1,0 +1,457 @@
+//go:build darwin
+
+package darwin
+
+import (
+	"slices"
+	"sync"
+	"unicode/utf16"
+
+	"github.com/ebitengine/purego"
+	"github.com/ebitengine/purego/objc"
+
+	"github.com/egoist/mygo/internal/platform"
+)
+
+// VoiceOver and other assistive technology see the content of a surface
+// as NSAccessibilityElements, one per node of the content's accessibility
+// tree, which the surface view contains. Elements are kept from update to
+// update by node ID, so that VoiceOver's cursor stays on them, and only
+// what changed is set again. The content describes frames once AppKit
+// first asks the view for its children.
+
+// accessElement is the element of a node.
+type accessElement struct {
+	obj      id // MyGoAccessibilityElement, owned
+	s        *surface
+	node     platform.AccessNode
+	parent   id
+	children []uint64
+}
+
+var (
+	accessOnce      sync.Once
+	postAccessNote  uintptr // NSAccessibilityPostNotification
+	msgPointToPoint func(obj id, sel objc.SEL, p NSPoint) NSPoint
+)
+
+func loadAccess() {
+	accessOnce.Do(func() {
+		postAccessNote = mustDlsym(libAppKit, "NSAccessibilityPostNotification")
+		purego.RegisterFunc(&msgPointToPoint, msgSendAddr)
+	})
+}
+
+// postNote posts an accessibility notification about obj.
+func postNote(obj id, name string) {
+	if obj != 0 {
+		purego.SyscallN(postAccessNote, uintptr(obj), uintptr(nsString(name)))
+	}
+}
+
+// accessRoles are the roles and subroles of node roles.
+var accessRoles = map[platform.AccessRole][2]string{
+	platform.RoleGroup:        {"AXGroup", ""},
+	platform.RoleText:         {"AXStaticText", ""},
+	platform.RoleButton:       {"AXButton", ""},
+	platform.RoleLink:         {"AXLink", ""},
+	platform.RoleCheckBox:     {"AXCheckBox", ""},
+	platform.RoleRadio:        {"AXRadioButton", ""},
+	platform.RoleSwitch:       {"AXCheckBox", "AXSwitch"},
+	platform.RoleSlider:       {"AXSlider", ""},
+	platform.RoleProgress:     {"AXProgressIndicator", ""},
+	platform.RoleTextField:    {"AXTextField", ""},
+	platform.RoleImage:        {"AXImage", ""},
+	platform.RoleList:         {"AXList", ""},
+	platform.RoleScroll:       {"AXScrollArea", ""},
+	platform.RoleDialog:       {"AXGroup", "AXDialog"},
+	platform.RolePopup:        {"AXPopover", ""},
+	platform.RoleTooltip:      {"AXHelpTag", ""},
+	platform.RolePopUpButton:  {"AXPopUpButton", ""},
+	platform.RoleTabList:      {"AXTabGroup", ""},
+	platform.RoleTab:          {"AXRadioButton", "AXTabButton"},
+	platform.RoleSplitter:     {"AXSplitter", ""},
+	platform.RoleStatus:       {"AXGroup", "AXApplicationStatus"},
+	platform.RoleTable:        {"AXTable", ""},
+	platform.RoleRow:          {"AXRow", ""},
+	platform.RoleCell:         {"AXCell", ""},
+	platform.RoleColumnHeader: {"AXCell", ""},
+	platform.RoleTree:         {"AXOutline", ""},
+	platform.RoleTreeItem:     {"AXRow", "AXOutlineRow"},
+}
+
+func roleOf(n platform.AccessNode) (role, subrole string) {
+	r := accessRoles[n.Role]
+	role, subrole = r[0], r[1]
+	if n.Role == platform.RoleTextField {
+		switch {
+		case n.States&platform.AccessPassword != 0:
+			subrole = "AXSecureTextField"
+		case n.States&platform.AccessMultiline != 0:
+			role = "AXTextArea"
+		}
+	}
+	return role, subrole
+}
+
+// titled reports whether elements of a role show their name as a title.
+func titled(r platform.AccessRole) bool {
+	switch r {
+	case platform.RoleButton, platform.RoleLink, platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RolePopUpButton, platform.RoleTab:
+		return true
+	}
+	return false
+}
+
+// value returns the value of a node as AppKit wants it: a number for
+// toggles and ranges, a string for texts.
+func valueOf(n platform.AccessNode) id {
+	switch n.Role {
+	case platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RoleTab:
+		v := 0
+		switch {
+		case n.States&platform.AccessMixed != 0:
+			v = 2
+		case n.States&platform.AccessChecked != 0:
+			v = 1
+		}
+		return nsNumberInt(v)
+	case platform.RoleSlider, platform.RoleProgress:
+		if n.Now < n.Min {
+			return 0 // a progress of unknown length
+		}
+		return msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Now)
+	case platform.RoleText:
+		return nsString(n.Label)
+	}
+	if n.Value != "" || n.Role == platform.RoleTextField {
+		return nsString(n.Value)
+	}
+	return 0
+}
+
+// apply sets the properties of a node that changed, all of them for a new
+// element, and reports whether its value changed.
+func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged bool) {
+	o := el.node
+	el.node = n
+	obj := el.obj
+	r, sr := roleOf(n)
+	if or, osr := roleOf(o); fresh || r != or || sr != osr {
+		send(obj, "setAccessibilityRole:", uintptr(nsString(r)))
+		var sub id
+		if sr != "" {
+			sub = nsString(sr)
+		}
+		send(obj, "setAccessibilitySubrole:", uintptr(sub))
+	}
+	if fresh || n.Label != o.Label || n.Role != o.Role {
+		// Controls show their name, which AppKit's own give as their
+		// title; other elements are described by it.
+		if titled(n.Role) {
+			send(obj, "setAccessibilityTitle:", uintptr(nsString(n.Label)))
+			send(obj, "setAccessibilityLabel:", 0)
+		} else {
+			send(obj, "setAccessibilityTitle:", 0)
+			send(obj, "setAccessibilityLabel:", uintptr(nsString(n.Label)))
+		}
+	}
+	if fresh || n.States&platform.AccessDisabled != o.States&platform.AccessDisabled {
+		send(obj, "setAccessibilityEnabled:", boolArg(n.States&platform.AccessDisabled == 0))
+	}
+	if fresh || n.States&platform.AccessExpanded != o.States&platform.AccessExpanded {
+		send(obj, "setAccessibilityExpanded:", boolArg(n.States&platform.AccessExpanded != 0))
+	}
+	if n.Role == platform.RoleSlider || n.Role == platform.RoleProgress {
+		if fresh || n.Min != o.Min || n.Max != o.Max {
+			send(obj, "setAccessibilityMinValue:", uintptr(msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Min)))
+			send(obj, "setAccessibilityMaxValue:", uintptr(msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Max)))
+		}
+	}
+	if fresh || n.Value != o.Value || n.Now != o.Now || n.States&(platform.AccessChecked|platform.AccessMixed) != o.States&(platform.AccessChecked|platform.AccessMixed) ||
+		n.Role == platform.RoleText && n.Label != o.Label {
+		send(obj, "setAccessibilityValue:", uintptr(valueOf(n)))
+		valueChanged = !fresh
+	}
+	if fresh || n.Placeholder != o.Placeholder {
+		var p id
+		if n.Placeholder != "" {
+			p = nsString(n.Placeholder)
+		}
+		send(obj, "setAccessibilityPlaceholderValue:", uintptr(p))
+	}
+	if n.Role == platform.RoleTextField && (fresh || n.Value != o.Value || n.SelStart != o.SelStart || n.SelEnd != o.SelEnd) {
+		text := []rune(n.Value)
+		a, b := max(0, min(n.SelStart, len(text))), max(0, min(n.SelEnd, len(text)))
+		send(obj, "setAccessibilityNumberOfCharacters:", uintptr(units(text)))
+		send(obj, "setAccessibilitySelectedTextRange:", uintptr(units(text[:a])), uintptr(units(text[a:max(a, b)])))
+	}
+	return valueChanged
+}
+
+// accessRequested starts the content describing its frames, the first
+// time AppKit asks about the surface.
+func (s *surface) accessRequested() {
+	if !s.accessOn {
+		s.accessOn = true
+		s.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	}
+}
+
+func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
+	if tree == nil || s.w.closed {
+		return
+	}
+	loadAccess()
+	withPool(func() {
+		s.updating = true
+		defer func() { s.updating = false }()
+		if s.elements == nil {
+			s.elements = map[uint64]*accessElement{}
+		}
+		changed := false
+		objs := make([]id, len(tree.Nodes))
+		var valueChanged []id
+		for i, n := range tree.Nodes {
+			el := s.elements[n.ID]
+			if el == nil {
+				el = &accessElement{obj: send(send(class("MyGoAccessibilityElement"), "alloc"), "init"), s: s}
+				s.elements[n.ID] = el
+				s.w.b.byAccess[el.obj] = el
+				el.apply(n, true)
+				changed = true
+			} else if el.apply(n, false) {
+				valueChanged = append(valueChanged, el.obj)
+			}
+			objs[i] = el.obj
+		}
+		children := make([][]uint64, len(tree.Nodes))
+		childObjs := make([][]id, len(tree.Nodes))
+		var top []id
+		for i, n := range tree.Nodes {
+			if n.Parent < 0 || n.Parent >= len(tree.Nodes) {
+				top = append(top, objs[i])
+				continue
+			}
+			children[n.Parent] = append(children[n.Parent], n.ID)
+			childObjs[n.Parent] = append(childObjs[n.Parent], objs[i])
+		}
+		for i, n := range tree.Nodes {
+			el := s.elements[n.ID]
+			parent := s.view
+			if n.Parent >= 0 && n.Parent < len(tree.Nodes) {
+				parent = objs[n.Parent]
+			}
+			if el.parent != parent {
+				el.parent = parent
+				send(el.obj, "setAccessibilityParent:", uintptr(parent))
+			}
+			if !slices.Equal(el.children, children[i]) {
+				el.children = children[i]
+				send(el.obj, "setAccessibilityChildren:", uintptr(nsArray(childObjs[i]...)))
+				changed = true
+			}
+		}
+		release(s.topLevel)
+		s.topLevel = retain(nsArray(top...))
+		live := make(map[uint64]bool, len(tree.Nodes))
+		for _, n := range tree.Nodes {
+			live[n.ID] = true
+		}
+		for nid, el := range s.elements {
+			if !live[nid] {
+				postNote(el.obj, "AXUIElementDestroyed")
+				delete(s.w.b.byAccess, el.obj)
+				release(el.obj)
+				delete(s.elements, nid)
+				changed = true
+			}
+		}
+		if changed {
+			postNote(s.view, "AXLayoutChanged")
+		}
+		for _, obj := range valueChanged {
+			postNote(obj, "AXValueChanged")
+		}
+		if tree.Focus != s.access.Focus {
+			if el := s.elements[tree.Focus]; el != nil {
+				postNote(el.obj, "AXFocusedUIElementChanged")
+			}
+		}
+		s.access = *tree
+	})
+}
+
+// destroyAccess releases the elements of a surface.
+func (s *surface) destroyAccess() {
+	for nid, el := range s.elements {
+		postNote(el.obj, "AXUIElementDestroyed")
+		delete(s.w.b.byAccess, el.obj)
+		release(el.obj)
+		delete(s.elements, nid)
+	}
+	release(s.topLevel)
+	s.topLevel = 0
+}
+
+// accessAt returns the innermost element at a point of the view.
+func (s *surface) accessAt(x, y float64) id {
+	found := id(0)
+	for _, n := range s.access.Nodes {
+		b := n.Bounds
+		if x >= b.X && y >= b.Y && x < b.X+b.W && y < b.Y+b.H {
+			if el := s.elements[n.ID]; el != nil {
+				found = el.obj // later nodes are deeper or above
+			}
+		}
+	}
+	return found
+}
+
+// screenRect converts a rectangle of the view to the screen.
+func (s *surface) screenRect(b platform.RectF) NSRect {
+	inWindow := msgConvertRectView(s.view, sel("convertRect:toView:"), NSRect{Origin: NSPoint{b.X, b.Y}, Size: NSSize{b.W, b.H}}, 0)
+	return msgRectToRect(s.w.win, sel("convertRectToScreen:"), inWindow)
+}
+
+func (b *Backend) accessElementOf(obj id) *accessElement {
+	el := b.byAccess[obj]
+	if el == nil || el.s.w.closed {
+		return nil
+	}
+	return el
+}
+
+// act sends an action of assistive technology to the content.
+func (el *accessElement) act(a platform.AccessActionKind, text string) bool {
+	if el.s.updating {
+		return false
+	}
+	el.s.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: el.node.ID, Action: a, Text: text})
+	return true
+}
+
+func registerAccessClass() {
+	b := func() *Backend { return theBackend }
+	allowed := map[string]platform.AccessActions{
+		"accessibilityPerformPress":     platform.ActionPress,
+		"accessibilityPerformIncrement": platform.ActionIncrement,
+		"accessibilityPerformDecrement": platform.ActionDecrement,
+		"setAccessibilityValue:":        platform.ActionSetValue,
+		"setAccessibilityFocused:":      platform.ActionFocus,
+	}
+	classDef("MyGoAccessibilityElement", "NSAccessibilityElement", nil, []objc.MethodDef{
+		method("accessibilityFrame", func(self id, _ objc.SEL) NSRect {
+			if el := b().accessElementOf(self); el != nil {
+				return el.s.screenRect(el.node.Bounds)
+			}
+			return NSRect{}
+		}),
+		method("isAccessibilityFocused", func(self id, _ objc.SEL) bool {
+			el := b().accessElementOf(self)
+			return el != nil && el.s.access.Focus == el.node.ID
+		}),
+		method("isAccessibilitySelectorAllowed:", func(self id, cmd objc.SEL, selector objc.SEL) bool {
+			if el := b().accessElementOf(self); el != nil {
+				for name, action := range allowed {
+					if sel(name) == selector {
+						return el.node.Actions&action != 0
+					}
+				}
+			}
+			return objc.ID(self).SendSuper(cmd, selector) != 0
+		}),
+		method("accessibilityPerformPress", func(self id, _ objc.SEL) bool {
+			el := b().accessElementOf(self)
+			return el != nil && el.act(platform.AccessPress, "")
+		}),
+		method("accessibilityPerformIncrement", func(self id, _ objc.SEL) bool {
+			el := b().accessElementOf(self)
+			return el != nil && el.act(platform.AccessIncrement, "")
+		}),
+		method("accessibilityPerformDecrement", func(self id, _ objc.SEL) bool {
+			el := b().accessElementOf(self)
+			return el != nil && el.act(platform.AccessDecrement, "")
+		}),
+		method("setAccessibilityFocused:", func(self id, _ objc.SEL, focused bool) {
+			if el := b().accessElementOf(self); el != nil && focused {
+				el.act(platform.AccessFocus, "")
+			}
+		}),
+		method("setAccessibilityValue:", func(self id, cmd objc.SEL, value id) {
+			objc.ID(self).SendSuper(cmd, value)
+			if el := b().accessElementOf(self); el != nil && el.node.Role == platform.RoleTextField {
+				el.act(platform.AccessSetValue, stringOf(value))
+			}
+		}),
+		// The text of text fields, for reading by characters and lines.
+		method("accessibilityStringForRange:", func(self id, _ objc.SEL, r nsRange) id {
+			el := b().accessElementOf(self)
+			if el == nil {
+				return 0
+			}
+			u := utf16.Encode([]rune(el.node.Value))
+			lo := int(min(r.Location, uint(len(u))))
+			hi := int(min(uint(lo)+r.Length, uint(len(u))))
+			return nsString(string(utf16.Decode(u[lo:hi])))
+		}),
+		method("accessibilityLineForIndex:", func(self id, _ objc.SEL, i int) int { return 0 }),
+		method("accessibilityRangeForLine:", func(self id, _ objc.SEL, line int) nsRange {
+			if el := b().accessElementOf(self); el != nil {
+				return nsRange{Length: uint(units([]rune(el.node.Value)))}
+			}
+			return nsRange{}
+		}),
+		method("accessibilityFrameForRange:", func(self id, _ objc.SEL, r nsRange) NSRect {
+			if el := b().accessElementOf(self); el != nil {
+				return el.s.screenRect(el.node.Bounds)
+			}
+			return NSRect{}
+		}),
+	})
+}
+
+// accessViewMethods are the methods of the surface view that make it the
+// container of the elements.
+func accessViewMethods() []objc.MethodDef {
+	b := func() *Backend { return theBackend }
+	return []objc.MethodDef{
+		method("isAccessibilityElement", func(self id, _ objc.SEL) bool { return false }),
+		method("accessibilityChildren", func(self id, _ objc.SEL) id {
+			s := b().surfaceOf(self)
+			if s == nil {
+				return 0
+			}
+			s.accessRequested()
+			if s.topLevel == 0 {
+				return nsArray()
+			}
+			return s.topLevel
+		}),
+		method("accessibilityHitTest:", func(self id, _ objc.SEL, p NSPoint) id {
+			s := b().surfaceOf(self)
+			if s == nil {
+				return self
+			}
+			loadAccess()
+			s.accessRequested()
+			inWindow := msgPointToPoint(s.w.win, sel("convertPointFromScreen:"), p)
+			v := msgPointFromView(self, sel("convertPoint:fromView:"), inWindow, 0)
+			if obj := s.accessAt(v.X, v.Y); obj != 0 {
+				return obj
+			}
+			return self
+		}),
+		method("accessibilityFocusedUIElement", func(self id, _ objc.SEL) id {
+			s := b().surfaceOf(self)
+			if s == nil {
+				return self
+			}
+			s.accessRequested()
+			if el := s.elements[s.access.Focus]; el != nil {
+				return el.obj
+			}
+			return self
+		}),
+	}
+}
