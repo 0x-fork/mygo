@@ -75,7 +75,7 @@ func TestRenderText(t *testing.T) {
 	s := &scene.Scene{Width: 160, Height: 40, Clear: scene.Color{R: 255, G: 255, B: 255, A: 255}, MaskAtlas: sys.MaskAtlas, ColorAtlas: sys.ColorAtlas}
 	start := len(s.Glyphs)
 	for _, g := range l.Lines[0].Glyphs {
-		gi := sys.Glyph(g.Font, g.ID, 1, 0)
+		gi := sys.Glyph(g.Font, g.ID, 1, 0, 0)
 		if !gi.OK {
 			continue
 		}

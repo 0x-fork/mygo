@@ -18,7 +18,8 @@ import (
 // Core Text lays out paragraphs: a typesetter finds the fonts, falls back
 // to others for what a font lacks, shapes, and suggests line breaks, and
 // Core Graphics rasterizes glyphs, in color for color fonts such as Apple
-// Color Emoji. The system font comes from NSFont, which knows its weights.
+// Color Emoji, and the others with font smoothing, as AppKit draws text.
+// The system font comes from NSFont, which knows its weights.
 
 func newEngine() engine {
 	e, err := newCoreText()
@@ -662,6 +663,7 @@ func (e *coreText) fontOf(font uintptr) *Font {
 		Descent: float32(ct.fontGetDescent(font)),
 		LineGap: float32(ct.fontGetLeading(font)),
 		native:  font,
+		shaded:  !e.isColor(font),
 	}
 	e.fonts[h] = append(e.fonts[h], f)
 	return f
@@ -781,7 +783,7 @@ func (e *coreText) isColor(font uintptr) bool {
 	return c
 }
 
-func (e *coreText) glyph(f *Font, id uint32, scale, dx float32) bitmap {
+func (e *coreText) glyph(f *Font, id uint32, scale, dx float32, shade Shade) bitmap {
 	font := f.native
 	g := uint16(id)
 	var r cgRect
@@ -790,12 +792,17 @@ func (e *coreText) glyph(f *Font, id uint32, scale, dx float32) bitmap {
 		return bitmap{}
 	}
 	s, x := float64(scale), float64(dx)
+	// Smoothing spreads a glyph up to a pixel further.
+	pad := 1
+	if f.shaded {
+		pad = 2
+	}
 	// Core Graphics' y goes up: the box from r.y to r.y+r.h above the
 	// baseline is from -(r.y+r.h) to -r.y below it.
-	left := int(math.Floor(r.x*s+x)) - 1
-	right := int(math.Ceil((r.x+r.w)*s+x)) + 1
-	top := int(math.Floor(-(r.y+r.h)*s)) - 1
-	bottom := int(math.Ceil(-r.y*s)) + 1
+	left := int(math.Floor(r.x*s+x)) - pad
+	right := int(math.Ceil((r.x+r.w)*s+x)) + pad
+	top := int(math.Floor(-(r.y+r.h)*s)) - pad
+	bottom := int(math.Ceil(-r.y*s)) + pad
 	w, h := right-left, bottom-top
 	if w > 2048 || h > 2048 {
 		return bitmap{}
@@ -814,12 +821,19 @@ func (e *coreText) glyph(f *Font, id uint32, scale, dx float32) bitmap {
 		return bitmap{}
 	}
 	ct.contextAntialias(ctx, true)
-	ct.contextSmoothFonts(ctx, false)
+	// Font smoothing, unless the user turned it off (AppleFontSmoothing),
+	// emboldens glyphs more the lighter the fill color is, even in a
+	// context of alpha alone: the gray of the shade sets how much.
+	ct.contextSmoothFonts(ctx, f.shaded)
 	ct.contextAllowSubpixelPos(ctx, true)
 	ct.contextSubpixelPos(ctx, true)
 	ct.contextAllowQuantize(ctx, false)
 	ct.contextQuantize(ctx, false)
-	ct.contextSetFill(ctx, 0, 0, 0, 1)
+	fill := 0.0
+	if f.shaded {
+		fill = shadeGray(shade)
+	}
+	ct.contextSetFill(ctx, fill, fill, fill, 1)
 	ct.contextScaleCTM(ctx, s, s)
 	// The bitmap's rows go from its top; the context's origin is at its
 	// bottom left, the baseline bottom pixels above it.
@@ -828,6 +842,16 @@ func (e *coreText) glyph(f *Font, id uint32, scale, dx float32) bitmap {
 	ct.contextRelease(ctx)
 	runtime.KeepAlive(pix)
 	return bitmap{left: left, top: top, w: w, h: h, pix: pix, color: color}
+}
+
+// shadeGray returns the sRGB gray of the relative luminance a shade
+// stands for.
+func shadeGray(shade Shade) float64 {
+	y := float64(shade) / Shades
+	if y <= 0.0031308 {
+		return y * 12.92
+	}
+	return 1.055*math.Pow(y, 1/2.4) - 0.055
 }
 
 func (e *coreText) register(data []byte, family string) error {

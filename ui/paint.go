@@ -306,6 +306,7 @@ func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textS
 	sys := p.rt.text
 	s := p.scale
 	deco := decoration{underline: ts.underline, wavy: ts.wavy, strike: ts.strike, color: ts.decoColor, thick: ts.decoThick}
+	shade := text.ShadeOf(color.R, color.G, color.B)
 	start := int32(len(p.s.Glyphs))
 	for li := range l.Lines {
 		line := &l.Lines[li]
@@ -326,11 +327,13 @@ func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textS
 			}
 			ix := float32(math.Floor(float64(pen)))
 			sub := int((pen - ix) * text.SubpixelSteps)
-			gi := sys.Glyph(g.Font, g.ID, s, sub)
-			glyphColor := color
+			glyphColor, glyphShade := color, shade
 			if sp != nil {
-				glyphColor = sp.color(sp.at(g.Cluster), color)
+				if glyphColor = sp.color(sp.at(g.Cluster), color); glyphColor != color {
+					glyphShade = text.ShadeOf(glyphColor.R, glyphColor.G, glyphColor.B)
+				}
 			}
+			gi := sys.Glyph(g.Font, g.ID, s, sub, glyphShade)
 			if !gi.OK {
 				continue
 			}

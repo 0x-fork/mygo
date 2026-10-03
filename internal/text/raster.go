@@ -1,16 +1,50 @@
 package text
 
-import "image"
+import (
+	"image"
+	"math"
+)
 
 // SubpixelSteps is the number of horizontal positions within a pixel a
 // glyph is rasterized for.
 const SubpixelSteps = 4
+
+// A Shade is how light the color of text is, from 0 (dark) to Shades-1
+// (light). Core Text's font smoothing, which AppKit draws text with,
+// emboldens glyphs more the lighter their color is, in four steps of its
+// relative luminance: the glyphs of its fonts are rasterized for each.
+type Shade uint8
+
+// Shades is the number of shades of text.
+const Shades = 4
+
+// ShadeOf returns the shade of text of an sRGB color: its relative
+// luminance rounded to a quarter, as Core Text rounds it, and at most 3/4.
+func ShadeOf(r, g, b uint8) Shade {
+	y := 0.2126*linear[r] + 0.7152*linear[g] + 0.0722*linear[b]
+	return Shade(min(y*Shades+0.5, Shades-1))
+}
+
+// linear maps sRGB values to linear light.
+var linear = func() (t [256]float32) {
+	for i := range t {
+		v := float64(i) / 255
+		if v <= 0.04045 {
+			v /= 12.92
+		} else {
+			v = math.Pow((v+0.055)/1.055, 2.4)
+		}
+		t[i] = float32(v)
+	}
+	return t
+}()
 
 type glyphKey struct {
 	font  *Font
 	id    uint32
 	scale uint32 // pixels per DIP, in 1/256
 	subX  uint8
+	shade Shade
 }
 
 // GlyphImage is a rasterized glyph in an atlas.
@@ -129,28 +163,31 @@ func (s *System) makeRoom(color bool, want int, grow bool) {
 }
 
 // Glyph rasterizes glyph id of a font at scale pixels per DIP, shifted
-// right by subX/SubpixelSteps of a pixel.
-func (s *System) Glyph(f *Font, id uint32, scale float32, subX int) GlyphImage {
+// right by subX/SubpixelSteps of a pixel, for text of a shade.
+func (s *System) Glyph(f *Font, id uint32, scale float32, subX int, shade Shade) GlyphImage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if f == nil {
 		return GlyphImage{}
 	}
-	key := glyphKey{font: f, id: id, scale: uint32(scale*256 + 0.5), subX: uint8(subX)}
+	if !f.shaded {
+		shade = 0
+	}
+	key := glyphKey{font: f, id: id, scale: uint32(scale*256 + 0.5), subX: uint8(subX), shade: min(shade, Shades-1)}
 	if e, ok := s.glyphs[key]; ok {
 		e.used = s.frame
 		return e.GlyphImage
 	}
 	failed := s.failed
-	g := s.rasterize(f, id, scale, float32(subX)/SubpixelSteps)
+	g := s.rasterize(f, id, scale, float32(subX)/SubpixelSteps, key.shade)
 	if s.failed == failed { // not left out of a full atlas
 		s.glyphs[key] = &atlasEntry{g, s.frame}
 	}
 	return g
 }
 
-func (s *System) rasterize(f *Font, id uint32, scale, dx float32) GlyphImage {
-	b := s.engine().glyph(f, id, scale, dx)
+func (s *System) rasterize(f *Font, id uint32, scale, dx float32, shade Shade) GlyphImage {
+	b := s.engine().glyph(f, id, scale, dx, shade)
 	if b.w <= 0 || b.h <= 0 || b.w > 2048 || b.h > 2048 {
 		return GlyphImage{}
 	}

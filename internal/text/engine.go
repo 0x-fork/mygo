@@ -31,8 +31,9 @@ type engine interface {
 	// the text apart from style, with their ends relative to it.
 	shape(text []rune, style Style, spans []Span, width float32, rtl, wholeWords bool) []shapedLine
 	// glyph rasterizes glyph id of f at scale pixels per DIP, its origin
-	// dx pixels (0 ≤ dx < 1) right of the left edge of a pixel.
-	glyph(f *Font, id uint32, scale, dx float32) bitmap
+	// dx pixels (0 ≤ dx < 1) right of the left edge of a pixel, for text
+	// of a shade when f is shaded.
+	glyph(f *Font, id uint32, scale, dx float32, shade Shade) bitmap
 	// register adds the fonts of a font file under family, or under their
 	// own family names when family is "".
 	register(data []byte, family string) error
@@ -79,6 +80,8 @@ type Font struct {
 	Ascent, Descent, LineGap float32
 
 	native uintptr // the engine's font
+	// shaded fonts' glyphs differ by the shade of the text.
+	shaded bool
 }
 
 // generic names the families "system-ui", "sans-serif", "serif" and

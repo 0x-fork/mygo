@@ -650,7 +650,7 @@ func (e *pangoEngine) scaledFont(f *Font, scale float32) uintptr {
 	return sf
 }
 
-func (e *pangoEngine) glyph(f *Font, id uint32, scale, dx float32) bitmap {
+func (e *pangoEngine) glyph(f *Font, id uint32, scale, dx float32, _ Shade) bitmap {
 	// Pango's empty glyphs, and the boxes it draws for missing ones, are
 	// not the font's.
 	if id == pangoGlyphEmpty || id&pangoGlyphUnknow != 0 {

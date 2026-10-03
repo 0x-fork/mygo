@@ -868,7 +868,7 @@ func (e *dwrite) run(r dwRun, x float32, index []int) shapedRun {
 	return out
 }
 
-func (e *dwrite) glyph(f *Font, id uint32, scale, dx float32) bitmap {
+func (e *dwrite) glyph(f *Font, id uint32, scale, dx float32, _ Shade) bitmap {
 	index := uint16(id)
 	var advance float32
 	run := dwGlyphRun{fontFace: f.native, fontEmSize: f.Size * scale, glyphCount: 1, glyphIndices: &index, glyphAdvances: &advance}

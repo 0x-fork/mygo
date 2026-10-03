@@ -30,7 +30,7 @@ func (e *stubEngine) shape(text []rune, style Style, spans []Span, width float32
 	return []shapedLine{{end: len(text), runs: []shapedRun{run}}}
 }
 
-func (e *stubEngine) glyph(f *Font, id uint32, scale, dx float32) bitmap { return bitmap{} }
+func (e *stubEngine) glyph(f *Font, id uint32, scale, dx float32, _ Shade) bitmap { return bitmap{} }
 
 func (e *stubEngine) register(data []byte, family string) error {
 	return errors.New("mygo: this system has no text engine to add fonts to")

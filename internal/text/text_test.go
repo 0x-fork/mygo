@@ -85,7 +85,7 @@ func TestGlyphRaster(t *testing.T) {
 	l := s.Layout(Params{Text: "Ag", Style: Style{Size: 32}})
 	n := 0
 	for _, g := range l.Lines[0].Glyphs {
-		img := s.Glyph(g.Font, g.ID, 1, 0)
+		img := s.Glyph(g.Font, g.ID, 1, 0, 0)
 		if !img.OK || img.W == 0 || img.H == 0 || img.Top >= 0 {
 			t.Fatalf("glyph %v: %+v", g.ID, img)
 		}
@@ -104,6 +104,56 @@ func TestGlyphRaster(t *testing.T) {
 	}
 	if n != 2 {
 		t.Errorf("%d glyphs", n)
+	}
+}
+
+// TestShadeOf checks shades against the steps of Core Text's smoothing,
+// measured on macOS 27.
+func TestShadeOf(t *testing.T) {
+	for _, c := range []struct {
+		r, g, b uint8
+		want    Shade
+	}{
+		{0, 0, 0, 0}, {0x4d, 0x4d, 0x4d, 0}, {0, 0, 255, 0},
+		{0x73, 0x73, 0x73, 1}, {0x99, 0x99, 0x99, 1}, {255, 0, 0, 1}, {0x25, 0x63, 0xeb, 1},
+		{0xb3, 0xb3, 0xb3, 2},
+		{0xd9, 0xd9, 0xd9, 3}, {0, 255, 0, 3}, {255, 255, 255, 3},
+	} {
+		if got := ShadeOf(c.r, c.g, c.b); got != c.want {
+			t.Errorf("ShadeOf(%#x, %#x, %#x) = %d, want %d", c.r, c.g, c.b, got, c.want)
+		}
+	}
+}
+
+// TestGlyphShades rasterizes lighter text bolder where the engine does, as
+// AppKit draws it, and color glyphs once.
+func TestGlyphShades(t *testing.T) {
+	s := newSystem()
+	l := s.Layout(Params{Text: "O", Style: Style{Size: 13}})
+	g := l.Lines[0].Glyphs[0]
+	if !g.Font.shaded {
+		t.Skip("the engine draws glyphs the same in any color")
+	}
+	var ink [Shades]int
+	for shade := range Shade(Shades) {
+		img := s.Glyph(g.Font, g.ID, 2, 0, shade)
+		for y := range int(img.H) {
+			for x := range int(img.W) {
+				ink[shade] += int(s.MaskAtlas.Pix[(int(img.Y)+y)*s.MaskAtlas.W+int(img.X)+x])
+			}
+		}
+	}
+	if ink[Shades-1] == ink[0] {
+		t.Skip("font smoothing is off")
+	}
+	for i := 1; i < Shades; i++ {
+		if ink[i] <= ink[i-1] {
+			t.Errorf("ink of the shades %v", ink)
+		}
+	}
+	l = s.Layout(Params{Text: "🎉", Style: Style{Size: 32}})
+	if g := l.Lines[0].Glyphs[0]; g.Font.shaded {
+		t.Errorf("the emoji font is shaded")
 	}
 }
 
@@ -288,7 +338,7 @@ func TestColorEmoji(t *testing.T) {
 	s := Shared()
 	l := s.Layout(Params{Text: "🎉", Style: Style{Size: 32}})
 	g := l.Lines[0].Glyphs[0]
-	if img := s.Glyph(g.Font, g.ID, 1, 0); !img.OK || !img.Colored || img.W < 16 {
+	if img := s.Glyph(g.Font, g.ID, 1, 0, 0); !img.OK || !img.Colored || img.W < 16 {
 		t.Errorf("%+v", img)
 	}
 }
@@ -498,10 +548,10 @@ func TestFontsOfManySizes(t *testing.T) {
 	for i := range 2 * maxFonts {
 		l := s.Layout(Params{Text: "Hi", Style: Style{Size: 10 + float32(i)/10}})
 		g := l.Lines[0].Glyphs[0]
-		img := s.Glyph(g.Font, g.ID, 1, 0)
+		img := s.Glyph(g.Font, g.ID, 1, 0, 0)
 		if !img.OK && s.Full() {
 			s.MakeRoom() // as frames do once the atlas fills
-			img = s.Glyph(g.Font, g.ID, 1, 0)
+			img = s.Glyph(g.Font, g.ID, 1, 0, 0)
 		}
 		if !img.OK {
 			t.Fatalf("no glyph at size %v", g.Size)
