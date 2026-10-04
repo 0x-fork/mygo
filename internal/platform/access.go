@@ -31,6 +31,11 @@ type AccessNode struct {
 	// and Placeholder what it shows while empty.
 	SelStart, SelEnd int
 	Placeholder      string
+	// PosInSet is the place of an item in its set, from 1, and SetSize
+	// the size of the set, 0 when not given: a list's rows say which of
+	// all they are, whether or not the others are built, and the list how
+	// many rows it has.
+	PosInSet, SetSize int
 	// Actions are the actions the element takes in AccessAction events.
 	Actions AccessActions
 }
@@ -66,9 +71,12 @@ const (
 	RoleColumnHeader
 	RoleTree
 	RoleTreeItem
+	RoleListItem
 )
 
 // AccessStates are the states of an element of an AccessTree.
+// AccessChecked is the choice among a tab list's tabs, a tree's items, and
+// the rows of a list or a table that are AccessSelectable.
 type AccessStates uint16
 
 const (
@@ -81,6 +89,10 @@ const (
 	AccessMultiline
 	AccessPassword
 	AccessReadOnly
+	AccessSelectable
+	// AccessOffscreen is set on elements built but out of view, as the
+	// rows a list builds beyond its edges.
+	AccessOffscreen
 )
 
 // AccessActions are the actions an element of an AccessTree takes.
@@ -92,6 +104,9 @@ const (
 	ActionIncrement
 	ActionDecrement
 	ActionSetValue
+	// ActionScrollIntoView scrolls the containers around the element to
+	// show it, as assistive technology moving to it out of view asks.
+	ActionScrollIntoView
 )
 
 // AccessActionKind is the action of an AccessAction event.
@@ -103,4 +118,5 @@ const (
 	AccessIncrement
 	AccessDecrement
 	AccessSetValue
+	AccessScrollIntoView
 )

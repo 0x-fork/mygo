@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -51,6 +52,8 @@ const (
 	RoleColumnHeader
 	RoleTree
 	RoleTreeItem
+	// RoleListItem is an item of a list: the rows of a List are.
+	RoleListItem
 )
 
 // Role sets what the element is to assistive technology, for an element
@@ -92,7 +95,7 @@ func (e *Element) accessRole() (platform.AccessRole, bool) {
 func leafRole(r platform.AccessRole) bool {
 	switch r {
 	case platform.RoleGroup, platform.RoleList, platform.RoleScroll, platform.RoleDialog, platform.RolePopup,
-		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleTree:
+		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleTree, platform.RoleListItem:
 		return false
 	}
 	return true
@@ -127,28 +130,64 @@ func (e *Element) innerText() string {
 // accessTree describes the last frame for assistive technology.
 func (rt *engine) accessTree() *platform.AccessTree {
 	t := &platform.AccessTree{}
+	var focused *Element
 	if root := rt.c.root; root != nil {
-		rt.accessElement(t, root, -1)
+		rt.accessElement(t, root, -1, false, &focused)
 	}
 	if rt.windowFocused && rt.focused != 0 {
-		for _, n := range t.Nodes {
-			if n.ID == rt.focused {
-				t.Focus = n.ID
-				break
+		focus := rt.focused
+		// A list choosing rows with the arrows has the focus for them:
+		// assistive technology follows the row chosen, as the arrows move
+		// the choice, while it shows.
+		if f := focused.rowsOfElement(); f != nil && f.s.Selected != nil {
+			for _, r := range f.rows {
+				if r.i == *f.s.Selected {
+					focus = r.e.id
+				}
+			}
+		}
+		for _, id := range []uint64{focus, rt.focused} {
+			if t.Focus == 0 && slices.ContainsFunc(t.Nodes, func(n platform.AccessNode) bool { return n.ID == id }) {
+				t.Focus = id
 			}
 		}
 	}
 	return t
 }
 
-func (rt *engine) accessElement(t *platform.AccessTree, e *Element, parent int) {
+// listOf returns the List the element is, if any.
+func (e *Element) listOf() *listFrame {
+	if e == nil {
+		return nil
+	}
+	return e.list
+}
+
+// rowsOfElement returns the list whose rows the element holds, if any.
+func (e *Element) rowsOfElement() *listFrame {
+	if e == nil {
+		return nil
+	}
+	return e.rowsOf
+}
+
+// accessElement adds the nodes of e and the elements inside it, below
+// node parent; scrolled is set inside a scroll container, and focused gets
+// the element with the keyboard focus.
+func (rt *engine) accessElement(t *platform.AccessTree, e *Element, parent int, scrolled bool, focused **Element) {
 	if e.flags&flagInvisible != 0 {
 		return
+	}
+	if e.id == rt.focused {
+		*focused = e
 	}
 	if role, ok := e.accessRole(); ok {
 		n := platform.AccessNode{
 			ID: e.id, Parent: parent, Role: role, Label: e.label,
 			Bounds: platform.RectF{X: float64(e.x), Y: float64(e.y), W: float64(e.w), H: float64(e.h)},
+		}
+		if scrolled {
+			n.Actions |= platform.ActionScrollIntoView
 		}
 		rt.accessDetails(e, &n)
 		t.Nodes = append(t.Nodes, n)
@@ -162,14 +201,15 @@ func (rt *engine) accessElement(t *platform.AccessTree, e *Element, parent int) 
 		}
 	}
 	// Children in flow first, absolute ones above them, as they paint.
+	scrolled = scrolled || e.scrolls()
 	for ch := e.first; ch != nil; ch = ch.next {
 		if ch.flags&flagAbsolute == 0 {
-			rt.accessElement(t, ch, parent)
+			rt.accessElement(t, ch, parent, scrolled, focused)
 		}
 	}
 	for ch := e.first; ch != nil; ch = ch.next {
 		if ch.flags&flagAbsolute != 0 {
-			rt.accessElement(t, ch, parent)
+			rt.accessElement(t, ch, parent, scrolled, focused)
 		}
 	}
 }
@@ -180,7 +220,9 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if disabled {
 		n.States |= platform.AccessDisabled
 	}
-	if n.Label == "" && leafRole(n.Role) {
+	// Rows and items of lists are named by their content, as leaves are,
+	// but show what is inside them too.
+	if n.Label == "" && (leafRole(n.Role) || n.Role == platform.RoleListItem || n.Role == platform.RoleRow) {
 		n.Label = e.innerText()
 	}
 	switch e.checked {
@@ -196,10 +238,30 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if e.hasRange {
 		n.Min, n.Max, n.Now = e.accRange[0], e.accRange[1], e.accRange[2]
 	}
+	// A row of a list says which of all it is, built or not, and the list
+	// how many it has.
+	if f := e.parent.listOf(); e.listRow && f != nil {
+		n.PosInSet, n.SetSize = e.rowIndex+1, f.n
+	}
+	if f := e.rowsOf; f != nil {
+		n.SetSize = f.n
+		if f.s.Selected != nil {
+			n.States |= platform.AccessSelectable // as do its rows
+		}
+	}
+	if e.flags&flagChoosable != 0 {
+		n.States |= platform.AccessSelectable
+	}
+	// What a scroll container built out of view, as the rows of a list
+	// beyond its edges.
+	if st := e.st; (st.vw <= 0 || st.vh <= 0) && e.w > 0 && e.h > 0 {
+		n.States |= platform.AccessOffscreen
+	}
 	if disabled {
 		return
 	}
-	if e.flags&(flagFocusable|flagEditable) != 0 {
+	if e.flags&(flagFocusable|flagEditable|flagChoosable) != 0 {
+		// Focusing a row a list chooses chooses it.
 		n.States |= platform.AccessFocusable
 		n.Actions |= platform.ActionFocus
 	}
@@ -251,7 +313,27 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 			rt.focusOn(s)
 		}
 	case platform.AccessFocus:
+		if s.flags&flagChoosable != 0 {
+			// A row of a list choosing rows: its list takes the focus for
+			// it, choosing it.
+			s.clicks++
+			break
+		}
 		rt.focusOn(s)
+	case platform.AccessScrollIntoView:
+		// The rows of lists around it scroll into view by their place, as
+		// the next frame may not build them, then it does.
+		for row := s; row != nil; row = rt.states[row.parent] {
+			if l := rt.states[row.parent]; l != nil && l.list != nil {
+				if r, ok := l.list.rows[row.id]; ok {
+					l.list.ScrollIntoView(r.row)
+				}
+			}
+			if row.parent == 0 {
+				break
+			}
+		}
+		rt.reveal(s.id)
 	case platform.AccessIncrement, platform.AccessDecrement:
 		rt.focusOn(s)
 		k := KeyRight

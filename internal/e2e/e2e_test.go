@@ -2062,6 +2062,44 @@ func TestContentWindowAccessibility(t *testing.T) {
 	}
 }
 
+// TestContentWindowListAccessibility reads the rows of a List as assistive
+// technology does, and chooses one by pressing it.
+func TestContentWindowListAccessibility(t *testing.T) {
+	var frames atomic.Int32
+	chosen := -1
+	var list ui.ListState
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		list.Selected = &chosen
+		ui.List(c, &list, 10000, func(i int) {
+			ui.Textf(c, "Item %d", i).Padding(6, 10)
+		}).Fill().Label("Items")
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "List accessibility", Width: 300, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	if _, ok := accessibility(w); !ok {
+		t.Skip("accessibility automation not available on this platform")
+	}
+	eventually(t, "the rows", func() bool {
+		nodes, _ := accessibility(w)
+		rows := 0
+		for _, n := range nodes {
+			if n.role == roleListItem && strings.HasPrefix(n.label, "Item ") {
+				rows++
+			}
+		}
+		return rows > 5 && rows < 100 // those in view, and a few beyond
+	})
+	if !accessPerform(w, "Item 3", "press", "") {
+		t.Fatal("cannot press row 3")
+	}
+	eventually(t, "row 3 chosen", func() bool {
+		var c int
+		mygo.RunOnMain(func() { c = chosen })
+		return c == 3
+	})
+}
+
 // TestContentWindowTyping types into native UI right after a click, before
 // the window draws another frame, and composes text with an input method.
 func TestContentWindowTyping(t *testing.T) {

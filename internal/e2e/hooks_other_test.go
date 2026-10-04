@@ -78,6 +78,9 @@ func accessPerform(*mygo.Window, string, string, string) bool { return false }
 
 const roleText, roleButton, roleCheckBox, roleTextField, roleSlider = "text", "button", "check box", "text field", "slider"
 
+// roleListItem is the role of the rows of a List.
+const roleListItem = "list item"
+
 // Typing into native UI is only automated on macOS.
 func clickAndType(*mygo.Window, float64, float64, string) bool { return false }
 func compose(*mygo.Window, string, int, bool) bool             { return false }

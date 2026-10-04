@@ -100,6 +100,143 @@ func TestAccessibilityTree(t *testing.T) {
 	}
 }
 
+// byID returns the node of the tree with id.
+func byID(tree *platform.AccessTree, id uint64) (platform.AccessNode, bool) {
+	for _, n := range tree.Nodes {
+		if n.ID == id {
+			return n, true
+		}
+	}
+	return platform.AccessNode{}, false
+}
+
+func TestAccessibilityOfLists(t *testing.T) {
+	sel := -1
+	s := ListState{Selected: &sel}
+	tt := NewTester(func(c *Context) {
+		Button(c, "Before")
+		List(c, &s, 1000, func(i int) { Textf(c, "Row %d", i).Height(30) }).Grow(1)
+	}, 300, 400)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	tree := tt.h.access
+	// Each row says which of all it is, and that it can be chosen.
+	item := node(t, tree, platform.RoleListItem, "Row 3")
+	if item.PosInSet != 4 || item.SetSize != 1000 {
+		t.Errorf("row 3 is %d of %d", item.PosInSet, item.SetSize)
+	}
+	if item.States&(platform.AccessSelectable|platform.AccessFocusable) != platform.AccessSelectable|platform.AccessFocusable ||
+		item.Actions&(platform.ActionPress|platform.ActionFocus|platform.ActionScrollIntoView) == 0 {
+		t.Errorf("row 3: %+v", item)
+	}
+	node(t, tree, platform.RoleText, "Row 3") // its content shows too
+	if b := node(t, tree, platform.RoleButton, "Before"); b.Actions&platform.ActionScrollIntoView != 0 {
+		t.Error("a button out of any scroll container scrolls into view")
+	}
+	// Focusing a row chooses it, the list taking the focus: assistive
+	// technology follows the choice as the arrows move it.
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: item.ID, Action: platform.AccessFocus})
+	tree = tt.h.access
+	if sel != 3 || tree.Focus != item.ID || tt.rt.focused != s.frame.e.id {
+		t.Fatalf("focused row 3: chose %d, focus on %d (row %d)", sel, tree.Focus, item.ID)
+	}
+	if n, _ := byID(tree, item.ID); n.States&platform.AccessChecked == 0 {
+		t.Error("the chosen row is not chosen")
+	}
+	tt.Key(0, KeyDown)
+	tree = tt.h.access
+	if n, ok := byID(tree, tree.Focus); !ok || n.PosInSet != 5 || n.States&platform.AccessChecked == 0 {
+		t.Errorf("Down: the focus is on %+v", n)
+	}
+	// The last row built, out of view, scrolls into view when assistive
+	// technology asks, and the rows after it come.
+	last := platform.AccessNode{}
+	for _, n := range tree.Nodes {
+		if n.Role == platform.RoleListItem && n.PosInSet > last.PosInSet {
+			last = n
+		}
+	}
+	if last.Bounds.Y+last.Bounds.H <= 400 {
+		t.Fatalf("the last row built shows: %+v", last)
+	}
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: last.ID, Action: platform.AccessScrollIntoView})
+	tree = tt.h.access
+	if n, ok := byID(tree, last.ID); !ok || n.Bounds.Y+n.Bounds.H > 400.01 {
+		t.Errorf("scrolled into view: %+v (%v)", n, ok)
+	}
+	beyond := false
+	for _, n := range tree.Nodes {
+		beyond = beyond || n.Role == platform.RoleListItem && n.PosInSet > last.PosInSet
+	}
+	if !beyond {
+		t.Error("no row after it came")
+	}
+}
+
+func TestAccessibilityScrollsToARowNoLongerBuilt(t *testing.T) {
+	// A frame that scrolled to a row built more rows around it than the
+	// next builds: assistive technology may ask for one of those.
+	var s ListState
+	tt := NewTester(func(c *Context) {
+		List(c, &s, 1000, func(i int) { Textf(c, "Row %d", i).Height(30) }).Grow(1)
+	}, 300, 400)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	s.ScrollTo(20, Center)
+	tt.Frame()
+	tree := tt.h.access
+	last := platform.AccessNode{}
+	for _, n := range tree.Nodes {
+		if n.Role == platform.RoleListItem && n.PosInSet > last.PosInSet {
+			last = n
+		}
+	}
+	// The next frame builds the rows of the place alone.
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: last.ID, Action: platform.AccessScrollIntoView})
+	if r, ok := rowBox(tt, &s, last.PosInSet-1); !ok || r.Y < 0 || r.Y+r.H > 400.01 {
+		t.Errorf("row %d after asking to see it: %v (%v)", last.PosInSet-1, r, ok)
+	}
+}
+
+func TestAccessibilityOfTables(t *testing.T) {
+	sel := 2
+	s := ListState{Selected: &sel}
+	cols := []TableColumn{{Title: "Name"}, {Title: "Size", Width: 80}}
+	tt := NewTester(func(c *Context) {
+		Table(c, &s, cols, 500, func(row, col int) { Textf(c, "Cell %d %d", row, col) }).Grow(1)
+	}, 400, 300)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	tree := tt.h.access
+	rows := 0
+	for _, n := range tree.Nodes {
+		if n.Role != platform.RoleRow {
+			continue
+		}
+		if rows++; rows == 1 {
+			if n.PosInSet != 0 {
+				t.Errorf("the header is row %d", n.PosInSet)
+			}
+			continue
+		}
+		if n.SetSize != 500 || n.States&platform.AccessSelectable == 0 {
+			t.Errorf("a row: %+v", n)
+		}
+		// A row holds its cells, not another row.
+		for _, m := range tree.Nodes {
+			if m.Parent >= 0 && tree.Nodes[m.Parent].ID == n.ID && m.Role != platform.RoleCell {
+				t.Errorf("row %d holds a node of role %d", n.PosInSet, m.Role)
+			}
+		}
+	}
+	if rows < 5 {
+		t.Errorf("%d rows", rows)
+	}
+	// The table has the focus for its rows.
+	tt.Click("Cell 4 0")
+	tree = tt.h.access
+	if n, ok := byID(tree, tree.Focus); !ok || n.Role != platform.RoleRow || n.PosInSet != 5 {
+		t.Errorf("clicked row 4: the focus is on %+v", n)
+	}
+}
+
 func TestAccessibilityOfOverlays(t *testing.T) {
 	open := true
 	tt := NewTester(func(c *Context) {

@@ -168,6 +168,9 @@ func dropFiles(w *mygo.Window, x, y float64, paths []string) (over, dropped, ok 
 // The control types of elements in UI Automation.
 const roleText, roleButton, roleCheckBox, roleTextField, roleSlider = "Text", "Button", "CheckBox", "Edit", "Slider"
 
+// roleListItem is the role of the rows of a List.
+const roleListItem = "ListItem"
+
 func accessibility(w *mygo.Window) (nodes []accessNode, ok bool) {
 	mygo.RunOnMain(func() {
 		var list []win.TestAccessNode

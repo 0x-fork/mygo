@@ -1006,6 +1006,25 @@ either.
   with UI Automation's events.
   What assistive technology does comes back as `AccessAction` events,
   which the engine performs as the pointer or the keyboard would.
+  The rows of a `List` (list items) and a `Table` (rows) are named by
+  their content and say which of all the rows they are (`PosInSet`,
+  `SetSize`, the list giving its total), as only those in view are built;
+  rows built beyond the view are `AccessOffscreen`, and what is in a scroll
+  container scrolls into view on request (`AccessScrollIntoView`), a row
+  of a list by its place, which builds it. A list choosing rows has the
+  focus for them: the tree's `Focus` is the chosen row while the list has
+  the keyboard focus, so the arrows are read as they move the choice, and
+  focusing a row chooses it, as screen readers expect of an active
+  descendant. On macOS, lists are tables (`AXTable`) of rows
+  (`AXTableRow`), as AppKit's, with `AXIndex`, `AXRowCount`,
+  `AXVisibleRows`, `AXSelectedRows` and `AXSelectedRowsChanged`, and
+  `AXScrollToVisible`, an action of AppKit's older API, which elements
+  then answer for all their actions; on Linux, a list choosing rows is a
+  list box with `AtkSelection` and `selection-changed`, rows carry the
+  `posinset` and `setsize` object attributes, and `AtkComponent`'s
+  `scroll_to` (ATK 2.30) scrolls; on Windows, rows have `PositionInSet`,
+  `SizeOfSet`, `IsOffscreen`, `SelectionItem` (raising `ElementSelected`)
+  in their list's `Selection`, and `ScrollItem`.
 - **The connection.** `content.go` attaches the content to its window
   through `internal/surface.Conn`, which carries the surface and, as
   functions, what the content needs of the app (the clipboard, dragging

@@ -747,6 +747,14 @@ an element out but not its children:
 toggle := ui.Box(c).Size(36, 20).Focusable().Role(ui.RoleSwitch).Label("Wi-Fi")
 ```
 
+A `List`'s rows are list items, and a `Table`'s rows, named by the text
+inside them, and each says which of all the rows it is, "5 of 10,000",
+although the list builds only those in view. A list choosing its rows
+gives assistive technology the focus on the row chosen: Up and Down are
+read as they move the choice, and focusing a row chooses it. A screen
+reader moving out of view asks the list to scroll there, which builds the
+rows it reaches. `Label` names a list or a table.
+
 MyGo describes frames only once assistive technology asked, so apps pay
 nothing for it otherwise.
 

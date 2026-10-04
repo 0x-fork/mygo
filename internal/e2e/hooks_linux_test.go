@@ -178,6 +178,9 @@ func dropFiles(w *mygo.Window, x, y float64, paths []string) (over, dropped, ok 
 // The roles of elements in ATK.
 const roleText, roleButton, roleCheckBox, roleTextField, roleSlider = "label", "button", "check box", "entry", "slider"
 
+// roleListItem is the role of the rows of a List.
+const roleListItem = "list item"
+
 func accessibility(w *mygo.Window) (nodes []accessNode, ok bool) {
 	mygo.RunOnMain(func() {
 		var list []linux.TestAccessNode

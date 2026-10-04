@@ -440,7 +440,7 @@ func TestListSelection(t *testing.T) {
 	tree := tt.rt.accessTree()
 	rows := 0
 	for _, n := range tree.Nodes {
-		if n.Role == platform.RoleRow {
+		if n.Role == platform.RoleListItem {
 			rows++
 		}
 	}

@@ -207,7 +207,7 @@ func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i in
 	}
 	n = max(n, 0)
 	*f = listFrame{c: c, e: e, owner: owner, s: s, n: n, row: row, frame: rt.frame, pass: rt.pass, flat: flat, theme: c.theme, rows: f.rows[:0], at: f.at}
-	e.list = f
+	e.list, owner.rowsOf = f, f
 	s.sync(e, n)
 	if s.Selected != nil {
 		if owner == e {
@@ -368,11 +368,16 @@ func (f *listFrame) build(i int) *Element {
 		key = s.Key(i)
 	}
 	w := Box(c).Key(key).Shrink(0)
-	w.listRow = true
+	w.listRow, w.rowIndex = true, i
+	// Assistive technology sees a row of a table, an item of a list.
+	if f.flat {
+		w.Role(RoleRow)
+	} else {
+		w.Role(RoleListItem)
+	}
 	if sel := s.Selected; sel != nil && !f.isHeader(i) {
 		t := c.theme
-		w.flags |= flagClickable | flagHover
-		w.Role(RoleRow)
+		w.flags |= flagClickable | flagHover | flagChoosable
 		if w.Clicked() {
 			f.choose(i)
 			f.owner.Focus()

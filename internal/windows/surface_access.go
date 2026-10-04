@@ -16,9 +16,12 @@ import (
 // Automation. The surface's window answers WM_GETOBJECT with a fragment
 // root whose fragments are the nodes of the content's tree: COM objects
 // with the control patterns of their roles. Invoke presses buttons and
-// links, Toggle check boxes and switches, SelectionItem radio buttons;
-// RangeValue gives sliders and progress bars, Value text fields and
-// pop-up buttons, which ExpandCollapse opens.
+// links, Toggle check boxes and switches, SelectionItem radio buttons and
+// the rows lists choose, in the Selection of their list; RangeValue gives
+// sliders and progress bars, Value text fields and pop-up buttons, which
+// ExpandCollapse opens; ScrollItem scrolls what is in scroll containers
+// into view. Rows say which of all of their list's they are
+// (PositionInSet, SizeOfSet), as a list builds only those in view.
 //
 // Two methods take doubles, which Go callbacks cannot read: thunks in
 // assembly move their bits to integer registers first (uia_*.s).
@@ -69,6 +72,8 @@ const (
 	ifaceRangeValue
 	ifaceValue
 	ifaceExpandCollapse
+	ifaceSelection
+	ifaceScrollItem
 	uiaIfaces
 )
 
@@ -82,11 +87,13 @@ var uiaIIDs = [uiaIfaces]GUID{
 	guid("36dc7aef-33e6-4691-afe1-2be7274b3d33"), // IRangeValueProvider
 	guid("c7935180-6fb3-4201-b174-7df73adbf64a"), // IValueProvider
 	guid("d847d3a5-cab0-4a98-8c32-ecb45c59ad24"), // IExpandCollapseProvider
+	guid("fb8b03af-3bdf-48d4-bd36-1a65793be168"), // ISelectionProvider
+	guid("2360c714-4bf1-4b26-ba65-9b21316127eb"), // IScrollItemProvider
 }
 
 // Pattern identifiers of UI Automation, by interface.
-var uiaPatterns = map[uintptr]int{10000: ifaceInvoke, 10002: ifaceValue, 10003: ifaceRangeValue,
-	10005: ifaceExpandCollapse, 10010: ifaceSelectionItem, 10015: ifaceToggle}
+var uiaPatterns = map[uintptr]int{10000: ifaceInvoke, 10001: ifaceSelection, 10002: ifaceValue, 10003: ifaceRangeValue,
+	10005: ifaceExpandCollapse, 10010: ifaceSelectionItem, 10015: ifaceToggle, 10017: ifaceScrollItem}
 
 const (
 	uiaRootObjectID = -25
@@ -107,14 +114,19 @@ const (
 	uiaIsSelectedProperty       = 30079
 	uiaToggleStateProperty      = 30086
 	uiaIsDialogProperty         = 30174
+	uiaIsOffscreenProperty      = 30022
+	uiaPositionInSetProperty    = 30152
+	uiaSizeOfSetProperty        = 30153
 
-	uiaFocusChangedEvent = 20005
+	uiaFocusChangedEvent    = 20005
+	uiaElementSelectedEvent = 20012
 
-	vtEmpty = 0
-	vtI4    = 3
-	vtR8    = 5
-	vtBSTR  = 8
-	vtBool  = 11
+	vtEmpty   = 0
+	vtI4      = 3
+	vtR8      = 5
+	vtBSTR    = 8
+	vtBool    = 11
+	vtUnknown = 13
 
 	uiaElementNotEnabled   = 0x80040200
 	uiaElementNotAvailable = 0x80040201
@@ -130,6 +142,7 @@ var uiaControlTypes = map[platform.AccessRole]int32{
 	platform.RolePopUpButton: 50003, platform.RoleTabList: 50018, platform.RoleTab: 50019, platform.RoleSplitter: 50038,
 	platform.RoleStatus: 50017, platform.RoleTable: 50036, platform.RoleRow: 50029, platform.RoleCell: 50025,
 	platform.RoleColumnHeader: 50035, platform.RoleTree: 50023, platform.RoleTreeItem: 50024,
+	platform.RoleListItem: 50007,
 }
 
 // variant is VARIANT, with the value of the types used here.
@@ -219,7 +232,18 @@ func (e *uiaElement) supports(i int) bool {
 	case ifaceToggle:
 		return n.Role == platform.RoleCheckBox || n.Role == platform.RoleSwitch
 	case ifaceSelectionItem:
-		return n.Role == platform.RoleRadio || n.Role == platform.RoleTab || n.Role == platform.RoleTreeItem || n.Role == platform.RoleRow
+		switch n.Role {
+		case platform.RoleRadio, platform.RoleTab, platform.RoleTreeItem:
+			return true
+		case platform.RoleListItem, platform.RoleRow:
+			return n.States&platform.AccessSelectable != 0
+		}
+		return false
+	case ifaceSelection:
+		// A list or table choosing its rows.
+		return (n.Role == platform.RoleList || n.Role == platform.RoleTable) && n.States&platform.AccessSelectable != 0
+	case ifaceScrollItem:
+		return n.Actions&platform.ActionScrollIntoView != 0
 	case ifaceRangeValue:
 		return n.Role == platform.RoleSlider || n.Role == platform.RoleProgress
 	case ifaceValue:
@@ -432,6 +456,9 @@ func (e *uiaElement) notifyChanges(prev platform.AccessNode) {
 	case e.supports(ifaceSelectionItem):
 		if before, after := prev.States&platform.AccessChecked != 0, n.States&platform.AccessChecked != 0; before != after {
 			changed(uiaIsSelectedProperty, boolVariant(before), boolVariant(after))
+			if after {
+				procUiaRaiseAutomationEvent.Call(e.ptr(ifaceSimple), uiaElementSelectedEvent)
+			}
 		}
 	case e.supports(ifaceRangeValue):
 		if prev.Now != n.Now {
@@ -727,7 +754,54 @@ func initUIA() {
 			setBool(p, selected(uiaOf(this)))
 			return sOK
 		}),
-		cb(func(this, p uintptr) uintptr { return out(p, nil, 0) }), // get_SelectionContainer
+		cb(func(this, p uintptr) uintptr { // get_SelectionContainer
+			e, hr := live(this)
+			if e == nil {
+				return hr
+			}
+			return out(p, e.container(), ifaceSimple)
+		}),
+	)
+
+	uiaVtbls[ifaceSelection] = vtbl(
+		cb(func(this, p uintptr) uintptr { // GetSelection
+			e, hr := live(this)
+			*(*uintptr)(native(p)) = 0
+			if e == nil {
+				return hr
+			}
+			var chosen []*uiaElement
+			for _, d := range e.tree.order {
+				if d.n.States&platform.AccessChecked != 0 && d.supports(ifaceSelectionItem) && d.container() == e {
+					chosen = append(chosen, d)
+				}
+			}
+			sa, _, _ := procSafeArrayCreateVector.Call(vtUnknown, 0, uintptr(len(chosen)))
+			for i, d := range chosen {
+				index := int32(i)
+				procSafeArrayPutElement.Call(sa, uintptr(unsafe.Pointer(&index)), d.ptr(ifaceSimple))
+			}
+			*(*uintptr)(native(p)) = sa
+			return sOK
+		}),
+		cb(func(this, p uintptr) uintptr { // get_CanSelectMultiple
+			setBool(p, false)
+			return sOK
+		}),
+		cb(func(this, p uintptr) uintptr { // get_IsSelectionRequired
+			setBool(p, false)
+			return sOK
+		}),
+	)
+
+	uiaVtbls[ifaceScrollItem] = vtbl(
+		cb(func(this uintptr) uintptr { // ScrollIntoView
+			e, hr := live(this)
+			if e == nil {
+				return hr
+			}
+			return e.act(platform.AccessScrollIntoView, "")
+		}),
 	)
 
 	rangeOf := func(get func(n platform.AccessNode) float64) uintptr {
@@ -842,5 +916,26 @@ func (e *uiaElement) property(id int, v *variant) {
 		str("MyGo")
 	case uiaIsDialogProperty:
 		*v = boolVariant(n.Role == platform.RoleDialog)
+	case uiaIsOffscreenProperty:
+		*v = boolVariant(n.States&platform.AccessOffscreen != 0)
+	case uiaPositionInSetProperty:
+		if n.PosInSet > 0 {
+			*v = variant{VT: vtI4, Val: uint64(n.PosInSet)}
+		}
+	case uiaSizeOfSetProperty:
+		if n.SetSize > 0 {
+			*v = variant{VT: vtI4, Val: uint64(n.SetSize)}
+		}
 	}
+}
+
+// container returns the element whose Selection holds the element's, the
+// list or table around it choosing it.
+func (e *uiaElement) container() *uiaElement {
+	for p := e.parent; p != nil && !p.root; p = p.parent {
+		if p.supports(ifaceSelection) {
+			return p
+		}
+	}
+	return nil
 }

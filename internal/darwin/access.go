@@ -18,7 +18,13 @@ import (
 // tree, which the surface view contains. Elements are kept from update to
 // update by node ID, so that VoiceOver's cursor stays on them, and only
 // what changed is set again. The content describes frames once AppKit
-// first asks the view for its children.
+// first asks the view for its children. Lists are tables of rows, as AppKit's
+// own lists, and VoiceOver reads their rows "row 5 of 10,000" from their
+// index among all of their table's (AXIndex) and how many it has
+// (AXRowCount), rather than from the rows built, as a list builds only those
+// in view; the table says which rows show (AXVisibleRows) and which are
+// chosen (AXSelectedRows). What is in a scroll container takes
+// AXScrollToVisible.
 
 // accessElement is the element of a node.
 type accessElement struct {
@@ -27,17 +33,24 @@ type accessElement struct {
 	node     platform.AccessNode
 	parent   id
 	children []uint64
+	// chosen are the rows of a list or table that are chosen, and count
+	// its rows, built or not.
+	chosen []uint64
+	count  int
 }
 
 var (
-	accessOnce      sync.Once
-	postAccessNote  uintptr // NSAccessibilityPostNotification
-	msgPointToPoint func(obj id, sel objc.SEL, p NSPoint) NSPoint
+	accessOnce     sync.Once
+	postAccessNote uintptr // NSAccessibilityPostNotification
+	// actionDescription is NSAccessibilityActionDescription.
+	actionDescription uintptr
+	msgPointToPoint   func(obj id, sel objc.SEL, p NSPoint) NSPoint
 )
 
 func loadAccess() {
 	accessOnce.Do(func() {
 		postAccessNote = mustDlsym(libAppKit, "NSAccessibilityPostNotification")
+		actionDescription = mustDlsym(libAppKit, "NSAccessibilityActionDescription")
 		purego.RegisterFunc(&msgPointToPoint, msgSendAddr)
 	})
 }
@@ -62,7 +75,7 @@ var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleProgress:     {"AXProgressIndicator", ""},
 	platform.RoleTextField:    {"AXTextField", ""},
 	platform.RoleImage:        {"AXImage", ""},
-	platform.RoleList:         {"AXList", ""},
+	platform.RoleList:         {"AXTable", ""},
 	platform.RoleScroll:       {"AXScrollArea", ""},
 	platform.RoleDialog:       {"AXGroup", "AXDialog"},
 	platform.RolePopup:        {"AXPopover", ""},
@@ -73,11 +86,18 @@ var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleSplitter:     {"AXSplitter", ""},
 	platform.RoleStatus:       {"AXGroup", "AXApplicationStatus"},
 	platform.RoleTable:        {"AXTable", ""},
-	platform.RoleRow:          {"AXRow", ""},
+	platform.RoleRow:          {"AXRow", "AXTableRow"},
 	platform.RoleCell:         {"AXCell", ""},
 	platform.RoleColumnHeader: {"AXCell", ""},
 	platform.RoleTree:         {"AXOutline", ""},
 	platform.RoleTreeItem:     {"AXRow", "AXOutlineRow"},
+	platform.RoleListItem:     {"AXRow", "AXTableRow"},
+}
+
+// chooses reports whether a node is the row of a list or a table that its
+// list chooses.
+func chooses(n platform.AccessNode) bool {
+	return (n.Role == platform.RoleListItem || n.Role == platform.RoleRow) && n.States&platform.AccessSelectable != 0
 }
 
 func roleOf(n platform.AccessNode) (role, subrole string) {
@@ -105,9 +125,19 @@ func titled(r platform.AccessRole) bool {
 
 // value returns the value of a node as AppKit wants it: a number for
 // toggles and ranges, a string for texts.
-func valueOf(n platform.AccessNode) id {
-	switch n.Role {
+// toggle reports whether elements of a role have their state as their
+// value.
+func toggle(r platform.AccessRole) bool {
+	switch r {
 	case platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RoleTab:
+		return true
+	}
+	return false
+}
+
+func valueOf(n platform.AccessNode) id {
+	switch {
+	case toggle(n.Role):
 		v := 0
 		switch {
 		case n.States&platform.AccessMixed != 0:
@@ -116,12 +146,12 @@ func valueOf(n platform.AccessNode) id {
 			v = 1
 		}
 		return nsNumberInt(v)
-	case platform.RoleSlider, platform.RoleProgress:
+	case n.Role == platform.RoleSlider || n.Role == platform.RoleProgress:
 		if n.Now < n.Min {
 			return 0 // a progress of unknown length
 		}
 		return msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Now)
-	case platform.RoleText:
+	case n.Role == platform.RoleText:
 		return nsString(n.Label)
 	}
 	if n.Value != "" || n.Role == platform.RoleTextField {
@@ -168,10 +198,18 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 			send(obj, "setAccessibilityMaxValue:", uintptr(msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Max)))
 		}
 	}
-	if fresh || n.Value != o.Value || n.Now != o.Now || n.States&(platform.AccessChecked|platform.AccessMixed) != o.States&(platform.AccessChecked|platform.AccessMixed) ||
-		n.Role == platform.RoleText && n.Label != o.Label {
+	// The state of a toggle is its value; a row's choice is not, which its
+	// table tells (AXSelectedRowsChanged).
+	toggled := toggle(n.Role) && n.States&(platform.AccessChecked|platform.AccessMixed) != o.States&(platform.AccessChecked|platform.AccessMixed)
+	if fresh || n.Value != o.Value || n.Now != o.Now || toggled || n.Role == platform.RoleText && n.Label != o.Label {
 		send(obj, "setAccessibilityValue:", uintptr(valueOf(n)))
 		valueChanged = !fresh
+	}
+	if n.PosInSet > 0 && (fresh || n.PosInSet != o.PosInSet) {
+		send(obj, "setAccessibilityIndex:", uintptr(n.PosInSet-1))
+	}
+	if chooses(n) && (fresh || !chooses(o) || n.States&platform.AccessChecked != o.States&platform.AccessChecked) {
+		send(obj, "setAccessibilitySelected:", boolArg(n.States&platform.AccessChecked != 0))
 	}
 	if fresh || n.Placeholder != o.Placeholder {
 		var p id
@@ -212,9 +250,11 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 		changed := false
 		objs := make([]id, len(tree.Nodes))
 		var valueChanged []id
+		fresh := map[uint64]bool{}
 		for i, n := range tree.Nodes {
 			el := s.elements[n.ID]
 			if el == nil {
+				fresh[n.ID] = true
 				el = &accessElement{obj: send(send(class("MyGoAccessibilityElement"), "alloc"), "init"), s: s}
 				s.elements[n.ID] = el
 				s.w.b.byAccess[el.obj] = el
@@ -252,6 +292,52 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 				changed = true
 			}
 		}
+		// Lists and tables: their rows, those that show, those chosen, and
+		// how many they have, built or not. A list's own rows say where
+		// they are among all; the rows of other tables, where among those.
+		var selectionChanged []*accessElement
+		for i, n := range tree.Nodes {
+			if n.Role != platform.RoleList && n.Role != platform.RoleTable {
+				continue
+			}
+			el := s.elements[n.ID]
+			var rows, shown, chosen []id
+			var chosenIDs []uint64
+			for _, cid := range children[i] {
+				c := s.elements[cid]
+				if r := c.node.Role; r != platform.RoleRow && r != platform.RoleListItem || n.SetSize > 0 && c.node.PosInSet == 0 {
+					continue // a table's header
+				}
+				if c.node.PosInSet == 0 {
+					send(c.obj, "setAccessibilityIndex:", uintptr(len(rows)))
+				}
+				rows = append(rows, c.obj)
+				if c.node.States&platform.AccessOffscreen == 0 {
+					shown = append(shown, c.obj)
+				}
+				if chooses(c.node) && c.node.States&platform.AccessChecked != 0 {
+					chosen = append(chosen, c.obj)
+					chosenIDs = append(chosenIDs, cid)
+				}
+			}
+			count := n.SetSize
+			if count == 0 {
+				count = len(rows)
+			}
+			if count != el.count {
+				el.count = count
+				send(el.obj, "setAccessibilityRowCount:", uintptr(count))
+			}
+			send(el.obj, "setAccessibilityRows:", uintptr(nsArray(rows...)))
+			send(el.obj, "setAccessibilityVisibleRows:", uintptr(nsArray(shown...)))
+			send(el.obj, "setAccessibilitySelectedRows:", uintptr(nsArray(chosen...)))
+			if !slices.Equal(el.chosen, chosenIDs) {
+				el.chosen = chosenIDs
+				if !fresh[n.ID] { // a new list's choice did not change
+					selectionChanged = append(selectionChanged, el)
+				}
+			}
+		}
 		release(s.topLevel)
 		s.topLevel = retain(nsArray(top...))
 		live := make(map[uint64]bool, len(tree.Nodes))
@@ -272,6 +358,9 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 		}
 		for _, obj := range valueChanged {
 			postNote(obj, "AXValueChanged")
+		}
+		for _, el := range selectionChanged {
+			postNote(el.obj, "AXSelectedRowsChanged")
 		}
 		if tree.Focus != s.access.Focus {
 			if el := s.elements[tree.Focus]; el != nil {
@@ -331,6 +420,20 @@ func (el *accessElement) act(a platform.AccessActionKind, text string) bool {
 	return true
 }
 
+// legacyActions are the actions of nodes by their names in AppKit's older
+// API: AXScrollToVisible is NSAccessibilityScrollToVisibleAction, which
+// AppKit exports only since macOS 26.
+var legacyActions = []struct {
+	name   string
+	action platform.AccessActions
+	kind   platform.AccessActionKind
+}{
+	{"AXPress", platform.ActionPress, platform.AccessPress},
+	{"AXIncrement", platform.ActionIncrement, platform.AccessIncrement},
+	{"AXDecrement", platform.ActionDecrement, platform.AccessDecrement},
+	{"AXScrollToVisible", platform.ActionScrollIntoView, platform.AccessScrollIntoView},
+}
+
 func registerAccessClass() {
 	b := func() *Backend { return theBackend }
 	allowed := map[string]platform.AccessActions{
@@ -360,6 +463,36 @@ func registerAccessClass() {
 				}
 			}
 			return objc.ID(self).SendSuper(cmd, selector) != 0
+		}),
+		// Scrolling into view is an action of the older API alone, which
+		// VoiceOver asks for as it moves to what is out of view: answering
+		// it, an element answers for all its actions there.
+		method("accessibilityActionNames", func(self id, _ objc.SEL) id {
+			var names []id
+			if el := b().accessElementOf(self); el != nil {
+				for _, a := range legacyActions {
+					if el.node.Actions&a.action != 0 {
+						names = append(names, nsString(a.name))
+					}
+				}
+			}
+			return nsArray(names...)
+		}),
+		method("accessibilityActionDescription:", func(self id, _ objc.SEL, action id) id {
+			r, _, _ := purego.SyscallN(actionDescription, uintptr(action))
+			return id(r)
+		}),
+		method("accessibilityPerformAction:", func(self id, _ objc.SEL, action id) {
+			el := b().accessElementOf(self)
+			if el == nil {
+				return
+			}
+			name := stringOf(action)
+			for _, a := range legacyActions {
+				if a.name == name && el.node.Actions&a.action != 0 {
+					el.act(a.kind, "")
+				}
+			}
 		}),
 		method("accessibilityPerformPress", func(self id, _ objc.SEL) bool {
 			el := b().accessElementOf(self)

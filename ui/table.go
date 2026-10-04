@@ -74,15 +74,15 @@ func Table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 		list.widget = "List"
 		buildList(c, list, table, s, n, func(i int) {
 			row := Row(c).MinHeight(tableRow).AlignItems(Stretch)
+			// The list's element holding the row is the row.
+			row.Role(RoleNone)
 			if s.Header != nil && s.Header(i) {
-				row.Padding(t.Space(1.5), t.Space(2.5)).AlignItems(Center).Background(t.Surface).FontWeight(600).Role(RoleRow)
+				row.Padding(t.Space(1.5), t.Space(2.5)).AlignItems(Center).Background(t.Surface).FontWeight(600)
 				row.Children(func() { cell(i, 0) })
 				return
 			}
 			if s.Selected == nil {
-				// Chosen rows are rows, and show the pointer over them,
-				// already.
-				row.Role(RoleRow)
+				// Chosen rows show the pointer over them already.
 				row.flags |= flagHover
 				row.styleFn = func(row *Element) {
 					if row.Hovered() {

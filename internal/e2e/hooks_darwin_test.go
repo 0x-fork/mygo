@@ -131,6 +131,9 @@ func dropFiles(w *mygo.Window, x, y float64, paths []string) (over, dropped, ok 
 // The roles of elements in the accessibility API of AppKit.
 const roleText, roleButton, roleCheckBox, roleTextField, roleSlider = "AXStaticText", "AXButton", "AXCheckBox", "AXTextField", "AXSlider"
 
+// roleListItem is the role of the rows of a List.
+const roleListItem = "AXRow/AXTableRow"
+
 func accessibility(w *mygo.Window) (nodes []accessNode, ok bool) {
 	mygo.RunOnMain(func() {
 		for _, n := range darwin.TestAccessibility(w.NativeHandle()) {

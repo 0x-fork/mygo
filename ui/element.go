@@ -100,6 +100,9 @@ const (
 	// flagToggle marks check boxes, switches and radio buttons, which
 	// leave Enter to the window's shortcuts and take Space.
 	flagToggle
+	// flagChoosable marks the rows of a list that chooses them, which
+	// assistive technology focusing chooses.
+	flagChoosable
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY
@@ -273,9 +276,13 @@ type Element struct {
 	// placed at: placing moves them by how far the offset moved since.
 	scrollBase float64
 	// list is the List the element is, while it builds and lays out, and
-	// listRow is set on the elements holding its rows.
+	// listRow is set on the elements holding its rows, rowIndex their row.
+	// rowsOf is the list whose rows the element holds for assistive
+	// technology, and takes the keys for: the list, or its Table.
 	list     *listFrame
 	listRow  bool
+	rowIndex int
+	rowsOf   *listFrame
 	tl       *text.Layout
 	measures [4]measure
 	nmeasure int
