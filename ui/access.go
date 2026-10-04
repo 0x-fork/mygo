@@ -64,6 +64,9 @@ const (
 	RoleToggleButton
 	// RoleComboBox is a text input with a popup of options (ComboboxBase).
 	RoleComboBox
+	// RoleDisclosure is a button showing or hiding content below it, as
+	// the trigger of a collapsible (CollapsibleBase), expanded while open.
+	RoleDisclosure
 )
 
 // Role sets what the element is to assistive technology, for an element
@@ -252,8 +255,12 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if e.search {
 		n.States |= platform.AccessSearch
 	}
+	if e.invalid {
+		n.States |= platform.AccessInvalid
+	}
+	n.Description = e.description
 	if f := e.nameFrom; n.Label == "" && f != nil {
-		n.Label = f.label
+		n.Label = f.nameOf()
 	}
 	if e.setSize > 0 {
 		n.PosInSet, n.SetSize = e.setPos, e.setSize

@@ -28,6 +28,10 @@ type Context struct {
 	// buttons is how the buttons being built look, in a toolbar or a
 	// group of toggles.
 	buttons buttonStyle
+	// form and accordion are the Form and the Accordion being built, for
+	// their fields and sections.
+	form      *formBuild
+	accordion *accordionBuild
 	// reveal lists the elements to scroll into view (ScrollIntoView).
 	reveal []*Element
 }

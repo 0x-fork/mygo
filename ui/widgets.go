@@ -468,9 +468,13 @@ func (e *Element) intrinsicSize() (w, h float32) {
 // Fit sets how an Image fills its box.
 func (e *Element) Fit(f Fit) *Element { e.fit = f; return e }
 
-// Tooltip shows s near the pointer when it rests on the element.
+// Tooltip shows s near the pointer when it rests on the element, and
+// describes the element to assistive technology where Description does not.
 func (e *Element) Tooltip(s string) *Element {
 	e.flags |= flagHover
+	if e.description == "" {
+		e.description = s
+	}
 	rt := e.c.rt
 	if !e.Hovered() || rt.pressed != nil || s == "" {
 		return e

@@ -1138,6 +1138,31 @@ either.
   `AXComboBox`, ATK combo box with AtkEditableText, UIA ComboBox with
   Value and ExpandCollapse); `AccessSearch` makes a text field AppKit's
   `AXSearchField`.
+- **Disclosures** (`ui/collapsible.go`). A collapsible's trigger is a
+  `RoleDisclosure`, expanded while open: AppKit's `AXDisclosureTriangle`,
+  whose value is 1 while open; a toggle button that is expandable, and
+  checked and expanded while open, as GTK's expanders; a UIA Button with
+  ExpandCollapse. Its panel animates `Progress` with `Animate`, which
+  follows reduced motion: while it moves, the panel is clipped to that
+  share of the height its content had in the last frame, and its content
+  is built until it has closed.
+- **Forms** (`ui/form.go`). A form notes the label boxes of its fields as
+  they are built, and makes them as wide as the widest before the layout
+  first measures or lays it out (`intrinsic` and `boxLayout` call
+  `alignLabels`), its fieldsets' fields too. The row of a field in a form
+  lines up the first baselines of its label and control after laying them
+  out (`alignBaselines`), from the text layouts of the frame; a control
+  without text centers on the label's line. Fields name their control
+  with their label (`nameFrom`). `Description` and `Error` reach
+  assistive technology as `AccessNode.Description` and `AccessInvalid`:
+  `AXHelp` and `AXInvalid` on macOS (the newer API has no invalid state,
+  so the element answers it through `accessibilityAttributeValue:`), the
+  ATK description and `invalid-entry` on Linux, UIA's FullDescription,
+  HelpText (unless a placeholder takes it) and IsDataValidForForm on
+  Windows. Tooltips describe their element as AppKit's and GTK's do.
+  Committing a frame marks disabled the state of what is inside a
+  disabled element, which a fieldset disables after building it: input
+  in the next frame then finds it disabled (`Element.disabled`).
 - **Focus groups** (`ui/focusgroup.go`). Committing a frame notes the
   outermost focus group (`FocusGroup`) each element of the focus order is
   in, beside its dialog. Tab skips the elements of a group but its entry,

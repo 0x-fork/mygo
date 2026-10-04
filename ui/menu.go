@@ -65,7 +65,7 @@ func (e *Element) buildMenu(button bool, build func(m *Menu)) {
 	switch {
 	case mr.asked == e.id && mr.button == button:
 		mr.asked = 0
-		if e.IsDisabled() {
+		if e.disabled() {
 			break
 		}
 		run := &menuRun{collect: true}

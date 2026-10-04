@@ -108,6 +108,8 @@ const (
 	uiaIsFocusableProperty      = 30009
 	uiaIsEnabledProperty        = 30010
 	uiaHelpTextProperty         = 30013
+	uiaIsDataValidProperty      = 30103
+	uiaFullDescriptionProperty  = 30159
 	uiaIsPasswordProperty       = 30019
 	uiaFrameworkIDProperty      = 30024
 	uiaValueProperty            = 30045
@@ -147,7 +149,7 @@ var uiaControlTypes = map[platform.AccessRole]int32{
 	platform.RoleStatus: 50017, platform.RoleTable: 50036, platform.RoleRow: 50029, platform.RoleCell: 50025,
 	platform.RoleColumnHeader: 50035, platform.RoleTree: 50023, platform.RoleTreeItem: 50024,
 	platform.RoleListItem: 50007, platform.RoleMenuButton: 50000, platform.RoleToolbar: 50021, platform.RoleRadioGroup: 50026,
-	platform.RoleToggleButton: 50000, platform.RoleComboBox: 50003,
+	platform.RoleToggleButton: 50000, platform.RoleComboBox: 50003, platform.RoleDisclosure: 50000,
 }
 
 // variant is VARIANT, with the value of the types used here.
@@ -231,7 +233,7 @@ func (e *uiaElement) supports(i int) bool {
 	case ifaceInvoke:
 		switch n.Role {
 		case platform.RoleCheckBox, platform.RoleSwitch, platform.RoleRadio, platform.RolePopUpButton, platform.RoleTab, platform.RoleMenuButton,
-			platform.RoleToggleButton:
+			platform.RoleToggleButton, platform.RoleDisclosure:
 			return false
 		}
 		return n.Actions&platform.ActionPress != 0
@@ -257,7 +259,7 @@ func (e *uiaElement) supports(i int) bool {
 	case ifaceExpandCollapse:
 		// A menu button expands into its menu, as WinUI's DropDownButton.
 		return n.Role == platform.RolePopUpButton || n.Role == platform.RoleTreeItem || n.Role == platform.RoleMenuButton ||
-			n.Role == platform.RoleComboBox
+			n.Role == platform.RoleComboBox || n.Role == platform.RoleDisclosure
 	}
 	return false
 }
@@ -940,7 +942,17 @@ func (e *uiaElement) property(id int, v *variant) {
 	case uiaIsEnabledProperty:
 		*v = boolVariant(n.States&platform.AccessDisabled == 0)
 	case uiaHelpTextProperty:
-		str(n.Placeholder)
+		// The placeholder of a text field, else the description, as
+		// Chromium's.
+		if n.Placeholder != "" {
+			str(n.Placeholder)
+		} else {
+			str(n.Description)
+		}
+	case uiaFullDescriptionProperty:
+		str(n.Description)
+	case uiaIsDataValidProperty:
+		*v = boolVariant(n.States&platform.AccessInvalid == 0)
 	case uiaIsPasswordProperty:
 		*v = boolVariant(n.States&platform.AccessPassword != 0)
 	case uiaFrameworkIDProperty:

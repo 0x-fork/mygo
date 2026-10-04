@@ -547,6 +547,9 @@ look of your own, build on the widgets' bases, which have none: see
 | `Split`, `SplitVertical` | two panes with a divider between them that the user drags, or moves with the arrow keys, to resize them; the first's size is a `*float32` |
 | `Table` | rows under a header of `TableColumn`s, as high as their tallest cell: a `List`'s rows, with its `ListState`, see [tables](#tables) |
 | `Tree`, `TreeItem` | items that open and close, built inside the items they belong to, with the arrow keys moving between them; `Clicked` and `Selected` choose one |
+| `Collapsible` | a label beside an arrow that shows and hides content below it while a `*bool` is true, as SwiftUI's `DisclosureGroup`; the arrow turns and the content grows into view |
+| `Accordion`, `AccordionItem` | sections in a bordered box, each opening and closing on its own, with Up, Down, Home and End moving between their headers |
+| `Form`, `Field`, `Fieldset` | labeled controls with descriptions and errors, see [forms](#forms) |
 | `Icon` | shows a `*ui.SVG` in the color of the text, as high as the font size, see [images and icons](#images-and-icons) |
 | `Image` | shows a `*ui.Bitmap`, or a `*ui.SVG` in its own colors |
 | `Divider`, `Spacer` | a line, and space that grows |
@@ -571,6 +574,7 @@ own on them, as headless component libraries do on the web:
 | `SliderBase` | sets a `*float64` from where the pointer is across its content box, inside its padding, and with the arrows, Home and End |
 | `TabsBase` | the tab `List`, whose `Tab`s choose a `*int`, with the arrows moving the choice and the focus |
 | `SegmentedBase` | a `Track` of `Segment`s, a radio group choosing a `*int` |
+| `CollapsibleBase` | a `Trigger` that shows and hides what `Panel` builds, growing and shrinking it with `Progress`, which goes from 0 closed to 1 open |
 | `SelectBase` | a `Trigger` opening a `Popup` of `Item`s choosing a `*T`, which the arrows highlight (`Highlighted`) and Enter chooses |
 | `ComboboxBase` | an `Input` whose text filters the `Item`s of a `Popup` below it, which the arrows highlight and Enter or a click chooses (`Chosen`) |
 | `PopoverBase`, `DialogBase` | a panel below an anchor, or over a backdrop covering the window, that a click outside or Escape closes |
@@ -626,24 +630,63 @@ Build your own widgets from elements. An element keeps state of its own
 from frame to frame with `ui.Local`:
 
 ```go
-func Disclosure(c *ui.Context, title string, body func()) {
-	box := ui.Column(c)
-	open := ui.Local(box, "open", func() bool { return false })
-	box.Children(func() {
-		head := ui.Row(c).Gap(6).Cursor(ui.CursorPointer).Focusable()
-		if head.Clicked() {
-			*open = !*open
-		}
-		head.Children(func() {
-			ui.Text(c, map[bool]string{true: "▾", false: "▸"}[*open])
-			ui.Text(c, title).Bold()
-		})
-		if *open {
-			body()
-		}
-	})
+// Spoiler hides text until clicked.
+func Spoiler(c *ui.Context, text string) {
+	t := c.Theme()
+	box := ui.Box(c).Padding(2, 6).Radius(4).Focusable()
+	shown := ui.Local(box, "shown", func() bool { return false })
+	if box.Clicked() {
+		*shown = !*shown
+	}
+	if *shown {
+		box.Background(t.Surface)
+	} else {
+		box.Background(t.Text) // the color of the text, hiding it
+	}
+	box.Children(func() { ui.Text(c, text) })
 }
 ```
+
+### Forms
+
+A `Field` labels the control its function builds: the label names the
+control for assistive technology, and a click on it focuses the control,
+or checks a check box. `Description` and `Error` add texts below the
+control, which assistive technology reads with it; an error also marks
+the control's value invalid, and a text input draws its border in the
+theme's `Danger` color. An empty error leaves the control valid:
+
+```go
+var invalid string
+if app.email != "" && !strings.Contains(app.email, "@") {
+	invalid = "Enter an email address."
+}
+ui.Field(c, "Email", func() {
+	ui.TextInput(c, &app.email)
+}).Description("For receipts.").Error(invalid)
+```
+
+A field's label sits above its control, as on the web. In a `Form`, the
+labels of its fields sit in a column of their own beside the controls,
+as in macOS's forms: aligned to the right, as wide as the widest, and
+level with the first line of text of their control, or centered on a
+control without text, such as a switch. A `Fieldset` groups fields under a
+legend, which names the group; their labels line up with the form's
+others, and `Disabled` disables them all:
+
+```go
+ui.Form(c, func() {
+	ui.Field(c, "Name", func() { ui.TextInput(c, &app.name) })
+	ui.Field(c, "Plan", func() { ui.Select(c, &app.plan, plans) })
+	ui.Fieldset(c, "Notifications", func() {
+		ui.Field(c, "Email", func() { ui.Checkbox(c, &app.mail, "Weekly summary") })
+		ui.Field(c, "Sound", func() { ui.Switch(c, &app.sound) })
+	}).Disabled(!app.signedIn)
+})
+```
+
+A control with a name of its own, as a check box with its text, keeps it,
+and the field's label names the group around them.
 
 ## Input
 
@@ -775,7 +818,7 @@ func Disclosure(c *ui.Context, title string, body func()) {
   }).TextCaret(app.caretRect())
   ```
 - **Tooltips.** `Tooltip("…")` shows a tip once the pointer rests on the
-  element.
+  element, and describes the element to assistive technology.
 - **Custom title bars.** In a `Frameless` window, `DragWindow` makes an
   element move the window, and a double click on it maximizes the window.
 
@@ -847,6 +890,10 @@ an element out but not its children:
 ```go
 toggle := ui.Box(c).Size(36, 20).Focusable().Role(ui.RoleSwitch).Label("Wi-Fi")
 ```
+
+`Description` tells more than the name, as help text read after it, as
+a `Tooltip` does, and `Error` marks a value as invalid, for a message read
+with it; a [field](#forms) gives its control the texts below it.
 
 A `List`'s rows are list items, and a `Table`'s rows, named by the text
 inside them, and each says which of all the rows it is, "5 of 10,000",

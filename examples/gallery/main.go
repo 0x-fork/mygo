@@ -61,6 +61,9 @@ type gallery struct {
 	search, font, city string
 	tags               []string
 	eased              bool
+	// The disclosure, the sections of the accordion, and their choices.
+	advanced, verbose, share, news bool
+	sections                       [3]bool
 	// places keeps where each page is scrolled.
 	places map[string]*ui.ScrollState
 	// rows, chat and table keep the places of the lists of the List page.
@@ -319,6 +322,23 @@ func (g *gallery) controls(c *ui.Context) {
 		ui.TokenField(c, &g.tags, []string{"design", "go", "native", "performance", "release", "typescript"}).Label("Tags")
 		ui.Text(c, "Type to filter; Up and Down move, Enter chooses. In the tags, Enter or a comma adds a tag, and Backspace takes out the last.").TextColor(t.TextMuted)
 	})
+	card(c, "Disclosure", func() {
+		ui.Collapsible(c, "Advanced options", &g.advanced, func() {
+			ui.Checkbox(c, &g.verbose, "Verbose logging")
+			ui.Text(c, "The arrow turns and the content grows into view, at once where the desktop asks for less motion.").TextColor(t.TextMuted)
+		})
+		ui.Accordion(c, func() {
+			ui.AccordionItem(c, "General", &g.sections[0], func() {
+				ui.Text(c, "Startup, appearance and updates.")
+			})
+			ui.AccordionItem(c, "Privacy", &g.sections[1], func() {
+				ui.Checkbox(c, &g.share, "Share usage data")
+			})
+			ui.AccordionItem(c, "Keyboard", &g.sections[2], func() {
+				ui.Text(c, "Up and Down move between the headers, as do Home and End; Enter and Space open and close them.").TextColor(t.TextMuted)
+			})
+		})
+	})
 	card(c, "Ranges", func() {
 		ui.Row(c).Gap(12).Children(func() {
 			ui.Slider(c, &g.volume, 0, 100).Label("Volume").Grow(1)
@@ -431,19 +451,25 @@ func (g *gallery) controls(c *ui.Context) {
 func (g *gallery) text(c *ui.Context) {
 	t := c.Theme()
 	card(c, "Form", func() {
-		label := func(s string) { ui.Text(c, s).FontSize(12).Bold().TextColor(t.TextMuted) }
-		label("Name")
-		ui.TextInput(c, &g.name).Placeholder("Ada Lovelace").Label("Name")
-		label("Email")
-		in := ui.TextInput(c, &g.email).Placeholder("ada@example.com").Label("Email")
-		if in.Submitted() {
-			g.dialog = true
-		}
-		label("About you")
-		ui.TextArea(c, &g.bio).Placeholder("Multiple lines, with undo, selection and input methods.").Label("About you").Height(110)
-		ui.Textf(c, "%d characters", len([]rune(g.bio))).FontSize(12).TextColor(t.TextMuted)
-		label("Birthday")
-		ui.DateInput(c, &g.birthday).Label("Birthday")
+		ui.Form(c, func() {
+			ui.Field(c, "Name", func() { ui.TextInput(c, &g.name).Placeholder("Ada Lovelace") })
+			invalid := ""
+			if g.email != "" && !strings.Contains(g.email, "@") {
+				invalid = "Enter an email address, such as ada@example.com."
+			}
+			ui.Field(c, "Email", func() {
+				if ui.TextInput(c, &g.email).Placeholder("ada@example.com").Submitted() {
+					g.dialog = true
+				}
+			}).Description("Enter opens a dialog.").Error(invalid)
+			ui.Field(c, "About you", func() {
+				ui.TextArea(c, &g.bio).Placeholder("Multiple lines, with undo, selection and input methods.").Height(110)
+			}).Description(fmt.Sprintf("%d characters", len([]rune(g.bio))))
+			ui.Fieldset(c, "Optional", func() {
+				ui.Field(c, "Birthday", func() { ui.DateInput(c, &g.birthday) })
+				ui.Field(c, "Updates", func() { ui.Checkbox(c, &g.news, "Send me the newsletter") })
+			})
+		})
 	})
 	card(c, "Typography", func() {
 		ui.Text(c, "Display 28").FontSize(28).Bold()
@@ -861,7 +887,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}}
+	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

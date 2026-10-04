@@ -269,13 +269,7 @@ func field(c *Context, fn func() *Element) (*Element, *Element) {
 	var in *Element
 	f.Children(func() { in = fn() })
 	in.nameFrom = f
-	f.styleFn = func(f *Element) {
-		if in.Focused() {
-			f.borderC = t.Accent
-		} else if f.Hovered() {
-			f.borderC = t.Border.Mix(t.Text, 0.25)
-		}
-	}
+	f.styleFn = func(f *Element) { inputBorder(t, f, in) }
 	if f.Clicked() {
 		in.Focus()
 	}
@@ -351,13 +345,7 @@ func Autocomplete(c *Context, value *string, suggestions []string) *Element {
 	in := p.Input
 	t := c.theme
 	in.Padding(t.Space(1.5), t.Space(2.5)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border)
-	in.styleFn = func(e *Element) {
-		if e.Focused() {
-			e.borderC = t.Accent
-		} else if e.Hovered() {
-			e.borderC = t.Border.Mix(t.Text, 0.25)
-		}
-	}
+	in.styleFn = func(e *Element) { inputBorder(t, e, e) }
 	var shown []string
 	if q := strings.TrimSpace(*value); q != "" && p.Filtering() {
 		for _, s := range matching(suggestions, q) {

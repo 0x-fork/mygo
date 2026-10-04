@@ -64,7 +64,7 @@ var (
 	atkValueGetType, atkTextGetType, atkEditableTextGetType func() uintptr
 	atkSelectionGetType                                     func() uintptr
 	atkRoleForName, atkStateTypeForName                     func(name *byte) int32
-	atkObjectSetName                                        func(obj ptr, name *byte)
+	atkObjectSetName, atkObjectSetDescription               func(obj ptr, name *byte)
 	atkObjectSetRole                                        func(obj ptr, role int32)
 	atkObjectSetParent                                      func(obj, parent ptr)
 	atkObjectNotifyStateChange                              func(obj ptr, state uint64, value bool)
@@ -82,7 +82,7 @@ var (
 	atkStates struct {
 		enabled, sensitive, visible, showing, focusable, focused, checkable, checked, indeterminate,
 		expandable, expanded, editable, readOnly, multiLine, singleLine, selectableText, defunct int32
-		selectable, selected, multiselectable, hasPopup int32
+		selectable, selected, multiselectable, hasPopup, invalidEntry int32
 	}
 
 	// The trees of surfaces, by the surface and by its accessible, and the
@@ -175,6 +175,7 @@ func registerAccess() {
 		{a, &atkSelectionGetType, "atk_selection_get_type"},
 		{a, &atkRoleForName, "atk_role_for_name"}, {a, &atkStateTypeForName, "atk_state_type_for_name"},
 		{a, &atkObjectSetName, "atk_object_set_name"}, {a, &atkObjectSetRole, "atk_object_set_role"},
+		{a, &atkObjectSetDescription, "atk_object_set_description"},
 		{a, &atkObjectSetParent, "atk_object_set_parent"}, {a, &atkObjectNotifyStateChange, "atk_object_notify_state_change"},
 		{a, &atkStateSetNew, "atk_state_set_new"}, {a, &atkStateSetAddState, "atk_state_set_add_state"},
 		{a, &atkRangeNew, "atk_range_new"}, {a, &atkComponentGetExtents, "atk_component_get_extents"},
@@ -251,7 +252,7 @@ func loadAccessNames() {
 		platform.RoleTree: {"tree", "tree table"}, platform.RoleTreeItem: {"tree item", "list item"},
 		platform.RoleListItem: {"list item"}, platform.RoleMenuButton: {"push button menu", "push button", "button"},
 		platform.RoleToolbar: {"tool bar"}, platform.RoleRadioGroup: {"panel"}, platform.RoleToggleButton: {"toggle button"},
-		platform.RoleComboBox: {"combo box"},
+		platform.RoleComboBox: {"combo box"}, platform.RoleDisclosure: {"toggle button"},
 	} {
 		atkRoles[r] = role(names...)
 	}
@@ -263,7 +264,7 @@ func loadAccessNames() {
 		&st.editable: "editable", &st.readOnly: "read-only", &st.multiLine: "multi-line",
 		&st.singleLine: "single-line", &st.selectableText: "selectable-text", &st.defunct: "defunct",
 		&st.selectable: "selectable", &st.selected: "selected", &st.multiselectable: "multiselectable",
-		&st.hasPopup: "has-popup",
+		&st.hasPopup: "has-popup", &st.invalidEntry: "invalid-entry",
 	} {
 		*p = atkStateTypeForName(cs(name))
 	}
@@ -436,6 +437,9 @@ func (t *accessTree) update(tree *platform.AccessTree) {
 		if fresh[i] || prev[i].Label != an.n.Label {
 			atkObjectSetName(an.obj, cs(an.n.Label))
 		}
+		if fresh[i] || prev[i].Description != an.n.Description {
+			atkObjectSetDescription(an.obj, cs(an.n.Description))
+		}
 	}
 	if notify {
 		// Children that left their parent, then those that joined it, for
@@ -572,6 +576,12 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 		}
 	case platform.RolePopUpButton:
 		list = append(list, st.expandable)
+	case platform.RoleDisclosure:
+		// Checked while open, as GTK's expanders.
+		list = append(list, st.expandable)
+		if n.States&platform.AccessExpanded != 0 {
+			list = append(list, st.checked)
+		}
 	case platform.RoleMenuButton:
 		list = append(list, st.hasPopup)
 	case platform.RoleTextField, platform.RoleComboBox:
@@ -602,6 +612,9 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 	}
 	if n.States&platform.AccessMultiselectable != 0 {
 		list = append(list, st.multiselectable)
+	}
+	if n.States&platform.AccessInvalid != 0 {
+		list = append(list, st.invalidEntry)
 	}
 	return slices.DeleteFunc(list, func(s int32) bool { return s == 0 })
 }

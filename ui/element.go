@@ -317,11 +317,21 @@ type Element struct {
 	setPos, setSize  int
 	choosesItems     bool
 	search           bool
-	tl               *text.Layout
-	measures         [4]measure
-	nmeasure         int
-	leaf             [2]float32 // the max-content and min-content widths of text
-	leafOK           bool
+	// description tells assistive technology more than the name, and
+	// invalid marks a value that is not valid (Description, Error).
+	description string
+	invalid     bool
+	// field is set on a Field, form on a Form, whose layout makes its
+	// labels as wide as the widest, and baselines on the row of a field in
+	// a form, which lines up the first lines of its label and control.
+	field     *fieldParts
+	form      *formBuild
+	baselines bool
+	tl        *text.Layout
+	measures  [4]measure
+	nmeasure  int
+	leaf      [2]float32 // the max-content and min-content widths of text
+	leafOK    bool
 }
 
 type measure struct {
@@ -819,8 +829,8 @@ func (e *Element) Ellipsis(s string) *Element { e.ellipsis = s; return e }
 // tests, when its text does not.
 func (e *Element) Label(s string) *Element { e.label = s; return e }
 
-// Disabled disables the element when d is true: it reports no clicks and
-// widgets look disabled.
+// Disabled disables the element and those inside it when d is true: they
+// report no clicks, take no focus, and widgets look disabled.
 func (e *Element) Disabled(d bool) *Element {
 	if d {
 		e.flags |= flagDisabled
@@ -839,6 +849,11 @@ func (e *Element) IsDisabled() bool {
 	}
 	return false
 }
+
+// disabled reports whether the element is disabled, or was in the last
+// frame, which the input since acted on: an element around it may disable
+// it after building it.
+func (e *Element) disabled() bool { return e.IsDisabled() || e.st.flags&flagDisabled != 0 }
 
 // Focusable lets the element take the keyboard focus, by a click or Tab.
 func (e *Element) Focusable() *Element { e.flags |= flagFocusable; return e }

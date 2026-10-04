@@ -31,6 +31,10 @@ type AccessNode struct {
 	// and Placeholder what it shows while empty.
 	SelStart, SelEnd int
 	Placeholder      string
+	// Description tells more about the element than its name, as help
+	// text read after it: a field's description and its error, or a
+	// tooltip.
+	Description string
 	// PosInSet is the place of an item in its set, from 1, and SetSize
 	// the size of the set, 0 when not given: a list's rows say which of
 	// all they are, whether or not the others are built, and the list how
@@ -80,6 +84,10 @@ const (
 	// RoleComboBox is a text field with a popup of options, which is
 	// AccessExpanded while it shows.
 	RoleComboBox
+	// RoleDisclosure is a button showing or hiding content below it, which
+	// is AccessExpanded while it shows: the trigger of a collapsible, or
+	// the header of an accordion's section.
+	RoleDisclosure
 )
 
 // AccessStates are the states of an element of an AccessTree.
@@ -109,6 +117,9 @@ const (
 	AccessSegment
 	// AccessSearch is set on a text field for searching.
 	AccessSearch
+	// AccessInvalid is set on a control whose value is not valid, as a
+	// field with an error.
+	AccessInvalid
 )
 
 // AccessActions are the actions an element of an AccessTree takes.

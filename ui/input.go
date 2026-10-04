@@ -715,7 +715,7 @@ func abs32(v float32) float32 {
 // button or by Enter or Space while focused, since the last frame.
 func (e *Element) Clicked() bool {
 	e.flags |= flagClickable
-	if e.IsDisabled() || e.st.clicks == 0 {
+	if e.disabled() || e.st.clicks == 0 {
 		return false
 	}
 	e.c.rt.consumed = true
@@ -726,7 +726,7 @@ func (e *Element) Clicked() bool {
 // frame.
 func (e *Element) Clicks() int {
 	e.flags |= flagClickable
-	if e.IsDisabled() {
+	if e.disabled() {
 		return 0
 	}
 	if e.st.clicks > 0 {
@@ -743,7 +743,7 @@ func (e *Element) ClickModifiers() Modifiers { return e.st.clickMods }
 // DoubleClicked reports a double click on the element.
 func (e *Element) DoubleClicked() bool {
 	e.flags |= flagClickable
-	if e.IsDisabled() || e.st.doubleClicks == 0 {
+	if e.disabled() || e.st.doubleClicks == 0 {
 		return false
 	}
 	e.c.rt.consumed = true
@@ -754,7 +754,7 @@ func (e *Element) DoubleClicked() bool {
 // context menu.
 func (e *Element) RightClicked() bool {
 	e.flags |= flagClickable
-	if e.IsDisabled() || e.st.rightClicks == 0 {
+	if e.disabled() || e.st.rightClicks == 0 {
 		return false
 	}
 	e.c.rt.consumed = true

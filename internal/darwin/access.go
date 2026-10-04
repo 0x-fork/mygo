@@ -97,6 +97,7 @@ var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleRadioGroup:   {"AXRadioGroup", ""},
 	platform.RoleToggleButton: {"AXCheckBox", "AXToggle"},
 	platform.RoleComboBox:     {"AXComboBox", ""},
+	platform.RoleDisclosure:   {"AXDisclosureTriangle", ""},
 }
 
 // chooses reports whether a node is the row of a list or a table that its
@@ -134,8 +135,6 @@ func titled(r platform.AccessRole) bool {
 	return false
 }
 
-// value returns the value of a node as AppKit wants it: a number for
-// toggles and ranges, a string for texts.
 // textual reports whether elements of a role edit text: text fields and
 // combo boxes.
 func textual(r platform.AccessRole) bool {
@@ -152,8 +151,13 @@ func toggle(r platform.AccessRole) bool {
 	return false
 }
 
+// valueOf returns the value of a node as AppKit wants it: a number for
+// toggles, disclosures and ranges, a string for texts.
 func valueOf(n platform.AccessNode) id {
 	switch {
+	case n.Role == platform.RoleDisclosure:
+		// 1 while open, as AppKit's disclosure triangles.
+		return nsNumberInt(int(n.States&platform.AccessExpanded) / int(platform.AccessExpanded))
 	case toggle(n.Role):
 		v := 0
 		switch {
@@ -217,7 +221,8 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 	}
 	// The state of a toggle is its value; a row's choice is not, which its
 	// table tells (AXSelectedRowsChanged).
-	toggled := toggle(n.Role) && n.States&(platform.AccessChecked|platform.AccessMixed) != o.States&(platform.AccessChecked|platform.AccessMixed)
+	toggled := toggle(n.Role) && n.States&(platform.AccessChecked|platform.AccessMixed) != o.States&(platform.AccessChecked|platform.AccessMixed) ||
+		n.Role == platform.RoleDisclosure && n.States&platform.AccessExpanded != o.States&platform.AccessExpanded
 	if fresh || n.Value != o.Value || n.Now != o.Now || toggled || n.Role == platform.RoleText && n.Label != o.Label {
 		send(obj, "setAccessibilityValue:", uintptr(valueOf(n)))
 		valueChanged = !fresh
@@ -234,6 +239,14 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 			p = nsString(n.Placeholder)
 		}
 		send(obj, "setAccessibilityPlaceholderValue:", uintptr(p))
+	}
+	if fresh || n.Description != o.Description {
+		// AppKit's help, which it gives tooltips as.
+		var d id
+		if n.Description != "" {
+			d = nsString(n.Description)
+		}
+		send(obj, "setAccessibilityHelp:", uintptr(d))
 	}
 	if textual(n.Role) && (fresh || n.Value != o.Value || n.SelStart != o.SelStart || n.SelEnd != o.SelEnd) {
 		text := []rune(n.Value)
@@ -470,6 +483,21 @@ func registerAccessClass() {
 		method("isAccessibilityFocused", func(self id, _ objc.SEL) bool {
 			el := b().accessElementOf(self)
 			return el != nil && el.s.access.Focus == el.node.ID
+		}),
+		// AXInvalid, which the newer API lacks, says a value is not valid,
+		// as WebKit's fields do.
+		method("accessibilityAttributeNames", func(self id, cmd objc.SEL) id {
+			names := id(objc.ID(self).SendSuper(cmd))
+			if el := b().accessElementOf(self); el != nil && el.node.States&platform.AccessInvalid != 0 {
+				return send(names, "arrayByAddingObject:", uintptr(nsString("AXInvalid")))
+			}
+			return names
+		}),
+		method("accessibilityAttributeValue:", func(self id, cmd objc.SEL, attr id) id {
+			if el := b().accessElementOf(self); el != nil && el.node.States&platform.AccessInvalid != 0 && stringOf(attr) == "AXInvalid" {
+				return nsString("true")
+			}
+			return id(objc.ID(self).SendSuper(cmd, attr))
 		}),
 		method("isAccessibilitySelectorAllowed:", func(self id, cmd objc.SEL, selector objc.SEL) bool {
 			if el := b().accessElementOf(self); el != nil {

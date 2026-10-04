@@ -273,6 +273,9 @@ func (e *Element) leafWidths() (maxW, minW float32) {
 // intrinsic returns the element's max-content or min-content width, its
 // border box.
 func intrinsic(e *Element, maxContent bool) float32 {
+	if e.form != nil {
+		e.form.alignLabels()
+	}
 	if v, ok := e.width.resolve(-1); ok {
 		return e.clampW(v, inf)
 	}
@@ -384,6 +387,9 @@ func contentHeight(e *Element, cw float32) float32 {
 
 // boxLayout lays out the children of a box, with flexbox or as a grid.
 func boxLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) {
+	if e.form != nil {
+		e.form.alignLabels()
+	}
 	if e.grid {
 		return gridLayout(e, cw, ch, commit)
 	}
@@ -424,6 +430,9 @@ func layoutBox(e *Element, w, h float32) {
 		lh = inf
 	}
 	uw, uh := boxLayout(e, lw, lh, true)
+	if e.baselines {
+		alignBaselines(e)
+	}
 	if e.scrolls() {
 		e.contentW = float64(max(uw, cw) + e.padX())
 		e.contentH = float64(max(uh, ch) + e.padY())

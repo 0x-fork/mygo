@@ -378,6 +378,11 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 		s.parent = 0
 	}
 	s.flags = e.flags
+	if e.parent != nil && e.parent.st.flags&flagDisabled != 0 {
+		// Disabled with the element around it, which may have been
+		// disabled after building it, as a Fieldset.
+		s.flags |= flagDisabled
+	}
 	s.cursor = e.cursor
 	s.input, s.caret, s.takesText = e.inputFn, e.caret, e.takesText
 	if e.flags&(flagEditable|flagSelectable) != 0 && s.cursor == 0 {
@@ -410,7 +415,7 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	}
 	label := e.label
 	if f := e.nameFrom; label == "" && f != nil {
-		label = f.label // an input, named by its field
+		label = f.nameOf() // an input, named by its field
 	}
 	if (label != "" || e.kind == kindText) && !invisible {
 		if label == "" {

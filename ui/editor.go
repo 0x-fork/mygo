@@ -603,13 +603,7 @@ func textInput(c *Context, value *string, multiline bool) *Element {
 	if multiline {
 		e.MinHeight(t.Space(20))
 	}
-	e.styleFn = func(e *Element) {
-		if e.Focused() {
-			e.borderC = t.Accent
-		} else if e.Hovered() {
-			e.borderC = t.Border.Mix(t.Text, 0.25)
-		}
-	}
+	e.styleFn = func(e *Element) { inputBorder(t, e, e) }
 	return e
 }
 
