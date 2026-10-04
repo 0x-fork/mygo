@@ -1,16 +1,9 @@
 package ui
 
 import (
-	"bytes"
 	"fmt"
-	"image"
-	_ "image/gif"  // DecodeBitmap
-	_ "image/jpeg" // DecodeBitmap
-	_ "image/png"  // DecodeBitmap
 	"math"
 	"time"
-
-	"github.com/egoist/mygo/internal/scene"
 )
 
 // Box creates a container that lays its children out in a column.
@@ -417,38 +410,6 @@ func ScrollBoth(c *Context) *Element {
 	e := Box(c)
 	e.flags |= flagScrollX | flagScrollY | flagHover
 	return e
-}
-
-// Bitmap is an image to show with Image. Create it once: converting an
-// image is not free.
-type Bitmap struct {
-	img  *scene.Image
-	w, h int
-}
-
-// NewBitmap converts img.
-func NewBitmap(img image.Image) *Bitmap {
-	s := scene.NewImage(img)
-	return &Bitmap{img: s, w: s.W, h: s.H}
-}
-
-// DecodeBitmap decodes a PNG, JPEG or GIF image.
-func DecodeBitmap(data []byte) (*Bitmap, error) {
-	img, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	return NewBitmap(img), nil
-}
-
-// Size returns the bitmap's size in pixels, which Image shows as DIPs.
-func (b *Bitmap) Size() (w, h int) { return b.w, b.h }
-
-func (b *Bitmap) imageSize() (float32, float32) {
-	if b == nil {
-		return 0, 0
-	}
-	return float32(b.w), float32(b.h)
 }
 
 // ImageSource is what Image shows: a *Bitmap, or an *SVG in its own

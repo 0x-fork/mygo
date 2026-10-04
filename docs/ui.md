@@ -867,8 +867,12 @@ compute yourself should read the preference too.
 ## Images and icons
 
 `ui.NewBitmap` makes a bitmap of an `image.Image`, and `ui.DecodeBitmap` of
-PNG, JPEG or GIF data. Make bitmaps once, not in the view: MyGo keeps a
-bitmap on the GPU as long as you use it.
+PNG, JPEG, GIF (its first frame), WebP or BMP data, turning photos upright as
+their camera's EXIF orientation says. Make bitmaps once, not in the view:
+MyGo keeps a bitmap on the GPU as long as you use it. A bitmap shown much
+smaller than its pixels, as a photo in a thumbnail, is drawn from a copy
+halved as many times as that keeps it no smaller, made once, so that it
+shows every pixel's part rather than shimmering.
 
 ```go
 //go:embed logo.png
