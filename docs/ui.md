@@ -401,6 +401,28 @@ chosen := app.files.Item(app.row)
 shows the arrows: the columns are a `Table`'s, which the user sorts,
 resizes and moves.
 
+### Grid views
+
+`ui.GridView` shows items in a grid, as Photos' library and Finder's icon
+view: as many columns as fit items at least as wide as asked, sharing the
+width left, in rows of a height, built only as they show, so grids of
+millions of items are as fast as small ones. A `GridState` says how items
+are chosen, as a `ListState` does rows: with `Selected`, a click chooses
+an item, as the arrows do in both directions while the grid has the
+focus, with Home, End, Enter (`Submitted`) and the first letters of an
+item's `Label`; with `Selection`, the user chooses several, by `Key`.
+
+```go
+app.photos.Selected = &app.photo
+ui.GridView(c, &app.photos, len(photos), 140, 120, func(i int) {
+	ui.Image(c, thumbs[i]).Fit(ui.Contain).Grow(1)
+	ui.Text(c, photos[i].Name).SingleLine()
+}).Grow(1)
+```
+
+Assistive technology reads the grid as a list of items, each saying which
+of all it is, built or not.
+
 ### Sidebars
 
 `ui.Sidebar` is a source list, as the sidebars of Finder and Mail: items
@@ -642,6 +664,7 @@ look of your own, build on the widgets' bases, which have none: see
 | `EditableText` | a text the user renames in place, as Finder's file names, in a table's rows too |
 | `Tree`, `TreeItem` | items that open and close, built inside the items they belong to, with the arrow keys moving between them; `Clicked` and `Selected` choose one |
 | `Outline`, `OutlineTable` | a tree of items of any size, built only as they show, as a list or a table, see [outlines](#outlines) |
+| `GridView` | items in a grid of any size, as Photos' library: as many columns as fit, built only as they show, chosen with the arrows in both directions, see [grid views](#grid-views) |
 | `Sidebar`, `SidebarSection`, `SidebarItem` | a source list, as Finder's and Mail's: items with icons in sections that hide and show, choosing a `*string` by a click, the arrows or typing; one stop of Tab |
 | `Badge` | a short text in a pill, as an unread count |
 | `Collapsible` | a label beside an arrow that shows and hides content below it while a `*bool` is true, as SwiftUI's `DisclosureGroup`; the arrow turns and the content grows into view |

@@ -274,6 +274,9 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if e.choosesItems {
 		n.States |= platform.AccessSelectable
 	}
+	if e.chooseMany {
+		n.States |= platform.AccessMultiselectable
+	}
 	// Rows and items of lists are named by their content, as leaves are,
 	// but show what is inside them too.
 	if n.Label == "" && (leafRole(n.Role) || n.Role == platform.RoleListItem || n.Role == platform.RoleRow) {

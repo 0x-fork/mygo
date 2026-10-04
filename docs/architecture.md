@@ -1173,6 +1173,13 @@ either.
   its rows as a table does; on Linux, the `level` attribute and the
   expandable state; on Windows, Level, and ExpandCollapse with LeafNode
   for items without children.
+- **Grid views** (`ui/gridview.go`). A grid view is a `List` of rows of
+  items, whose columns it takes from the width its rows had in the last
+  frame: the layout asks for another frame when the width calls for
+  others (`gridFit`). The list's own state holds the rows' place; the
+  grid chooses items itself, takes the keys, and tells assistive
+  technology about its items rather than its rows, which are RoleNone:
+  a list of all its items, the item chosen its active descendant.
 - **Sidebars** (`ui/sidebar.go`). A sidebar is one element taking the
   focus, whose items note their IDs as they are built: the keys choose
   among those of the last frame, and the item chosen is the sidebar's

@@ -341,6 +341,10 @@ type Element struct {
 	// marks one with children.
 	level      int
 	expandable bool
+	// chooseMany marks a GridView choosing several items, and gridFit is
+	// how many columns its items took.
+	chooseMany bool
+	gridFit    *gridFit
 	tl         *text.Layout
 	measures   [4]measure
 	nmeasure   int

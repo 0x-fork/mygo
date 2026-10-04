@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"math/bits"
 	"runtime"
 	"slices"
@@ -194,6 +195,8 @@ type listFrame struct {
 	// flat leaves the corners of chosen rows square, as a Table's; tree
 	// makes the rows items of a tree, as an Outline's.
 	flat, tree bool
+	// grid makes the rows those of a GridView, which holds its items.
+	grid bool
 	// theme is the theme the rows are built with, laying out as well.
 	theme *Theme
 	rows  []listRow
@@ -255,6 +258,8 @@ const (
 	tableList
 	treeList
 	treeTableList
+	// gridList's rows hold the items of a GridView.
+	gridList
 )
 
 func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i int), kind listKind) {
@@ -265,7 +270,7 @@ func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i in
 		panic("ui: a ListState shown by two Lists")
 	}
 	n = max(n, 0)
-	*f = listFrame{c: c, e: e, owner: owner, s: s, n: n, row: row, frame: rt.frame, pass: rt.pass, flat: flat, tree: tree, theme: c.theme, rows: f.rows[:0], at: f.at}
+	*f = listFrame{c: c, e: e, owner: owner, s: s, n: n, row: row, frame: rt.frame, pass: rt.pass, flat: flat, tree: tree, grid: kind == gridList, theme: c.theme, rows: f.rows[:0], at: f.at}
 	if rt.pass == 0 {
 		s.editables, s.editablesNow = s.editablesNow, false
 	}
@@ -447,6 +452,8 @@ func (f *listFrame) build(i int) *Element {
 	// Assistive technology sees a row of a table, an item of a tree or of
 	// a list.
 	switch {
+	case f.grid:
+		w.Role(RoleNone)
 	case f.tree:
 		w.Role(RoleTreeItem)
 	case f.flat:
@@ -851,6 +858,11 @@ func (e *Element) layoutList(w, h float32) {
 		// Rows at least as wide as they ask, as a table's columns, which
 		// scroll sideways.
 		cw = max(cw, e.rowMinW)
+	}
+	if g := e.gridFit; g != nil && max(1, int(math.Floor(float64((cw+g.gap)/(g.minW+g.gap))))) != g.cols {
+		// The items of a grid take other columns: the next frame builds
+		// them so.
+		e.c.rt.animating = true
 	}
 	if cw != s.width {
 		// The rows wrap anew: heights measured at another width are gone.

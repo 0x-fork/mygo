@@ -69,6 +69,10 @@ type gallery struct {
 	sort       ui.SortOrder
 	// Which sections of the sidebar show.
 	sectionsOpen [2]bool
+	// The grid of swatches, the one last chosen, and those chosen.
+	swatches       ui.GridState
+	swatch         int
+	swatchesChosen ui.Selection[int]
 	// The outline, its row chosen, and its order.
 	outline     ui.OutlineState[string]
 	outlineRow  int
@@ -81,6 +85,29 @@ type gallery struct {
 	table    ui.ListState
 	messages []message
 	draft    string
+}
+
+// hsl returns the color of hue h in degrees, saturation s and lightness l.
+func hsl(h, s, l float64) ui.Color {
+	c := (1 - math.Abs(2*l-1)) * s
+	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
+	m := l - c/2
+	var r, g, b float64
+	switch {
+	case h < 60:
+		r, g = c, x
+	case h < 120:
+		r, g = x, c
+	case h < 180:
+		g, b = c, x
+	case h < 240:
+		g, b = x, c
+	case h < 300:
+		r, b = x, c
+	default:
+		r, b = c, x
+	}
+	return ui.RGB(uint8((r+m)*255), uint8((g+m)*255), uint8((b+m)*255))
 }
 
 // tableFile is a file of the table on the List page.
@@ -671,6 +698,19 @@ func (g *gallery) list(c *ui.Context) {
 		}).Grow(1)
 		ui.Text(c, "10,100 items, built only as they show. Right and Left open and close the item chosen, and Option-click or Option with them all inside.").FontSize(12).TextColor(t.TextMuted)
 	}).Height(340)
+	card(c, "Grid view", func() {
+		// 10,000 swatches, as many columns as fit, several chosen by
+		// their numbers.
+		g.swatches.Selected = &g.swatch
+		g.swatches.Selection = &g.swatchesChosen
+		g.swatches.Label = func(i int) string { return fmt.Sprintf("Swatch %d", i) }
+		ui.GridView(c, &g.swatches, 10000, 96, 96, func(i int) {
+			hue := float64(i%36) * 10
+			ui.Box(c).Grow(1).Margin(6).Radius(6).Background(hsl(hue, 0.6, 0.65))
+			ui.Textf(c, "%d", i).FontSize(12).AlignSelf(ui.Center).Padding(0, 0, 4)
+		}).Grow(1)
+		ui.Textf(c, "%d chosen of 10,000, built only as they show. The arrows move in both directions; Shift and %s choose several.", g.swatchesChosen.Len(), map[bool]string{true: "Cmd", false: "Ctrl"}[runtime.GOOS == "darwin"]).FontSize(12).TextColor(t.TextMuted)
+	}).Height(380)
 }
 
 // chatCard shows a chat: messages of every height, which the list
