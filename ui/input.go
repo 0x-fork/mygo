@@ -328,13 +328,15 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise bool) {
 // dragTo returns the offset of content whose thumb moved by moved DIPs
 // along a track with travel DIPs of room since the offset was from, the
 // content scrolling as far as reach when the drag started and as far as
-// now: the end of the track shows the end.
+// now: the thumb goes as far through the content as along the track, as
+// rows a List measures meanwhile change the size of its content, and the
+// end of the track shows the end.
 func dragTo(from float64, moved, travel float32, reach, now float64) float64 {
-	off := from + float64(moved)*reach/float64(travel)
-	if off >= reach {
-		return max(now, 0)
+	if reach <= 0 || now <= 0 {
+		return 0
 	}
-	return max(0, min(off, now))
+	along := from/reach + float64(moved)/float64(travel)
+	return max(0, min(along, 1)) * now
 }
 
 // bars returns the scroll bars of the container being dragged, with the

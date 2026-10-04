@@ -633,6 +633,51 @@ func TestListScrollBarDragReachesTheEnd(t *testing.T) {
 	}
 }
 
+// A drag of the thumb moves through the rows as far as the pointer moves
+// along the track, though the rows measured meanwhile turn out much
+// shorter than estimated from the tall rows at the top.
+func TestListScrollBarDragFollowsThePointerAsEstimatesChange(t *testing.T) {
+	var s ListState
+	height := func(i int) float32 {
+		if i < 8 {
+			return 300
+		}
+		return 20
+	}
+	tt := NewTester(func(c *Context) {
+		List(c, &s, 5000, func(i int) { Box(c).Height(height(i)) }).Grow(1)
+	}, 300, 400)
+	tt.Move(150, 200)
+	st := listStateOf(&s)
+	g := scrollBars(Rect{st.x, st.y, st.w, st.h}, float32(st.contentH), float32(st.contentH), 0, float32(st.scrollY), st.flags, 6)
+	x, y := g.v.X+g.v.W/2, g.v.Y+g.v.H/2
+	travel := g.vTrack.H - 4 - g.v.H
+	tt.Move(x, y)
+	tt.Press(x, y)
+	last := -1
+	for k := 1; float32(k)*8 < travel; k++ {
+		tt.Move(x, y+float32(k)*8)
+		first, _ := s.Visible()
+		if first <= last || s.AtEnd() {
+			t.Fatalf("%.0f%% along the track: the first row in view is %d after %d, at the end %v", 100*float32(k)*8/travel, first, last, s.AtEnd())
+		}
+		last = first
+		checkRows(t, tt, &s, 0, 0, 400)
+		// The thumb shows as far along the track as the offset is
+		// through the content.
+		along := float32(k) * 8 / travel
+		through := float32(st.scrollY / (st.contentH - float64(st.h)))
+		if math.Abs(float64(along-through)) > 0.02 {
+			t.Errorf("%.0f%% along the track, the offset is %.0f%% through the content", 100*along, 100*through)
+		}
+	}
+	tt.Move(x, y+travel)
+	tt.Release(x, y+travel)
+	if r, _ := rowBox(tt, &s, 4999); !s.AtEnd() || r.Y+r.H != 400 {
+		t.Errorf("dragged to the end: the last row ends at %v", r.Y+r.H)
+	}
+}
+
 func TestListStateOfTwoListsPanics(t *testing.T) {
 	var s ListState
 	defer func() {

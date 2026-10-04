@@ -544,10 +544,16 @@ func (p *Painter) scrollbars(e *Element) {
 	}
 	color := theme.Scrollbar
 	w, h := e.contentW, e.contentH
+	x, y := st.scrollX, st.scrollY
 	if dragging {
-		w, h = rt.scrollDrag.contentW, rt.scrollDrag.contentH
+		// The thumb keeps its length, and goes as far along the track as
+		// the offset is through the content now (dragTo).
+		d := &rt.scrollDrag
+		w, h = d.contentW, d.contentH
+		x = rescale(x, e.contentW-float64(e.w), w-float64(e.w))
+		y = rescale(y, e.contentH-float64(e.h), h-float64(e.h))
 	}
-	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, float32(w), float32(h), float32(st.scrollX), float32(st.scrollY), e.flags, theme.scrollbarWidth())
+	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, float32(w), float32(h), float32(x), float32(y), e.flags, theme.scrollbarWidth())
 	if g.vertical {
 		bar := g.v
 		if dragging && !rt.scrollDrag.horizontal {
@@ -562,6 +568,15 @@ func (p *Painter) scrollbars(e *Element) {
 		}
 		p.fill(bar, [4]float32{bar.H / 2, bar.H / 2, bar.H / 2, bar.H / 2}, color, 0, Color{})
 	}
+}
+
+// rescale returns offset off of content scrolling as far as now as far
+// through content scrolling as far as then.
+func rescale(off, now, then float64) float64 {
+	if now <= 0 {
+		return 0
+	}
+	return off / now * then
 }
 
 // scrollGeometry is where the scroll bars of a container go.
