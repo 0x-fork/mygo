@@ -1173,6 +1173,13 @@ either.
   its rows as a table does; on Linux, the `level` attribute and the
   expandable state; on Windows, Level, and ExpandCollapse with LeafNode
   for items without children.
+- **Sidebars** (`ui/sidebar.go`). A sidebar is one element taking the
+  focus, whose items note their IDs as they are built: the keys choose
+  among those of the last frame, and the item chosen is the sidebar's
+  active descendant, with the focus for assistive technology, as a
+  combobox's option. Sections and items are tree items, the sections'
+  RoleNone containers leaving them all in the sidebar's tree, whose rows
+  macOS keeps as an outline's.
 - **Forms** (`ui/form.go`). A form notes the label boxes of its fields as
   they are built, and makes them as wide as the widest before the layout
   first measures or lays it out (`intrinsic` and `boxLayout` call

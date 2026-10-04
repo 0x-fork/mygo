@@ -67,6 +67,8 @@ type gallery struct {
 	// The files of the table, and how they are sorted.
 	tableFiles []tableFile
 	sort       ui.SortOrder
+	// Which sections of the sidebar show.
+	sectionsOpen [2]bool
 	// The outline, its row chosen, and its order.
 	outline     ui.OutlineState[string]
 	outlineRow  int
@@ -239,27 +241,27 @@ func (g *gallery) view(c *ui.Context) {
 
 func (g *gallery) sidebar(c *ui.Context) {
 	t := c.Theme()
-	side := ui.Column(c).Width(200).Padding(16, 10).Gap(2).Background(t.Surface).Shrink(0)
+	side := ui.Column(c).Width(200).PaddingY(16).Background(t.Surface).Shrink(0)
 	side.Children(func() {
-		ui.Text(c, "MyGo UI").FontSize(13).Bold().TextColor(t.TextMuted).Padding(4, 10, 10)
-		for _, p := range pages {
-			item := ui.Row(c).Key(p).Padding(7, 10).Gap(10).Radius(6).Focusable()
-			if p == g.page {
-				item.Background(t.Accent).TextColor(t.AccentText)
-			} else if item.Hovered() {
-				item.Background(t.SurfaceHover)
+		ui.Text(c, "MyGo UI").FontSize(13).Bold().TextColor(t.TextMuted).Padding(4, 20, 6)
+		// The pages, in two sections that hide and show; the arrows choose
+		// among them while the sidebar has the focus.
+		ui.Sidebar(c, &g.page, func() {
+			for k, section := range []struct {
+				title string
+				pages []string
+			}{{"Widgets", pages[:4]}, {"Look", pages[4:]}} {
+				ui.SidebarSection(c, section.title, &g.sectionsOpen[k], func() {
+					for _, p := range section.pages {
+						item := ui.SidebarItem(c, p, pageIcons[p], p)
+						if p == "List" {
+							item.Children(func() { ui.Badge(c, "10k") })
+						}
+					}
+				})
 			}
-			if item.Clicked() {
-				g.page = p
-			}
-			// Icons take the text color: the accent's when selected.
-			item.Children(func() {
-				ui.Icon(c, pageIcons[p]).FontSize(16)
-				ui.Text(c, p)
-			})
-		}
-		ui.Spacer(c)
-		ui.Text(c, g.now.Format("15:04:05")).FontSize(12).TextColor(t.TextMuted).Padding(0, 10)
+		}).Grow(1).Label("Pages")
+		ui.Text(c, g.now.Format("15:04:05")).FontSize(12).TextColor(t.TextMuted).Padding(0, 20)
 	})
 }
 
@@ -971,7 +973,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}}
+	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

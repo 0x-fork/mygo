@@ -401,6 +401,29 @@ chosen := app.files.Item(app.row)
 shows the arrows: the columns are a `Table`'s, which the user sorts,
 resizes and moves.
 
+### Sidebars
+
+`ui.Sidebar` is a source list, as the sidebars of Finder and Mail: items
+with icons, in sections whose titles hide and show them, choosing the ID
+of one. A click chooses an item; while the sidebar has the focus, Up,
+Down, Home, End and the first letters of an item choose among them, and
+Tab leaves it, as it is one stop. The item chosen shows in the accent
+color while the sidebar has the focus, in gray otherwise, as AppKit's.
+
+```go
+ui.Sidebar(c, &app.mailbox, func() {
+	ui.SidebarSection(c, "Mailboxes", &app.mailboxesShown, func() {
+		ui.SidebarItem(c, "inbox", inboxIcon, "Inbox").Children(func() {
+			ui.Badge(c, fmt.Sprint(app.unread))
+		})
+		ui.SidebarItem(c, "sent", sentIcon, "Sent")
+	})
+}).Width(220)
+```
+
+Assistive technology sees a tree: the sections' titles are items that
+open and close, and the item chosen has the focus while the sidebar does.
+
 ### Grids
 
 `ui.Grid` lays its children out in columns and rows, as CSS grid does:
@@ -619,6 +642,8 @@ look of your own, build on the widgets' bases, which have none: see
 | `EditableText` | a text the user renames in place, as Finder's file names, in a table's rows too |
 | `Tree`, `TreeItem` | items that open and close, built inside the items they belong to, with the arrow keys moving between them; `Clicked` and `Selected` choose one |
 | `Outline`, `OutlineTable` | a tree of items of any size, built only as they show, as a list or a table, see [outlines](#outlines) |
+| `Sidebar`, `SidebarSection`, `SidebarItem` | a source list, as Finder's and Mail's: items with icons in sections that hide and show, choosing a `*string` by a click, the arrows or typing; one stop of Tab |
+| `Badge` | a short text in a pill, as an unread count |
 | `Collapsible` | a label beside an arrow that shows and hides content below it while a `*bool` is true, as SwiftUI's `DisclosureGroup`; the arrow turns and the content grows into view |
 | `Accordion`, `AccordionItem` | sections in a bordered box, each opening and closing on its own, with Up, Down, Home and End moving between their headers |
 | `Form`, `Field`, `Fieldset` | labeled controls with descriptions and errors, see [forms](#forms) |
