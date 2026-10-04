@@ -1199,6 +1199,15 @@ either.
   combobox's option. Sections and items are tree items, the sections'
   RoleNone containers leaving them all in the sidebar's tree, whose rows
   macOS keeps as an outline's.
+- **Dates, times and colors** (`ui/date.go`, `ui/timeinput.go`,
+  `ui/colorpicker.go`). `DateInput` and `Calendar` share one month's grid,
+  whose day under the keys is its active descendant. A time input's
+  hours and minutes are spin buttons named after the field, typed into
+  through type-to-choose (`flagTypeSelect`). A color picker keeps its
+  color as hue, saturation, value and alpha, as a color of red, green
+  and blue loses the hue of its grays, and takes the app's color anew
+  when the app sets another. A color well is AppKit's `AXColorWell`, a
+  button on Linux and Windows, its value the color in hex.
 - **Indicators** (`ui/indicators.go`). Meters and steppers have a value
   in a range, as sliders and progress bars do (`AccessRole.Ranged`):
   a meter is AppKit's `AXLevelIndicator`, ATK's level bar and UIA's

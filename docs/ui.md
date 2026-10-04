@@ -665,6 +665,9 @@ look of your own, build on the widgets' bases, which have none: see
 | `TextInput`, `TextArea` | edit a `*string` on one line or several, with selection, undo, the clipboard and input methods; `Placeholder`, `Password`, `Submitted` (Enter) and `Changed` |
 | `NumberInput` | edits a `*float64` within a range, typed or stepped with Up, Down and its buttons |
 | `DateInput` | edits a `*time.Time` with a calendar, by click or with the arrow keys and Page Up and Down |
+| `Calendar` | a month choosing the day of a `*time.Time`, as SwiftUI's graphical date picker, the arrows choosing as they move |
+| `TimeInput` | edits the time of day of a `*time.Time`: its hours and minutes each take the focus, step with Up and Down and take digits typed |
+| `ColorWell`, `ColorPicker` | a swatch of a `*ui.Color` opening a picker below it, as AppKit's color well: saturation and brightness, hue, opacity, hex and swatches |
 | `Tabs` | a row of tabs choosing a `*int`, by click or with the arrow keys |
 | `Split`, `SplitVertical` | two panes with a divider between them that the user drags, or moves with the arrow keys, to resize them; the first's size is a `*float32` |
 | `Table` | rows under a header of `TableColumn`s, as high as their tallest cell: a `List`'s rows, with its `ListState`; the user sorts, resizes and moves the columns, see [tables](#tables) |

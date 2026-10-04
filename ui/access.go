@@ -71,6 +71,9 @@ const (
 	// value in one (Stepper).
 	RoleMeter
 	RoleStepper
+	// RoleColorWell is a button showing a color, which it opens a picker
+	// of (ColorWell).
+	RoleColorWell
 )
 
 // Role sets what the element is to assistive technology, for an element
@@ -418,9 +421,14 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 		rt.reveal(s.id)
 	case platform.AccessIncrement, platform.AccessDecrement:
 		rt.focusOn(s)
-		k := KeyRight
+		// Sliders step right and left, spin buttons up and down.
+		up, down := KeyRight, KeyLeft
+		if s.role == RoleStepper {
+			up, down = KeyUp, KeyDown
+		}
+		k := up
 		if ev.Action == platform.AccessDecrement {
-			k = KeyLeft
+			k = down
 		}
 		rt.keys = append(rt.keys, keyEvent{0, k})
 	case platform.AccessExpand, platform.AccessCollapse:

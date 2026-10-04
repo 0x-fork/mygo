@@ -94,6 +94,9 @@ const (
 	// RoleStepper steps one, as a spin button: both have Min, Max and Now.
 	RoleMeter
 	RoleStepper
+	// RoleColorWell is a button showing a color, its Value, which opens a
+	// picker of it, as AppKit's color well.
+	RoleColorWell
 )
 
 // Ranged reports whether nodes of a role have a value in a range (Min,

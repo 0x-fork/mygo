@@ -69,6 +69,9 @@ type gallery struct {
 	sort       ui.SortOrder
 	// Which sections of the sidebar show.
 	sectionsOpen [2]bool
+	// The meeting's day and time, and the tint of its text.
+	meeting time.Time
+	tint    ui.Color
 	// The indicators' values: the rating, the battery, the quality and
 	// the range of prices.
 	stars               int
@@ -495,6 +498,18 @@ func (g *gallery) controls(c *ui.Context) {
 			ui.Text(c, "Price").Width(64)
 			ui.RangeSlider(c, &g.priceLow, &g.priceHigh, 0, 500, 10).Label("Price").Grow(1)
 			ui.Textf(c, "$%.0f–%.0f", g.priceLow, g.priceHigh).Width(72).TextAlign(ui.End)
+		})
+	})
+	card(c, "Dates, times and colors", func() {
+		ui.Row(c).Gap(20).AlignItems(ui.Start).Wrap().Children(func() {
+			ui.Calendar(c, &g.meeting).Label("Meeting")
+			ui.Column(c).Gap(12).Children(func() {
+				ui.Form(c, func() {
+					ui.Field(c, "Time", func() { ui.TimeInput(c, &g.meeting).Label("Meeting") })
+					ui.Field(c, "Tint", func() { ui.ColorWell(c, &g.tint) })
+				})
+				ui.Text(c, g.meeting.Format("Monday, January 2 at 15:04")).TextColor(g.tint)
+			})
 		})
 	})
 	card(c, "Indicators", func() {
@@ -1114,7 +1129,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350}
+	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb")}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

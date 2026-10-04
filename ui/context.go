@@ -291,6 +291,8 @@ type state struct {
 	// expand is what assistive technology asked of an item of a tree: 1
 	// to open it, -1 to close it.
 	expand int8
+	// role is the element's Role in the last frame.
+	role Role
 	// holding is set while a stepper's arrow is held, since holdStart, and
 	// holdSteps counts the steps it took.
 	holding   bool

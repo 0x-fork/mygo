@@ -392,6 +392,7 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 		s.flags |= flagDisabled
 	}
 	s.cursor = e.cursor
+	s.role = e.role
 	s.input, s.caret, s.takesText = e.inputFn, e.caret, e.takesText
 	if e.flags&(flagEditable|flagSelectable) != 0 && s.cursor == 0 {
 		s.cursor = CursorText + 1
