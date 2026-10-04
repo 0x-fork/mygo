@@ -31,19 +31,26 @@ func (l *mainLoop) post(fn func()) bool {
 	return true
 }
 
-// drain runs queued functions until the queue is empty. Main thread only.
+// drain runs queued functions, one at a time, until the queue is empty.
+// Main thread only. A function running a loop of its own, as a context
+// menu, a modal dialog or await does, runs those queued behind it, which
+// it may be waiting for: the backend is signaled again while some wait.
 func (l *mainLoop) drain() {
 	for {
 		l.mu.Lock()
-		q := l.queue
-		l.queue = nil
-		l.mu.Unlock()
-		if len(q) == 0 {
+		if len(l.queue) == 0 {
+			l.mu.Unlock()
 			return
 		}
-		for _, fn := range q {
-			fn()
+		fn := l.queue[0]
+		l.queue[0] = nil
+		l.queue = l.queue[1:]
+		more := len(l.queue) > 0
+		l.mu.Unlock()
+		if more {
+			backend().Signal()
 		}
+		fn()
 	}
 }
 
