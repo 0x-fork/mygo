@@ -106,6 +106,9 @@ func place(e *Element, x, y float32) {
 	e.x += x
 	e.y += y
 	cx, cy := e.x, e.y
+	if f := e.followX; f != nil {
+		cx -= float32(f.st.scrollX)
+	}
 	if e.scrolls() {
 		// The content may no longer reach as far as the offset, as when a
 		// page gives way to a shorter one, or the app asked for the end:
@@ -276,6 +279,9 @@ func intrinsic(e *Element, maxContent bool) float32 {
 	if e.form != nil {
 		e.form.alignLabels()
 	}
+	if e.colFit != nil {
+		e.colFit.apply()
+	}
 	if v, ok := e.width.resolve(-1); ok {
 		return e.clampW(v, inf)
 	}
@@ -389,6 +395,9 @@ func contentHeight(e *Element, cw float32) float32 {
 func boxLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) {
 	if e.form != nil {
 		e.form.alignLabels()
+	}
+	if e.colFit != nil {
+		e.colFit.apply()
 	}
 	if e.grid {
 		return gridLayout(e, cw, ch, commit)

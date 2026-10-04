@@ -1146,6 +1146,24 @@ either.
   follows reduced motion: while it moves, the panel is clipped to that
   share of the height its content had in the last frame, and its content
   is built until it has closed.
+- **Tables** (`ui/table.go`, `ui/editable.go`). A table's rows are a
+  `List`'s that scrolls both ways: the list lays its rows out at least as
+  wide as the columns ask (`rowMinW`), and the header, outside the list,
+  follows its horizontal offset as it is placed (`followX`). The order
+  and the widths the user gives the columns live in the `ListState`
+  (`TableLayout`), by column ID. Dragging a header moves its column once
+  the pointer went a few DIPs, past a neighbor whose middle it passes; a
+  double click on a header's edge fits the column as the table lays
+  out, from the intrinsic widths of the cells the frame built
+  (`tableFit`). Sorting is the app's: the table sets `ListState.Sort`
+  and shows it, to assistive technology as well (`AccessSortAscending`
+  and `AccessSortDescending`: AppKit's `AXSortDirection`, ATK's `sort`
+  attribute, UIA's ItemStatus). An `EditableText` in a row reads the row
+  being built (`Context.row`): the list, which keeps the focus, asks for
+  the chosen row's text to be edited on Return (macOS) or F2, which it
+  takes only once a row has such a text; a click on the text of a row
+  chosen before the click edits it once the double-click time has
+  passed.
 - **Forms** (`ui/form.go`). A form notes the label boxes of its fields as
   they are built, and makes them as wide as the widest before the layout
   first measures or lays it out (`intrinsic` and `boxLayout` call

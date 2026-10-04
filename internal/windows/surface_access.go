@@ -109,6 +109,7 @@ const (
 	uiaIsEnabledProperty        = 30010
 	uiaHelpTextProperty         = 30013
 	uiaIsDataValidProperty      = 30103
+	uiaItemStatusProperty       = 30026
 	uiaFullDescriptionProperty  = 30159
 	uiaIsPasswordProperty       = 30019
 	uiaFrameworkIDProperty      = 30024
@@ -951,6 +952,14 @@ func (e *uiaElement) property(id int, v *variant) {
 		}
 	case uiaFullDescriptionProperty:
 		str(n.Description)
+	case uiaItemStatusProperty:
+		// The order of the column a table is sorted by, as Chromium says.
+		switch {
+		case n.States&platform.AccessSortAscending != 0:
+			str("ascending")
+		case n.States&platform.AccessSortDescending != 0:
+			str("descending")
+		}
 	case uiaIsDataValidProperty:
 		*v = boolVariant(n.States&platform.AccessInvalid == 0)
 	case uiaIsPasswordProperty:

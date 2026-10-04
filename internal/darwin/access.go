@@ -240,6 +240,17 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 		}
 		send(obj, "setAccessibilityPlaceholderValue:", uintptr(p))
 	}
+	if sorted := platform.AccessSortAscending | platform.AccessSortDescending; n.Role == platform.RoleColumnHeader && (fresh || n.States&sorted != o.States&sorted) {
+		// NSAccessibilitySortDirection.
+		dir := 0
+		switch {
+		case n.States&platform.AccessSortAscending != 0:
+			dir = 1
+		case n.States&platform.AccessSortDescending != 0:
+			dir = 2
+		}
+		send(obj, "setAccessibilitySortDirection:", uintptr(dir))
+	}
 	if fresh || n.Description != o.Description {
 		// AppKit's help, which it gives tooltips as.
 		var d id

@@ -818,6 +818,13 @@ func initAccessCallbacks() {
 		if an.n.SetSize > 0 {
 			add("setsize", strconv.Itoa(an.n.SetSize))
 		}
+		// The order of the column a table is sorted by, as Chromium says.
+		switch {
+		case an.n.States&platform.AccessSortAscending != 0:
+			add("sort", "ascending")
+		case an.n.States&platform.AccessSortDescending != 0:
+			add("sort", "descending")
+		}
 		return list
 	})
 	cbNodeClassInit = purego.NewCallback(func(class, data ptr) {

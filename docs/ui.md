@@ -331,6 +331,48 @@ if ui.Table(c, &app.files, cols, len(files), func(row, col int) {
 }
 ```
 
+The user arranges the columns, as in Finder:
+
+- **Resizing.** Dragging the right edge of a column's header resizes the
+  column, between its `MinWidth` and `MaxWidth`, and a double click
+  there fits it to its cells. The columns before it that share the room
+  left keep their widths, for the edge to follow the pointer.
+- **Moving.** Dragging a header moves its column among the others.
+- **Scrolling sideways.** Columns wider than the table scroll sideways,
+  the header with them.
+- **Fixed columns.** A `Fixed` column stays where it is, as wide as it is.
+
+`ListState.Columns` keeps the order and the widths, by the columns'
+`ID`s (their titles by default): set it from saved settings to restore
+them, and save it as it changes.
+
+With `ListState.Sort`, a click on the header of a `Sortable` column sorts
+the rows by it, ascending, and a second click reverses the order: the
+header shows an arrow, assistive technology reads the order, and the
+table's `Changed` reports it. The table shows the rows in the order
+`cell` gets them, so sort them as it says, keyed by `Key` for the choice
+to follow its rows:
+
+```go
+app.files.Sort = &app.sort
+sorted := sortFiles(app.files, app.sort)
+app.files.Key = func(i int) any { return sorted[i].ID }
+```
+
+`ui.EditableText` shows a text that the user renames in place, as Finder
+does: in a row, Return on macOS and F2 elsewhere edit the chosen row's
+text, as does a click on it once the row is chosen; the name before its
+extension is selected, Enter or a click elsewhere keeps what was typed,
+and Escape goes back. Elsewhere, a double click or Enter edits it.
+
+```go
+ui.Table(c, &app.files, cols, len(files), func(row, col int) {
+	if col == 0 && ui.EditableText(c, &files[row].Name).Changed() {
+		app.rename(files[row])
+	}
+})
+```
+
 ### Grids
 
 `ui.Grid` lays its children out in columns and rows, as CSS grid does:
@@ -545,7 +587,8 @@ look of your own, build on the widgets' bases, which have none: see
 | `DateInput` | edits a `*time.Time` with a calendar, by click or with the arrow keys and Page Up and Down |
 | `Tabs` | a row of tabs choosing a `*int`, by click or with the arrow keys |
 | `Split`, `SplitVertical` | two panes with a divider between them that the user drags, or moves with the arrow keys, to resize them; the first's size is a `*float32` |
-| `Table` | rows under a header of `TableColumn`s, as high as their tallest cell: a `List`'s rows, with its `ListState`, see [tables](#tables) |
+| `Table` | rows under a header of `TableColumn`s, as high as their tallest cell: a `List`'s rows, with its `ListState`; the user sorts, resizes and moves the columns, see [tables](#tables) |
+| `EditableText` | a text the user renames in place, as Finder's file names, in a table's rows too |
 | `Tree`, `TreeItem` | items that open and close, built inside the items they belong to, with the arrow keys moving between them; `Clicked` and `Selected` choose one |
 | `Collapsible` | a label beside an arrow that shows and hides content below it while a `*bool` is true, as SwiftUI's `DisclosureGroup`; the arrow turns and the content grows into view |
 | `Accordion`, `AccordionItem` | sections in a bordered box, each opening and closing on its own, with Up, Down, Home and End moving between their headers |

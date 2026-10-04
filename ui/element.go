@@ -327,11 +327,21 @@ type Element struct {
 	field     *fieldParts
 	form      *formBuild
 	baselines bool
-	tl        *text.Layout
-	measures  [4]measure
-	nmeasure  int
-	leaf      [2]float32 // the max-content and min-content widths of text
-	leafOK    bool
+	// rowMinW is the least width of the rows of a list scrolling sideways,
+	// as a table's; followX is the scroll container whose horizontal
+	// offset the element's content follows, as a table's header follows
+	// its rows; sort is the order a table's column header shows: 1
+	// ascending, 2 descending.
+	rowMinW float32
+	followX *Element
+	sort    int8
+	// fit fits a column of a table to its cells as it lays out.
+	colFit   *tableFit
+	tl       *text.Layout
+	measures [4]measure
+	nmeasure int
+	leaf     [2]float32 // the max-content and min-content widths of text
+	leafOK   bool
 }
 
 type measure struct {

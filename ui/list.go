@@ -70,6 +70,15 @@ type ListState struct {
 	// its section scroll under it, until the next header pushes it away.
 	// Give headers a background. Headers are not chosen.
 	Header func(row int) bool
+	// Sort, when set, is the column a Table's rows are sorted by: a click
+	// on the header of a Sortable column sorts by it, ascending, and
+	// another reverses the order, which the header shows. Sort the rows as
+	// it says, when it changes.
+	Sort *SortOrder
+	// Columns keeps the order and the widths the user gave a Table's
+	// columns, by ID: restore it from saved settings, and save it as it
+	// changes.
+	Columns TableLayout
 
 	// The place: the first row in view, and how far the list is scrolled
 	// past its top: the row's top is that far above where the content
@@ -111,6 +120,12 @@ type ListState struct {
 	// row holding the focus.
 	rows  map[uint64]listRowID
 	frame listFrame
+	// editables reports rows holding an EditableText in the last frame,
+	// and editablesNow in this one; editKey is the row whose text the keys
+	// asked to edit, while editAsked.
+	editables, editablesNow bool
+	editKey                 any
+	editAsked               bool
 }
 
 // listRequest is where the app or the user asked the list to go: to row
@@ -192,6 +207,16 @@ type listRow struct {
 	y   float64
 }
 
+// rowBuild is the row of a list being built, for what is inside it: its
+// list, index and key, whether it was chosen before a click on it in this
+// frame, and whether it was double-clicked.
+type rowBuild struct {
+	f                       *listFrame
+	i                       int
+	key                     any
+	clicked, chosen, double bool
+}
+
 // List creates a vertical scroll container of n rows, built with row(i),
 // which builds only those in view, and a few beyond. Rows take the height
 // of their content: the list measures them as they show and estimates the
@@ -228,6 +253,9 @@ func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i in
 	}
 	n = max(n, 0)
 	*f = listFrame{c: c, e: e, owner: owner, s: s, n: n, row: row, frame: rt.frame, pass: rt.pass, flat: flat, theme: c.theme, rows: f.rows[:0], at: f.at}
+	if rt.pass == 0 {
+		s.editables, s.editablesNow = s.editablesNow, false
+	}
 	e.list, owner.rowsOf = f, f
 	s.sync(e, n)
 	if s.cursor() != nil && owner == e {
@@ -409,14 +437,18 @@ func (f *listFrame) build(i int) *Element {
 	} else {
 		w.Role(RoleListItem)
 	}
+	rb := rowBuild{f: f, i: i, key: key}
 	if sel := s.cursor(); sel != nil && !f.isHeader(i) {
 		t := c.theme
 		w.flags |= flagClickable | flagHover | flagChoosable
+		rb.chosen = f.chosen(i, key)
 		if w.Clicked() {
+			rb.clicked = w.ClickModifiers() == 0
 			f.click(i, w.ClickModifiers())
 			f.owner.Focus()
 		}
 		if w.DoubleClicked() {
+			rb.double = true
 			f.owner.st.submitted = true
 		}
 		on := f.chosen(i, key)
@@ -451,7 +483,10 @@ func (f *listFrame) build(i int) *Element {
 			})
 		}
 	}
+	saved := c.row
+	c.row = &rb
 	w.Children(func() { f.row(i) })
+	c.row = saved
 	f.rows = append(f.rows, listRow{i: i, key: key, e: w})
 	return w
 }
@@ -672,7 +707,15 @@ func (f *listFrame) navigate() {
 	all := multi && o.Shortcut(Cmd, KeyA)
 	flip := multi && !mac && o.Shortcut(Ctrl, KeySpace)
 	in := *sel >= 0 && *sel < n
-	if o.Shortcut(0, KeyEnter) && in {
+	// Enter on macOS, as in Finder, and F2 elsewhere edit the text of the
+	// row chosen in place (EditableText), where it has one.
+	enter := o.Shortcut(0, KeyEnter)
+	edit := s.editables && (o.Shortcut(0, KeyF2) || mac && enter)
+	switch {
+	case edit && in && !f.isHeader(*sel):
+		s.editKey, s.editAsked = f.key(*sel), true
+		s.ScrollIntoView(*sel)
+	case enter && in:
 		o.st.submitted = true
 	}
 	to := -1
@@ -787,6 +830,11 @@ func (e *Element) layoutList(w, h float32) {
 	hs := &s.heights
 	st := e.st
 	cw := max(w-e.padX(), 0)
+	if e.flags&flagScrollX != 0 {
+		// Rows at least as wide as they ask, as a table's columns, which
+		// scroll sideways.
+		cw = max(cw, e.rowMinW)
+	}
 	if cw != s.width {
 		// The rows wrap anew: heights measured at another width are gone.
 		hs.clear()
@@ -800,7 +848,7 @@ func (e *Element) layoutList(w, h float32) {
 	st.list = s
 	if n == 0 {
 		_, uh := boxLayout(e, cw, inf, true)
-		e.contentW, e.contentH = float64(w), float64(max(uh, max(h-e.padY(), 0))+e.padY())
+		e.contentW, e.contentH = float64(cw+e.padX()), float64(max(uh, max(h-e.padY(), 0))+e.padY())
 		layoutAbsolute(e)
 		e.scrollBase = 0
 		s.remember(e, 0, -1, true, st.scrollY)
@@ -1008,7 +1056,7 @@ func (e *Element) layoutList(w, h float32) {
 		// offset moves before placing.
 		pinned.flags |= flagAbsolute
 	}
-	e.contentW, e.contentH = float64(w), content
+	e.contentW, e.contentH = float64(cw+e.padX()), content
 	e.scrollBase = scroll
 	st.scrollTo(st.scrollX, scroll)
 	s.inset = inset

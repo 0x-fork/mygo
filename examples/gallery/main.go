@@ -42,7 +42,7 @@ type gallery struct {
 	split    float32
 	copies   float64
 	file     int
-	chosen   ui.Selection[string]
+	chosen   ui.Selection[int]
 	tree     map[string]bool
 	leaf     string
 	birthday time.Time
@@ -64,6 +64,9 @@ type gallery struct {
 	// The disclosure, the sections of the accordion, and their choices.
 	advanced, verbose, share, news bool
 	sections                       [3]bool
+	// The files of the table, and how they are sorted.
+	tableFiles []tableFile
+	sort       ui.SortOrder
 	// places keeps where each page is scrolled.
 	places map[string]*ui.ScrollState
 	// rows, chat and table keep the places of the lists of the List page.
@@ -72,6 +75,43 @@ type gallery struct {
 	table    ui.ListState
 	messages []message
 	draft    string
+}
+
+// tableFile is a file of the table on the List page.
+type tableFile struct {
+	id         int
+	name, kind string
+	size       int
+}
+
+// sortedFiles returns the table's files in the order it is sorted by.
+func (g *gallery) sortedFiles() []*tableFile {
+	if g.tableFiles == nil {
+		for i, name := range []string{"report.pdf", "photo.jpg", "notes.md", "budget.xlsx", "slides.key", "song.mp3", "archive.zip", "logo.svg"} {
+			kind := map[string]string{"pdf": "PDF document", "jpg": "JPEG image", "md": "Markdown", "xlsx": "Spreadsheet", "key": "Presentation", "mp3": "MP3 audio", "zip": "ZIP archive", "svg": "SVG image"}[name[strings.LastIndexByte(name, '.')+1:]]
+			g.tableFiles = append(g.tableFiles, tableFile{id: i, name: name, kind: kind, size: (i*37%11 + 1) * 173})
+		}
+	}
+	rows := make([]*tableFile, len(g.tableFiles))
+	for i := range g.tableFiles {
+		rows[i] = &g.tableFiles[i]
+	}
+	slices.SortStableFunc(rows, func(a, b *tableFile) int {
+		var d int
+		switch g.sort.Column {
+		case "Name":
+			d = strings.Compare(strings.ToLower(a.name), strings.ToLower(b.name))
+		case "Kind":
+			d = strings.Compare(a.kind, b.kind)
+		case "Size":
+			d = a.size - b.size
+		}
+		if g.sort.Descending {
+			d = -d
+		}
+		return d
+	})
+	return rows
 }
 
 // message is a message of the chat on the List page; ids grow with time,
@@ -560,29 +600,35 @@ func (g *gallery) list(c *ui.Context) {
 				item("go.mod", "go.mod", nil)
 			})
 		}).Width(220)
-		files := []string{"report.pdf", "photo.jpg", "notes.md", "budget.xlsx", "slides.key", "song.mp3"}
 		card(c, "Table", func() {
-			cols := []ui.TableColumn{{Title: "Name"}, {Title: "Size", Width: 90, Align: ui.End}}
-			// Several files chosen by their names, the one last chosen
-			// opening; typing a name goes to it.
-			g.table.Key = func(i int) any { return files[i] }
-			g.table.Label = func(i int) string { return files[i] }
+			cols := []ui.TableColumn{{Title: "Name", Sortable: true}, {Title: "Kind", Width: 120, Sortable: true}, {Title: "Size", Width: 90, Align: ui.End, Sortable: true}}
+			// Several files chosen by their IDs, the one last chosen
+			// opening; typing a name goes to it. The names are renamed in
+			// place.
+			rows := g.sortedFiles()
+			g.table.Key = func(i int) any { return rows[i].id }
+			g.table.Label = func(i int) string { return rows[i].name }
 			g.table.Selected = &g.file
 			g.table.Selection = &g.chosen
-			if ui.Table(c, &g.table, cols, len(files), func(row, col int) {
-				if col == 0 {
-					ui.Text(c, files[row]).SingleLine()
-				} else {
-					ui.Textf(c, "%d KB", (row+1)*173)
+			g.table.Sort = &g.sort
+			if ui.Table(c, &g.table, cols, len(rows), func(row, col int) {
+				f := rows[row]
+				switch col {
+				case 0:
+					ui.EditableText(c, &f.name)
+				case 1:
+					ui.Text(c, f.kind).SingleLine()
+				case 2:
+					ui.Textf(c, "%d KB", f.size)
 				}
 			}).Grow(1).Submitted() {
-				c.Toast("Opened " + files[g.file])
+				c.Toast("Opened " + rows[g.file].name)
 			}
-			cmd := "Ctrl"
+			cmd, rename := "Ctrl", "F2"
 			if runtime.GOOS == "darwin" {
-				cmd = "Cmd"
+				cmd, rename = "Cmd", "Return"
 			}
-			ui.Textf(c, "%d chosen. Shift-click or %s-click to choose several; type a name to go to it.", g.chosen.Len(), cmd).FontSize(12).TextColor(t.TextMuted)
+			ui.Textf(c, "%d chosen. Shift-click or %s-click to choose several; type a name to go to it; %s renames. Click a header to sort, drag it to move the column, and drag its edge to resize it.", g.chosen.Len(), cmd, rename).FontSize(12).TextColor(t.TextMuted)
 		}).Grow(1)
 	})
 }

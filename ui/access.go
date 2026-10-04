@@ -258,6 +258,12 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if e.invalid {
 		n.States |= platform.AccessInvalid
 	}
+	switch e.sort {
+	case 1:
+		n.States |= platform.AccessSortAscending
+	case 2:
+		n.States |= platform.AccessSortDescending
+	}
 	n.Description = e.description
 	if f := e.nameFrom; n.Label == "" && f != nil {
 		n.Label = f.nameOf()

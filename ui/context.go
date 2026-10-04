@@ -32,6 +32,8 @@ type Context struct {
 	// their fields and sections.
 	form      *formBuild
 	accordion *accordionBuild
+	// row is the row of a List or a Table being built.
+	row *rowBuild
 	// reveal lists the elements to scroll into view (ScrollIntoView).
 	reveal []*Element
 }

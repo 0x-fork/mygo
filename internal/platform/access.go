@@ -93,7 +93,7 @@ const (
 // AccessStates are the states of an element of an AccessTree.
 // AccessChecked is the choice among a tab list's tabs, a tree's items, and
 // the rows of a list or a table that are AccessSelectable.
-type AccessStates uint16
+type AccessStates uint32
 
 const (
 	AccessFocusable AccessStates = 1 << iota
@@ -120,6 +120,10 @@ const (
 	// AccessInvalid is set on a control whose value is not valid, as a
 	// field with an error.
 	AccessInvalid
+	// AccessSortAscending and AccessSortDescending are set on the header
+	// of the column a table's rows are sorted by.
+	AccessSortAscending
+	AccessSortDescending
 )
 
 // AccessActions are the actions an element of an AccessTree takes.
