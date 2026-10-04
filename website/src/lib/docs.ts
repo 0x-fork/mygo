@@ -22,6 +22,21 @@ export interface NavSection {
   items: NavItem[]
 }
 
+/** The docs, and native UI's, which have a sidebar of their own at /docs/ui. */
+export type Book = "docs" | "ui"
+
+export type Navs = Record<Book, NavSection[]>
+
+/** The book of a page: native UI's for ui and the pages in ui/. */
+export function bookOf(slug: string): Book {
+  return slug === "ui" || slug.startsWith("ui/") ? "ui" : "docs"
+}
+
+/** The slug of the page at a path: "/docs/ui/button" → "ui/button". */
+export function slugOfPath(pathname: string) {
+  return pathname.replace(/^\/docs\/?/, "").replace(/\/$/, "")
+}
+
 export interface Doc {
   slug: string
   title: string

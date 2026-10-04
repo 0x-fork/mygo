@@ -1,6 +1,6 @@
 # Terminal
 
-The terminal plugin is a terminal for apps of [native UI](../ui.md): a view
+The terminal plugin is a terminal for apps of [native UI](../ui/README.md): a view
 that runs the user's shell, or any program, in a pseudo-terminal, with the
 terminal emulator of [Ghostty](https://ghostty.org), libghostty-vt. It is
 all Go, with no npm package: the emulator is a native library that the

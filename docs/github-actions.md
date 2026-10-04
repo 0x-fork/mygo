@@ -63,7 +63,7 @@ jobs:
         run: bun run build -- -platform "${{ matrix.platform }}" -upload
 ```
 
-A project of [native UI](ui.md) has no frontend, so no Bun: leave out the
+A project of [native UI](ui/README.md) has no frontend, so no Bun: leave out the
 `setup-bun` and `bun install` steps, and build with the CLI that `go.mod`
 pins as a tool:
 

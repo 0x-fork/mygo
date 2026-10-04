@@ -8,7 +8,7 @@ import { toString } from "mdast-util-to-string"
 import remarkParse from "remark-parse"
 import { unified } from "unified"
 
-import type { Doc, NavItem, NavSection, SearchEntry } from "@/lib/docs"
+import { bookOf, type Book, type Doc, type Navs, type NavItem, type NavSection, type SearchEntry } from "@/lib/docs"
 import { renderMarkdown, slugOf, type RenderedMarkdown } from "@/lib/markdown.server"
 import { site } from "@/lib/site"
 
@@ -16,9 +16,19 @@ import { site } from "@/lib/site"
 const repoDir = path.resolve(process.cwd(), "..")
 const docsDir = path.join(repoDir, "docs")
 
-function fileOf(slug: string) {
-  if (slug !== "" && !/^[a-z0-9-]+(\/[a-z0-9-]+)*$/.test(slug)) return undefined
-  return path.join(docsDir, slug ? `${slug}.md` : "README.md")
+/** The files a page may be: x.md, else x/README.md, as ui/README.md is /docs/ui. */
+function filesOf(slug: string) {
+  if (slug === "") return ["README.md"]
+  if (!/^[a-z0-9-]+(\/[a-z0-9-]+)*$/.test(slug)) return []
+  return [`${slug}.md`, `${slug}/README.md`]
+}
+
+/** The file of a page, relative to the docs, or undefined for none. */
+async function fileOf(slug: string) {
+  for (const file of filesOf(slug)) {
+    if (await fs.stat(path.join(docsDir, file)).then((s) => s.isFile(), () => false)) return file
+  }
+  return undefined
 }
 
 // Pages are rendered once per build; in development, on every request.
@@ -27,35 +37,50 @@ const cache = new Map<string, Promise<RenderedMarkdown | undefined>>()
 function render(slug: string) {
   let page = cache.get(slug)
   if (!page) {
-    const file = fileOf(slug)
-    page = file
-      ? fs.readFile(file, "utf8").then(
-          (source) => renderMarkdown(source, file, { docsDir, repoDir, repoUrl: site.repo }),
-          () => undefined
-        )
-      : Promise.resolve(undefined)
+    page = fileOf(slug).then((file) => {
+      if (!file) return undefined
+      const abs = path.join(docsDir, file)
+      return fs.readFile(abs, "utf8").then(
+        (source) => renderMarkdown(source, abs, { docsDir, repoDir, repoUrl: site.repo }),
+        () => undefined
+      )
+    })
     if (!import.meta.env.DEV) cache.set(slug, page)
   }
   return page
 }
 
-/** The sections of the sidebar: the lists of README.md, in its order, and pages it leaves out. */
-export async function loadNav(): Promise<NavSection[]> {
-  const readme = await fs.readFile(path.join(docsDir, "README.md"), "utf8")
+/**
+ * The sidebars: the docs', and native UI's, which has its own. Each takes the
+ * lists of its README, in their order, under their headings, and the pages
+ * of its directory it leaves out.
+ */
+export async function loadNav(): Promise<Navs> {
+  const [docs, ui] = await Promise.all([
+    bookNav("README.md", { title: "Overview", item: { slug: "", title: "Introduction" } }),
+    bookNav("ui/README.md", { title: "Native UI", item: { slug: "ui", title: "Overview" } }),
+  ])
+  return { docs, ui }
+}
+
+async function bookNav(readmeFile: string, overview: { title: string; item: NavItem }): Promise<NavSection[]> {
+  const readme = await fs.readFile(path.join(docsDir, readmeFile), "utf8")
+  const base = path.dirname(readmeFile)
   const tree = unified().use(remarkParse).parse(readme) as Root
-  const sections: NavSection[] = [{ title: "Overview", items: [{ slug: "", title: "Introduction" }] }]
+  const sections: NavSection[] = [{ title: overview.title, items: [overview.item] }]
   let heading = ""
   for (const node of tree.children) {
     if (node.type === "heading" && node.depth === 2) heading = toString(node)
-    if (node.type === "list" && heading) sections.push({ title: heading, items: navItems(node) })
+    if (node.type === "list" && heading) sections.push({ title: heading, items: navItems(node, base) })
   }
 
+  const book = bookOf(overview.item.slug!)
   const listed = new Set(sections.flatMap((s) => s.items.map((i) => i.slug)))
   const files = (await fs.readdir(docsDir, { recursive: true })).filter((f) => f.endsWith(".md")).sort()
   const rest: NavItem[] = []
   for (const file of files) {
     const slug = slugOf(file)
-    if (listed.has(slug)) continue
+    if (listed.has(slug) || bookOf(slug) !== book) continue
     const page = await render(slug)
     rest.push({ slug, title: page?.title || slug })
   }
@@ -63,14 +88,14 @@ export async function loadNav(): Promise<NavSection[]> {
   return sections
 }
 
-function navItems(list: List): NavItem[] {
+function navItems(list: List, base: string): NavItem[] {
   return list.children.flatMap((item): NavItem[] => {
     const paragraph = item.children[0]
     if (paragraph?.type !== "paragraph") return []
     const [first, ...rest] = paragraph.children
     const description = sentence(rest.map((n) => toString(n)).join(""))
     if (first?.type === "link" && first.url.endsWith(".md") && !/^[a-z]+:/.test(first.url)) {
-      return [{ slug: slugOf(first.url), title: toString(first), description }]
+      return [{ slug: slugOf(path.join(base, first.url)), title: toString(first), description }]
     }
     // "The Go API: `go doc -all <package>`, …": the package on pkg.go.dev.
     const pkg = rest[0]?.type === "inlineCode" ? /^go doc (?:-all )?(\S+)$/.exec(rest[0].value)?.[1] : undefined
@@ -88,9 +113,11 @@ function sentence(text: string) {
 }
 
 export async function loadDoc(slug: string): Promise<Doc | undefined> {
-  const [page, nav] = await Promise.all([render(slug), loadNav()])
-  if (!page) return undefined
-  const order = nav.flatMap((s) => s.items).filter((i) => i.slug !== undefined)
+  const [page, nav, file] = await Promise.all([render(slug), loadNav(), fileOf(slug)])
+  if (!page || !file) return undefined
+  const book: Book = bookOf(slug)
+  const sections = nav[book]
+  const order = sections.flatMap((s) => s.items).filter((i) => i.slug !== undefined)
   const index = order.findIndex((i) => i.slug === slug)
   const item = order[index]
   const link = (i: NavItem | undefined) => (i?.slug === undefined ? undefined : { slug: i.slug, title: i.title })
@@ -99,12 +126,12 @@ export async function loadDoc(slug: string): Promise<Doc | undefined> {
     title: page.title,
     description: item?.description || page.lead,
     summary: item?.description,
-    section: nav.find((s) => s.items.includes(item!))?.title,
+    section: sections.find((s) => s.items.includes(item!))?.title,
     html: page.html,
     toc: page.toc,
     prev: index > 0 ? link(order[index - 1]) : undefined,
     next: index >= 0 ? link(order[index + 1]) : undefined,
-    editUrl: `${site.repo}/edit/main/docs/${slug || "README"}.md`,
+    editUrl: `${site.repo}/edit/main/docs/${file}`,
   }
 }
 
@@ -112,7 +139,7 @@ export async function loadDoc(slug: string): Promise<Doc | undefined> {
 export async function loadSearchIndex(): Promise<SearchEntry[]> {
   const nav = await loadNav()
   const entries: SearchEntry[] = []
-  for (const item of nav.flatMap((s) => s.items)) {
+  for (const item of [...nav.docs, ...nav.ui].flatMap((s) => s.items)) {
     if (item.slug === undefined) continue
     const page = await render(item.slug)
     if (!page) continue

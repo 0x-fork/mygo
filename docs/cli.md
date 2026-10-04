@@ -20,7 +20,7 @@ Outside a project, run `bunx mygo-cli` or `npx mygo-cli`, e.g.
 mygo-cli` puts `mygo` on your `PATH`. `MYGO_CLI_BINARY` makes the package
 run another build of the CLI.
 
-Projects of [native UI](ui.md) have no npm packages: their `go.mod` has
+Projects of [native UI](ui/README.md) have no npm packages: their `go.mod` has
 the CLI as a [tool](https://go.dev/doc/modules/managing-dependencies#tools),
 which `go tool mygo` runs at the version it pins.
 
@@ -54,7 +54,7 @@ and `generate`. It installs the dependencies with Bun and generates the
 TypeScript client. See [a web frontend](getting-started.md#a-web-frontend).
 
 With `-template native` the project is a Go module alone, whose window
-shows [native UI](ui.md): `main.go`, a test of its view, `mygo.json` and the
+shows [native UI](ui/README.md): `main.go`, a test of its view, `mygo.json` and the
 icon. The module has the CLI as a [tool](https://go.dev/doc/modules/managing-dependencies#tools),
 so `go tool mygo dev` and `go tool mygo build` run the version it pins,
 without Bun. See [native UI](getting-started.md#native-ui).

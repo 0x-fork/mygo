@@ -56,10 +56,14 @@ function getHighlighter() {
   return highlighter
 }
 
-/** The slug of a page by its path in the docs: "plugins/fetch.md" → "plugins/fetch", "README.md" → "". */
+/**
+ * The slug of a page by its path in the docs: "plugins/fetch.md" →
+ * "plugins/fetch", "README.md" → "", and a directory's README its own:
+ * "ui/README.md" → "ui".
+ */
 export function slugOf(file: string) {
   const name = file.replace(/\.md$/, "").split(path.sep).join("/")
-  return name === "README" ? "" : name
+  return name === "README" ? "" : name.replace(/\/README$/, "")
 }
 
 /** The slug of the page at an absolute path, or undefined outside the docs. */

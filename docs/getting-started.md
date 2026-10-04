@@ -1,7 +1,7 @@
 # Getting started
 
 A MyGo app shows its windows with a web frontend, in the system's webview,
-or with [native UI](ui.md) that MyGo draws itself, written in Go. `mygo
+or with [native UI](ui/README.md) that MyGo draws itself, written in Go. `mygo
 init` starts a project of either kind, and an app can add windows of the
 other kind later.
 
@@ -74,7 +74,7 @@ the development app to `.mygo/`; `.gitignore` leaves them out. See
 ### Native UI
 
 `mygo init -template native my-app` creates an app whose window shows
-[native UI](ui.md): a Go module alone, with no frontend and no Bun.
+[native UI](ui/README.md): a Go module alone, with no frontend and no Bun.
 
 ```
 my-app/
@@ -175,7 +175,7 @@ func (a *app) view(c *ui.Context) {
 ```
 
 `main_test.go` clicks and types into the view without a window, as fast as
-a unit test: run `go test`. [Native UI](ui.md) covers layout, widgets,
+a unit test: run `go test`. [Native UI](ui/README.md) covers layout, widgets,
 text, input, drawing and changing the state from other goroutines.
 
 ## Build
@@ -208,7 +208,7 @@ The apps run where they are, but to ship them to users, sign them: see
 ## Next steps
 
 - [Windows](windows.md) and [the application](app.md), to shape the app.
-- [Native UI](ui.md), to build interfaces in Go, or
+- [Native UI](ui/README.md), to build interfaces in Go, or
   [the frontend](frontend.md), for web pages.
 - [Menus and the tray](menus.md) and the [desktop APIs](native.md).
 - The examples in the repository:

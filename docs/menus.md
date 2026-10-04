@@ -142,7 +142,7 @@ note.addEventListener("contextmenu", (e) => {
 
 Without a handler of their own, pages show the webview's standard context
 menu, with Copy and Paste on text and Inspect Element in development
-builds. Windows showing [native UI](ui.md#input) give elements context
+builds. Windows showing [native UI](ui/context-menu.md) give elements context
 menus with `ContextMenu`, built like the rest of their interface.
 
 ## The Dock menu

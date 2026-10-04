@@ -4,7 +4,7 @@ Windows that show web pages show the pages of the app's frontend: HTML,
 CSS and JavaScript built with any tools. New projects use TypeScript and
 [Vite](https://vite.dev), but MyGo only needs a URL to load, during
 development, and a directory of built files, for builds. Windows of
-[native UI](ui.md) need no frontend, and an app that only has those has
+[native UI](ui/README.md) need no frontend, and an app that only has those has
 none.
 
 ## How pages load

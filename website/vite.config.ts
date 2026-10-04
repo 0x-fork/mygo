@@ -7,13 +7,14 @@ import { defineConfig } from "vite"
 
 const repo = (file: string) => new URL(`../${file}`, import.meta.url)
 
-// The pages of the repository's docs, plugins/fetch.md at /docs/plugins/fetch.
-// /docs itself, like every route without parameters, is found without being
+// The pages of the repository's docs, plugins/fetch.md at /docs/plugins/fetch,
+// and a directory's README at the directory, ui/README.md at /docs/ui. /docs
+// itself, like every route without parameters, is found without being
 // listed.
 const docs = fs
   .readdirSync(repo("docs"), { recursive: true, encoding: "utf8" })
   .filter((file) => file.endsWith(".md") && file !== "README.md")
-  .map((file) => `/docs/${file.slice(0, -3).split(path.sep).join("/")}`)
+  .map((file) => `/docs/${file.slice(0, -3).split(path.sep).join("/").replace(/\/README$/, "")}`)
 
 const version = /const Version = "([^"]+)"/.exec(fs.readFileSync(repo("mygo.go"), "utf8"))?.[1]
 const goVersion = /^go (\S+)/m.exec(fs.readFileSync(repo("go.mod"), "utf8"))?.[1]

@@ -1,7 +1,7 @@
 # Windows
 
 A window is a native window that shows a web page, loaded from its `URL`,
-or [native UI](ui.md) that MyGo draws, from its `Content`. Create windows
+or [native UI](ui/README.md) that MyGo draws, from its `Content`. Create windows
 with `mygo.NewWindow` once the app is ready:
 
 ```go
@@ -40,18 +40,18 @@ on the screen. Sizes and positions are in device-independent pixels.
 |---|---|
 | `Title` | the window title; defaults to the app name, and a page's `<title>` replaces it |
 | `URL` | loaded once the window exists; `/` and other URLs without a scheme are pages of the [frontend](frontend.md#how-pages-load) |
-| `Content` | shows [native UI](ui.md) that MyGo draws, instead of a page |
+| `Content` | shows [native UI](ui/README.md) that MyGo draws, instead of a page |
 | `Width`, `Height` | the size of the window, or of what it shows with `UseContentSize` |
 | `X`, `Y` | the top-left corner; the window is centered when both are 0 |
 | `MinWidth`, `MinHeight`, `MaxWidth`, `MaxHeight` | limits of resizing; 0 means none |
 | `StateKey` | remembers the window's bounds and state under this key, see [below](#remember-where-windows-were) |
 | `Hidden` | creates the window without showing it |
 | `Maximized`, `FullScreen` | creates it maximized or in full screen |
-| `Frameless` | no title bar and borders: the page draws them, see [custom title bars](frontend.md#custom-title-bars), or the [native UI](ui.md#windows-with-native-ui) |
-| `TitleBarStyle` | hides the title bar but keeps the window buttons over the page, see [custom title bars](frontend.md#custom-title-bars), or over [native UI](ui.md#windows-with-native-ui) |
+| `Frameless` | no title bar and borders: the page draws them, see [custom title bars](frontend.md#custom-title-bars), or the [native UI](ui/windows.md) |
+| `TitleBarStyle` | hides the title bar but keeps the window buttons over the page, see [custom title bars](frontend.md#custom-title-bars), or over [native UI](ui/windows.md) |
 | `TrafficLightPosition` | moves the window buttons of a hidden title bar (macOS) |
 | `TitleBarHeight` | the height of the title bar the page draws under the window buttons (Linux, Windows) |
-| `Transparent`, `Vibrancy` | a transparent window, and the material behind a transparent page (macOS, Windows 11) or [native UI](ui.md#windows-with-native-ui) (macOS) |
+| `Transparent`, `Vibrancy` | a transparent window, and the material behind a transparent page (macOS, Windows 11) or [native UI](ui/windows.md) (macOS) |
 | `BackgroundColor` | fills the window until the page paints, in CSS syntax such as `"#1e1e1e"`, or `"light-dark(#f5f5f7, #1e1e1e)"` to follow the appearance |
 | `Opacity` | between 0 and 1 |
 | `DisableResize`, `DisableMove`, `DisableMinimize`, `DisableMaximize`, `DisableClose`, `DisableFullScreen`, `DisableShadow` | take abilities away |
@@ -169,7 +169,7 @@ slow work. Each `On…` method returns a function that removes the listener.
 | `OnMaximize`, `OnUnmaximize`, `OnMinimize`, `OnRestore` | its state changed |
 | `OnEnterFullScreen`, `OnLeaveFullScreen` | it entered or left full screen |
 | `OnReadyToShow` | its first page is ready to be displayed (windows showing a web page) |
-| `OnFileDrop` | files were dropped on its page, see [dropped files](frontend.md#dropped-files), or on native UI that did not take them, see [input](ui.md#input) |
+| `OnFileDrop` | files were dropped on its page, see [dropped files](frontend.md#dropped-files), or on native UI that did not take them, see [dropped files](ui/input.md#dropped-files) |
 
 Ask before closing a window with unsaved changes:
 
@@ -204,7 +204,7 @@ win.OnClose(func(e *mygo.CloseEvent) {
 
 A window shows one page at a time and has a history, like a browser tab.
 `win.Page()` returns it, or nil for a window that shows
-[native UI](ui.md):
+[native UI](ui/README.md):
 
 ```go
 page := win.Page()

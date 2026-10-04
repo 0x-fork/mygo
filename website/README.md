@@ -17,3 +17,8 @@ the order of the sidebar comes from the lists of `docs/README.md`, pages in
 directories keep their path (`plugins/fetch.md` is `/docs/plugins/fetch`),
 and links between pages, such as `bindings.md#events`, become links of the
 site. Lists of pages, `- [Title](page.md): what it covers`, become cards.
+
+Native UI's docs, in `docs/ui`, have a sidebar of their own, from the lists
+of `docs/ui/README.md` (the page at `/docs/ui`), and the header's UI link;
+the docs' sidebar leaves them out. A directory's `README.md` is the page of
+the directory.

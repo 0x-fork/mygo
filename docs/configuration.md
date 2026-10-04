@@ -33,7 +33,7 @@ export default defineConfig({
 ```
 
 Every field is optional. The configuration can also be JSON, in
-[mygo.json](#mygojson), as projects of [native UI](ui.md) have it: they
+[mygo.json](#mygojson), as projects of [native UI](ui/README.md) have it: they
 have no JavaScript, and no frontend to develop or build, so they leave out
 the fields of [the frontend](#development-and-the-frontend).
 
@@ -56,7 +56,7 @@ the fields of [the frontend](#development-and-the-frontend).
 | `devCommand` | | runs in the project directory while `mygo dev` runs, e.g. a Vite dev server; the app starts once `devUrl` answers |
 | `buildCommand` | | builds the frontend before `mygo build` compiles the app |
 | `frontendDist` | | the directory of the built frontend, which `mygo build` embeds into the app; `mygo dev` serves it from disk when there is no `devUrl` |
-| `bindings` | `frontend/src/mygo.ts` when there is a `frontend` directory, else `src/mygo.ts` when package.json is at the root, else `mygo.ts` when the configuration has a frontend (`devUrl`, `devCommand`, `buildCommand` or `frontendDist`); none for an app without one, such as one of [native UI](ui.md) | where `mygo generate` writes the TypeScript client |
+| `bindings` | `frontend/src/mygo.ts` when there is a `frontend` directory, else `src/mygo.ts` when package.json is at the root, else `mygo.ts` when the configuration has a frontend (`devUrl`, `devCommand`, `buildCommand` or `frontendDist`); none for an app without one, such as one of [native UI](ui/README.md) | where `mygo generate` writes the TypeScript client |
 | `out` | `dist` | where `mygo build` writes the builds, one directory per platform |
 
 See [the frontend](frontend.md#how-pages-load) for how they fit together.

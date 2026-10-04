@@ -1,0 +1,65 @@
+# Text input
+
+`ui.TextInput` creates a single-line text input editing a `*string`, and
+`ui.TextArea` a multi-line one. They change the string as the user types:
+read it, or ask `Changed` for work that follows, and `Submitted` for Enter
+in a single-line input.
+
+```go
+if ui.TextInput(c, &app.query).Placeholder("Search").Label("Search").Changed() {
+	app.results = search(app.query)
+}
+
+if ui.TextInput(c, &app.name).AutoFocus().Submitted() {
+	app.rename()
+}
+
+ui.TextArea(c, &app.notes).Height(160)
+```
+
+- `Placeholder` shows a text while the input is empty.
+- `Password` hides what it holds, and keeps it from the clipboard and input
+  methods.
+- `AutoFocus` gives it the keyboard focus as it appears, as the first field
+  of a dialog.
+- `Disabled(true)` grays it out.
+
+A text area is at least a few lines high and grows with its text; given a
+height, it scrolls within it.
+
+## Editing
+
+Text inputs edit as the platform's text fields do: selection with the
+pointer (a double click selects a word, a triple click a line), with Shift
+and the arrows, and by words and lines with the platform's keys; undo and
+redo; cut, copy and paste, also from the Edit menu's roles; and a context
+menu of the editing commands. They take text composed with input methods,
+which see the text around the caret, so that press and hold, Japanese
+conversion and predictions work as in other apps.
+
+The input keeps the text being edited, its selection and its undo history
+from frame to frame; setting the string from elsewhere replaces the text.
+
+## Errors
+
+In a [field](form.md), `Error` marks the value invalid: the input draws its
+border in the theme's `Danger` color, and assistive technology reads the
+message with it.
+
+```go
+ui.Field(c, "Email", func() {
+	ui.TextInput(c, &app.email)
+}).Error(app.emailError)
+```
+
+## Without a look
+
+`ui.TextInputBase` and `ui.TextAreaBase` are text inputs without padding,
+background, border or corners, for inputs of your own design: see
+[custom widgets](custom-widgets.md).
+
+## Accessibility
+
+Assistive technology sees a text field, or a text area, named by its
+`Label` or its field, whose value is its text, with the caret and the
+selection; it edits it as typing does. A password field hides its value.

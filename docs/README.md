@@ -108,9 +108,9 @@ that must start instantly.
 
 ## Native UI
 
-- [The ui package](ui.md): views, layout, text, widgets, input, overlays,
-  accessibility, drawing, images and icons, and testing views without a
-  window.
+[Native UI](ui/README.md) has documentation of its own: guides to views,
+layout, input, navigation and accessibility, and a page for each of its
+components, from buttons to tables.
 
 ## Official plugins
 

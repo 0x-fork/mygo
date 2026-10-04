@@ -7,15 +7,15 @@ import { DocLink } from "@/components/docs/doc-link"
 import { DocsNav } from "@/components/docs/docs-nav"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
-import { getDoc, type Doc, type NavSection } from "@/lib/docs"
+import { bookOf, getDoc, type Doc, type Navs } from "@/lib/docs"
 
 /**
  * The loader of a page: null, before anything is fetched, for a slug without
  * a page, which the docs show as not found. (Rather than throwing notFound():
  * the router renders routes as the prerendered 404.html does, not errors.)
  */
-export async function loadDocPage(slug: string, parent: Promise<{ loaderData?: NavSection[] }>) {
-  const nav = (await parent).loaderData
+export async function loadDocPage(slug: string, parent: Promise<{ loaderData?: Navs }>) {
+  const nav = (await parent).loaderData?.[bookOf(slug)]
   if (!nav?.some((s) => s.items.some((i) => i.slug === slug))) return null
   return getDoc({ data: slug })
 }
@@ -36,7 +36,8 @@ export function docHead(doc: Doc | null | undefined) {
 const docsRoute = getRouteApi("/docs")
 
 export function DocPage({ doc }: { doc: Doc }) {
-  const nav = docsRoute.useLoaderData()
+  const book = bookOf(doc.slug)
+  const nav = docsRoute.useLoaderData()[book]
   const [menuOpen, setMenuOpen] = React.useState(false)
 
   return (
@@ -48,7 +49,7 @@ export function DocPage({ doc }: { doc: Doc }) {
           </SheetTrigger>
           <SheetContent side="left" className="w-72 overflow-y-auto">
             <SheetHeader>
-              <SheetTitle>Documentation</SheetTitle>
+              <SheetTitle>{book === "ui" ? "Native UI" : "Documentation"}</SheetTitle>
             </SheetHeader>
             <div className="px-2 pb-8">
               <DocsNav sections={nav} page={doc} onNavigate={() => setMenuOpen(false)} />
