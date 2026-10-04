@@ -204,7 +204,11 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 			focus = s
 		}
 	}
-	if button == 0 {
+	keep := slices.ContainsFunc(chain, func(id uint64) bool {
+		s := rt.states[id]
+		return s != nil && s.flags&flagKeepFocus != 0
+	})
+	if button == 0 && !keep {
 		newFocus := uint64(0)
 		if focus != nil {
 			newFocus = focus.id

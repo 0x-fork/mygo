@@ -534,6 +534,10 @@ look of your own, build on the widgets' bases, which have none: see
 | `Segmented` | a segmented control choosing a `*int`, as between views |
 | `Toolbar` | a row of controls that is one stop of Tab, the arrows moving among them; what does not fit goes into a menu at its end |
 | `Select` | picks one of a list of strings, from a popup |
+| `Combobox` | picks one of a list of strings, typing filtering them, those starting with the text first |
+| `Autocomplete` | a text input suggesting below it the strings containing what was typed |
+| `TokenField` | edits a `*[]string` as chips, as tags or recipients: Enter or a comma adds what was typed, Backspace takes out the last, and suggestions show below |
+| `SearchField` | a text input for searching, with a magnifying glass and a button clearing it, as Escape does |
 | `Slider` | sets a `*float64` within a range, by dragging or with the arrow keys |
 | `Progress` | a bar filled from 0 to 1, or sliding across for a negative value, for work of unknown length; `Reverse` fills it from the right |
 | `TextInput`, `TextArea` | edit a `*string` on one line or several, with selection, undo, the clipboard and input methods; `Placeholder`, `Password`, `Submitted` (Enter) and `Changed` |
@@ -568,6 +572,7 @@ own on them, as headless component libraries do on the web:
 | `TabsBase` | the tab `List`, whose `Tab`s choose a `*int`, with the arrows moving the choice and the focus |
 | `SegmentedBase` | a `Track` of `Segment`s, a radio group choosing a `*int` |
 | `SelectBase` | a `Trigger` opening a `Popup` of `Item`s choosing a `*T`, which the arrows highlight (`Highlighted`) and Enter chooses |
+| `ComboboxBase` | an `Input` whose text filters the `Item`s of a `Popup` below it, which the arrows highlight and Enter or a click chooses (`Chosen`) |
 | `PopoverBase`, `DialogBase` | a panel below an anchor, or over a backdrop covering the window, that a click outside or Escape closes |
 | `TextInputBase`, `TextAreaBase` | text inputs without padding, background, border or corners |
 

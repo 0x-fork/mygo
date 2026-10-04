@@ -1126,6 +1126,18 @@ either.
   in the frame after, matched by place and label. A menu button opens as
   the primary button goes down on it, taking the release, as AppKit's and
   GTK's pop-up buttons do, and for Enter, Space and Down.
+- **Comboboxes** (`ui/combobox.go`). A combobox is a text input with a
+  popup of options in the overlay, without a backdrop: the input keeps
+  the focus while the user types and picks, as presses in the popup do not
+  move the focus (`flagKeepFocus`), and the popup closes as the input loses
+  it. The option the arrows are on is the input's active descendant,
+  which has the focus in the accessibility tree, as a list's chosen row
+  does, and reads as which of how many it is. Fields around an input (a
+  combobox's, a search field's, a token field's) name it with their
+  Label (`nameFrom`). Backends treat combo boxes as text fields (macOS
+  `AXComboBox`, ATK combo box with AtkEditableText, UIA ComboBox with
+  Value and ExpandCollapse); `AccessSearch` makes a text field AppKit's
+  `AXSearchField`.
 - **Focus groups** (`ui/focusgroup.go`). Committing a frame notes the
   outermost focus group (`FocusGroup`) each element of the focus order is
   in, beside its dialog. Tab skips the elements of a group but its entry,

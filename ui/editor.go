@@ -49,10 +49,13 @@ type editor struct {
 	readOnly      bool   // selectable text: selected and copied, not edited
 	source        string // the text of selectable text
 	password      bool
-	placeholder   string
-	bounds        text.Boundaries
-	boundsValid   bool
-	layout        *text.Layout
+	// leaveEmptyBackspace leaves Backspace to shortcuts while the text is
+	// empty, as a token field's input does to take out a token.
+	leaveEmptyBackspace bool
+	placeholder         string
+	bounds              text.Boundaries
+	boundsValid         bool
+	layout              *text.Layout
 	// display maps runes of the text to runes of the layout, which shows
 	// bullets for passwords and holds the composition.
 	scrollX, scrollY float32
@@ -112,7 +115,10 @@ func (ed *editor) wants(k keyEvent) bool {
 		return false
 	}
 	switch k.key {
-	case KeyLeft, KeyRight, KeyHome, KeyEnd, KeyBackspace, KeyDelete:
+	case KeyBackspace:
+		// Empty, a token field's input leaves it to take out a token.
+		return !ed.leaveEmptyBackspace || len(ed.text) > 0 || m != 0
+	case KeyLeft, KeyRight, KeyHome, KeyEnd, KeyDelete:
 		return true
 	case KeyUp, KeyDown, KeyPageUp, KeyPageDown:
 		return ed.multiline || m != 0

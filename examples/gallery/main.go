@@ -57,7 +57,10 @@ type gallery struct {
 	// The toolbar's toggles and view.
 	bold, italic, underline, inspector bool
 	layout                             int
-	eased                              bool
+	// The search field, the combobox, the autocomplete and the tags.
+	search, font, city string
+	tags               []string
+	eased              bool
 	// places keeps where each page is scrolled.
 	places map[string]*ui.ScrollState
 	// rows, chat and table keep the places of the lists of the List page.
@@ -306,6 +309,15 @@ func (g *gallery) controls(c *ui.Context) {
 			ui.Text(c, "Size")
 			ui.Select(c, &g.size, []string{"Small", "Medium", "Large", "Extra large"})
 		})
+	})
+	card(c, "Search and choose", func() {
+		ui.Row(c).Gap(10).Wrap().Children(func() {
+			ui.SearchField(c, &g.search).Label("Search").Width(220)
+			ui.Combobox(c, &g.font, []string{"Avenir", "Courier", "Futura", "Georgia", "Gill Sans", "Helvetica", "Menlo", "Optima", "Palatino", "Times"}).Label("Font").Width(200)
+			ui.Autocomplete(c, &g.city, []string{"Amsterdam", "Berlin", "Lisbon", "London", "Madrid", "Paris", "Prague", "Rome", "Vienna"}).Label("City").Placeholder("City").Width(200)
+		})
+		ui.TokenField(c, &g.tags, []string{"design", "go", "native", "performance", "release", "typescript"}).Label("Tags")
+		ui.Text(c, "Type to filter; Up and Down move, Enter chooses. In the tags, Enter or a comma adds a tag, and Backspace takes out the last.").TextColor(t.TextMuted)
 	})
 	card(c, "Ranges", func() {
 		ui.Row(c).Gap(12).Children(func() {
@@ -849,7 +861,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now()}
+	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

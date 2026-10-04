@@ -110,6 +110,9 @@ const (
 	flagTypeSelect
 	// flagMenuButton marks an element that opens its menu when pressed.
 	flagMenuButton
+	// flagKeepFocus keeps the focus where it is when the element is
+	// pressed, as a combobox's popup does for its input.
+	flagKeepFocus
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY
@@ -302,12 +305,23 @@ type Element struct {
 	collapsed bool
 	// segment marks a segment of a segmented control or a group of
 	// toggles.
-	segment  bool
-	tl       *text.Layout
-	measures [4]measure
-	nmeasure int
-	leaf     [2]float32 // the max-content and min-content widths of text
-	leafOK   bool
+	segment bool
+	// activeDescendant is the option of a combobox's popup the arrows are
+	// on, which assistive technology follows while the combobox has the
+	// focus; nameFrom is the element whose Label names this one, as the
+	// field around an input; setPos and setSize say which option of how
+	// many it is; choosesItems marks a popup whose options are chosen, and
+	// search a search field.
+	activeDescendant *Element
+	nameFrom         *Element
+	setPos, setSize  int
+	choosesItems     bool
+	search           bool
+	tl               *text.Layout
+	measures         [4]measure
+	nmeasure         int
+	leaf             [2]float32 // the max-content and min-content widths of text
+	leafOK           bool
 }
 
 type measure struct {

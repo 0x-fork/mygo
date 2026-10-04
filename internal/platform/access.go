@@ -77,6 +77,9 @@ const (
 	RoleRadioGroup
 	// RoleToggleButton is pressed while AccessChecked.
 	RoleToggleButton
+	// RoleComboBox is a text field with a popup of options, which is
+	// AccessExpanded while it shows.
+	RoleComboBox
 )
 
 // AccessStates are the states of an element of an AccessTree.
@@ -104,6 +107,8 @@ const (
 	// AccessSegment is set on the segments of a segmented control or a
 	// group of toggles, as AppKit's subrole AXSegment says.
 	AccessSegment
+	// AccessSearch is set on a text field for searching.
+	AccessSearch
 )
 
 // AccessActions are the actions an element of an AccessTree takes.

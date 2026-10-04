@@ -96,6 +96,7 @@ var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleToolbar:      {"AXToolbar", ""},
 	platform.RoleRadioGroup:   {"AXRadioGroup", ""},
 	platform.RoleToggleButton: {"AXCheckBox", "AXToggle"},
+	platform.RoleComboBox:     {"AXComboBox", ""},
 }
 
 // chooses reports whether a node is the row of a list or a table that its
@@ -112,6 +113,8 @@ func roleOf(n platform.AccessNode) (role, subrole string) {
 	}
 	if n.Role == platform.RoleTextField {
 		switch {
+		case n.States&platform.AccessSearch != 0:
+			subrole = "AXSearchField"
 		case n.States&platform.AccessPassword != 0:
 			subrole = "AXSecureTextField"
 		case n.States&platform.AccessMultiline != 0:
@@ -133,6 +136,12 @@ func titled(r platform.AccessRole) bool {
 
 // value returns the value of a node as AppKit wants it: a number for
 // toggles and ranges, a string for texts.
+// textual reports whether elements of a role edit text: text fields and
+// combo boxes.
+func textual(r platform.AccessRole) bool {
+	return r == platform.RoleTextField || r == platform.RoleComboBox
+}
+
 // toggle reports whether elements of a role have their state as their
 // value.
 func toggle(r platform.AccessRole) bool {
@@ -162,7 +171,7 @@ func valueOf(n platform.AccessNode) id {
 	case n.Role == platform.RoleText:
 		return nsString(n.Label)
 	}
-	if n.Value != "" || n.Role == platform.RoleTextField {
+	if n.Value != "" || textual(n.Role) {
 		return nsString(n.Value)
 	}
 	return 0
@@ -226,7 +235,7 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 		}
 		send(obj, "setAccessibilityPlaceholderValue:", uintptr(p))
 	}
-	if n.Role == platform.RoleTextField && (fresh || n.Value != o.Value || n.SelStart != o.SelStart || n.SelEnd != o.SelEnd) {
+	if textual(n.Role) && (fresh || n.Value != o.Value || n.SelStart != o.SelStart || n.SelEnd != o.SelEnd) {
 		text := []rune(n.Value)
 		a, b := max(0, min(n.SelStart, len(text))), max(0, min(n.SelEnd, len(text)))
 		send(obj, "setAccessibilityNumberOfCharacters:", uintptr(units(text)))
@@ -521,7 +530,7 @@ func registerAccessClass() {
 		}),
 		method("setAccessibilityValue:", func(self id, cmd objc.SEL, value id) {
 			objc.ID(self).SendSuper(cmd, value)
-			if el := b().accessElementOf(self); el != nil && el.node.Role == platform.RoleTextField {
+			if el := b().accessElementOf(self); el != nil && textual(el.node.Role) {
 				el.act(platform.AccessSetValue, stringOf(value))
 			}
 		}),

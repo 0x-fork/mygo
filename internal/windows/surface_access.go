@@ -147,7 +147,7 @@ var uiaControlTypes = map[platform.AccessRole]int32{
 	platform.RoleStatus: 50017, platform.RoleTable: 50036, platform.RoleRow: 50029, platform.RoleCell: 50025,
 	platform.RoleColumnHeader: 50035, platform.RoleTree: 50023, platform.RoleTreeItem: 50024,
 	platform.RoleListItem: 50007, platform.RoleMenuButton: 50000, platform.RoleToolbar: 50021, platform.RoleRadioGroup: 50026,
-	platform.RoleToggleButton: 50000,
+	platform.RoleToggleButton: 50000, platform.RoleComboBox: 50003,
 }
 
 // variant is VARIANT, with the value of the types used here.
@@ -253,10 +253,11 @@ func (e *uiaElement) supports(i int) bool {
 	case ifaceRangeValue:
 		return n.Role == platform.RoleSlider || n.Role == platform.RoleProgress
 	case ifaceValue:
-		return n.Role == platform.RoleTextField || n.Role == platform.RolePopUpButton
+		return n.Role == platform.RoleTextField || n.Role == platform.RolePopUpButton || n.Role == platform.RoleComboBox
 	case ifaceExpandCollapse:
 		// A menu button expands into its menu, as WinUI's DropDownButton.
-		return n.Role == platform.RolePopUpButton || n.Role == platform.RoleTreeItem || n.Role == platform.RoleMenuButton
+		return n.Role == platform.RolePopUpButton || n.Role == platform.RoleTreeItem || n.Role == platform.RoleMenuButton ||
+			n.Role == platform.RoleComboBox
 	}
 	return false
 }

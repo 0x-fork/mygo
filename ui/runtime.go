@@ -408,7 +408,11 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	default:
 		rt.hits = append(rt.hits, hit{s, v, e.flags})
 	}
-	if label := e.label; (label != "" || e.kind == kindText) && !invisible {
+	label := e.label
+	if f := e.nameFrom; label == "" && f != nil {
+		label = f.label // an input, named by its field
+	}
+	if (label != "" || e.kind == kindText) && !invisible {
 		if label == "" {
 			label = e.text
 		}

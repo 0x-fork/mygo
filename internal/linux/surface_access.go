@@ -251,6 +251,7 @@ func loadAccessNames() {
 		platform.RoleTree: {"tree", "tree table"}, platform.RoleTreeItem: {"tree item", "list item"},
 		platform.RoleListItem: {"list item"}, platform.RoleMenuButton: {"push button menu", "push button", "button"},
 		platform.RoleToolbar: {"tool bar"}, platform.RoleRadioGroup: {"panel"}, platform.RoleToggleButton: {"toggle button"},
+		platform.RoleComboBox: {"combo box"},
 	} {
 		atkRoles[r] = role(names...)
 	}
@@ -360,7 +361,7 @@ func accessType(n platform.AccessNode) uintptr {
 	switch n.Role {
 	case platform.RoleSlider, platform.RoleProgress:
 		return rangeType
-	case platform.RoleTextField:
+	case platform.RoleTextField, platform.RoleComboBox:
 		return editableType
 	case platform.RoleText:
 		return textType
@@ -573,7 +574,10 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 		list = append(list, st.expandable)
 	case platform.RoleMenuButton:
 		list = append(list, st.hasPopup)
-	case platform.RoleTextField:
+	case platform.RoleTextField, platform.RoleComboBox:
+		if n.Role == platform.RoleComboBox {
+			list = append(list, st.expandable)
+		}
 		list = append(list, st.selectableText)
 		if n.States&platform.AccessReadOnly == 0 {
 			list = append(list, st.editable)

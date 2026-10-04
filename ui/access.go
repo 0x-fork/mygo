@@ -62,6 +62,8 @@ const (
 	RoleToolbar
 	RoleRadioGroup
 	RoleToggleButton
+	// RoleComboBox is a text input with a popup of options (ComboboxBase).
+	RoleComboBox
 )
 
 // Role sets what the element is to assistive technology, for an element
@@ -166,6 +168,10 @@ func (rt *engine) accessTree() *platform.AccessTree {
 				}
 			}
 		}
+		// A combobox has the focus for the option its arrows are on.
+		if focused != nil && focused.activeDescendant != nil {
+			focus = focused.activeDescendant.id
+		}
 		for _, id := range []uint64{focus, rt.focused} {
 			if t.Focus == 0 && slices.ContainsFunc(t.Nodes, func(n platform.AccessNode) bool { return n.ID == id }) {
 				t.Focus = id
@@ -242,6 +248,18 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	}
 	if e.segment {
 		n.States |= platform.AccessSegment
+	}
+	if e.search {
+		n.States |= platform.AccessSearch
+	}
+	if f := e.nameFrom; n.Label == "" && f != nil {
+		n.Label = f.label
+	}
+	if e.setSize > 0 {
+		n.PosInSet, n.SetSize = e.setPos, e.setSize
+	}
+	if e.choosesItems {
+		n.States |= platform.AccessSelectable
 	}
 	// Rows and items of lists are named by their content, as leaves are,
 	// but show what is inside them too.
