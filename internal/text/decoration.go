@@ -36,7 +36,9 @@ type decoRange struct {
 // decoration d of glyphs [i, j) of line li of l, runes of one style, with
 // the layout's origin at (x, y) DIPs, at scale pixels per DIP: placed as
 // AppKit, Direct2D or GTK place underlines and strikethroughs, with their
-// thickness, or, if thick is positive, thick DIPs around their middle.
+// thickness, or, if thick is positive, thick DIPs around their middle,
+// rounded to whole pixels (at least one) and on whole pixels, so that
+// they are as sharp as browsers draw text-decoration-thickness.
 func (s *System) Decorate(l *Layout, li, i, j int, x, y, scale float32, d Decoration, thick float32) []Stroke {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -64,10 +66,11 @@ func (s *System) Decorate(l *Layout, li, i, j int, x, y, scale float32, d Decora
 	}
 	strokes := s.engine().decorate(decoRange{l: l, line: line, i: i, j: j, font: f, x: x, y: y, scale: scale, d: d})
 	if thick > 0 {
+		h := max(float32(math.Round(float64(thick*scale))), 1)
 		for k := range strokes {
 			st := &strokes[k]
-			mid := (st.Top + st.Bottom) / 2
-			st.Top, st.Bottom = mid-thick*scale/2, mid+thick*scale/2
+			st.Top = float32(math.Round(float64(st.Top+st.Bottom-h) / 2))
+			st.Bottom = st.Top + h
 		}
 	}
 	return strokes

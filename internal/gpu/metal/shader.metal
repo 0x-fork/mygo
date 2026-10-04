@@ -220,7 +220,14 @@ float dash(float2 p, float4 rect, float4 w) {
 	} else {
 		s = rect.w - q.y; len = rect.w; bw = w.w;
 	}
+	// n - 1 is how many periods of a dash and a gap, six widths, fit in
+	// len: GPUs divide less exactly than CPUs, and may count one too few
+	// or too many where len is a whole number of periods, as sides often
+	// are, so the count is checked by multiplying back.
 	float n = max(1.0f, floor((len / (3.0f * bw) + 1.0f) * 0.5f + 0.5f));
+	float period = 6.0f * bw;
+	n += n * period <= len ? 1.0f : 0.0f;
+	n -= (n - 1.0f) * period > len ? 1.0f : 0.0f;
 	float seg = len / (2.0f * n - 1.0f);
 	float k = floor(s / seg);
 	float f = s - k * seg;

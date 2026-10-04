@@ -1,6 +1,7 @@
 package text
 
 import (
+	"math"
 	"runtime"
 	"slices"
 	"strings"
@@ -631,7 +632,7 @@ func TestPlacement(t *testing.T) {
 
 // TestDecorate checks underlines and strikethroughs: below and above the
 // baseline, at least a fraction of a pixel thick, from the text's start,
-// and on macOS where AppKit draws them for the system font at 13 points,
+// on whole pixels with a thickness of the app's, and on macOS where AppKit draws them for the system font at 13 points,
 // skipping the ink of descenders.
 func TestDecorate(t *testing.T) {
 	s := newSystem()
@@ -645,6 +646,17 @@ func TestDecorate(t *testing.T) {
 	u, st := under[0], strike[0]
 	if u.Top < base || u.Bottom <= u.Top || st.Bottom > base || st.Bottom <= st.Top || u.X0 > 1 || u.X1 < l.Width-1 {
 		t.Errorf("underline %+v, strikethrough %+v, baseline %v, width %v", u, st, base, l.Width)
+	}
+	// Lines of a thickness of the app's cover whole pixels, wherever the
+	// text is.
+	for _, scale := range []float32{1, 1.5} {
+		for _, d := range []Decoration{Underline, Strikethrough} {
+			for _, st := range s.Decorate(l, 0, 0, len(l.Lines[0].Glyphs), 0, 0.3, scale, d, 3) {
+				if st.Bottom-st.Top != float32(math.Round(float64(3*scale))) || st.Top != float32(math.Floor(float64(st.Top))) {
+					t.Errorf("a line 3 DIPs thick at scale %v: %+v", scale, st)
+				}
+			}
+		}
 	}
 	if runtime.GOOS == "darwin" {
 		if u.Top != base+1 || u.Bottom != base+2 || st.Top != base-4 || st.Bottom != base-3 {

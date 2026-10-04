@@ -1,8 +1,10 @@
 package update
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -31,6 +33,11 @@ func TestRefreshDesktopEntry(t *testing.T) {
 	// The install as install.sh may know it, through a link.
 	link := filepath.Join(t.TempDir(), "home")
 	if err := os.Symlink(root, link); err != nil {
+		// ERROR_PRIVILEGE_NOT_HELD: Windows creates links for
+		// administrators and in developer mode only.
+		if errors.Is(err, syscall.Errno(1314)) {
+			t.Skip("creating a link needs a privilege:", err)
+		}
 		t.Fatal(err)
 	}
 	linked := filepath.Join(link, "my-app.app")
