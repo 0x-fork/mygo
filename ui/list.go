@@ -356,9 +356,10 @@ func (s *ListState) sync(e *Element, n int) {
 	}
 	s.anchor = max(0, min(s.anchor, n-1))
 	switch {
-	case st.list != s || st.born == rt.frame:
+	case st.list != s || st.born == rt.frame || !s.laidOut:
 		// Built anew, as when its page shows again, or showing another
-		// place: the place stands, unless the app set the offset with a
+		// place, or a new one, which did not write the offset its element
+		// has: the place stands, unless the app set the offset with a
 		// ScrollState this frame.
 		if st.movedIn(rt.frame) && !s.req.set {
 			s.req = listRequest{set: true, offset: true, y: max(0, st.scrollY)}

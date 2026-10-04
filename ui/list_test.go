@@ -783,6 +783,33 @@ func TestListKeepsPlaceWhenBuiltAnew(t *testing.T) {
 	}
 }
 
+// A new ListState starts at its start, though the element showing it is
+// one that was scrolled: as when an app shows other rows with a new
+// ListState, and the element taking the list's place while they load
+// kept its state.
+func TestListNewStateStartsAtTheStart(t *testing.T) {
+	var s ListState
+	loading := false
+	tt := NewTester(func(c *Context) {
+		if loading {
+			Box(c).Grow(1)
+			return
+		}
+		List(c, &s, 1000, func(i int) { Box(c).Height(varied(i)) }).Grow(1)
+	}, 300, 400)
+	s.ScrollTo(500, Start)
+	tt.Frame()
+	s = ListState{}
+	loading = true
+	tt.Frame()
+	loading = false
+	tt.Frame()
+	if first, _ := s.Visible(); first != 0 {
+		t.Errorf("a new ListState shows row %d first", first)
+	}
+	checkRows(t, tt, &s, 0, 0, 400)
+}
+
 func TestListHeights(t *testing.T) {
 	// Against heights kept row by row.
 	const n = 1000
