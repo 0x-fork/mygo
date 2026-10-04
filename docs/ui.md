@@ -385,7 +385,8 @@ state, an `OutlineState`, holds the rows' `ListState` and the items `Open`;
 the rows' keys are the items, so their choice and state follow them as
 items open and close above them. While the outline has the focus, Right
 opens the item chosen or goes to its first child, and Left closes it or
-goes to its parent; with Option (Alt), they open and close all inside.
+goes to its parent; with Option on macOS and Shift elsewhere, as in GTK,
+they open and close all inside.
 
 ```go
 app.files.List.Selected = &app.row
@@ -640,7 +641,7 @@ look of your own, build on the widgets' bases, which have none: see
 |---|---|
 | `Button`, `PrimaryButton` | a push button; `Clicked` reports presses by the pointer, Enter or Space |
 | `MenuButton` | a button opening a menu of the system's below it (`Element.Menu`) |
-| `Link` | text that opens a URL in the browser |
+| `Link` | text that opens a URL in the browser, or a path in a [router](#pages-and-navigation)'s page |
 | `Checkbox`, `Switch` | toggle a `*bool` |
 | `Radio` | sets a `*T` to its value |
 | `RadioGroup` | holds radio buttons as one stop of Tab, among which the arrows choose |
@@ -691,6 +692,7 @@ look of your own, build on the widgets' bases, which have none: see
 | `FindBar` | a bar for finding text: the field, "3 of 12", previous and next, Enter and Shift+Enter, Cmd+G or F3, Escape |
 | `CheckboxGroup` | a check box over others, mixed while some are checked, checking them all or none |
 | `Breadcrumbs` | a path of items, as Finder's path bar, whose items take the user back |
+| `BackButton`, `ForwardButton` | go back and forward in a `Router`'s history, disabled at its ends; a right click lists the pages, see [pages and navigation](#pages-and-navigation) |
 
 ### Widgets without a look
 
@@ -822,6 +824,108 @@ ui.Form(c, func() {
 A control with a name of its own, as a check box with its text, keeps it,
 and the field's label names the group around them.
 
+## Pages and navigation
+
+A `ui.Router` keeps the history of the pages of a window, or of a part of
+one, as a browser does for a tab. A page is a path, as `/notes/42`, which
+`View` matches to build the page shown, a `switch` over patterns whose
+`{name}` takes one part of the path and `{name...}` the rest:
+
+```go
+app.router = ui.NewRouter("/notes")
+
+ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+	app.sidebar(c)
+	app.router.View(c, func(r *ui.Route) {
+		switch {
+		case r.Match("/notes"):
+			r.Title("Notes")
+			app.notes(c)
+		case r.Match("/notes/{id}"):
+			r.Title("Note")
+			app.note(c, r.Param("id"))
+		case r.Match("/files/{path...}"):
+			app.files(c, r.Param("path"))
+		default:
+			ui.Text(c, "Not found")
+		}
+	})
+})
+```
+
+`Push` goes to a page, after the page shown, `Replace` shows one in its
+place, and `Back`, `Forward` and `Go` move through the history; paths
+relative to the page shown resolve as links in a web page do, so
+`Push("?tab=info")` changes the query and `Push("edit")` goes to a sibling.
+A `Link` to a path in a page goes there in its router, and choosing an
+item of a sidebar pushes its page:
+
+```go
+page := app.router.Path()
+if ui.Sidebar(c, &page, app.sidebarItems).Changed() {
+	app.router.Push(page)
+}
+ui.Link(c, "Open note", "/notes/42")
+```
+
+`Path`, `Query` and `Location` read the page shown; `Location` with its
+query, which `NewRouter` takes to show it again when the app starts. A
+deep link (`mygo.App.OnOpenURL`) pushes its page.
+
+**Layouts.** Anything built around `View`, as a sidebar or a toolbar,
+stays as pages change. A page can also be a layout around the pages of
+the rest of its path, as a page of settings with a list of its sections
+beside the section shown: `r.View` on its route builds them, matching
+what the pattern's `{name...}` took. The layout stays as they change,
+keeping its state, and they slide or fade in its place; `Param` reads the
+layout's wildcards too.
+
+```go
+case r.Match("/settings/{section...}"):
+	ui.Row(c).Grow(1).Children(func() {
+		app.sectionList(c) // pushes "/settings/general", "/settings/fonts"
+		r.View(c, func(r *ui.Route) {
+			switch {
+			case r.Match("/general"):
+				r.Title("General")
+				app.general(c)
+			case r.Match("/fonts"):
+				r.Title("Fonts")
+				app.fonts(c)
+			}
+		})
+	})
+```
+
+A second `Router` inside a page is a history of its own, as the detail
+of a split view going deeper while the list beside it stays.
+
+Users go back and forward as in browsers and Finder: Cmd+[ and Cmd+] on
+macOS, Alt+Left and Alt+Right on Linux and Windows, the back and forward
+buttons of a mouse and the keys of keyboards that have them, and
+`ui.BackButton` and `ui.ForwardButton`, which a toolbar holds, and whose
+right click lists the pages to go back or forward to, by their titles.
+The keys go to the router holding the keyboard focus, else to the first
+of the window.
+
+**Pages keep their state.** A page keeps the state of its elements while
+it is in the history, ten pages either way: going back to one finds it
+scrolled where it was, with its text and the keyboard focus where they
+were. A path with another query is the same page, in another entry of the
+history, keeping its state, as a page whose tabs or search are in its
+query.
+
+**The focus and screen readers.** Going to a page moves the keyboard focus
+into it, to the element that had it there, else to the page itself, which
+Tab goes into; screen readers read the page's `Title`. With the focus
+outside the page that changes, as in a sidebar or a layout's list choosing
+the pages, it stays there, and screen readers hear the title of the page.
+
+**Transitions.** A page deeper in the paths, as `/notes/42` after
+`/notes`, slides in from the right over the page it leaves, and back up
+from the left; others fade in. With less motion asked of the desktop, all
+fade, and `router.Transition = ui.TransitionNone` shows them at once.
+
 ## Input
 
 - **Pointer.** `Hovered`, `Pressed`, `Clicked`, `DoubleClicked`,
@@ -850,12 +954,16 @@ and the field's label names the group around them.
   A focused button or link keeps Enter and Space, and a toggle Space, so
   `c.Shortcut(0, ui.KeyEnter)` presses a dialog's default button wherever
   else the focus is.
-  `ui.Cmd` is Command on macOS and Ctrl elsewhere. Shortcuts of
+  `ui.Cmd` is Command on macOS and Ctrl elsewhere. `ui.KeyBack` and
+  `ui.KeyForward` are the back and forward buttons of a mouse and the
+  keys of keyboards that have them, which a [router](#pages-and-navigation)
+  takes. Shortcuts of
   [menus](menus.md) still work, and the Edit menu's roles (cut, copy, paste,
   select all, undo, redo) act on the focused text input. A focused text
   input takes the editing keys of the platform first: on macOS, Option and
   Command with the arrows and Backspace, and Control with A, E, B, F, N, P,
-  D, H and K, as in other Mac apps.
+  D, H and K, as in other Mac apps; elsewhere, it leaves Alt and the arrows,
+  which go back and forward, and the function keys.
 - **Input methods.** Text inputs take text composed with input methods,
   which see the text around the caret: macOS's press and hold replaces the
   letter it accents, Japanese input methods convert typed text again, and
@@ -1057,6 +1165,13 @@ gives assistive technology the focus on the row chosen: Up and Down are
 read as they move the choice, and focusing a row chooses it. A screen
 reader moving out of view asks the list to scroll there, which builds the
 rows it reaches. `Label` names a list or a table.
+
+News that does not move the focus, as a search done or a file saved,
+reaches screen readers with `c.Announce(text)`, which they read once,
+after what they are reading: VoiceOver's and Orca's announcements, and a
+live region that Narrator and NVDA read on Windows. Toasts announce their
+text, and a router the title of a page shown while the focus stays
+outside it.
 
 MyGo describes frames only once assistive technology asked, so apps pay
 nothing for it otherwise.
@@ -1289,7 +1404,8 @@ func TestCounter(t *testing.T) {
 ```
 
 `tt.SetPreferences` changes the desktop's preferences, as `tt.SetDark` its
-appearance. `tt.RightClick` opens a context menu, which `tt.Menu` lists and
+appearance. `tt.Announcements` returns what the view asked screen readers to
+read out. `tt.RightClick` opens a context menu, which `tt.Menu` lists and
 `tt.ChooseMenuItem("Move to", "Archive")` chooses from. `tt.TypeKey` presses
 a key with the text it types, `tt.SetFocused` takes the keyboard from the
 window and gives it back, `tt.Compose` shows the composition of an input

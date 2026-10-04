@@ -191,6 +191,9 @@ func (rt *engine) accessTree() *platform.AccessTree {
 			}
 		}
 	}
+	if len(rt.announcements) > 0 {
+		t.Announcements = slices.Clone(rt.announcements)
+	}
 	return t
 }
 
@@ -214,7 +217,7 @@ func (e *Element) rowsOfElement() *listFrame {
 // node parent; scrolled is set inside a scroll container, and focused gets
 // the element with the keyboard focus.
 func (rt *engine) accessElement(t *platform.AccessTree, e *Element, parent int, scrolled bool, focused **Element) {
-	if e.flags&flagInvisible != 0 {
+	if e.flags&(flagInvisible|flagInert) != 0 {
 		return
 	}
 	if e.id == rt.focused {

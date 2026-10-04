@@ -88,6 +88,11 @@ const (
 	KeyX            = Key(platform.KeyX)
 	KeyY            = Key(platform.KeyY)
 	KeyZ            = Key(platform.KeyZ)
+	// KeyBack and KeyForward go back and forward in a history: the side
+	// buttons of a mouse, and the keys of keyboards that have them. A
+	// Router takes them.
+	KeyBack    = Key(platform.KeyBack)
+	KeyForward = Key(platform.KeyForward)
 )
 
 // Modifiers are modifier keys.

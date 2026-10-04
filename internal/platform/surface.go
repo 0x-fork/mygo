@@ -231,6 +231,10 @@ const (
 	KeyX
 	KeyY
 	KeyZ
+	// KeyBack and KeyForward go back and forward in a history: the side
+	// buttons of a mouse, and the keys of keyboards that have them.
+	KeyBack
+	KeyForward
 )
 
 // KeyForRune returns the key typing r unshifted, KeyUnknown for others.

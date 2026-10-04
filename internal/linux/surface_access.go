@@ -50,6 +50,11 @@ var (
 	gSignalEmitInt            func(obj ptr, signal *byte, v int32)
 	gSignalEmit               func(obj ptr, signal *byte)
 	gObjectNotify             func(obj ptr, property *byte)
+	// gSignalEmitAnnouncement emits AtkObject's announcement signal, which
+	// ATK has had since 2.46: announces is set where it has.
+	gSignalLookup           func(name *byte, t uintptr) uint32
+	gSignalEmitAnnouncement func(obj ptr, signal *byte, text *byte)
+	announces               bool
 
 	gtkWidgetAccessibleGetType      func() uintptr
 	gtkDrawingAreaGetType           func() uintptr
@@ -192,6 +197,8 @@ func registerAccess() {
 	}
 	loadAccessNames()
 	initAccessCallbacks()
+	announces = bind(o, &gSignalLookup, "g_signal_lookup") && bind(o, &gSignalEmitAnnouncement, "g_signal_emit_by_name") &&
+		gSignalLookup(cs("announcement"), atkObjectGetType()) != 0
 	register := func(parent uintptr, name string, classInit ptr) uintptr {
 		var q gTypeQueryInfo
 		gTypeQuery(parent, &q)
@@ -494,6 +501,11 @@ func (t *accessTree) update(tree *platform.AccessTree) {
 		t.focus = focus
 		if an := t.nodes[focus]; an != nil && notify {
 			atkObjectNotifyStateChange(an.obj, uint64(atkStates.focused), true)
+		}
+	}
+	if announces && notify {
+		for _, text := range tree.Announcements {
+			gSignalEmitAnnouncement(t.root, cs("announcement"), cs(text))
 		}
 	}
 }

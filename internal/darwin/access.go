@@ -42,6 +42,8 @@ type accessElement struct {
 var (
 	accessOnce     sync.Once
 	postAccessNote uintptr // NSAccessibilityPostNotification
+	// postAccessInfo is NSAccessibilityPostNotificationWithUserInfo.
+	postAccessInfo uintptr
 	// actionDescription is NSAccessibilityActionDescription.
 	actionDescription uintptr
 	msgPointToPoint   func(obj id, sel objc.SEL, p NSPoint) NSPoint
@@ -50,6 +52,7 @@ var (
 func loadAccess() {
 	accessOnce.Do(func() {
 		postAccessNote = mustDlsym(libAppKit, "NSAccessibilityPostNotification")
+		postAccessInfo = mustDlsym(libAppKit, "NSAccessibilityPostNotificationWithUserInfo")
 		actionDescription = mustDlsym(libAppKit, "NSAccessibilityActionDescription")
 		purego.RegisterFunc(&msgPointToPoint, msgSendAddr)
 	})
@@ -60,6 +63,15 @@ func postNote(obj id, name string) {
 	if obj != 0 {
 		purego.SyscallN(postAccessNote, uintptr(obj), uintptr(nsString(name)))
 	}
+}
+
+// announce asks VoiceOver to read text out, after what it is reading
+// (NSAccessibilityAnnouncementRequestedNotification).
+func announce(app id, text string) {
+	info := send(class("NSMutableDictionary"), "dictionary")
+	send(info, "setObject:forKey:", uintptr(nsString(text)), uintptr(nsString("AXAnnouncementKey")))
+	send(info, "setObject:forKey:", uintptr(nsNumberInt(50)), uintptr(nsString("AXPriorityKey"))) // NSAccessibilityPriorityMedium
+	purego.SyscallN(postAccessInfo, uintptr(app), uintptr(nsString("AXAnnouncementRequested")), uintptr(info))
 }
 
 // accessRoles are the roles and subroles of node roles.
@@ -419,7 +431,11 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 				postNote(el.obj, "AXFocusedUIElementChanged")
 			}
 		}
+		for _, text := range tree.Announcements {
+			announce(s.w.b.app, text)
+		}
 		s.access = *tree
+		s.access.Announcements = nil
 	})
 }
 

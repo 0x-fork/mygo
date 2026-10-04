@@ -342,6 +342,16 @@ func clickSurface(handle uintptr, x, y float64, button uint32) bool {
 	return pressButton(button, true) && pressButton(button, false)
 }
 
+// TestSideButton clicks a mouse's back or forward button (buttons 8 and
+// 9) in a window showing native UI, through XTEST.
+func TestSideButton(handle uintptr, back bool) bool {
+	button := uint32(9)
+	if back {
+		button = 8
+	}
+	return clickSurface(handle, 20, 20, button)
+}
+
 // TestDragSurface presses the primary button at the first of points, in
 // DIPs, in a window showing native UI, moves the pointer through the
 // others, and releases it at the last, through XTEST.

@@ -207,15 +207,20 @@ func styleButton(c *Context, b *Element, primary bool) {
 }
 
 // Link creates a text that opens url in the browser when clicked, or
-// Enter while it has the focus. Inside a RichText it is a link within the
-// paragraph; give it an empty label and Children to style parts of its
-// text.
+// Enter while it has the focus. In a page of a Router, a path without a
+// scheme, as "/notes/42" or "edit", goes there in the router (Push).
+// Inside a RichText it is a link within the paragraph; give it an empty
+// label and Children to style parts of its text.
 func Link(c *Context, label, url string) *Element {
 	t := c.theme
 	e := Text(c, label).TextColor(t.Accent).Cursor(CursorPointer).Focusable()
 	e.widget, e.role = "Link", RoleLink
 	if e.Clicked() && url != "" {
-		c.rt.host.openURL(url)
+		if r := c.router; r != nil && isPath(url) {
+			r.Push(url)
+		} else {
+			c.rt.host.openURL(url)
+		}
 	}
 	if e.Hovered() {
 		e.Underline()

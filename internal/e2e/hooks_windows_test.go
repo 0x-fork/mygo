@@ -26,6 +26,11 @@ func click(w *mygo.Window, x, y float64) (ok bool) {
 	return ok
 }
 
+func sideButton(w *mygo.Window, back bool) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestSideButton(w.NativeHandle(), back) })
+	return ok
+}
+
 func drag(w *mygo.Window, points [][2]float64) (ok bool) {
 	mygo.RunOnMain(func() { ok = win.TestDragSurface(w.NativeHandle(), points) })
 	return ok

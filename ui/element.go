@@ -116,6 +116,15 @@ const (
 	// flagValueDrop marks an element taking values dragged within the
 	// window (Drop, DragOver).
 	flagValueDrop
+	// flagInert marks what shows but takes neither the pointer nor the
+	// focus, hidden from assistive technology, as a page going away.
+	flagInert
+	// flagPage marks a page of a Router: the elements inside keep their
+	// state while the page is in the history, shown or not.
+	flagPage
+	// flagFocusTarget marks an element the focus goes to but Tab does not
+	// stop at, as a Router's page.
+	flagFocusTarget
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY

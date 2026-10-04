@@ -204,6 +204,25 @@ func TestClickSurface(hwnd uintptr, x, y float64) bool {
 	return true
 }
 
+// TestSideButton clicks a mouse's back or forward button (XBUTTON1 and
+// XBUTTON2) in a window showing native UI, with the messages a mouse
+// sends.
+func TestSideButton(hwnd uintptr, back bool) bool {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.surface == nil {
+		return false
+	}
+	button, held := uintptr(2), uintptr(0x40) // XBUTTON2, MK_XBUTTON2
+	if back {
+		button, held = 1, 0x20 // XBUTTON1, MK_XBUTTON1
+	}
+	scale := float64(w.surface.dpi()) / 96
+	lp := uintptr(uint16(int16(20*scale)))<<16 | uintptr(uint16(int16(20*scale)))
+	procSendMessageW.Call(w.surface.hwnd, wmXButtonDown, button<<16|held, lp)
+	procSendMessageW.Call(w.surface.hwnd, wmXButtonUp, button<<16, lp)
+	return true
+}
+
 // TestDragSurface presses the primary button at the first of points, in
 // DIPs, in a window showing native UI, moves the pointer through the
 // others, and releases it at the last, with the messages a mouse sends.

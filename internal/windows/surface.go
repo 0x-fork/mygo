@@ -63,6 +63,10 @@ const (
 	wmMButtonDblClk      = 0x0209
 	wmMouseWheel         = 0x020A
 	wmMouseHWheel        = 0x020E
+	wmXButtonDown        = 0x020B
+	wmXButtonUp          = 0x020C
+	wmXButtonDblClk      = 0x020D
+	wmAppCommand         = 0x0319
 	wmCaptureChanged     = 0x0215
 	wmImeSetContext      = 0x0281
 	wmImeChar            = 0x0286
@@ -368,6 +372,34 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 			return 0, false // WM_CONTEXTMENU
 		}
 		return 0, true
+	case wmXButtonDown, wmXButtonDblClk, wmXButtonUp:
+		// The side buttons go back and forward, as keys do, as they are
+		// let go: Windows's apps go there then, as DefWindowProc sends
+		// WM_APPCOMMAND, which taking them leaves out.
+		if m == wmXButtonUp {
+			k := platform.KeyBack
+			if hiword(wp) == 2 { // XBUTTON2
+				k = platform.KeyForward
+			}
+			s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, Mods: mods()})
+			s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: k, Mods: mods()})
+		}
+		return 1, true
+	case wmAppCommand:
+		// Devices that send commands rather than keys or buttons.
+		k := platform.KeyUnknown
+		switch hiword(lp) &^ 0xF000 {
+		case 1: // APPCOMMAND_BROWSER_BACKWARD
+			k = platform.KeyBack
+		case 2: // APPCOMMAND_BROWSER_FORWARD
+			k = platform.KeyForward
+		}
+		if k == platform.KeyUnknown {
+			return 0, false
+		}
+		s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, Mods: mods()})
+		s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: k, Mods: mods()})
+		return 1, true
 	case wmCaptureChanged:
 		s.buttons = 0
 		return 0, true
@@ -572,6 +604,10 @@ func vkKey(vk uintptr) platform.Key {
 		return platform.KeyBackquote
 	case 0x5D:
 		return platform.KeyContextMenu
+	case 0xA6: // VK_BROWSER_BACK
+		return platform.KeyBack
+	case 0xA7: // VK_BROWSER_FORWARD
+		return platform.KeyForward
 	}
 	return platform.KeyUnknown
 }

@@ -19,6 +19,8 @@ func click(*mygo.Window, float64, float64) bool { return false }
 
 func drag(*mygo.Window, [][2]float64) bool { return false }
 
+func sideButton(*mygo.Window, bool) bool { return false }
+
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
 func dockDevTools(*mygo.Window) bool { return false }

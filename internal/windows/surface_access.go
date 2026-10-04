@@ -5,6 +5,7 @@ package windows
 import (
 	"math"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -123,11 +124,16 @@ const (
 	uiaIsOffscreenProperty      = 30022
 	uiaPositionInSetProperty    = 30152
 	uiaSizeOfSetProperty        = 30153
+	uiaLiveSettingProperty      = 30135
 
 	uiaFocusChangedEvent                = 20005
 	uiaElementAddedToSelectionEvent     = 20010
 	uiaElementRemovedFromSelectionEvent = 20011
 	uiaElementSelectedEvent             = 20012
+	uiaLiveRegionChangedEvent           = 20024
+
+	// announcerID identifies the live region holding announcements.
+	announcerID = ^uint64(0)
 
 	vtEmpty   = 0
 	vtI4      = 3
@@ -193,6 +199,8 @@ type uiaTree struct {
 	order []*uiaElement // in the order of the content's tree
 	focus uint64
 	quiet bool // building the tree a client asked for
+	// announced is the text of the live region of announcements.
+	announced string
 }
 
 func (e *uiaElement) ptr(i int) uintptr { return uintptr(unsafe.Pointer(&e.ifaces[i])) }
@@ -372,6 +380,18 @@ func listening() bool {
 }
 
 func (t *uiaTree) update(tree *platform.AccessTree) {
+	// Announcements go into a polite live region at the end of the tree,
+	// whose LiveRegionChanged screen readers read, as Flutter's alerts:
+	// notification events (UiaRaiseNotificationEvent), which a provider of
+	// another process raises, reached no client in tests, unlike its other
+	// events.
+	if len(tree.Announcements) > 0 {
+		t.announced = strings.Join(tree.Announcements, " ")
+	}
+	if t.announced != "" {
+		announcer := platform.AccessNode{ID: announcerID, Parent: -1, Role: platform.RoleText, Label: t.announced, Bounds: platform.RectF{W: 1, H: 1}}
+		tree = &platform.AccessTree{Nodes: append(slices.Clip(tree.Nodes), announcer), Focus: tree.Focus, Announcements: tree.Announcements}
+	}
 	notify := !t.quiet && listening()
 	old := t.nodes
 	t.nodes = make(map[uint64]*uiaElement, len(tree.Nodes))
@@ -447,6 +467,9 @@ func (t *uiaTree) update(tree *platform.AccessTree) {
 			// System.Windows.Automation, then ask the window for it.
 			procNotifyWinEvent.Call(eventObjectFocus, t.s.hwnd, uintptr(objidClient&0xffffffff), 0)
 		}
+	}
+	if e := t.nodes[announcerID]; e != nil && notify && len(tree.Announcements) > 0 {
+		procUiaRaiseAutomationEvent.Call(e.ptr(ifaceSimple), uiaLiveRegionChangedEvent)
 	}
 }
 
@@ -996,6 +1019,11 @@ func (e *uiaElement) property(id int, v *variant) {
 	case uiaSizeOfSetProperty:
 		if n.SetSize > 0 {
 			*v = variant{VT: vtI4, Val: uint64(n.SetSize)}
+		}
+	case uiaLiveSettingProperty:
+		// Statuses, as toasts, and announcements are polite live regions.
+		if n.Role == platform.RoleStatus || n.ID == announcerID {
+			*v = variant{VT: vtI4, Val: 1} // Polite
 		}
 	}
 }

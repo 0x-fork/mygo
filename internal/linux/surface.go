@@ -371,6 +371,7 @@ var gdkKeys = map[uint32]platform.Key{
 	0xff56: platform.KeyPageDown, 0xff9b: platform.KeyPageDown, 0xff51: platform.KeyLeft, 0xff96: platform.KeyLeft,
 	0xff52: platform.KeyUp, 0xff97: platform.KeyUp, 0xff53: platform.KeyRight, 0xff98: platform.KeyRight,
 	0xff54: platform.KeyDown, 0xff99: platform.KeyDown, 0xff67: platform.KeyContextMenu,
+	0x1008ff26: platform.KeyBack, 0x1008ff27: platform.KeyForward, // XF86Back, XF86Forward
 }
 
 func keyvalKey(keyval uint32) platform.Key {
@@ -466,14 +467,30 @@ func initSurfaceCallbacks() {
 		if typ != 4 && typ != 7 { // GDK_BUTTON_PRESS, GDK_BUTTON_RELEASE: GTK's own double click events add nothing
 			return true
 		}
+		n, mods := field[uint32](event, 52), gdkMods(field[uint32](event, 48))
+		if n == 8 || n == 9 {
+			// The side buttons go back and forward, as keys do.
+			kind, k := platform.KeyPressed, platform.KeyBack
+			if typ == 7 {
+				kind = platform.KeyReleased
+			}
+			if n == 9 {
+				k = platform.KeyForward
+			}
+			s.send(platform.SurfaceEvent{Kind: kind, Key: k, Mods: mods})
+			return true
+		}
+		button, ok := map[uint32]int{1: 0, 2: 2, 3: 1}[n]
+		if !ok {
+			return true
+		}
 		kind := platform.PointerDown
 		if typ == 7 {
 			kind = platform.PointerUp
 		} else if !gtkWidgetHasFocus(s.area) {
 			gtkWidgetGrabFocus(s.area)
 		}
-		button := map[uint32]int{1: 0, 2: 2, 3: 1}[field[uint32](event, 52)]
-		s.send(platform.SurfaceEvent{Kind: kind, X: field[float64](event, 24), Y: field[float64](event, 32), Button: button, Mods: gdkMods(field[uint32](event, 48))})
+		s.send(platform.SurfaceEvent{Kind: kind, X: field[float64](event, 24), Y: field[float64](event, 32), Button: button, Mods: mods})
 		return true
 	})
 	// GdkEventMotion: x 24, y 32, state 48.

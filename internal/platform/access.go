@@ -7,6 +7,10 @@ type AccessTree struct {
 	Nodes []AccessNode
 	// Focus is the ID of the element with the keyboard focus, 0 for none.
 	Focus uint64
+	// Announcements are texts for assistive technology to read out once,
+	// after what it is reading, as the title of a page shown or a toast:
+	// news the focus does not bring.
+	Announcements []string
 }
 
 // AccessNode is an element of an AccessTree.

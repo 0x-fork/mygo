@@ -2320,6 +2320,31 @@ func TestReorderByDragging(t *testing.T) {
 	eventually(t, "the new order", func() bool { return order.Load() == "acdbe" })
 }
 
+// TestRouterSideButtons goes back and forward in a router with the side
+// buttons of a mouse, which arrive as keys.
+func TestRouterSideButtons(t *testing.T) {
+	var frames atomic.Int32
+	var path atomic.Value
+	r := ui.NewRouter("/a")
+	r.Push("/b")
+	r.Transition = ui.TransitionNone
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		r.View(c, func(rt *ui.Route) {
+			path.Store(rt.Path())
+			ui.Text(c, rt.Path())
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Router", Width: 300, Height: 200, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	if !sideButton(w, true) {
+		t.Skip("pointer automation not available on this platform")
+	}
+	eventually(t, "back to /a", func() bool { return path.Load() == "/a" })
+	sideButton(w, false)
+	eventually(t, "forward to /b", func() bool { return path.Load() == "/b" })
+}
+
 func TestContentWindowContextMenu(t *testing.T) {
 	var frames atomic.Int32
 	var chosen atomic.Value

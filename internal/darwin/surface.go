@@ -397,6 +397,21 @@ func (s *surface) location(ev id) (float64, float64) {
 	return p.X, p.Y
 }
 
+// sideButton sends a mouse's back or forward button pressed or released
+// as KeyBack or KeyForward.
+func (s *surface) sideButton(kind platform.SurfaceEventKind, back bool, mods platform.Modifiers) {
+	k := platform.KeyForward
+	if back {
+		k = platform.KeyBack
+	}
+	switch kind {
+	case platform.PointerDown:
+		s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, Mods: mods})
+	case platform.PointerUp:
+		s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: k, Mods: mods})
+	}
+}
+
 func (s *surface) mouse(kind platform.SurfaceEventKind, ev id, button int) {
 	x, y := s.location(ev)
 	s.send(platform.SurfaceEvent{Kind: kind, X: x, Y: y, Button: button, Clicks: sendInt(ev, "clickCount"), Mods: eventMods(ev)})
@@ -466,7 +481,13 @@ func registerSurfaceClass() {
 			btn := button
 			switch {
 			case button == 2:
-				btn = min(sendInt(ev, "buttonNumber"), 2)
+				n := sendInt(ev, "buttonNumber")
+				if n == 3 || n == 4 {
+					// The side buttons go back and forward, as keys do.
+					s.sideButton(kind, n == 3, eventMods(ev))
+					return
+				}
+				btn = min(n, 2)
 			case button == 0 && kind == platform.PointerDown:
 				// A Control-click is a secondary click, until its release.
 				s.ctrlClick = eventMods(ev)&platform.ModCtrl != 0

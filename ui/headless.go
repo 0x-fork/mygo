@@ -26,6 +26,9 @@ type headless struct {
 	opened    []string
 	bar       TitleBar
 	access    *platform.AccessTree
+	// told are the announcements of the trees, and announced those the
+	// view made.
+	told, announced []string
 	// menu is the context menu shown, at menuAt, and chosen takes its
 	// choice.
 	menu   *platform.Menu
@@ -40,7 +43,7 @@ func (h *headless) present(s *scene.Scene) {
 func (h *headless) requestFrame()                              { h.requested.Store(true) }
 func (h *headless) setCursor(c Cursor)                         { h.cursor = c }
 func (h *headless) setTextInput(t platform.TextInputState)     { h.ime = t }
-func (h *headless) updateAccessibility(t *platform.AccessTree) { h.access = t }
+func (h *headless) updateAccessibility(t *platform.AccessTree) { h.keepAccess(t) }
 func (h *headless) readClipboard() string                      { return h.clipboard }
 func (h *headless) writeClipboard(s string)                    { h.clipboard = s }
 func (h *headless) startDrag()                                 {}
@@ -50,6 +53,13 @@ func (h *headless) preferences() platform.Preferences          { return h.prefs 
 func (h *headless) titleBar() TitleBar                         { return h.bar }
 func (h *headless) invalidate()                                { h.requested.Store(true) }
 func (h *headless) openURL(u string)                           { h.opened = append(h.opened, u) }
+
+// keepAccess keeps the tree for assistive technology, and its
+// announcements.
+func (h *headless) keepAccess(t *platform.AccessTree) {
+	h.access, h.told = t, append(h.told, t.Announcements...)
+}
+
 func (h *headless) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {
 	h.menu, h.menuAt, h.chosen = m, [2]float32{x, y}, chosen
 }
@@ -359,6 +369,15 @@ func (t *Tester) Cursor() Cursor { return t.h.cursor }
 
 // OpenedURLs returns the links the view opened.
 func (t *Tester) OpenedURLs() []string { return t.h.opened }
+
+// Announcements returns what the view asked screen readers to read out
+// (Context.Announce), as a Router the titles of the pages it showed, and
+// forgets it.
+func (t *Tester) Announcements() []string {
+	a := t.h.announced
+	t.h.announced = nil
+	return a
+}
 
 // Focused reports whether the element showing text or labeled s, or its
 // container, has the keyboard focus.

@@ -1,6 +1,9 @@
 package ui
 
-import "time"
+import (
+	"runtime"
+	"time"
+)
 
 // OutlineState is the state of an Outline or an OutlineTable: its rows, as
 // a List's, and the items that are open, showing their children. The rows'
@@ -86,7 +89,8 @@ func (s *OutlineState[K]) setOpen(item K, open, all bool, children func(K) []K) 
 // any size are as fast as small ones. With s.List.Selected or Selection,
 // rows are chosen as a List's, and while the outline has the focus, Right
 // opens the item chosen or goes to its first child, and Left closes it or
-// goes to its parent, with Option (Alt) opening and closing all inside.
+// goes to its parent, with Option on macOS and Shift elsewhere, as in GTK,
+// opening and closing all inside.
 //
 //	app.files.List.Selected = &app.file
 //	ui.Outline(c, &app.files, []string{"/"}, func(dir string) []string {
@@ -206,7 +210,7 @@ func (s *OutlineState[K]) keys(owner *Element, children func(K) []K) {
 		return
 	}
 	right, left := owner.Shortcut(0, KeyRight), owner.Shortcut(0, KeyLeft)
-	allRight, allLeft := owner.Shortcut(Alt, KeyRight), owner.Shortcut(Alt, KeyLeft)
+	allRight, allLeft := owner.Shortcut(allMod, KeyRight), owner.Shortcut(allMod, KeyLeft)
 	i := *sel
 	if i < 0 || i >= len(s.rows) {
 		return
@@ -225,6 +229,16 @@ func (s *OutlineState[K]) keys(owner *Element, children func(K) []K) {
 		f.choose(r.parent)
 	}
 }
+
+// allMod opens and closes all inside an item with the arrows: Option on
+// macOS, Shift elsewhere, as in GTK, where Alt and the arrows go back and
+// forward.
+var allMod = func() Modifiers {
+	if runtime.GOOS == "darwin" {
+		return Alt
+	}
+	return Shift
+}()
 
 // arrowColor is the color of the arrow of an item of a tree: muted, or
 // the accent's text on the item chosen.

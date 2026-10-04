@@ -124,6 +124,45 @@ func TestControlClick(handle uintptr, x, y float64) {
 	})
 }
 
+var (
+	testSideOnce sync.Once
+	// cgEventSetIntegerValueField is CGEventSetIntegerValueField.
+	cgEventSetIntegerValueField func(event uintptr, field uint32, value int64)
+)
+
+// TestSideButton presses and releases a mouse's back or forward button
+// (buttons 3 and 4) in a window showing native UI.
+func TestSideButton(handle uintptr, back bool) bool {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.surface == nil {
+		return false
+	}
+	testSideOnce.Do(func() {
+		purego.RegisterLibFunc(&cgEventSetIntegerValueField, libCG, "CGEventSetIntegerValueField")
+	})
+	button := int64(4)
+	if back {
+		button = 3
+	}
+	withPool(func() {
+		number := sendInt(w.win, "windowNumber")
+		for _, typ := range []uint{25, 26} { // NSEventTypeOtherMouseDown, OtherMouseUp
+			ev := msgMouseEvent(class("NSEvent"), sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
+				typ, NSPoint{10, 10}, 0, 0, number, 0, 0, 1, 1)
+			// NSEvent makes other buttons the middle one: number it.
+			cg := send(ev, "CGEvent")
+			cgEventSetIntegerValueField(uintptr(cg), 3, button) // kCGMouseEventButtonNumber
+			ev = send(class("NSEvent"), "eventWithCGEvent:", uintptr(cg))
+			name := "otherMouseDown:"
+			if typ == 26 {
+				name = "otherMouseUp:"
+			}
+			send(w.surface.view, name, uintptr(ev))
+		}
+	})
+	return true
+}
+
 // TestTrafficLights returns where the top-left corner of a window's close
 // button is, in points from the top-left corner of the window.
 func TestTrafficLights(handle uintptr) (x, y float64) {

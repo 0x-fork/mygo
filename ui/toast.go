@@ -38,7 +38,7 @@ func (ts *toast) life() time.Duration {
 //	}
 //
 // A message already showing shows anew; others stack above it. It shows
-// for as long as the pointer rests on it.
+// for as long as the pointer rests on it. Screen readers read it out.
 func (c *Context) Toast(message string) {
 	c.toast(toast{message: message})
 }
@@ -65,6 +65,8 @@ func (c *Context) toast(ts toast) {
 	rt.nextToast++
 	ts.at, ts.id = c.now, rt.nextToast
 	rt.toasts = append(rt.toasts, ts)
+	// Nothing else tells screen readers: the focus stays.
+	c.Announce(ts.message)
 	rt.requestFrame()
 }
 

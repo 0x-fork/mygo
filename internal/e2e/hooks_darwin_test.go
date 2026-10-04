@@ -27,6 +27,11 @@ func click(w *mygo.Window, x, y float64) bool {
 	return true
 }
 
+func sideButton(w *mygo.Window, back bool) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestSideButton(w.NativeHandle(), back) })
+	return ok
+}
+
 func drag(w *mygo.Window, points [][2]float64) bool {
 	mygo.RunOnMain(func() { darwin.TestDrag(w.NativeHandle(), points) })
 	return true

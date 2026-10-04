@@ -111,6 +111,13 @@ type engine struct {
 	}
 	// drag is the value being dragged within the window.
 	drag *valueDrag
+	// kept are the pages of the history that Routers keep, and commitPage
+	// the page around the elements being committed.
+	kept       map[uint64]bool
+	commitPage uint64
+	// announcements are the texts for assistive technology to read out
+	// (Context.Announce).
+	announcements []string
 	// dropOver is the element files are dragged over; access is true once
 	// assistive technology asked for the content.
 	dropOver   uint64
@@ -227,6 +234,7 @@ func (rt *engine) runFrame() {
 		rt.pass = pass
 		rt.consumed = false
 		rt.nextRegs = rt.nextRegs[:0]
+		clear(rt.kept)
 		rt.c.reset(now, w, h)
 		rt.view(&rt.c)
 		rt.buildToasts(&rt.c)
@@ -259,6 +267,11 @@ func (rt *engine) runFrame() {
 	if rt.access {
 		rt.host.updateAccessibility(rt.accessTree())
 	}
+	if h, ok := rt.host.(*headless); ok {
+		// For tests, whether assistive technology reads the window or not.
+		h.announced = append(h.announced, rt.announcements...)
+	}
+	rt.announcements = rt.announcements[:0]
 	if rt.animating {
 		rt.host.requestFrame()
 	}
@@ -302,17 +315,42 @@ func (rt *engine) forgetInput() {
 	}
 }
 
-// prune forgets the elements the frame did not build.
+// prune forgets the elements the frame did not build, but those of the
+// pages Routers keep.
 func (rt *engine) prune() {
 	for id, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
 			if rt.pressed == s {
 				rt.pressed = nil
 			}
-			delete(rt.states, id)
+			if !rt.keptAlive(s) {
+				delete(rt.states, id)
+			}
 		}
 	}
 	rt.restoreFocus()
+	// The focus does not stay in a page kept out of sight.
+	if s := rt.states[rt.focused]; s != nil && (s.seen != rt.frame || s.pass != rt.pass) {
+		rt.focused = 0
+	}
+}
+
+// keptAlive reports whether a state the frame did not build is in a page
+// that a Router keeps: one of its history, or inside one.
+func (rt *engine) keptAlive(s *state) bool {
+	if len(rt.kept) == 0 {
+		return false
+	}
+	for n := 0; s != nil && n < 64; n++ {
+		if rt.kept[s.id] {
+			return true
+		}
+		if s.page == 0 {
+			return false
+		}
+		s = rt.states[s.page]
+	}
+	return false
 }
 
 // requestFrame asks the host for a frame, unless one is being built.
@@ -359,7 +397,7 @@ func (rt *engine) close() {
 func (rt *engine) commit(root *Element) {
 	rt.hits = rt.hits[:0]
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
-	rt.modal, rt.commitScope = 0, focusScope{}
+	rt.modal, rt.commitScope, rt.commitPage = 0, focusScope{}, 0
 	if rt.groups == nil {
 		rt.groups = map[uint64]groupInfo{}
 	}
@@ -376,9 +414,13 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	if e.kind == kindText && e.first != nil && !inline {
 		placeInline(e, e, 0)
 	}
-	saved := rt.enterScope(e)
-	defer func() { rt.commitScope = saved }()
+	saved, savedPage := rt.enterScope(e), rt.commitPage
+	defer func() { rt.commitScope, rt.commitPage = saved, savedPage }()
 	s := e.st
+	s.page = rt.commitPage
+	if e.flags&flagPage != 0 {
+		rt.commitPage = e.id
+	}
 	s.x, s.y, s.w, s.h = e.x, e.y, e.w, e.h
 	if e.parent != nil {
 		s.parent = e.parent.id
@@ -404,8 +446,9 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 		s.contentW, s.contentH = e.contentW, e.contentH
 	}
 	// What is invisible keeps its box but takes neither the pointer nor
-	// the focus, and has no text to find.
-	invisible := e.flags&flagInvisible != 0 || hidden
+	// the focus, and has no text to find; so does what is inert, which
+	// shows.
+	invisible := e.flags&(flagInvisible|flagInert) != 0 || hidden
 	if invisible {
 		s.vw, s.vh = 0, 0
 		if rt.focused == e.id {

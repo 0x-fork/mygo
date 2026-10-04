@@ -3,7 +3,7 @@
 // editing, a list of ten thousand rows with context menus, a chat of
 // messages of every height, styling (grids, borders, gradients, text
 // decorations, motion), custom drawing, overlays, file drops and updates
-// from other goroutines.
+// from other goroutines. Its pages are paths of a router, with a history.
 //
 //	go run ./examples/gallery
 package main
@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,8 +24,10 @@ import (
 )
 
 type gallery struct {
-	win  *mygo.Window
-	page string
+	win *mygo.Window
+	// router shows the pages: "/overview", "/list", and a row of the list,
+	// "/list/42".
+	router *ui.Router
 
 	count    int
 	agree    bool
@@ -95,8 +98,6 @@ type gallery struct {
 	outline     ui.OutlineState[string]
 	outlineRow  int
 	outlineSort ui.SortOrder
-	// places keeps where each page is scrolled.
-	places map[string]*ui.ScrollState
 	// rows, chat and table keep the places of the lists of the List page.
 	rows     ui.ListState
 	chat     ui.ListState
@@ -274,41 +275,124 @@ var (
 </svg>`))
 )
 
+// pagePath returns the path of a page, and pageOf the page of a path.
+func pagePath(page string) string { return "/" + strings.ToLower(page) }
+
+func pageOf(path string) string {
+	for _, p := range pages {
+		if path == pagePath(p) || strings.HasPrefix(path, pagePath(p)+"/") {
+			return p
+		}
+	}
+	return ""
+}
+
 func (g *gallery) view(c *ui.Context) {
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		g.sidebar(c)
-		// Each page keeps its place.
-		place := g.places[g.page]
-		if place == nil {
-			place = new(ui.ScrollState)
-			g.places[g.page] = place
-		}
-		ui.Scroll(c).TrackScroll(place).Grow(1).Padding(28, 32).Gap(18).Children(func() {
-			ui.Text(c, g.page).FontSize(26).Bold()
-			switch g.page {
-			case "Overview":
-				g.overview(c)
-			case "Controls":
-				g.controls(c)
-			case "Text":
-				g.text(c)
-			case "List":
-				g.list(c)
-			case "Styling":
-				g.styling(c)
-			case "Drawing":
-				g.drawing(c)
-			case "Overlays":
-				g.overlays(c)
-			}
+		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+			g.toolbar(c)
+			// The pages, which keep their place in the history: back on one,
+			// it is scrolled where it was.
+			g.router.View(c, func(r *ui.Route) {
+				ui.Scroll(c).Grow(1).Padding(12, 32, 28).Gap(18).Children(func() {
+					if r.Match("/list/{row}") {
+						g.listRow(c, r)
+						return
+					}
+					page := pageOf(r.Path())
+					if page == "" {
+						r.Title("Not found")
+						ui.Text(c, "Not found").FontSize(26).Bold()
+						return
+					}
+					r.Title(page)
+					ui.Text(c, page).FontSize(26).Bold()
+					switch page {
+					case "Overview":
+						g.overview(c)
+					case "Controls":
+						g.controls(c)
+					case "Text":
+						g.text(c)
+					case "List":
+						g.list(c)
+					case "Styling":
+						g.styling(c)
+					case "Drawing":
+						g.drawing(c)
+					case "Overlays":
+						g.overlays(c)
+					}
+				})
+			})
 		})
 	})
 	// Ctrl+1…7 (Cmd on macOS) switch pages.
 	for i, p := range pages {
 		if c.Shortcut(ui.Cmd, ui.Key1+ui.Key(i)) {
-			g.page = p
+			g.router.Push(pagePath(p))
 		}
 	}
+}
+
+// toolbar goes back and forward in the history of the pages, and shows
+// the path of the page: Cmd+[ and Cmd+] on macOS, Alt+Left and Alt+Right
+// elsewhere, and a mouse's side buttons, go back and forward too.
+func (g *gallery) toolbar(c *ui.Context) {
+	ui.Toolbar(c, func() {
+		ui.BackButton(c, g.router)
+		ui.ForwardButton(c, g.router)
+		page := pageOf(g.router.Path())
+		path := []string{page}
+		if row := strings.TrimPrefix(g.router.Path(), pagePath(page)+"/"); row != g.router.Path() {
+			path = append(path, "Row "+row)
+		}
+		chosen := -1
+		if ui.Breadcrumbs(c, path, &chosen).Label("Path").Changed() {
+			g.router.Push(pagePath(page))
+		}
+	}).Label("Navigation").Padding(8, 24, 0)
+}
+
+// listRow shows a row of the list, from the List page: the arrows in the
+// toolbar, or the side buttons of a mouse, go back to the list as it was.
+func (g *gallery) listRow(c *ui.Context, r *ui.Route) {
+	t := c.Theme()
+	n, err := strconv.Atoi(r.Param("row"))
+	if err != nil || n < 0 || n >= 10000 {
+		r.Title("Not found")
+		ui.Text(c, "Not found").FontSize(26).Bold()
+		return
+	}
+	r.Title(fmt.Sprintf("Row %d", n))
+	ui.Text(c, fmt.Sprintf("Row %d", n)).FontSize(26).Bold()
+	card(c, "", func() {
+		for _, f := range []struct {
+			label string
+			value int
+		}{{"Square", n * n}, {"Cube", n * n * n}} {
+			ui.Row(c).Gap(12).Children(func() {
+				ui.Text(c, f.label).TextColor(t.TextMuted).Width(80)
+				ui.Textf(c, "%d", f.value).Font("monospace")
+			})
+		}
+		starred := g.starred[n]
+		if ui.Checkbox(c, &starred, "Starred").Changed() {
+			g.starred[n] = starred
+		}
+	}).MaxWidth(420)
+	// Links to paths go there in the router, relative to the page as on
+	// the web.
+	ui.Row(c).Gap(16).Children(func() {
+		if n > 0 {
+			ui.Link(c, "← Previous row", strconv.Itoa(n-1))
+		}
+		if n < 9999 {
+			ui.Link(c, "Next row →", strconv.Itoa(n+1))
+		}
+		ui.Link(c, "All rows", "/list")
+	})
 }
 
 func (g *gallery) sidebar(c *ui.Context) {
@@ -318,7 +402,8 @@ func (g *gallery) sidebar(c *ui.Context) {
 		ui.Text(c, "MyGo UI").FontSize(13).Bold().TextColor(t.TextMuted).Padding(4, 20, 6)
 		// The pages, in two sections that hide and show; the arrows choose
 		// among them while the sidebar has the focus.
-		ui.Sidebar(c, &g.page, func() {
+		page := pageOf(g.router.Path())
+		if ui.Sidebar(c, &page, func() {
 			for k, section := range []struct {
 				title string
 				pages []string
@@ -332,7 +417,9 @@ func (g *gallery) sidebar(c *ui.Context) {
 					}
 				})
 			}
-		}).Grow(1).Label("Pages")
+		}).Grow(1).Label("Pages").Changed() {
+			g.router.Push(pagePath(page))
+		}
 		ui.Text(c, g.now.Format("15:04:05")).FontSize(12).TextColor(t.TextMuted).Padding(0, 20)
 	})
 }
@@ -718,18 +805,27 @@ func (g *gallery) list(c *ui.Context) {
 	// which the filter changes.
 	at := slices.Index(rows, g.picked)
 	ui.Row(c).Gap(12).Children(func() {
-		ui.Textf(c, "%d rows; only those in view are built. Pick one with a click or the arrows; right-click one for its menu.", len(rows)).TextColor(t.TextMuted).Grow(1)
+		ui.Textf(c, "%d rows; only those in view are built. Pick one with a click or the arrows, open it with a double click or Enter; right-click one for its menu.", len(rows)).TextColor(t.TextMuted).Grow(1)
 		if ui.Button(c, "Show picked").Disabled(at < 0).Clicked() {
 			// The row may not be built: the list scrolls to it all the same.
 			g.rows.ScrollTo(at, ui.Center)
 		}
 	})
+	// A row opens in a page of its own, which slides in; back, the list is
+	// as it was.
+	open := func(n int) { g.router.Push(fmt.Sprintf("/list/%d", n)) }
 	g.rows.Selected = &at
 	g.rows.Key = func(i int) any { return rows[i] }
 	list := ui.List(c, &g.rows, len(rows), func(i int) {
 		n := rows[i]
 		row := ui.Row(c).Height(32).PaddingX(12).Gap(10)
+		if row.DoubleClicked() {
+			open(n)
+		}
 		row.ContextMenu(func(m *ui.Menu) {
+			if m.Item("Open").Chosen() {
+				open(n)
+			}
 			if m.Item("Pick").Chosen() {
 				g.picked = n
 			}
@@ -752,6 +848,9 @@ func (g *gallery) list(c *ui.Context) {
 	}).Height(420).Border(1, t.Border).Radius(8).Padding(4)
 	if list.Changed() {
 		g.picked = rows[at]
+	}
+	if list.Shortcut(0, ui.KeyEnter) && at >= 0 {
+		open(g.picked)
 	}
 	g.chatCard(c)
 	ui.Row(c).Gap(18).AlignItems(ui.Stretch).Height(260).Children(func() {
@@ -1177,7 +1276,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), notes: 12, notifyMail: true, pathDepth: 4}
+	g := &gallery{router: ui.NewRouter("/overview"), size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), notes: 12, notifyMail: true, pathDepth: 4}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

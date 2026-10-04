@@ -984,6 +984,12 @@ either.
   `WindowHandler.SurfaceEvent`, in DIPs: frames, resizes, the pointer, the
   wheel, keys, text, compositions, focus, the edit roles of menus
   (`SurfaceCommand`), files dragged and dropped, and assistive technology.
+  The back and forward buttons of a mouse come as the keys `KeyBack` and
+  `KeyForward`, as do the keys of keyboards that have them: buttons 3 and 4
+  of `otherMouseDown:` on macOS, buttons 8 and 9 and `XF86Back` and
+  `XF86Forward` on Linux, and `WM_XBUTTONUP` (taken, so that
+  DefWindowProc sends no `WM_APPCOMMAND` as well), `VK_BROWSER_BACK` and
+  `VK_BROWSER_FORWARD`, and `WM_APPCOMMAND`'s browser commands on Windows.
   Input methods name what text and compositions replace in the text
   around the caret (`Replace`, `From`, `To`): NSTextInputClient's
   replacement ranges, GtkIMContext's `delete-surrounding`, IMM32's
@@ -1006,6 +1012,15 @@ either.
   with UI Automation's events.
   What assistive technology does comes back as `AccessAction` events,
   which the engine performs as the pointer or the keyboard would.
+  `AccessTree.Announcements` are texts to read out once
+  (`Context.Announce`, toasts, routers): `AXAnnouncementRequested` posted
+  on the application with a medium priority on macOS, AtkObject's
+  `announcement` signal (ATK 2.46), which AT-SPI carries as
+  `Object:Announcement`, on Linux, and on Windows a polite live region at
+  the end of the tree holding the text, raising `LiveRegionChanged`, as
+  Flutter's alerts: `UiaRaiseNotificationEvent` returned `S_OK` but its
+  events reached no client, unlike the provider's automation events.
+  Statuses, as toasts, are polite live regions too (`LiveSetting`).
   The rows of a `List` (list items) and a `Table` (rows) are named by
   their content and say which of all the rows they are (`PosInSet`,
   `SetSize`, the list giving its total), as only those in view are built;
@@ -1126,6 +1141,34 @@ either.
   in the frame after, matched by place and label. A menu button opens as
   the primary button goes down on it, taking the release, as AppKit's and
   GTK's pop-up buttons do, and for Enter, Space and Down.
+- **Routers** (`ui/router.go`). A `Router` is a history of entries, each
+  a location (an escaped path and its query) and the pages showing it, one
+  per level of views: `View`'s, then each `Route.View` inside a layout's
+  page, made as first built. An entry pushed shares the pages of the
+  layouts whose part of the path it keeps (each entry notes how many parts
+  each of its layouts took), and all of them for another query of the same
+  path. Each view keeps which entry it showed (the router, or the layout
+  page's element for a `Route.View`), so a change transitions only the
+  level whose page changed. A view builds the page shown in a column keyed
+  by the page, flagged `flagPage`: committing marks
+  each element's state with the page around it (`state.page`), and
+  `prune` keeps the states the frame did not build when a page around
+  them, through nested pages, is one the routers built in the frame kept
+  (`engine.kept`): the ten pages of the history nearest the one shown, a
+  layout's view keeping those inside the same layout.
+  The focus does not stay in a page kept out of sight. As the page shown
+  changes, the router remembers the element of the page left that had the
+  focus, and moves the focus into the new page, to the element it
+  remembers there, else to the page (`flagFocusTarget`: focusable, not a
+  stop of Tab), unless an element of the page took it as it was built
+  (`AutoFocus`), or the focus was outside the router, where it stays and
+  the page's title is announced. A page deeper in the paths slides in
+  over the page left, the one going away built too, inert (`flagInert`:
+  painted, without hits, focus, labels, accessibility nor `Context`
+  shortcuts), absolutely positioned over the one in flow, both offset by
+  their insets as relative positioning; others fade in alone. The first
+  router of a frame takes the back and forward keys for the window, each
+  one also for the focus inside it, which comes first.
 - **Comboboxes** (`ui/combobox.go`). A combobox is a text input with a
   popup of options in the overlay, without a backdrop: the input keeps
   the focus while the user types and picks, as presses in the popup do not

@@ -61,6 +61,9 @@ func (rt *engine) groupEntry(g uint64) uint64 {
 // tabStop reports whether Tab stops at id: an element in no group, or the
 // entry of its group.
 func (rt *engine) tabStop(id uint64) bool {
+	if s := rt.states[id]; s != nil && s.flags&flagFocusTarget != 0 {
+		return false
+	}
 	g := rt.memberOf[id]
 	return g == 0 || rt.groupEntry(g) == id
 }

@@ -40,6 +40,13 @@ type Context struct {
 	sidebar *sidebarBuild
 	// reveal lists the elements to scroll into view (ScrollIntoView).
 	reveal []*Element
+	// router is the Router whose page is being built, for Links; routers
+	// counts the Routers built, the first of which takes the window's
+	// keys for going back and forward. inert is set while a page going
+	// away is built, whose shortcuts wait.
+	router  *Router
+	routers int
+	inert   bool
 }
 
 const chunkSize = 256
@@ -68,6 +75,7 @@ func (c *Context) reset(now time.Time, w, h float32) {
 	c.theme = c.rt.defaultTheme()
 	c.tree = nil
 	c.reveal = c.reveal[:0]
+	c.router, c.routers, c.inert = nil, 0, false
 	root := c.alloc()
 	root.c = c
 	root.id = 1
@@ -81,13 +89,16 @@ func (c *Context) reset(now time.Time, w, h float32) {
 	c.overlay = nil
 }
 
+// overlayID is the ID of the layer of overlays.
+var overlayID = mix(1, 0x6f7665726c6179)
+
 // overlayRoot returns the layer above the window's content that Overlay
 // builds into; the frame adds it to the root once the view returns.
 func (c *Context) overlayRoot() *Element {
 	if c.overlay == nil {
 		o := c.alloc()
 		o.c = c
-		o.id = mix(1, 0x6f7665726c6179)
+		o.id = overlayID
 		o.kind = kindBox
 		o.flags = flagAbsolute | flagPassThrough
 		o.inset = [4]length{px(0), px(0), px(0), px(0)}
@@ -120,6 +131,16 @@ func (c *Context) newElement(k kind) *Element {
 var keySeed = maphash.MakeSeed()
 
 func (c *Context) rekey(e *Element, k any) {
+	parent := uint64(0)
+	if e.parent != nil {
+		parent = e.parent.id
+	}
+	e.id = keyedID(parent, k)
+	e.st = c.rt.stateFor(e.id)
+}
+
+// keyedID returns the ID of the child of parent keyed by k.
+func keyedID(parent uint64, k any) uint64 {
 	var h uint64
 	switch k := k.(type) {
 	case string:
@@ -133,12 +154,7 @@ func (c *Context) rekey(e *Element, k any) {
 	default:
 		h = maphash.String(keySeed, fmt.Sprintf("%T:%v", k, k))
 	}
-	parent := uint64(0)
-	if e.parent != nil {
-		parent = e.parent.id
-	}
-	e.id = mix(parent, h^0xA5A5A5A5A5A5A5A5)
-	e.st = c.rt.stateFor(e.id)
+	return mix(parent, h^0xA5A5A5A5A5A5A5A5)
 }
 
 // mix combines two hashes (the finalizer of splitmix64).
@@ -208,6 +224,17 @@ func (c *Context) After(d time.Duration) { c.rt.scheduleAt(c.now.Add(d)) }
 func (c *Context) ReadClipboard() string   { return c.rt.host.readClipboard() }
 func (c *Context) WriteClipboard(s string) { c.rt.host.writeClipboard(s) }
 
+// Announce asks screen readers to read text out once, after what they
+// are reading, for news the keyboard focus does not bring, as a search
+// done or a file saved: a Router announces the title of a page it shows,
+// and a toast its text. It does nothing while no assistive technology
+// reads the window.
+func (c *Context) Announce(text string) {
+	if text != "" && !c.inert {
+		c.rt.announcements = append(c.rt.announcements, text)
+	}
+}
+
 // OpenURL opens a URL in the default browser, or the app registered for
 // its scheme, as a Link does.
 func (c *Context) OpenURL(url string) { c.rt.host.openURL(url) }
@@ -218,8 +245,8 @@ func (c *Context) OpenURL(url string) { c.rt.host.openURL(url) }
 // check box, switch or radio button Space, so that Enter can press a
 // dialog's default button.
 func (c *Context) Shortcut(mods Modifiers, key Key) bool {
-	if !c.insideModal() {
-		return false // behind a dialog
+	if !c.insideModal() || c.inert {
+		return false // behind a dialog, or in a page going away
 	}
 	return c.rt.shortcut(0, mods, key)
 }
@@ -327,6 +354,8 @@ type state struct {
 	takesText bool
 	// scope is the dialog the element was in, 0 for none.
 	scope uint64
+	// page is the Router's page the element was in, 0 for none.
+	page uint64
 }
 
 type shortcut struct {

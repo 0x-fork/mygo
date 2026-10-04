@@ -55,7 +55,7 @@ func TestOutline(t *testing.T) {
 		{0, KeyLeft, "src/ui", false},
 		{0, KeyLeft, "src", false},
 		{0, KeyLeft, "src", false},
-		{Alt, KeyRight, "src", true},
+		{allMod, KeyRight, "src", true},
 	}
 	for _, step := range steps {
 		tt.Key(step.mods, step.key)
@@ -64,12 +64,12 @@ func TestOutline(t *testing.T) {
 		}
 	}
 	// Option opened all inside src, which closes with them.
-	tt.Key(Alt, KeyLeft)
+	tt.Key(allMod, KeyLeft)
 	if s.Open.Has("src") || s.Open.Has("src/ui") {
 		t.Fatalf("Option-Left left open %v %v", s.Open.Has("src"), s.Open.Has("src/ui"))
 	}
 	// Closing an item moves the choice to it from a row inside.
-	tt.Key(Alt, KeyRight)
+	tt.Key(allMod, KeyRight)
 	tt.Click("tree.go")
 	src, _ = tt.Find("src")
 	tt.ClickAt(src.X-10, src.Y+src.H/2)
@@ -77,7 +77,7 @@ func TestOutline(t *testing.T) {
 		t.Errorf("after closing src, chose %q", s.Item(sel))
 	}
 	// Assistive technology: a tree of items with their levels, open or not.
-	tt.Key(Alt, KeyRight)
+	tt.Key(allMod, KeyRight)
 	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
 	tree := tt.h.access
 	node(t, tree, platform.RoleTree, "")

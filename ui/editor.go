@@ -118,7 +118,11 @@ func (ed *editor) wants(k keyEvent) bool {
 	case KeyBackspace:
 		// Empty, a token field's input leaves it to take out a token.
 		return !ed.leaveEmptyBackspace || len(ed.text) > 0 || m != 0
-	case KeyLeft, KeyRight, KeyHome, KeyEnd, KeyDelete:
+	case KeyLeft, KeyRight:
+		// But Alt and an arrow, which go back and forward outside of macOS,
+		// where they move by words.
+		return m != Alt || runtime.GOOS == "darwin"
+	case KeyHome, KeyEnd, KeyDelete:
 		return true
 	case KeyUp, KeyDown, KeyPageUp, KeyPageDown:
 		return ed.multiline || m != 0
@@ -126,7 +130,7 @@ func (ed *editor) wants(k keyEvent) bool {
 		return m == 0
 	case KeyTab, KeyEscape:
 		return false
-	case KeyF1, KeyF2, KeyF3, KeyF4, KeyF5, KeyF6, KeyF7, KeyF8, KeyF9, KeyF10, KeyF11, KeyF12:
+	case KeyF1, KeyF2, KeyF3, KeyF4, KeyF5, KeyF6, KeyF7, KeyF8, KeyF9, KeyF10, KeyF11, KeyF12, KeyBack, KeyForward:
 		// They type nothing: they go to shortcuts, as F3 finding the next
 		// match.
 		return false
