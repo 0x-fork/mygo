@@ -92,6 +92,7 @@ var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleTree:         {"AXOutline", ""},
 	platform.RoleTreeItem:     {"AXRow", "AXOutlineRow"},
 	platform.RoleListItem:     {"AXRow", "AXTableRow"},
+	platform.RoleMenuButton:   {"AXMenuButton", ""},
 }
 
 // chooses reports whether a node is the row of a list or a table that its
@@ -117,7 +118,8 @@ func roleOf(n platform.AccessNode) (role, subrole string) {
 // titled reports whether elements of a role show their name as a title.
 func titled(r platform.AccessRole) bool {
 	switch r {
-	case platform.RoleButton, platform.RoleLink, platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RolePopUpButton, platform.RoleTab:
+	case platform.RoleButton, platform.RoleLink, platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RolePopUpButton, platform.RoleTab,
+		platform.RoleMenuButton:
 		return true
 	}
 	return false

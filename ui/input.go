@@ -229,6 +229,12 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 	if target == nil {
 		return
 	}
+	if button == 0 && target.flags&flagMenuButton != 0 && target.flags&flagDisabled == 0 {
+		// A menu button's menu opens as the button goes down, and takes
+		// the release.
+		rt.openMenuButton(target)
+		return
+	}
 	// Count quick successive presses at the same place.
 	now := time.Now()
 	clicks := 1
@@ -469,6 +475,12 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 	if key == KeyTab && (mods == 0 || mods == Shift) && !rt.claimed(k) {
 		rt.moveFocus(mods == Shift)
 		rt.requestFrame()
+		return false
+	}
+	if s := rt.states[rt.focused]; s != nil && s.flags&flagMenuButton != 0 && s.flags&flagDisabled == 0 && !rt.claimedBy(k, false) &&
+		(mods == 0 && (key == KeyEnter || key == KeySpace || key == KeyDown) || mods == Alt && key == KeyDown) {
+		rt.focusVisible = true
+		rt.openMenuButton(s)
 		return false
 	}
 	if (key == KeyEnter || key == KeySpace) && mods == 0 {

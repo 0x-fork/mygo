@@ -108,6 +108,8 @@ const (
 	// flagTypeSelect marks a list that typing the first letters of a
 	// row chooses it in.
 	flagTypeSelect
+	// flagMenuButton marks an element that opens its menu when pressed.
+	flagMenuButton
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY

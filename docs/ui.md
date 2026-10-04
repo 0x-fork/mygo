@@ -524,6 +524,7 @@ look of your own, build on the widgets' bases, which have none: see
 | | |
 |---|---|
 | `Button`, `PrimaryButton` | a push button; `Clicked` reports presses by the pointer, Enter or Space |
+| `MenuButton` | a button opening a menu of the system's below it (`Element.Menu`) |
 | `Link` | text that opens a URL in the browser |
 | `Checkbox`, `Switch` | toggle a `*bool` |
 | `Radio` | sets a `*T` to its value |
@@ -712,6 +713,23 @@ func Disclosure(c *ui.Context, title string, body func()) {
   editing commands of their platform's text fields, unless `ContextMenu`
   gives them another menu. `Shortcut` only shows a key: handle it with
   `Shortcut` on the context or an element.
+- **Menu buttons.** `Element.Menu` builds the same menu for a button,
+  which opens below it as the pointer goes down on it, as the system's
+  pop-up buttons do, and for Enter, Space or Down while it has the focus;
+  `MenuButton` is a button with a label and an arrow that does:
+
+  ```go
+  ui.MenuButton(c, "Sort by", func(m *ui.Menu) {
+  	for _, by := range []string{"Name", "Date", "Size"} {
+  		if m.Item(by).Checked(app.sort == by).Chosen() {
+  			app.sort = by
+  		}
+  	}
+  })
+  ```
+
+  Assistive technology sees a menu button (`AXMenuButton` on macOS, a push
+  button menu on Linux, a button that expands on Windows).
 - **Every key, as it comes.** Widgets that take every key themselves, as
   the [terminal](plugins/terminal.md) does, get their input as it comes
   with `HandleInput`, before the next frame: keys pressed and released,

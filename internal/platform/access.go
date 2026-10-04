@@ -72,6 +72,7 @@ const (
 	RoleTree
 	RoleTreeItem
 	RoleListItem
+	RoleMenuButton
 )
 
 // AccessStates are the states of an element of an AccessTree.

@@ -146,7 +146,7 @@ var uiaControlTypes = map[platform.AccessRole]int32{
 	platform.RolePopUpButton: 50003, platform.RoleTabList: 50018, platform.RoleTab: 50019, platform.RoleSplitter: 50038,
 	platform.RoleStatus: 50017, platform.RoleTable: 50036, platform.RoleRow: 50029, platform.RoleCell: 50025,
 	platform.RoleColumnHeader: 50035, platform.RoleTree: 50023, platform.RoleTreeItem: 50024,
-	platform.RoleListItem: 50007,
+	platform.RoleListItem: 50007, platform.RoleMenuButton: 50000,
 }
 
 // variant is VARIANT, with the value of the types used here.
@@ -229,7 +229,7 @@ func (e *uiaElement) supports(i int) bool {
 	switch i {
 	case ifaceInvoke:
 		switch n.Role {
-		case platform.RoleCheckBox, platform.RoleSwitch, platform.RoleRadio, platform.RolePopUpButton, platform.RoleTab:
+		case platform.RoleCheckBox, platform.RoleSwitch, platform.RoleRadio, platform.RolePopUpButton, platform.RoleTab, platform.RoleMenuButton:
 			return false
 		}
 		return n.Actions&platform.ActionPress != 0
@@ -253,7 +253,8 @@ func (e *uiaElement) supports(i int) bool {
 	case ifaceValue:
 		return n.Role == platform.RoleTextField || n.Role == platform.RolePopUpButton
 	case ifaceExpandCollapse:
-		return n.Role == platform.RolePopUpButton || n.Role == platform.RoleTreeItem
+		// A menu button expands into its menu, as WinUI's DropDownButton.
+		return n.Role == platform.RolePopUpButton || n.Role == platform.RoleTreeItem || n.Role == platform.RoleMenuButton
 	}
 	return false
 }
@@ -918,6 +919,8 @@ func (e *uiaElement) property(id int, v *variant) {
 		switch n.Role {
 		case platform.RoleSwitch:
 			str("toggle switch")
+		case platform.RoleMenuButton:
+			str("menu button")
 		case platform.RoleDialog:
 			str("dialog")
 		case platform.RolePopup:

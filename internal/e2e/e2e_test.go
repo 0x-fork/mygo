@@ -2247,6 +2247,47 @@ func TestContentWindow(t *testing.T) {
 	}
 }
 
+// TestContentWindowMenuButton opens a menu button's menu, which shows as
+// the button goes down, and chooses an item.
+func TestContentWindowMenuButton(t *testing.T) {
+	var frames atomic.Int32
+	var chosen atomic.Value
+	chosen.Store("")
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Box(c).Fill().Padding(20).Children(func() {
+			ui.MenuButton(c, "Export", func(m *ui.Menu) {
+				for _, label := range []string{"As PDF", "As PNG"} {
+					if m.Item(label).Chosen() {
+						chosen.Store(label)
+					}
+				}
+			}).Size(120, 40)
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Menu button", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	if _, ok := popupMenus(); !ok || !click(w, 80, 40) {
+		t.Skip("menu automation not available on this platform")
+	}
+	var menus [][]string
+	eventually(t, "the menu", func() bool {
+		menus, _ = popupMenus()
+		return len(menus) == 1
+	})
+	if want := []string{"As PDF", "As PNG"}; !slices.Equal(menus[0], want) {
+		t.Errorf("the menu shows %q, want %q", menus[0], want)
+	}
+	if !choosePopupItem("As PNG") {
+		t.Fatal("the menu has no item As PNG")
+	}
+	eventually(t, "the choice", func() bool { return chosen.Load() == "As PNG" })
+	eventually(t, "the menu to close", func() bool {
+		menus, _ = popupMenus()
+		return len(menus) == 0
+	})
+}
+
 func TestContentWindowContextMenu(t *testing.T) {
 	var frames atomic.Int32
 	var chosen atomic.Value

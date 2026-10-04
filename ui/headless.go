@@ -26,8 +26,10 @@ type headless struct {
 	opened    []string
 	bar       TitleBar
 	access    *platform.AccessTree
-	// menu is the context menu shown, and chosen takes its choice.
+	// menu is the context menu shown, at menuAt, and chosen takes its
+	// choice.
 	menu   *platform.Menu
+	menuAt [2]float32
 	chosen func(id int)
 }
 
@@ -49,7 +51,7 @@ func (h *headless) titleBar() TitleBar                         { return h.bar }
 func (h *headless) invalidate()                                { h.requested.Store(true) }
 func (h *headless) openURL(u string)                           { h.opened = append(h.opened, u) }
 func (h *headless) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {
-	h.menu, h.chosen = m, chosen
+	h.menu, h.menuAt, h.chosen = m, [2]float32{x, y}, chosen
 }
 func (h *headless) image() *image.RGBA {
 	m := &h.img.Image

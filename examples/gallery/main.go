@@ -323,6 +323,13 @@ func (g *gallery) controls(c *ui.Context) {
 			}
 			ui.Button(c, "Cancel")
 			ui.Button(c, "Disabled").Disabled(true)
+			ui.MenuButton(c, "Export", func(m *ui.Menu) {
+				for _, as := range []string{"PDF", "PNG", "SVG"} {
+					if m.Item("As " + as).Chosen() {
+						c.Toast("Exported as " + as)
+					}
+				}
+			})
 			ui.Link(c, "Open mygo.dev", "https://github.com/egoist/mygo")
 		})
 		ui.Text(c, "Tab moves the focus; Enter or Space presses the focused button.").TextColor(t.TextMuted)

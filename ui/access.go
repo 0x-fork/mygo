@@ -54,6 +54,8 @@ const (
 	RoleTreeItem
 	// RoleListItem is an item of a list: the rows of a List are.
 	RoleListItem
+	// RoleMenuButton is a button opening a menu (Element.Menu).
+	RoleMenuButton
 )
 
 // Role sets what the element is to assistive technology, for an element
@@ -321,6 +323,10 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 	}
 	switch ev.Action {
 	case platform.AccessPress:
+		if s.flags&flagMenuButton != 0 {
+			rt.openMenuButton(s)
+			break
+		}
 		if s.flags&flagClickable != 0 {
 			s.clicks++
 			s.clickMods = 0

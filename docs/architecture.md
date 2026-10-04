@@ -1118,6 +1118,14 @@ either.
   choose a row goes through the engine: letters, digits and spaces that no
   shortcut takes add up in the focused list's state (`typed`, reset after
   a second), which the list matches against `ListState.Label`.
+- **Menus.** Context menus and menu buttons share the machinery of
+  `ui/menu.go`: an event asks for an element's menu (`askMenu`, with
+  whether it is a menu button's), the next frame runs the element's menu
+  function to collect the items, the host shows the system's menu after
+  the frame (`popupMenu`), and the item chosen comes back to the function
+  in the frame after, matched by place and label. A menu button opens as
+  the primary button goes down on it, taking the release, as AppKit's and
+  GTK's pop-up buttons do, and for Enter, Space and Down.
 - **Overlays** (`ui/scope.go`) scope the keyboard. Committing a frame
   notes the dialog each focusable element is in (`DialogBase`'s backdrop,
   `flagModal`; a popover is in its anchor's), the dialog on top

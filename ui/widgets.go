@@ -542,11 +542,7 @@ func Select(c *Context, selected *string, options []string) *Element {
 	b.Justify(SpaceBetween).MinWidth(t.Space(35))
 	b.Children(func() {
 		Text(c, *selected).SingleLine()
-		Box(c).Size(t.Space(2.5), t.Space(2.5)).Shrink(0).Draw(func(p *Painter, r Rect) {
-			var path Path
-			path.MoveTo(r.X+r.W*0.1, r.Y+r.H*0.3).LineTo(r.X+r.W*0.5, r.Y+r.H*0.7).LineTo(r.X+r.W*0.9, r.Y+r.H*0.3)
-			p.StrokePath(&path, 1.5, t.TextMuted)
-		})
+		chevron(c)
 	})
 	sel.Popup(func(panel *Element) {
 		stylePanel(c, panel)
@@ -562,6 +558,38 @@ func Select(c *Context, selected *string, options []string) *Element {
 		}
 	})
 	return b
+}
+
+// chevron draws the arrow of a button opening something below it.
+func chevron(c *Context) {
+	t := c.theme
+	Box(c).Size(t.Space(2.5), t.Space(2.5)).Shrink(0).Draw(func(p *Painter, r Rect) {
+		var path Path
+		path.MoveTo(r.X+r.W*0.1, r.Y+r.H*0.3).LineTo(r.X+r.W*0.5, r.Y+r.H*0.7).LineTo(r.X+r.W*0.9, r.Y+r.H*0.3)
+		p.StrokePath(&path, 1.5, t.TextMuted)
+	})
+}
+
+// MenuButton creates a button showing label and an arrow, which opens a
+// menu below it that build fills with items, as the pointer goes down on
+// it or for Enter, Space or Down while it has the focus (Element.Menu):
+//
+//	ui.MenuButton(c, "Sort by", func(m *ui.Menu) {
+//		for _, by := range []string{"Name", "Date", "Size"} {
+//			if m.Item(by).Checked(app.sort == by).Chosen() {
+//				app.sort = by
+//			}
+//		}
+//	})
+func MenuButton(c *Context, label string, build func(m *Menu)) *Element {
+	b := button(c, "", false)
+	b.Children(func() {
+		if label != "" {
+			Text(c, label).SingleLine()
+		}
+		chevron(c)
+	})
+	return b.Menu(build)
 }
 
 // keepInWindow places an overlay element at (x, y), where the layout,

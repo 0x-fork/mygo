@@ -30,10 +30,40 @@ import (
 // have one with the editing commands, which ContextMenu replaces.
 func (e *Element) ContextMenu(build func(m *Menu)) *Element {
 	e.flags |= flagContextMenu
+	e.buildMenu(false, build)
+	return e
+}
+
+// Menu makes the element a menu button: it opens a menu below it, which
+// build fills with items, as the pointer goes down on it, as a pop-up
+// button does, and for Enter, Space or Down while it has the focus. It
+// takes the focus. build runs when the menu opens, and again in the frame
+// after an item was chosen, where the item's Chosen reports it, as for
+// ContextMenu. MenuButton is a button with a menu:
+//
+//	more := ui.ButtonBase(c).Label("More").Padding(4).Radius(6)
+//	more.Children(func() { ui.Icon(c, moreIcon).Size(16, 16) })
+//	more.Menu(func(m *ui.Menu) {
+//		if m.Item("Duplicate").Chosen() {
+//			app.duplicate()
+//		}
+//	})
+func (e *Element) Menu(build func(m *Menu)) *Element {
+	e.flags |= flagMenuButton | flagClickable | flagFocusable
+	if e.role == RoleAuto || e.role == RoleButton {
+		e.role = RoleMenuButton
+	}
+	e.buildMenu(true, build)
+	return e
+}
+
+// buildMenu builds the element's menu, its menu button's or its context
+// menu, as it opens, and again for the item chosen from it.
+func (e *Element) buildMenu(button bool, build func(m *Menu)) {
 	rt := e.c.rt
 	mr := &rt.menu
 	switch {
-	case mr.asked == e.id:
+	case mr.asked == e.id && mr.button == button:
 		mr.asked = 0
 		if e.IsDisabled() {
 			break
@@ -41,8 +71,8 @@ func (e *Element) ContextMenu(build func(m *Menu)) *Element {
 		run := &menuRun{collect: true}
 		pm := &platform.Menu{}
 		build(&Menu{run: run, menu: pm})
-		rt.openMenu(e.id, pm, run.labels, nil)
-	case mr.chosen == e.id:
+		rt.openMenu(e.id, button, pm, run.labels, nil)
+	case mr.chosen == e.id && mr.chosenButton == button:
 		mr.chosen = 0
 		run := &menuRun{choice: mr.choice, label: mr.label}
 		build(&Menu{run: run})
@@ -51,11 +81,10 @@ func (e *Element) ContextMenu(build func(m *Menu)) *Element {
 			rt.consumed = true
 		}
 	}
-	return e
 }
 
-// Menu is a context menu being built, by the function given to
-// ContextMenu. Its items show in the order they are added.
+// Menu is a menu being built, by the function given to ContextMenu or
+// Element.Menu. Its items show in the order they are added.
 type Menu struct {
 	run  *menuRun
 	menu *platform.Menu // what the menu shows, when it opens
@@ -161,6 +190,9 @@ func (it *MenuItem) Chosen() bool {
 type menuState struct {
 	asked uint64 // the element whose menu opens, at (x, y)
 	x, y  float32
+	// button is set when the menu asked for is a menu button's, and
+	// chosenButton when the item chosen is from one.
+	button, chosenButton bool
 	// release is the element whose menu opens when the secondary button
 	// goes up, as on Windows.
 	release uint64
@@ -174,6 +206,7 @@ type menuState struct {
 // editing commands of a text input's items, nil for a view's menu.
 type shownMenu struct {
 	id       uint64
+	button   bool
 	menu     *platform.Menu
 	labels   []string
 	commands []string
@@ -195,11 +228,12 @@ func (rt *engine) menuTarget(chain []uint64) *state {
 	return nil
 }
 
-// askMenu has the next frame build the context menu of s, to show at
-// (x, y): where it was clicked, or below the focus.
-func (rt *engine) askMenu(s *state, x, y float32) {
+// askMenu has the next frame build the context menu of s, or with button
+// its menu button's, to show at (x, y): where it was clicked, or below the
+// focus.
+func (rt *engine) askMenu(s *state, x, y float32, button bool) {
 	mr := &rt.menu
-	mr.asked, mr.x, mr.y = s.id, x, y
+	mr.asked, mr.x, mr.y, mr.button = s.id, x, y, button
 	// The menu takes the press: the release goes to it.
 	if rt.pressed != nil {
 		rt.pressed.pressed = false
@@ -237,7 +271,7 @@ func (rt *engine) menuPress(chain []uint64, x, y float32) bool {
 		rt.requestFrame()
 		return true
 	}
-	rt.askMenu(s, x, y)
+	rt.askMenu(s, x, y, false)
 	return true
 }
 
@@ -250,7 +284,7 @@ func (rt *engine) menuRelease() bool {
 	}
 	rt.menu.release = 0
 	if s := rt.states[id]; s != nil {
-		rt.askMenu(s, rt.pointerX, rt.pointerY)
+		rt.askMenu(s, rt.pointerX, rt.pointerY, false)
 	}
 	return true
 }
@@ -269,18 +303,24 @@ func (rt *engine) menuKey() bool {
 		r := s.editor.caretRect(s)
 		x, y = r.X, r.Y+r.H
 	}
-	rt.askMenu(s, x, y)
+	rt.askMenu(s, x, y, false)
 	return true
+}
+
+// openMenuButton has the next frame build the menu of menu button s, to
+// show below it.
+func (rt *engine) openMenuButton(s *state) {
+	rt.askMenu(s, s.vx, s.vy+s.vh, true)
 }
 
 // openMenu shows the context menu built for the element id once the frame
 // is done.
-func (rt *engine) openMenu(id uint64, pm *platform.Menu, labels, commands []string) {
+func (rt *engine) openMenu(id uint64, button bool, pm *platform.Menu, labels, commands []string) {
 	if len(pm.Items) == 0 {
 		return
 	}
 	mr := &rt.menu
-	mr.pending = &shownMenu{id: id, menu: pm, labels: labels, commands: commands, x: mr.x, y: mr.y}
+	mr.pending = &shownMenu{id: id, button: button, menu: pm, labels: labels, commands: commands, x: mr.x, y: mr.y}
 }
 
 // resolveMenu opens the menu asked for that no ContextMenu built, after a
@@ -292,7 +332,7 @@ func (rt *engine) resolveMenu() {
 		return
 	}
 	mr.asked = 0
-	if s := rt.states[id]; s != nil && s.seen == rt.frame && s.editor != nil {
+	if s := rt.states[id]; s != nil && s.seen == rt.frame && s.editor != nil && !mr.button {
 		rt.editMenu(s)
 	}
 }
@@ -321,7 +361,8 @@ func (rt *engine) menuChosen(p *shownMenu, id int) {
 			rt.blinkStart = time.Now()
 		}
 	} else {
-		rt.menu.chosen, rt.menu.choice, rt.menu.label = p.id, id, p.labels[id-1]
+		mr := &rt.menu
+		mr.chosen, mr.chosenButton, mr.choice, mr.label = p.id, p.button, id, p.labels[id-1]
 	}
 	rt.requestFrame()
 }
@@ -367,7 +408,7 @@ func (rt *engine) editMenu(s *state) {
 		pm.Items = append(pm.Items, it)
 		labels[i], names[i] = c.label, c.name
 	}
-	rt.openMenu(s.id, pm, labels, names)
+	rt.openMenu(s.id, false, pm, labels, names)
 }
 
 // accelerator writes a key with modifiers as menus take it, as in

@@ -82,7 +82,7 @@ var (
 	atkStates struct {
 		enabled, sensitive, visible, showing, focusable, focused, checkable, checked, indeterminate,
 		expandable, expanded, editable, readOnly, multiLine, singleLine, selectableText, defunct int32
-		selectable, selected, multiselectable int32
+		selectable, selected, multiselectable, hasPopup int32
 	}
 
 	// The trees of surfaces, by the surface and by its accessible, and the
@@ -249,7 +249,7 @@ func loadAccessNames() {
 		platform.RoleStatus: {"notification", "status bar"}, platform.RoleTable: {"table"}, platform.RoleRow: {"table row"},
 		platform.RoleCell: {"table cell"}, platform.RoleColumnHeader: {"column header", "table column header"},
 		platform.RoleTree: {"tree", "tree table"}, platform.RoleTreeItem: {"tree item", "list item"},
-		platform.RoleListItem: {"list item"},
+		platform.RoleListItem: {"list item"}, platform.RoleMenuButton: {"push button menu", "push button", "button"},
 	} {
 		atkRoles[r] = role(names...)
 	}
@@ -261,6 +261,7 @@ func loadAccessNames() {
 		&st.editable: "editable", &st.readOnly: "read-only", &st.multiLine: "multi-line",
 		&st.singleLine: "single-line", &st.selectableText: "selectable-text", &st.defunct: "defunct",
 		&st.selectable: "selectable", &st.selected: "selected", &st.multiselectable: "multiselectable",
+		&st.hasPopup: "has-popup",
 	} {
 		*p = atkStateTypeForName(cs(name))
 	}
@@ -569,6 +570,8 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 		}
 	case platform.RolePopUpButton:
 		list = append(list, st.expandable)
+	case platform.RoleMenuButton:
+		list = append(list, st.hasPopup)
 	case platform.RoleTextField:
 		list = append(list, st.selectableText)
 		if n.States&platform.AccessReadOnly == 0 {
