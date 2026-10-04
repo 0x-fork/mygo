@@ -6,10 +6,12 @@ import (
 	"runtime"
 	"syscall"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/gpu"
 	"github.com/egoist/mygo/internal/gpu/gputest"
+	"github.com/egoist/mygo/internal/scene"
 )
 
 // hiddenWindow creates a window that never shows, for a swap chain.
@@ -33,7 +35,7 @@ func (r *Renderer) readBack(t *testing.T) ([]byte, int) {
 	}
 	defer free(&back)
 	const usageStaging, cpuAccessRead, mapRead, ctxCopyResource = 3, 0x20000, 1, 47
-	desc := texture2DDesc{Width: uint32(r.w), Height: uint32(r.h), MipLevels: 1, ArraySize: 1, Format: formatB8G8R8A8Unorm,
+	desc := texture2DDesc{Width: uint32(r.bw), Height: uint32(r.bh), MipLevels: 1, ArraySize: 1, Format: formatB8G8R8A8Unorm,
 		SampleCount: 1, Usage: usageStaging, CPUAccessFlags: cpuAccessRead}
 	if hr := call(r.device, devCreateTexture2D, uintptr(unsafe.Pointer(&desc)), 0, uintptr(unsafe.Pointer(&staging))); failed(hr) {
 		t.Fatalf("no staging texture: %#x", uint32(hr))
@@ -72,11 +74,71 @@ func TestDrawsAsTheCPURenderer(t *testing.T) {
 			}
 			pix, stride := r.readBack(t)
 			gputest.Compare(t, "d3d11", pix, stride, s)
-			if err := r.present(); err != nil {
+			if err := r.present(1); err != nil {
 				t.Fatalf("frame %d: %v", frame, err)
 			}
 		}
 		r.Release()
+	}
+}
+
+// TestResizeSettles checks that while the window changes size the swap
+// chain shows part of larger buffers, resized only when the window
+// outgrows them, and that once the settle timer asked for a frame, the
+// frame gives it buffers of the window's size again.
+func TestResizeSettles(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	defer func(d time.Duration) { settleDelay = d }(settleDelay)
+	settleDelay = 50 * time.Millisecond
+	r, err := New(hiddenWindow(t, 200, 150))
+	if err != nil {
+		t.Skip("no Direct3D 11:", err)
+	}
+	defer r.Release()
+	frame := func(w, h int) {
+		t.Helper()
+		if err := r.draw(&scene.Scene{Width: w, Height: h}); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.present(0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	frame(200, 150)
+	if r.swapChain2 == 0 {
+		t.Skip("no IDXGISwapChain2")
+	}
+	if r.bw != 200 || r.bh != 150 || r.resizing {
+		t.Fatalf("first frame: buffers %dx%d, resizing %v; want 200x150 and not resizing", r.bw, r.bh, r.resizing)
+	}
+	frame(220, 160)
+	bw, bh := r.bw, r.bh
+	if !r.resizing || bw <= 220 || bh <= 160 {
+		t.Fatalf("resized: buffers %dx%d, resizing %v; want larger than 220x160 and resizing", bw, bh, r.resizing)
+	}
+	frame(230, 155)
+	if r.bw != bw || r.bh != bh || r.w != 230 || r.h != 155 {
+		t.Fatalf("resized within the buffers: buffers %dx%d showing %dx%d; want %dx%d showing 230x155", r.bw, r.bh, r.w, r.h, bw, bh)
+	}
+	// The timer fires as messages are dispatched.
+	user32 := syscall.NewLazyDLL("user32.dll")
+	peek, dispatch := user32.NewProc("PeekMessageW"), user32.NewProc("DispatchMessageW")
+	var msg [64]byte
+	for deadline := time.Now().Add(5 * time.Second); settling[r.hwnd]; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the settle timer did not fire")
+		}
+		for {
+			if ok, _, _ := peek.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0, 1); ok == 0 {
+				break
+			}
+			dispatch.Call(uintptr(unsafe.Pointer(&msg)))
+		}
+	}
+	frame(230, 155)
+	if r.bw != 230 || r.bh != 155 || r.resizing {
+		t.Fatalf("settled: buffers %dx%d, resizing %v; want 230x155 and not resizing", r.bw, r.bh, r.resizing)
 	}
 }
 

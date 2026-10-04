@@ -1455,7 +1455,18 @@ either.
     `shader.hlsl` falls back to compiling that with the same DLL, which
     Windows has, and its test fails. It draws into a flip-model swap
     chain on the surface's window, with WARP when no hardware device
-    works;
+    works. At most one frame waits ahead of the screen, not DXGI's three,
+    so frames that follow each other, as when scrolling or animating,
+    show their input two frames sooner. A frame of a new size is
+    presented at once (sync interval 0), not after the frame queued
+    before it, and waits until DWM shows it (`DwmFlush`), so a live
+    resize shows no stretched frames: the window takes its next size
+    with the frame of that size. Resizing the buffers takes DWM longer
+    than a frame for a window about as large as a 4K screen, so while
+    the window changes size the swap chain has three buffers a quarter
+    larger than the window, and shows the window's size of them
+    (`SetSourceSize`), until a frame a second after the last change,
+    which a timer asks for, gives it two of the window's size again;
   - `internal/gpu/metal` with a shader in Metal Shading Language
     compiled into a Metal library ahead of time (`go generate
     ./internal/gpu/metal` on macOS, with Xcode's `metal` tools), which

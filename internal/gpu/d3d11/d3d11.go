@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/gpu"
@@ -24,6 +25,11 @@ import (
 var (
 	d3d11dll              = syscall.NewLazyDLL(systemDir() + `\d3d11.dll`)
 	procD3D11CreateDevice = d3d11dll.NewProc("D3D11CreateDevice")
+	procDwmFlush          = syscall.NewLazyDLL(systemDir() + `\dwmapi.dll`).NewProc("DwmFlush")
+	user32                = syscall.NewLazyDLL(systemDir() + `\user32.dll`)
+	procSetTimer          = user32.NewProc("SetTimer")
+	procKillTimer         = user32.NewProc("KillTimer")
+	procInvalidateRect    = user32.NewProc("InvalidateRect")
 )
 
 func systemDir() string {
@@ -44,7 +50,9 @@ type guid struct {
 
 var (
 	iidIDXGIDevice     = guid{0x54ec77fa, 0x1377, 0x44e6, [8]byte{0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c}}
+	iidIDXGIDevice1    = guid{0x77db970f, 0x6276, 0x48ba, [8]byte{0xba, 0x28, 0x07, 0x01, 0x43, 0xb4, 0x39, 0x2c}}
 	iidIDXGIFactory2   = guid{0x50c83a1c, 0xe072, 0x4c48, [8]byte{0x87, 0xb0, 0x36, 0x30, 0xfa, 0x36, 0xa6, 0xd0}}
+	iidIDXGISwapChain2 = guid{0xa8be2ac4, 0x199f, 0x4946, [8]byte{0xb3, 0x31, 0x79, 0x59, 0x9f, 0xb9, 0x8d, 0xe7}}
 	iidID3D11Texture2D = guid{0x6f15aaf2, 0xd208, 0x4e89, [8]byte{0x9a, 0xb4, 0x48, 0x95, 0x35, 0xd3, 0x4f, 0x9c}}
 )
 
@@ -86,12 +94,14 @@ const (
 	ctxClearState              = 110
 	ctxFlush                   = 111
 	dxgiDevGetAdapter          = 7
+	dxgiDevSetMaxLatency       = 12 // IDXGIDevice1::SetMaximumFrameLatency
 	dxgiGetParent              = 6
 	factoryMakeWindowAssoc     = 8
 	factoryCreateSwapChainHwnd = 15
 	scPresent                  = 8
 	scGetBuffer                = 9
 	scResizeBuffers            = 13
+	scSetSourceSize            = 29 // IDXGISwapChain2
 )
 
 const (
@@ -230,8 +240,16 @@ type Renderer struct {
 	factory   uintptr
 	swapChain uintptr
 	rtv       uintptr
-	w, h      int
+	w, h      int  // the size drawn, which the swap chain shows
 	warp      bool // the device is WARP, Windows' software rasterizer
+
+	// swapChain2 is the swap chain's IDXGISwapChain2 (Windows 8.1), bw×bh
+	// the size of its buffers, larger than w×h while resizing, and
+	// resizedAt when the window last changed size.
+	swapChain2 uintptr
+	bw, bh     int
+	resizing   bool
+	resizedAt  time.Time
 
 	vs, ps, layout      uintptr
 	blend, raster, samp uintptr
@@ -287,6 +305,14 @@ func (r *Renderer) init() error {
 		return errors.New("d3d11: no DXGI device")
 	}
 	defer free(&dxgiDev)
+	// One frame queued ahead of the screen, not three: a frame shows the
+	// input of when it was drawn while frames follow each other, as when
+	// scrolling or animating.
+	var dxgiDev1 uintptr
+	if !failed(call(r.device, 0, uintptr(unsafe.Pointer(&iidIDXGIDevice1)), uintptr(unsafe.Pointer(&dxgiDev1)))) {
+		call(dxgiDev1, dxgiDevSetMaxLatency, 1)
+		free(&dxgiDev1)
+	}
 	if failed(call(dxgiDev, dxgiDevGetAdapter, uintptr(unsafe.Pointer(&adapter)))) {
 		return errors.New("d3d11: no adapter")
 	}
@@ -342,23 +368,68 @@ func (r *Renderer) init() error {
 	return nil
 }
 
-// resize makes the swap chain w×h pixels.
+// Resizing the buffers of a swap chain, as each step of a resize would,
+// takes DWM longer than a frame for a window about as large as a 4K
+// screen. So while the window changes size, the swap chain has three
+// buffers, a quarter larger than the window, and shows the window's size
+// of them (SetSourceSize): they are resized only when the window outgrows
+// them, and a frame is free to draw while DWM holds two. A frame
+// settleDelay after the last change, which the settle timer asks for,
+// gives the swap chain two buffers of the window's size again.
+const (
+	resizeBuffers = 3
+	settleTimer   = 0x6d79 // the timer's ID on the window
+)
+
+var settleDelay = time.Second
+
+// resize makes the swap chain show w×h pixels.
 func (r *Renderer) resize(w, h int) error {
 	if r.swapChain != 0 && w == r.w && h == r.h {
+		if r.resizing && time.Since(r.resizedAt) >= settleDelay/2 {
+			r.resizing = false
+			return r.buffers(w, h, w, h, 2)
+		}
 		return nil
 	}
+	if r.swapChain == 0 || r.swapChain2 == 0 {
+		return r.buffers(w, h, w, h, 2)
+	}
+	r.resizedAt = time.Now()
+	r.armSettle()
+	if r.resizing && w <= r.bw && h <= r.bh {
+		if hr := call(r.swapChain2, scSetSourceSize, uintptr(w), uintptr(h)); failed(hr) {
+			return fmt.Errorf("d3d11: cannot set the swap chain's source size: %#x", uint32(hr))
+		}
+		r.w, r.h = w, h
+		return nil
+	}
+	r.resizing = true
+	return r.buffers(w, h, w+w/4+64, h+h/4+64, resizeBuffers)
+}
+
+// buffers makes the swap chain n buffers of bw×bh pixels, which shows w×h
+// of them.
+func (r *Renderer) buffers(w, h, bw, bh, n int) error {
 	free(&r.rtv)
 	if r.swapChain == 0 {
-		desc := swapChainDesc1{Width: uint32(w), Height: uint32(h), Format: formatB8G8R8A8Unorm, SampleCount: 1,
-			BufferUsage: 0x20, BufferCount: 2, Scaling: 0, SwapEffect: 4 /* flip discard */}
+		desc := swapChainDesc1{Width: uint32(bw), Height: uint32(bh), Format: formatB8G8R8A8Unorm, SampleCount: 1,
+			BufferUsage: 0x20, BufferCount: uint32(n), Scaling: 0, SwapEffect: 4 /* flip discard */}
 		if hr := call(r.factory, factoryCreateSwapChainHwnd, r.device, r.hwnd, uintptr(unsafe.Pointer(&desc)), 0, 0, uintptr(unsafe.Pointer(&r.swapChain))); failed(hr) {
 			return fmt.Errorf("d3d11: cannot create the swap chain: %#x", uint32(hr))
 		}
 		const noAltEnter = 2
 		call(r.factory, factoryMakeWindowAssoc, r.hwnd, noAltEnter)
-	} else if hr := call(r.swapChain, scResizeBuffers, 0, uintptr(w), uintptr(h), 0, 0); failed(hr) {
+		call(r.swapChain, 0, uintptr(unsafe.Pointer(&iidIDXGISwapChain2)), uintptr(unsafe.Pointer(&r.swapChain2)))
+	} else if hr := call(r.swapChain, scResizeBuffers, uintptr(n), uintptr(bw), uintptr(bh), 0, 0); failed(hr) {
 		return fmt.Errorf("d3d11: cannot resize the swap chain: %#x", uint32(hr))
 	}
+	if r.swapChain2 != 0 {
+		if hr := call(r.swapChain2, scSetSourceSize, uintptr(w), uintptr(h)); failed(hr) {
+			return fmt.Errorf("d3d11: cannot set the swap chain's source size: %#x", uint32(hr))
+		}
+	}
+	r.bw, r.bh = bw, bh
 	var back uintptr
 	if hr := call(r.swapChain, scGetBuffer, 0, uintptr(unsafe.Pointer(&iidID3D11Texture2D)), uintptr(unsafe.Pointer(&back))); failed(hr) {
 		return fmt.Errorf("d3d11: no back buffer: %#x", uint32(hr))
@@ -375,8 +446,36 @@ func (r *Renderer) resize(w, h int) error {
 // want of a GPU.
 func (r *Renderer) Software() bool { return r.warp }
 
+// settling holds the windows whose settle timer is armed; settleProc is
+// the timers' callback, made once.
+var (
+	settling   = map[uintptr]bool{}
+	settleProc uintptr
+)
+
+// armSettle has the window ask for a frame settleDelay from now, unless
+// it changes size again before.
+func (r *Renderer) armSettle() {
+	if settleProc == 0 {
+		settleProc = syscall.NewCallback(func(hwnd, msg, id, ms uintptr) uintptr {
+			procKillTimer.Call(hwnd, id)
+			if settling[hwnd] {
+				delete(settling, hwnd)
+				procInvalidateRect.Call(hwnd, 0, 0)
+			}
+			return 0
+		})
+	}
+	settling[r.hwnd] = true
+	procSetTimer.Call(r.hwnd, settleTimer, uintptr(settleDelay/time.Millisecond), settleProc)
+}
+
 // Release frees the renderer's GPU objects.
 func (r *Renderer) Release() {
+	if settling[r.hwnd] {
+		delete(settling, r.hwnd)
+		procKillTimer.Call(r.hwnd, settleTimer)
+	}
 	if r.ctx != 0 {
 		call(r.ctx, ctxClearState)
 		call(r.ctx, ctxFlush)
@@ -390,7 +489,7 @@ func (r *Renderer) Release() {
 		free(&t.srv)
 		free(&t.tex)
 	}
-	for _, p := range []*uintptr{&r.rtv, &r.swapChain, &r.instBuf, &r.cbuf, &r.samp, &r.raster, &r.blend, &r.layout, &r.ps, &r.vs, &r.factory, &r.ctx, &r.device} {
+	for _, p := range []*uintptr{&r.rtv, &r.swapChain2, &r.swapChain, &r.instBuf, &r.cbuf, &r.samp, &r.raster, &r.blend, &r.layout, &r.ps, &r.vs, &r.factory, &r.ctx, &r.device} {
 		free(p)
 	}
 }
@@ -463,10 +562,26 @@ func (r *Renderer) Render(s *scene.Scene) error {
 	if s.Width <= 0 || s.Height <= 0 {
 		return nil
 	}
+	resized := r.swapChain != 0 && (s.Width != r.w || s.Height != r.h)
 	if err := r.draw(s); err != nil {
 		return err
 	}
-	return r.present()
+	// A frame of a new size is presented at once (sync interval 0), not
+	// after the frame queued before it, which would miss the next
+	// composition, and waits until the compositor shows it: the window
+	// takes its next size, as the user drags its border, with the frame of
+	// that size, rather than show older frames stretched to it.
+	sync := uintptr(1)
+	if resized {
+		sync = 0
+	}
+	if err := r.present(sync); err != nil {
+		return err
+	}
+	if resized {
+		procDwmFlush.Call()
+	}
+	return nil
 }
 
 // draw draws s into the swap chain's back buffer.
@@ -540,9 +655,9 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	return nil
 }
 
-// present shows the back buffer.
-func (r *Renderer) present() error {
-	hr := call(r.swapChain, scPresent, 1, 0)
+// present shows the back buffer, after sync vertical blanks.
+func (r *Renderer) present(sync uintptr) error {
+	hr := call(r.swapChain, scPresent, sync, 0)
 	if failed(hr) {
 		return fmt.Errorf("d3d11: present failed: %#x", uint32(hr))
 	}
