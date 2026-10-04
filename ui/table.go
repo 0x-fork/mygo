@@ -16,7 +16,8 @@ type TableColumn struct {
 // s keeps the place of the rows and says how they behave, as a List's, or
 // nil: with s.Selected, a click chooses a row, as Up, Down, Home and End
 // do while the table has the keyboard focus, Changed reports a new choice,
-// and Submitted a double click or Enter on it. A row s.Header names spans
+// and Submitted a double click or Enter on it; with s.Selection, the user
+// chooses several. A row s.Header names spans
 // every column, cell building it as column 0, and stays at the top while
 // the rows of its section scroll under it.
 //
@@ -81,7 +82,7 @@ func Table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 				row.Children(func() { cell(i, 0) })
 				return
 			}
-			if s.Selected == nil {
+			if s.cursor() == nil {
 				// Chosen rows show the pointer over them already.
 				row.flags |= flagHover
 				row.styleFn = func(row *Element) {

@@ -93,6 +93,9 @@ const (
 	// AccessOffscreen is set on elements built but out of view, as the
 	// rows a list builds beyond its edges.
 	AccessOffscreen
+	// AccessMultiselectable is set on a list or a table whose user
+	// chooses several rows.
+	AccessMultiselectable
 )
 
 // AccessActions are the actions an element of an AccessTree takes.

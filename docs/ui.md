@@ -232,8 +232,20 @@ it behaves and to move it:
   come or grow, until the user scrolls away from it, as a chat or a log
   does; scrolling back to the end follows it again.
 - `Selected` lets a click, or Up, Down, Home and End while the list has the
-  keyboard focus, choose a row, which shows in the accent color; the list's
-  `Changed` reports a new choice, and `Submitted` a double click or Enter.
+  keyboard focus (and Page Up and Page Down on Linux and Windows), choose a
+  row, which shows in the accent color; the list's `Changed` reports a new
+  choice, and `Submitted` a double click or Enter.
+- `Selection` lets the user choose several rows, held in a
+  `ui.Selection[K]` by the keys of their items (`Key`), or by their indices
+  without one: a click chooses one, Cmd-click (Ctrl-click on Linux and
+  Windows) adds a row or takes it out, and Shift-click or Shift with the
+  keys chooses the rows from the one last chosen; Cmd+A chooses all. On
+  Linux and Windows, Ctrl with the keys moves without choosing, and
+  Ctrl+Space adds the row there or takes it out. `Selected`, set as well,
+  is the row last chosen.
+- `Label` returns the text of a row: typing its first letters while the
+  list has the focus chooses it, as in Finder or Explorer, and assistive
+  technology reads it as the row's name.
 - `Header` names the rows heading sections: the header of the section at
   the top stays pinned there while its rows scroll under it, until the next
   header pushes it away. Give headers a background.
@@ -243,6 +255,33 @@ it behaves and to move it:
   scrolls as the frame is laid out, to where the row is once measured.
   `Visible` returns the first and last rows in view and `AtEnd` whether the
   end shows, to load more as the list nears the end of what was loaded.
+
+Files to choose several of, by their paths:
+
+```go
+type app struct {
+	files  []File
+	chosen ui.Selection[string]
+	list   ui.ListState
+}
+
+app.list.Key = func(i int) any { return app.files[i].Path }
+app.list.Label = func(i int) string { return app.files[i].Name }
+app.list.Selection = &app.chosen
+ui.List(c, &app.list, len(app.files), func(i int) {
+	ui.Text(c, app.files[i].Name).Padding(6, 12)
+}).Grow(1)
+if ui.Button(c, fmt.Sprintf("Delete %d", app.chosen.Len())).Clicked() {
+	for path := range app.chosen.All() {
+		app.delete(path)
+	}
+	app.chosen.Clear()
+}
+```
+
+The keys of items gone from the list stay in the selection until you take
+them out. `Element.ClickModifiers` gives the modifier keys of any click, for
+widgets of your own that do the same.
 
 A chat:
 
@@ -272,7 +311,8 @@ others leave) and an alignment; `cell` builds the content of a row's
 column. Rows are as high as their tallest cell, so text that wraps makes
 its row taller. The table takes the same `ListState` as a list, or `nil`,
 and takes the keyboard focus for it: with `Selected`, a click or the keys
-choose a row, and `Submitted` reports a double click or Enter. A row
+choose a row, with `Selection` several, and `Submitted` reports a double
+click or Enter. A row
 `Header` names spans every column, which `cell` builds as column 0, and
 stays at the top while its section's rows scroll under it.
 
@@ -597,8 +637,9 @@ func Disclosure(c *ui.Context, title string, body func()) {
 
 - **Pointer.** `Hovered`, `Pressed`, `Clicked`, `DoubleClicked`,
   `RightClicked`, `Dragged` (how far the pointer moved since the last frame
-  while pressing the element) and `PointerPosition`. `PassThrough` lets the
-  pointer through to what is below.
+  while pressing the element) and `PointerPosition`. `ClickModifiers`
+  returns the modifier keys held for the last click, as Shift for a
+  Shift-click. `PassThrough` lets the pointer through to what is below.
 - **Keyboard focus.** `Focusable` elements take the focus when clicked, and
   Tab and Shift+Tab move it between them, with a focus ring when it moves
   by keyboard. `AutoFocus` gives an element the focus when it appears, such

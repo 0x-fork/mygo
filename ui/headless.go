@@ -178,9 +178,24 @@ func (t *Tester) Click(s string) error {
 }
 
 // ClickAt clicks at (x, y), in DIPs.
-func (t *Tester) ClickAt(x, y float32) {
-	t.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: float64(x), Y: float64(y)})
-	t.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: float64(x), Y: float64(y)})
+func (t *Tester) ClickAt(x, y float32) { t.ClickAtWith(0, x, y) }
+
+// ClickWith clicks the center of the element showing text or labeled s
+// holding the modifier keys mods, as a Shift-click.
+func (t *Tester) ClickWith(mods Modifiers, s string) error {
+	r, ok := t.Find(s)
+	if !ok {
+		return fmt.Errorf("ui: no element shows %q", s)
+	}
+	t.ClickAtWith(mods, r.X+r.W/2, r.Y+r.H/2)
+	return nil
+}
+
+// ClickAtWith clicks at (x, y), in DIPs, holding the modifier keys mods.
+func (t *Tester) ClickAtWith(mods Modifiers, x, y float32) {
+	m := platform.Modifiers(mods)
+	t.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: float64(x), Y: float64(y), Mods: m})
+	t.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: float64(x), Y: float64(y), Mods: m})
 }
 
 // RightClick clicks the center of the element showing text or labeled s

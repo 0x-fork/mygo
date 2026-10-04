@@ -246,7 +246,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 		return
 	}
 	rt.pressed, rt.pressButton = target, button
-	target.pressed = true
+	target.pressed, target.pressMods = true, mods
 	target.pressX, target.pressY = x-target.x, y-target.y
 	if target.editor != nil {
 		target.editor.pressMods = mods
@@ -283,6 +283,7 @@ func (rt *engine) pointerUp(button, clicks int) {
 		switch button {
 		case 0:
 			s.clicks++
+			s.clickMods = s.pressMods
 		case 1:
 			s.rightClicks++
 		}
@@ -451,6 +452,20 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 		rt.requestFrame()
 		return false
 	}
+	if s := rt.states[rt.focused]; s != nil && s.flags&flagTypeSelect != 0 && !rt.claimed(k) {
+		// The first letters of a row of a list: they add up while typed
+		// quickly enough, with spaces once the first came.
+		now := time.Now()
+		if now.Sub(s.typedAt) >= typePause {
+			s.typed = ""
+		}
+		if r, ok := typedRune(mods, key); ok && (r != ' ' || s.typed != "") {
+			s.typed += string(r)
+			s.typedAt, s.typing = now, true
+			rt.requestFrame()
+			return false
+		}
+	}
 	if key == KeyTab && (mods == 0 || mods == Shift) && !rt.claimed(k) {
 		rt.moveFocus(mods == Shift)
 		rt.requestFrame()
@@ -464,6 +479,7 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 		window := s != nil && key == KeyEnter && s.flags&flagToggle != 0
 		if s != nil && !rt.claimedBy(k, window) && s.flags&flagClickable != 0 && s.flags&flagDisabled == 0 {
 			s.clicks++
+			s.clickMods = 0
 			rt.focusVisible = true
 			rt.requestFrame()
 			return false
@@ -475,6 +491,26 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 	rt.keys = append(rt.keys, k)
 	rt.requestFrame()
 	return false
+}
+
+// typePause is how long after a letter typed to choose a row the next
+// one starts anew.
+const typePause = time.Second
+
+// typedRune returns the letter, digit or space a key types without
+// modifiers but Shift, in lowercase, for choosing a row by its text.
+func typedRune(mods Modifiers, key Key) (rune, bool) {
+	switch {
+	case mods&^Shift != 0:
+		return 0, false
+	case key >= KeyA && key <= KeyZ:
+		return 'a' + rune(key-KeyA), true
+	case key >= Key0 && key <= Key9:
+		return '0' + rune(key-Key0), true
+	case key == KeySpace:
+		return ' ', true
+	}
+	return 0, false
 }
 
 // moveFocus focuses the next (or previous) element that takes the focus.
@@ -666,6 +702,11 @@ func (e *Element) Clicks() int {
 	}
 	return e.st.clicks
 }
+
+// ClickModifiers returns the modifier keys held as the element was last
+// clicked, none for a click by the keyboard: with Clicked, a click with
+// Shift or Cmd does something else, as extending a choice.
+func (e *Element) ClickModifiers() Modifiers { return e.st.clickMods }
 
 // DoubleClicked reports a double click on the element.
 func (e *Element) DoubleClicked() bool {

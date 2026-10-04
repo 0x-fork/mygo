@@ -272,7 +272,7 @@ func (rt *engine) forgetInput() {
 		}
 		s.clicks, s.rightClicks, s.doubleClicks = 0, 0, 0
 		s.dragX, s.dragY = 0, 0
-		s.changed, s.submitted = false, false
+		s.changed, s.submitted, s.typing = false, false, false
 		s.dropped = nil
 	}
 }

@@ -244,6 +244,15 @@ type state struct {
 	cursor         Cursor
 
 	clicks, rightClicks, doubleClicks int
+	// pressMods are the modifiers held as the pointer went down on the
+	// element, and clickMods those of its last click.
+	pressMods, clickMods Modifiers
+	// typed is what was typed to choose a row of a list taking the focus
+	// for them since typedAt, and typing reports more since the last
+	// frame.
+	typed   string
+	typedAt time.Time
+	typing  bool
 	// press is where the pointer went down in the element; dragX and dragY
 	// add up its moves since the last frame.
 	pressX, pressY float32

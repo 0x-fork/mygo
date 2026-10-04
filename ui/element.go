@@ -105,6 +105,9 @@ const (
 	flagChoosable
 	// flagModal marks the backdrop of a dialog, which scopes the focus.
 	flagModal
+	// flagTypeSelect marks a list that typing the first letters of a
+	// row chooses it in.
+	flagTypeSelect
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY

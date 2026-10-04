@@ -82,7 +82,7 @@ var (
 	atkStates struct {
 		enabled, sensitive, visible, showing, focusable, focused, checkable, checked, indeterminate,
 		expandable, expanded, editable, readOnly, multiLine, singleLine, selectableText, defunct int32
-		selectable, selected int32
+		selectable, selected, multiselectable int32
 	}
 
 	// The trees of surfaces, by the surface and by its accessible, and the
@@ -260,7 +260,7 @@ func loadAccessNames() {
 		&st.indeterminate: "indeterminate", &st.expandable: "expandable", &st.expanded: "expanded",
 		&st.editable: "editable", &st.readOnly: "read-only", &st.multiLine: "multi-line",
 		&st.singleLine: "single-line", &st.selectableText: "selectable-text", &st.defunct: "defunct",
-		&st.selectable: "selectable", &st.selected: "selected",
+		&st.selectable: "selectable", &st.selected: "selected", &st.multiselectable: "multiselectable",
 	} {
 		*p = atkStateTypeForName(cs(name))
 	}
@@ -284,8 +284,9 @@ type accessNode struct {
 	parent   *accessNode
 	children []*accessNode
 	n        platform.AccessNode
-	// chosen is the row a list choosing its rows chose, 0 for none.
-	chosen uint64
+	// chosen are the rows a list choosing its rows chose, among those
+	// built.
+	chosen []uint64
 }
 
 // chooses reports whether a node is the row of a list or a table that its
@@ -426,7 +427,7 @@ func (t *accessTree) update(tree *platform.AccessTree) {
 			atkObjectSetParent(an.obj, parentObj)
 		}
 		an.parent = parent
-		if roleStates := platform.AccessPassword | platform.AccessMultiline | platform.AccessSelectable; fresh[i] || prev[i].Role != an.n.Role || prev[i].States&roleStates != an.n.States&roleStates {
+		if roleStates := platform.AccessPassword | platform.AccessMultiline | platform.AccessSelectable | platform.AccessMultiselectable; fresh[i] || prev[i].Role != an.n.Role || prev[i].States&roleStates != an.n.States&roleStates {
 			atkObjectSetRole(an.obj, an.role())
 		}
 		if fresh[i] || prev[i].Label != an.n.Label {
@@ -463,11 +464,11 @@ func (t *accessTree) update(tree *platform.AccessTree) {
 		if an.typ != selectionType {
 			continue
 		}
-		chosen := uint64(0)
-		if rows := an.chosenRows(); len(rows) > 0 {
-			chosen = rows[0].n.ID
+		var chosen []uint64
+		for _, r := range an.chosenRows() {
+			chosen = append(chosen, r.n.ID)
 		}
-		if chosen != an.chosen {
+		if !slices.Equal(chosen, an.chosen) {
 			an.chosen = chosen
 			if notify {
 				gSignalEmit(an.obj, cs("selection-changed"))
@@ -589,6 +590,9 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 	}
 	if n.States&platform.AccessExpanded != 0 {
 		list = append(list, st.expanded)
+	}
+	if n.States&platform.AccessMultiselectable != 0 {
+		list = append(list, st.multiselectable)
 	}
 	return slices.DeleteFunc(list, func(s int32) bool { return s == 0 })
 }
@@ -1002,8 +1006,8 @@ func initAccessCallbacks() {
 			12: selection, 23: stringAtOffset})
 	})
 
-	// The rows a list chooses: one at most, which choosing a row as a
-	// click does changes.
+	// The rows a list chooses, which choosing a row as a click does
+	// changes: it chooses that row alone.
 	childAt := func(obj ptr, i int32) *accessNode {
 		if an := node(obj); an != nil && i >= 0 && int(i) < len(an.children) {
 			return an.children[i]

@@ -13,6 +13,7 @@ import (
 	"log"
 	"math"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -41,6 +42,7 @@ type gallery struct {
 	split    float32
 	copies   float64
 	file     int
+	chosen   ui.Selection[string]
 	tree     map[string]bool
 	leaf     string
 	birthday time.Time
@@ -498,7 +500,12 @@ func (g *gallery) list(c *ui.Context) {
 		files := []string{"report.pdf", "photo.jpg", "notes.md", "budget.xlsx", "slides.key", "song.mp3"}
 		card(c, "Table", func() {
 			cols := []ui.TableColumn{{Title: "Name"}, {Title: "Size", Width: 90, Align: ui.End}}
+			// Several files chosen by their names, the one last chosen
+			// opening; typing a name goes to it.
+			g.table.Key = func(i int) any { return files[i] }
+			g.table.Label = func(i int) string { return files[i] }
 			g.table.Selected = &g.file
+			g.table.Selection = &g.chosen
 			if ui.Table(c, &g.table, cols, len(files), func(row, col int) {
 				if col == 0 {
 					ui.Text(c, files[row]).SingleLine()
@@ -508,6 +515,11 @@ func (g *gallery) list(c *ui.Context) {
 			}).Grow(1).Submitted() {
 				c.Toast("Opened " + files[g.file])
 			}
+			cmd := "Ctrl"
+			if runtime.GOOS == "darwin" {
+				cmd = "Cmd"
+			}
+			ui.Textf(c, "%d chosen. Shift-click or %s-click to choose several; type a name to go to it.", g.chosen.Len(), cmd).FontSize(12).TextColor(t.TextMuted)
 		}).Grow(1)
 	})
 }

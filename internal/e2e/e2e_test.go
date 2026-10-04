@@ -2100,6 +2100,41 @@ func TestContentWindowListAccessibility(t *testing.T) {
 	})
 }
 
+// TestContentWindowListTypeToChoose types the first letters of a row of a
+// focused list, which chooses it: the keys come to a list, which takes no
+// text, as they do to a text input.
+func TestContentWindowListTypeToChoose(t *testing.T) {
+	var frames atomic.Int32
+	chosen := -1
+	words := []string{"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"}
+	label := func(i int) string { return fmt.Sprintf("%s %d", words[i%len(words)], i) }
+	var list ui.ListState
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		list.Selected, list.Label = &chosen, label
+		ui.List(c, &list, 1000, func(i int) {
+			ui.Text(c, label(i)).Padding(6, 10)
+		}).Fill()
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Type to choose", Width: 300, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	get := func() (c int) {
+		mygo.RunOnMain(func() { c = chosen })
+		return c
+	}
+	switch {
+	case clickAndType(w, 100, 12, "hot"):
+	case click(w, 100, 12):
+		eventually(t, "the first row chosen", func() bool { return get() == 0 })
+		if !pressKeys("h") || !pressKeys("o") || !pressKeys("t") {
+			t.Skip("typing automation not available on this platform")
+		}
+	default:
+		t.Skip("typing automation not available on this platform")
+	}
+	eventually(t, "hotel 7 chosen", func() bool { return get() == 7 })
+}
+
 // TestContentWindowTyping types into native UI right after a click, before
 // the window draws another frame, and composes text with an input method.
 func TestContentWindowTyping(t *testing.T) {

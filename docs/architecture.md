@@ -1024,7 +1024,11 @@ either.
   `posinset` and `setsize` object attributes, and `AtkComponent`'s
   `scroll_to` (ATK 2.30) scrolls; on Windows, rows have `PositionInSet`,
   `SizeOfSet`, `IsOffscreen`, `SelectionItem` (raising `ElementSelected`)
-  in their list's `Selection`, and `ScrollItem`.
+  in their list's `Selection`, and `ScrollItem`. A list choosing several
+  rows is `AccessMultiselectable` (ATK's `multiselectable`, UIA's
+  `CanSelectMultiple`, rows then raising `ElementAddedToSelection` and
+  `ElementRemovedFromSelection` unless chosen alone), and its focus is on
+  the row last chosen.
 - **The connection.** `content.go` attaches the content to its window
   through `internal/surface.Conn`, which carries the surface and, as
   functions, what the content needs of the app (the clipboard, dragging
@@ -1106,7 +1110,14 @@ either.
   one without rows lays out what else was built in it, as a scroll
   container. `Table` is a header of columns over a list, whose rows are as
   high as their tallest cell, and which takes the focus and the keys for
-  the list.
+  the list. Lists choosing several rows hold them by key in a
+  `Selection[K]`, through the unexported methods of the `Selector`
+  interface, so that the app reads its own keys back typed; the row last
+  chosen (the cursor: `Selected`, or the list's own), and the row Shift
+  extends from, follow their items by key as the choice does. Typing to
+  choose a row goes through the engine: letters, digits and spaces that no
+  shortcut takes add up in the focused list's state (`typed`, reset after
+  a second), which the list matches against `ListState.Label`.
 - **Overlays** (`ui/scope.go`) scope the keyboard. Committing a frame
   notes the dialog each focusable element is in (`DialogBase`'s backdrop,
   `flagModal`; a popover is in its anchor's), the dialog on top

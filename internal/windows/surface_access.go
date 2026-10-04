@@ -120,8 +120,10 @@ const (
 	uiaPositionInSetProperty    = 30152
 	uiaSizeOfSetProperty        = 30153
 
-	uiaFocusChangedEvent    = 20005
-	uiaElementSelectedEvent = 20012
+	uiaFocusChangedEvent                = 20005
+	uiaElementAddedToSelectionEvent     = 20010
+	uiaElementRemovedFromSelectionEvent = 20011
+	uiaElementSelectedEvent             = 20012
 
 	vtEmpty   = 0
 	vtI4      = 3
@@ -466,8 +468,19 @@ func (e *uiaElement) notifyChanges(prev platform.AccessNode) {
 	case e.supports(ifaceSelectionItem):
 		if before, after := prev.States&platform.AccessChecked != 0, n.States&platform.AccessChecked != 0; before != after {
 			changed(uiaIsSelectedProperty, boolVariant(before), boolVariant(after))
-			if after {
-				procUiaRaiseAutomationEvent.Call(e.ptr(ifaceSimple), uiaElementSelectedEvent)
+			// A row of a list choosing several joins the choice or leaves
+			// it, unless it is now the only one.
+			event := uintptr(uiaElementSelectedEvent)
+			if c := e.container(); c != nil && c.n.States&platform.AccessMultiselectable != 0 {
+				switch {
+				case !after:
+					event = uiaElementRemovedFromSelectionEvent
+				case len(c.chosen()) > 1:
+					event = uiaElementAddedToSelectionEvent
+				}
+			}
+			if after || event != uiaElementSelectedEvent {
+				procUiaRaiseAutomationEvent.Call(e.ptr(ifaceSimple), event)
 			}
 		}
 	case e.supports(ifaceRangeValue):
@@ -780,12 +793,7 @@ func initUIA() {
 			if e == nil {
 				return hr
 			}
-			var chosen []*uiaElement
-			for _, d := range e.tree.order {
-				if d.n.States&platform.AccessChecked != 0 && d.supports(ifaceSelectionItem) && d.container() == e {
-					chosen = append(chosen, d)
-				}
-			}
+			chosen := e.chosen()
 			sa, _, _ := procSafeArrayCreateVector.Call(vtUnknown, 0, uintptr(len(chosen)))
 			for i, d := range chosen {
 				index := int32(i)
@@ -795,7 +803,12 @@ func initUIA() {
 			return sOK
 		}),
 		cb(func(this, p uintptr) uintptr { // get_CanSelectMultiple
-			setBool(p, false)
+			e, hr := live(this)
+			if e == nil {
+				setBool(p, false)
+				return hr
+			}
+			setBool(p, e.n.States&platform.AccessMultiselectable != 0)
 			return sOK
 		}),
 		cb(func(this, p uintptr) uintptr { // get_IsSelectionRequired
@@ -937,6 +950,17 @@ func (e *uiaElement) property(id int, v *variant) {
 			*v = variant{VT: vtI4, Val: uint64(n.SetSize)}
 		}
 	}
+}
+
+// chosen returns the elements chosen in the element's Selection.
+func (e *uiaElement) chosen() []*uiaElement {
+	var chosen []*uiaElement
+	for _, d := range e.tree.order {
+		if d.n.States&platform.AccessChecked != 0 && d.supports(ifaceSelectionItem) && d.container() == e {
+			chosen = append(chosen, d)
+		}
+	}
+	return chosen
 }
 
 // container returns the element whose Selection holds the element's, the
