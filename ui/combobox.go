@@ -412,8 +412,9 @@ func SearchField(c *Context, query *string) *Element {
 	return f
 }
 
-// searchIcon is Lucide's search icon (ISC License): a magnifying glass.
-var searchIcon = MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>`))
+// searchIcon is a magnifying glass, MingCute's search icon (Apache License
+// 2.0, https://github.com/Richard9394/MingCute/blob/main/LICENSE).
+var searchIcon = MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" d="M14.5 14.5L20 20m-4-10a6 6 0 1 1-12 0a6 6 0 0 1 12 0Z"/></svg>`))
 
 // magnifier shows the magnifying glass of a field for searching, in the
 // muted color of the theme's text, no higher than a line of the field's
