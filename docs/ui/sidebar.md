@@ -33,12 +33,15 @@ as it is one stop. `Changed` reports a new choice. The item chosen shows in
 the accent color while the sidebar has the focus, in gray otherwise, as
 AppKit's.
 
-With a [router](navigation.md), the items' IDs are paths, and a new choice
-pushes its page:
+With a [router](navigation.md), a `*ui.Router` in your state, the items'
+IDs are paths, and a new choice pushes its page:
 
 ```go
 page := app.router.Path()
-if ui.Sidebar(c, &page, app.items).Width(220).Changed() {
+if ui.Sidebar(c, &page, func() {
+	ui.SidebarItem(c, "/notes", nil, "Notes")
+	ui.SidebarItem(c, "/files", nil, "Files")
+}).Width(220).Changed() {
 	app.router.Push(page)
 }
 ```

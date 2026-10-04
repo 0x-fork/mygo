@@ -8,18 +8,22 @@ the outline builds only the rows in view, as a [list](list.md) does, so
 trees of any size are as fast as small ones.
 
 ```go
-type app struct {
-	files ui.OutlineState[string] // paths
-	row   int
+type fileTree struct {
+	children map[string][]string // the paths in each directory
+	files    ui.OutlineState[string]
+	row      int
 }
 
-app.files.List.Selected = &app.row
-ui.Outline(c, &app.files, []string{"/"}, func(dir string) []string {
-	return app.children[dir] // nil for a file
-}, func(path string) {
-	ui.Text(c, filepath.Base(path))
-}).Grow(1)
-chosen := app.files.Item(app.row)
+func (app *fileTree) view(c *ui.Context) {
+	app.files.List.Selected = &app.row
+	ui.Outline(c, &app.files, []string{"/"}, func(dir string) []string {
+		return app.children[dir] // nil for a file
+	}, func(path string) {
+		ui.Text(c, filepath.Base(path))
+	}).Grow(1)
+	chosen := app.files.Item(app.row)
+	// …
+}
 ```
 
 ## Outline state

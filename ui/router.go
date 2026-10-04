@@ -12,22 +12,28 @@ import (
 // Router keeps the history of the pages of a window, or of a part of one,
 // as a browser does for a tab: the page shown, those before it that Back
 // returns to, and those after it that Forward goes to again. A page is a
-// path, as "/notes/42?tab=info", and View builds the one shown:
+// path, as "/notes/42?tab=info", and View builds the one shown. Make a
+// router once, in a field of the app's state, and build its pages in the
+// view:
 //
-//	app.router = ui.NewRouter("/notes")
-//	…
-//	app.router.View(c, func(r *ui.Route) {
-//		switch {
-//		case r.Match("/notes"):
-//			r.Title("Notes")
-//			app.notes(c)
-//		case r.Match("/notes/{id}"):
-//			r.Title("Note")
-//			app.note(c, r.Param("id"))
-//		default:
-//			ui.Text(c, "Not found")
-//		}
-//	})
+//	type notesApp struct{ router *ui.Router }
+//
+//	app := &notesApp{router: ui.NewRouter("/notes")}
+//
+//	func (app *notesApp) view(c *ui.Context) {
+//		app.router.View(c, func(r *ui.Route) {
+//			switch {
+//			case r.Match("/notes"):
+//				r.Title("Notes")
+//				app.notes(c)
+//			case r.Match("/notes/{id}"):
+//				r.Title("Note")
+//				app.note(c, r.Param("id"))
+//			default:
+//				ui.Text(c, "Not found")
+//			}
+//		})
+//	}
 //
 // Push goes to a page and Back comes back, as do Cmd+[ and Cmd+] on macOS,
 // Alt+Left and Alt+Right elsewhere, the back and forward buttons of a

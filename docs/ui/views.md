@@ -8,26 +8,42 @@ yours, in your own types, plus what MyGo keeps for each element from frame
 to frame (focus, hover, scrolling, the text being edited, animations).
 
 ```go
-type app struct {
+// todoList is the app's state, which lasts.
+type todoList struct {
 	todos []Todo
 	draft string
 }
 
-func (a *app) view(c *ui.Context) {
+// view builds the interface from it.
+func (app *todoList) view(c *ui.Context) {
 	ui.Column(c).Fill().Padding(16).Gap(8).Children(func() {
-		for i := range a.todos {
-			ui.Checkbox(c, &a.todos[i].Done, a.todos[i].Title)
+		for i := range app.todos {
+			ui.Checkbox(c, &app.todos[i].Done, app.todos[i].Title)
 		}
-		if ui.TextInput(c, &a.draft).Placeholder("New to-do").Submitted() {
-			a.todos = append(a.todos, Todo{Title: a.draft})
-			a.draft = ""
+		if ui.TextInput(c, &app.draft).Placeholder("New to-do").Submitted() {
+			app.todos = append(app.todos, Todo{Title: app.draft})
+			app.draft = ""
 		}
 	})
 }
 ```
 
-`ui.View(a.view)` is the window's content (`mygo.WindowOptions.Content`); a
-`Content` can serve several windows, each with its own element state.
+Make the state once, as the app starts, and give its view to the window:
+
+```go
+app := &todoList{}
+mygo.NewWindow(mygo.WindowOptions{Title: "To-dos", Content: ui.View(app.view)})
+```
+
+`ui.View(app.view)` is the window's content (`mygo.WindowOptions.Content`);
+a `Content` can serve several windows, each with its own element state.
+
+The examples in these guides are parts of such a view: `c` is the view's
+`*ui.Context`, and `app` its receiver, the value of your own type that
+holds the state, as `todoList` here. A field such as `app.volume` or a
+method such as `app.save()` is one you declare on that type. Values that
+last, such as a [router](navigation.md), are fields made with the rest of
+the state, never in the view, which runs for every frame.
 
 ## Events are questions
 
@@ -80,6 +96,7 @@ goroutines with `Window.Update`, which runs a function on the main thread
 and then draws a new frame:
 
 ```go
+win := mygo.NewWindow(mygo.WindowOptions{Content: ui.View(app.view)})
 go func() {
 	items, err := fetchItems()
 	win.Update(func() { app.items, app.err = items, err })

@@ -75,23 +75,25 @@ building the list.
 Files to choose several of, by their paths:
 
 ```go
-type app struct {
+type fileList struct {
 	files  []File
 	chosen ui.Selection[string]
 	list   ui.ListState
 }
 
-app.list.Key = func(i int) any { return app.files[i].Path }
-app.list.Label = func(i int) string { return app.files[i].Name }
-app.list.Selection = &app.chosen
-ui.List(c, &app.list, len(app.files), func(i int) {
-	ui.Text(c, app.files[i].Name).Padding(6, 12)
-}).Grow(1)
-if ui.Button(c, fmt.Sprintf("Delete %d", app.chosen.Len())).Clicked() {
-	for path := range app.chosen.All() {
-		app.delete(path)
+func (app *fileList) view(c *ui.Context) {
+	app.list.Key = func(i int) any { return app.files[i].Path }
+	app.list.Label = func(i int) string { return app.files[i].Name }
+	app.list.Selection = &app.chosen
+	ui.List(c, &app.list, len(app.files), func(i int) {
+		ui.Text(c, app.files[i].Name).Padding(6, 12)
+	}).Grow(1)
+	if ui.Button(c, fmt.Sprintf("Delete %d", app.chosen.Len())).Clicked() {
+		for path := range app.chosen.All() {
+			app.delete(path)
+		}
+		app.chosen.Clear()
 	}
-	app.chosen.Clear()
 }
 ```
 

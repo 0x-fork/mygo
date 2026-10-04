@@ -2,7 +2,8 @@
 
 `ui.BackButton` and `ui.ForwardButton` create buttons going back and forward
 in a [router](navigation.md)'s history, as in the toolbar of Finder or a
-browser: disabled at the ends of the history, and showing a chevron.
+browser: disabled at the ends of the history, and showing a chevron. Give
+them the router, a `*ui.Router` in your state:
 
 ```go
 ui.Toolbar(c, func() {

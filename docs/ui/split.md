@@ -6,14 +6,14 @@ keyboard focus: a `*float32` is the width of the first, which the divider
 keeps 40 DIPs from either edge. `Changed` reports a move.
 
 ```go
-ui.Split(c, &app.sidebarWidth, app.files, app.editor).Fill()
+ui.Split(c, &app.sidebarWidth, func() { app.files(c) }, func() { app.editor(c) }).Fill()
 ```
 
 `ui.SplitVertical` puts the first above the second, the `*float32` its
 height:
 
 ```go
-ui.SplitVertical(c, &app.consoleHeight, app.editor, app.console).Grow(1)
+ui.SplitVertical(c, &app.consoleHeight, func() { app.editor(c) }, func() { app.console(c) }).Grow(1)
 ```
 
 Keep the size in the app's state, and save it to restore the layout when

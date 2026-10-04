@@ -6,13 +6,13 @@ scrolls and presses keys.
 
 ```go
 func TestCounter(t *testing.T) {
-	s := &counter{}
-	tt := ui.NewTester(s.view, 320, 240)
+	app := &counter{}
+	tt := ui.NewTester(app.view, 320, 240)
 	if err := tt.Click("Increment"); err != nil {
 		t.Fatal(err)
 	}
-	if s.n != 1 || !tt.HasText("1") {
-		t.Errorf("count %d, texts %q", s.n, tt.Texts())
+	if app.n != 1 || !tt.HasText("1") {
+		t.Errorf("count %d, texts %q", app.n, tt.Texts())
 	}
 }
 ```

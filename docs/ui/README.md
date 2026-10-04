@@ -17,25 +17,27 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// counter is the app's state.
 type counter struct{ n int }
 
-func (s *counter) view(c *ui.Context) {
+// view builds the window's interface from the state, for every frame.
+func (app *counter) view(c *ui.Context) {
 	ui.Column(c).Fill().Center().Gap(12).Children(func() {
-		ui.Text(c, fmt.Sprint(s.n)).FontSize(40).Bold()
+		ui.Text(c, fmt.Sprint(app.n)).FontSize(40).Bold()
 		if ui.PrimaryButton(c, "Increment").Clicked() {
-			s.n++
+			app.n++
 		}
 	})
 }
 
 func main() {
-	s := &counter{}
+	app := &counter{}
 	mygo.App.WhenReady(func() {
 		mygo.NewWindow(mygo.WindowOptions{
 			Title:   "Counter",
 			Width:   320,
 			Height:  240,
-			Content: ui.View(s.view),
+			Content: ui.View(app.view),
 		})
 	})
 	if err := mygo.App.Run(); err != nil {
@@ -43,6 +45,12 @@ func main() {
 	}
 }
 ```
+
+**Reading the examples.** The examples in these guides are parts of a view
+such as `counter.view`: `c` is the view's `*ui.Context`, and `app` its
+receiver, the value of your own type that holds the state. A field such as
+`app.volume` or a method such as `app.save()` is one you declare on that
+type, as `counter` declares `n`; [Views](views.md) says more.
 
 `mygo init -template native my-app` starts a project of native UI (see
 [the CLI](../cli.md#mygo-init)). In a clone of the repository,

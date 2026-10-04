@@ -3,29 +3,52 @@
 A `ui.Router` keeps the history of the pages of a window, or of a part of
 one, as a browser does for a tab. A page is a path, as `/notes/42`, which
 `View` matches to build the page shown, a `switch` over patterns whose
-`{name}` takes one part of the path and `{name...}` the rest:
+`{name}` takes one part of the path and `{name...}` the rest.
+
+The router is part of your app's state: make it once, with the page to
+show first, and keep it in a field. The view, which runs for every frame,
+builds the page it shows:
 
 ```go
-app.router = ui.NewRouter("/notes")
+// notesApp is the app's state.
+type notesApp struct {
+	router *ui.Router
+	// … the notes and the files
+}
 
-ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
-	app.sidebar(c)
-	app.router.View(c, func(r *ui.Route) {
-		switch {
-		case r.Match("/notes"):
-			r.Title("Notes")
-			app.notes(c)
-		case r.Match("/notes/{id}"):
-			r.Title("Note")
-			app.note(c, r.Param("id"))
-		case r.Match("/files/{path...}"):
-			app.files(c, r.Param("path"))
-		default:
-			ui.Text(c, "Not found")
-		}
+func main() {
+	app := &notesApp{router: ui.NewRouter("/notes")}
+	mygo.App.WhenReady(func() {
+		mygo.NewWindow(mygo.WindowOptions{Title: "Notes", Content: ui.View(app.view)})
 	})
-})
+	if err := mygo.App.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func (app *notesApp) view(c *ui.Context) {
+	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+		app.sidebar(c) // stays as the pages change, see below
+		app.router.View(c, func(r *ui.Route) {
+			switch {
+			case r.Match("/notes"):
+				r.Title("Notes")
+				app.notes(c)
+			case r.Match("/notes/{id}"):
+				r.Title("Note")
+				app.note(c, r.Param("id"))
+			case r.Match("/files/{path...}"):
+				app.files(c, r.Param("path"))
+			default:
+				ui.Text(c, "Not found")
+			}
+		})
+	})
+}
 ```
+
+`app.notes`, `app.note` and `app.files` are methods of `notesApp` that
+build those pages, as `view` builds the window.
 
 ## Going to pages
 
@@ -34,13 +57,21 @@ place, and `Back`, `Forward` and `Go` move through the history; paths
 relative to the page shown resolve as links in a web page do, so
 `Push("?tab=info")` changes the query and `Push("edit")` goes to a sibling.
 A [link](link.md) to a path in a page goes there in its router, and
-choosing an item of a [sidebar](sidebar.md) pushes its page:
+choosing an item of a [sidebar](sidebar.md) pushes its page, as the sidebar
+of the app above does:
 
 ```go
-page := app.router.Path()
-if ui.Sidebar(c, &page, app.sidebarItems).Changed() {
-	app.router.Push(page)
+func (app *notesApp) sidebar(c *ui.Context) {
+	page := app.router.Path()
+	if ui.Sidebar(c, &page, func() {
+		ui.SidebarItem(c, "/notes", nil, "Notes")
+		ui.SidebarItem(c, "/files", nil, "Files")
+	}).Width(220).Changed() {
+		app.router.Push(page)
+	}
 }
+
+// In a page:
 ui.Link(c, "Open note", "/notes/42")
 ```
 
@@ -66,6 +97,7 @@ path, as a page of settings with a list of its sections beside the section
 shown: `r.View` on its route builds them, matching what the pattern's
 `{name...}` took. The layout stays as they change, keeping its state, and
 they slide or fade in its place; `Param` reads the layout's wildcards too.
+A page of settings is another case of the `switch` in the view above:
 
 ```go
 case r.Match("/settings/{section...}"):
@@ -84,8 +116,9 @@ case r.Match("/settings/{section...}"):
 	})
 ```
 
-A second `Router` inside a page is a history of its own, as the detail of a
-split view going deeper while the list beside it stays.
+A second `Router` inside a page, in a field of its own, is a history of its
+own, as the detail of a split view going deeper while the list beside it
+stays.
 
 ## Pages keep their state
 
