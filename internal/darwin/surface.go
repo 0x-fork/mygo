@@ -50,6 +50,19 @@ var (
 	cgProviderCreate   uintptr
 	cgProviderRelease  uintptr
 	cfDataCreate       uintptr
+
+	// caPass counts the passes of the main run loop, past Core Animation's
+	// commit of each: frames drawn in the same pass go into the same
+	// transaction.
+	caPass uint64 = 1
+)
+
+const (
+	cfRunLoopBeforeWaiting = 1 << 5
+	cfRunLoopExit          = 1 << 7
+	// caCommitOrder is the order of Core Animation's observer committing
+	// the transaction of each pass of the run loop.
+	caCommitOrder = 2000000
 )
 
 func loadSurface() {
@@ -69,6 +82,16 @@ func loadSurface() {
 		p := mustDlsym(libCG, "kCGColorSpaceSRGB")
 		name := **(**uintptr)(unsafe.Pointer(&p))
 		cgColorSpaceSRGB, _, _ = purego.SyscallN(mustDlsym(libCG, "CGColorSpaceCreateWithName"), name)
+		// An observer after Core Animation's counts the transactions it
+		// committed.
+		var observerCreate func(alloc uintptr, activities uint, repeats bool, order int, callout, ctx uintptr) uintptr
+		var addObserver func(rl, observer, mode uintptr)
+		purego.RegisterLibFunc(&observerCreate, libCF, "CFRunLoopObserverCreate")
+		purego.RegisterLibFunc(&addObserver, libCF, "CFRunLoopAddObserver")
+		passed := purego.NewCallback(func(observer, activity, info uintptr) { caPass++ })
+		if o := observerCreate(0, cfRunLoopBeforeWaiting|cfRunLoopExit, true, caCommitOrder+1, passed, 0); o != 0 {
+			addObserver(cfRunLoopGetMain(), o, kCFRunLoopCommonModes)
+		}
 	})
 }
 
@@ -80,11 +103,13 @@ type surface struct {
 	// The display link runs while frames follow each other (linkRunning),
 	// and due is whether its next tick draws one. Without a display link,
 	// a timer paces frames at the display's rate: timing is true while
-	// one is due. lastFrame is when the last frame began.
+	// one is due. lastFrame is when the last frame began, and framePass
+	// the pass of the run loop that drew it (caPass).
 	linkRunning bool
 	due         bool
 	timing      bool
 	lastFrame   time.Time
+	framePass   uint64
 	cursor      platform.Cursor
 	inside      bool
 	ctrlClick   bool // the primary button is down for a Control-click
@@ -552,10 +577,23 @@ func registerSurfaceClass() {
 		method("mouseDownCanMoveWindow", func(self id, _ objc.SEL) bool { return false }),
 		method("wantsUpdateLayer", func(self id, _ objc.SEL) bool { return true }),
 		method("updateLayer", func(self id, _ objc.SEL) {
-			if s := b().surfaceOf(self); s != nil {
-				s.lastFrame = time.Now()
-				s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame})
+			s := b().surfaceOf(self)
+			if s == nil {
+				return
 			}
+			if s.framePass == caPass {
+				// AppKit displays the view again before Core Animation
+				// commits the frame drawn in this pass, as while the
+				// trackpad scrolls: the frame would wait a second for a
+				// drawable, the layer's two being taken until the commit.
+				// The next refresh draws it: as one just drew, not at once.
+				s.lastFrame = time.Now()
+				s.RequestFrame()
+				return
+			}
+			s.framePass = caPass
+			s.lastFrame = time.Now()
+			s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame})
 		}),
 		method("mygoTick:", func(self id, _ objc.SEL, link id) {
 			s := b().surfaceOf(self)
