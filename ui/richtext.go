@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -59,16 +60,7 @@ type Span struct {
 // and corners do not apply; a background highlights their text.
 func RichText(c *Context, spans ...Span) *Element {
 	e := c.newElement(kindText)
-	n := 0
-	for _, s := range spans {
-		n += len(s.Text)
-	}
-	var b strings.Builder
-	b.Grow(n)
-	for _, s := range spans {
-		b.WriteString(s.Text)
-	}
-	e.text = b.String()
+	e.text = e.st.spanCache().join(spans)
 	e.spans = spans
 	return e
 }
@@ -82,8 +74,87 @@ func (e *Element) textSpans() string {
 	if e.spans == nil || e.spansKey != "" {
 		return e.spansKey
 	}
-	e.spansKey = encodeSpans(e.spans)
+	sc := e.st.spanCache()
+	sc.update(e.spans)
+	e.spansKey = sc.key
 	return e.spansKey
+}
+
+// spanCache keeps what a text element made of its spans in the frames that
+// built it, for the next frame, which usually builds the same spans: their
+// text, and the styles of their layout and the runes each ends at. It
+// compares rather than copies the spans, so that it keeps no strings of
+// theirs alive but those it made.
+type spanCache struct {
+	// text is the text of the spans RichText was given.
+	text string
+	// styles and key are the styles of the spans laid out, the elements'
+	// inside the text's included, and those encoded for the layout (see
+	// text.EncodeSpans); paints tells whether a span has a color, lines
+	// or a background, which paint the text in more than its color.
+	styles []text.Span
+	key    string
+	paints bool
+}
+
+// spanCache returns the element's spanCache, making it the first time.
+func (s *state) spanCache() *spanCache {
+	if s.spans == nil {
+		s.spans = &spanCache{}
+	}
+	return s.spans
+}
+
+// join returns the text of spans, as the last call made it when that
+// text is the same.
+func (sc *spanCache) join(spans []Span) string {
+	n := 0
+	same := true
+	for _, s := range spans {
+		end := n + len(s.Text)
+		same = same && end <= len(sc.text) && sc.text[n:end] == s.Text
+		n = end
+	}
+	if same && n == len(sc.text) {
+		return sc.text
+	}
+	var b strings.Builder
+	b.Grow(n)
+	for _, s := range spans {
+		b.WriteString(s.Text)
+	}
+	sc.text = b.String()
+	return sc.text
+}
+
+// update makes the styles of the cache those of spans, unless they are
+// already.
+func (sc *spanCache) update(spans []Span) {
+	same := len(spans) == len(sc.styles) && sc.key != ""
+	end := 0
+	paints := false
+	for i, s := range spans {
+		end += utf8.RuneCountInString(s.Text)
+		paints = paints || s.Color.A > 0 || s.Underline || s.WavyUnderline || s.Strikethrough || s.Background.A > 0
+		same = same && sc.styles[i] == spanStyle(s, end)
+	}
+	sc.paints = paints
+	if same {
+		return
+	}
+	sc.styles = sc.styles[:0]
+	end = 0
+	for _, s := range spans {
+		end += utf8.RuneCountInString(s.Text)
+		sc.styles = append(sc.styles, spanStyle(s, end))
+	}
+	sc.key = text.EncodeSpans(sc.styles)
+}
+
+// spanStyle returns the style of a span ending at rune end, for its
+// layout.
+func spanStyle(s Span, end int) text.Span {
+	return text.Span{End: end, Family: s.Font, Size: s.Size, Weight: s.Weight, Italic: s.Italic, LetterSpacing: s.LetterSpacing, Features: s.Features}
 }
 
 // encodeSpans encodes the styles of spans for a layout.
@@ -92,7 +163,7 @@ func encodeSpans(spans []Span) string {
 	end := 0
 	for i, s := range spans {
 		end += utf8.RuneCountInString(s.Text)
-		ts[i] = text.Span{End: end, Family: s.Font, Size: s.Size, Weight: s.Weight, Italic: s.Italic, LetterSpacing: s.LetterSpacing, Features: s.Features}
+		ts[i] = spanStyle(s, end)
 	}
 	return text.EncodeSpans(ts)
 }
@@ -100,12 +171,35 @@ func encodeSpans(spans []Span) string {
 // richParams returns how to lay out spans over the theme's text style,
 // wrapping lines at width (none for 0).
 func (rt *engine) richParams(width float32, spans []Span) text.Params {
+	t := rt.c.theme
+	style := text.Style{Family: t.Font, Size: t.FontSize}
+	// Views measure the same spans frame after frame.
+	for i := range rt.measured {
+		m := &rt.measured[i]
+		if m.p.Width == width && m.p.Style == style && m.spans != nil && slices.Equal(m.spans, spans) {
+			return m.p
+		}
+	}
 	var b strings.Builder
 	for _, s := range spans {
 		b.WriteString(s.Text)
 	}
-	t := rt.c.theme
-	return text.Params{Text: b.String(), Width: width, Style: text.Style{Family: t.Font, Size: t.FontSize}, Spans: encodeSpans(spans)}
+	p := text.Params{Text: b.String(), Width: width, Style: style, Spans: encodeSpans(spans)}
+	m := &rt.measured[rt.nextMeasured]
+	rt.nextMeasured = (rt.nextMeasured + 1) % len(rt.measured)
+	// Strings do not change: a copy of the spans keeps them.
+	m.spans, m.p = append(m.spans[:0], spans...), p
+	if m.spans == nil {
+		m.spans = []Span{}
+	}
+	return p
+}
+
+// measuredSpans are spans Painter.RichText or MeasureText laid out, and
+// how.
+type measuredSpans struct {
+	spans []Span
+	p     text.Params
 }
 
 // RichText draws spans of text as RichText shows them, with its top-left
@@ -137,40 +231,53 @@ func (c *Context) MeasureText(width float32, spans ...Span) (w, h float32) {
 	return l.Width, l.Height
 }
 
-// spanPaint paints the colors and lines of a rich text's spans: ends are
-// the runes ending each span.
+// spanPaint paints the colors and lines of a rich text's spans: styles
+// hold the runes ending each span.
 type spanPaint struct {
-	spans []Span
-	ends  []int
+	spans  []Span
+	styles []text.Span
 }
 
 func newSpanPaint(spans []Span) *spanPaint {
-	for _, s := range spans {
-		if s.Color.A > 0 || s.Underline || s.WavyUnderline || s.Strikethrough || s.Background.A > 0 {
-			sp := &spanPaint{spans: spans, ends: make([]int, len(spans))}
-			end := 0
-			for i, s := range spans {
-				end += utf8.RuneCountInString(s.Text)
-				sp.ends[i] = end
-			}
-			return sp
-		}
+	sc := &spanCache{}
+	sc.update(spans)
+	if !sc.paints {
+		return nil
 	}
-	return nil
+	return &spanPaint{spans: spans, styles: sc.styles}
+}
+
+// paintSpans returns how to paint the spans of the element's text, which
+// textSpans cached as it laid it out, or nil when they paint nothing but
+// its color.
+func (e *Element) paintSpans(sp *spanPaint) *spanPaint {
+	if e.spans == nil {
+		return nil
+	}
+	sc := e.st.spanCache()
+	if e.spansKey == "" {
+		// Not laid out by the frame, so not cached yet.
+		sc.update(e.spans)
+	}
+	if !sc.paints {
+		return nil
+	}
+	*sp = spanPaint{spans: e.spans, styles: sc.styles}
+	return sp
 }
 
 // at returns the index of the span holding rune r, or -1.
 func (sp *spanPaint) at(r int) int {
-	lo, hi := 0, len(sp.ends)
+	lo, hi := 0, len(sp.styles)
 	for lo < hi {
 		m := (lo + hi) / 2
-		if sp.ends[m] <= r {
+		if sp.styles[m].End <= r {
 			lo = m + 1
 		} else {
 			hi = m
 		}
 	}
-	if lo == len(sp.ends) {
+	if lo == len(sp.styles) {
 		return -1
 	}
 	return lo

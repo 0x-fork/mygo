@@ -47,3 +47,32 @@ func TestSpacingScalesWidgets(t *testing.T) {
 		t.Errorf("the tabs' padding does not follow the spacing: %v, %v, %v", compact.tab.X, normal.tab.X, roomy.tab.X)
 	}
 }
+
+func TestParseHex(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want Color
+		ok   bool
+	}{
+		{"#2563eb", Color{0x25, 0x63, 0xeb, 255}, true},
+		{"2563EB", Color{0x25, 0x63, 0xeb, 255}, true},
+		{" #00ff0080 ", Color{0, 255, 0, 0x80}, true},
+		{"#fA0", Color{255, 0xaa, 0, 255}, true},
+		{"#fa08", Color{255, 0xaa, 0, 0x88}, true},
+		{"#12345", Color{}, false},
+		{"#1234567", Color{}, false},
+		{"#123456789", Color{}, false},
+		{"#12345g", Color{}, false},
+		{"#+12345", Color{}, false},
+		{"#é12", Color{}, false},
+		{"", Color{}, false},
+	} {
+		got, err := parseHex(tc.in)
+		if got != tc.want || (err == nil) != tc.ok {
+			t.Errorf("parseHex(%q) = %v, %v; want %v, ok %v", tc.in, got, err, tc.want, tc.ok)
+		}
+	}
+	if n := testing.AllocsPerRun(10, func() { Hex("#2563eb") }); n != 0 {
+		t.Errorf("Hex allocates %v times", n)
+	}
+}

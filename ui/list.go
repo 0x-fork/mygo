@@ -208,6 +208,9 @@ type listFrame struct {
 	rows  []listRow
 	// at finds rows by their index while the list lays out.
 	at map[int]int
+	// rb is the row being built (Context.row), kept here rather than
+	// allocated for each row.
+	rb rowBuild
 }
 
 type listRow struct {
@@ -469,7 +472,9 @@ func (f *listFrame) build(i int) *Element {
 	default:
 		w.Role(RoleListItem)
 	}
-	rb := rowBuild{f: f, i: i, key: key}
+	prev := f.rb
+	f.rb = rowBuild{f: f, i: i, key: key}
+	rb := &f.rb
 	if sel := s.cursor(); sel != nil && !f.isHeader(i) {
 		t := c.theme
 		w.flags |= flagClickable | flagHover | flagChoosable
@@ -523,9 +528,9 @@ func (f *listFrame) build(i int) *Element {
 		}
 	}
 	saved := c.row
-	c.row = &rb
+	c.row = rb
 	w.Children(func() { f.row(i) })
-	c.row = saved
+	c.row, f.rb = saved, prev
 	f.rows = append(f.rows, listRow{i: i, key: key, e: w})
 	return w
 }

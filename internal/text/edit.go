@@ -1,6 +1,7 @@
 package text
 
 import (
+	"slices"
 	"unicode"
 
 	"github.com/go-text/typesetting/segmenter"
@@ -244,10 +245,10 @@ func (b *Boundaries) WordAt(i int) (start, end int) {
 }
 
 // lineBreaks reports, for each rune of text and for its end, whether a
-// line may break before it.
-func lineBreaks(text []rune) []bool {
-	breaks := make([]bool, len(text)+1)
-	var seg segmenter.Segmenter
+// line may break before it, in breaks, with seg; both are reused.
+func lineBreaks(seg *segmenter.Segmenter, breaks []bool, text []rune) []bool {
+	breaks = slices.Grow(breaks[:0], len(text)+1)[:len(text)+1]
+	clear(breaks)
 	seg.Init(text)
 	it := seg.LineIterator()
 	for it.Next() {

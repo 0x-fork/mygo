@@ -80,7 +80,11 @@ type windowHost struct {
 	lastFrame, gpuSinceCPU time.Time
 	// framing tells that the surface asked for the frame being drawn.
 	framing bool
+	// path is how the last frame was drawn, for MYGO_FRAME_STATS.
+	path string
 }
+
+func (h *windowHost) framePath() string { return h.path }
 
 // newGPU makes the GPU renderer of a surface; tests replace it.
 var newGPU = newGPURenderer
@@ -128,7 +132,7 @@ func (h *windowHost) size() (float32, float32, float32) {
 }
 
 func (h *windowHost) present(s *scene.Scene) {
-	h.last = s
+	h.last, h.path = s, ""
 	if s.Width <= 0 || s.Height <= 0 {
 		return
 	}
@@ -153,12 +157,18 @@ func (h *windowHost) present(s *scene.Scene) {
 	h.lastFrame = now
 	if h.drawOnCPU(s, burst) {
 		h.gpuSinceCPU = time.Time{}
+		h.path = "drawn on the CPU"
 		return
 	}
 	if h.render(s) {
 		h.dropCPUFrame(now)
+		h.path = "drawn on the GPU"
+		if h.degraded {
+			h.path = "drawn by the GPU renderer in software"
+		}
 		return
 	}
+	h.path = "drawn in memory"
 	h.soft.Render(s)
 	m := &h.soft.Image
 	h.conn.Surface.PresentPixels(m.Pix, m.Stride, m.W, m.H)

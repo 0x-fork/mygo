@@ -180,7 +180,10 @@ guarded by a mutex or atomic.
 purego gives three primitives, used everywhere:
 
 - `purego.SyscallN(fn, args...)` for integer/pointer arguments. Fast, no
-  reflection. Floats and structs cannot be passed this way.
+  reflection; it allocates only the array of its arguments, which escapes.
+  Floats cannot be passed this way, nor structs, but for those C passes in
+  integer registers, as Core Foundation's `CFRange`, which goes as its two
+  fields, and comes back as `r1` and `r2`.
 - `purego.RegisterFunc(&typedFn, addr)` for signatures with floats or
   structs (`NSRect`, `CGFloat`, `GdkRGBA*` …). These are created once at
   startup; calling them uses reflection, so they are kept off hot paths.
@@ -1069,6 +1072,16 @@ either.
   frame that moved one builds another for what read the old one. Frames
   happen only when asked: input, `Invalidate`, `After`, or `AnimationFrame`
   while something moves.
+  A frame allocates next to nothing once the view builds what it built
+  before: elements come from the context's arena, the default theme is
+  copied for each pass, the states that pruning frees go to new elements
+  (as rows coming into a list's view take those of rows that went out of
+  it), and a text keeps in its state what it made of its spans
+  (`spanCache`: their text, the styles of their layout, encoded, and where
+  each ends), which a frame compares rather than makes again. With
+  `MYGO_FRAME_STATS` set, frames slower than its threshold log how long
+  each part took, which path drew them, what the process allocated and
+  whether the collector ran (`ui/framestats.go`).
 - **Input taken as it comes.** An element with `HandleInput` gets its
   input on the main thread as the backend reports it, before the frame
   (`ui/handler.go`): keys (with their releases, which ui otherwise
@@ -1411,7 +1424,12 @@ either.
   ranges of runes (`text.Span`): DirectWrite's setters over a range, the
   fonts of a Core Text attributed string's ranges, Pango's attributes
   between byte indices. `Params.Spans` holds them encoded as a string, so
-  `Params` stays a key of the layout cache. Colors, underlines and
+  `Params` stays a key of the layout cache. Laying out reuses what shaping
+  throws away: engines take the glyphs, runs and lines `shape` returns from
+  a scratch each layout resets (`shapeScratch`), as the layout copies them
+  into its lines, which share one allocation; Core Text keeps its buffers,
+  the attributes of each font, and calls the functions of each layout
+  through `SyscallN` rather than reflection. Colors, underlines and
   strikethroughs of spans only paint, by the rune each glyph starts.
   Text elements built inside a text (`ui/inline.go`) are inline: the
   paragraph takes their text when its `Children` returns, and their
@@ -1552,7 +1570,10 @@ either.
   (`ui/headless.go`) with the CPU renderer; the fake backend's surface lets
   the core's tests drive content windows through `package mygo`.
   `BenchmarkFrame` in `ui` measures a frame of a large window on the CPU,
-  and `BenchmarkListScroll` the frames scrolling a list of a million rows.
+  and `BenchmarkListScroll` the frames scrolling a list of a million rows;
+  `BenchmarkDiff*` the frames of a window as godiff's, two lists of texts
+  and rich texts, unchanged or scrolling, with their allocations
+  (`TestDiffFrameAllocs` logs them).
   The GPU renderers' tests draw `gputest.Scene` and compare it with the
   CPU renderer's drawing: on Windows in a hidden window, on macOS into an
   offscreen texture, on Linux into a framebuffer of a context EGL makes

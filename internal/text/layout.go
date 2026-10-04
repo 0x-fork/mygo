@@ -275,6 +275,8 @@ type System struct {
 
 	layouts map[Params]*cached
 	frame   uint64
+	// made counts the layouts made (LayoutsMade).
+	made uint64
 
 	glyphs map[glyphKey]*atlasEntry
 	places map[placeKey]placement
@@ -298,10 +300,26 @@ type System struct {
 	subpixel bool
 	// rooms counts MakeRoom calls during the frame.
 	rooms int
+	// Buffers layouts reuse: the first runes of clusters (line), and the
+	// advances and text of a line ending with an ellipsis (ellipsize).
+	starts     []int
+	advances   []float32
+	ellipsized []rune
+	// marks caches the width of the ellipsis of each style.
+	marks map[markKey]float32
 }
 
+type markKey struct {
+	style Style
+	mark  string // Params.Ellipsis
+	rtl   bool
+}
+
+// cached is a layout, with room for one line, as most layouts have, and
+// the frame that used it last.
 type cached struct {
-	layout *Layout
+	layout Layout
+	line   [1]Line
 	used   uint64
 }
 
@@ -311,6 +329,7 @@ func newSystem() *System {
 	return &System{
 		fonts:      map[Style]*Font{},
 		layouts:    map[Params]*cached{},
+		marks:      map[markKey]float32{},
 		glyphs:     map[glyphKey]*atlasEntry{},
 		places:     map[placeKey]placement{},
 		runs:       map[runKey]*atlasEntry{},
@@ -379,6 +398,7 @@ func (s *System) SetFontRendering(antialias, hinting, subpixels string) {
 		f.setFontRendering(antialias, hinting, subpixels)
 		clear(s.fonts)
 		clear(s.layouts)
+		clear(s.marks)
 		clear(s.glyphs)
 		clear(s.places)
 		clear(s.runs)
@@ -401,6 +421,7 @@ func (s *System) SetUIFamily(family string) {
 		u.setUIFamily(family)
 		clear(s.fonts)
 		clear(s.layouts)
+		clear(s.marks)
 	}
 }
 
@@ -415,6 +436,7 @@ func (s *System) RegisterFont(data []byte, family string) error {
 	}
 	clear(s.fonts)
 	clear(s.layouts)
+	clear(s.marks)
 	return nil
 }
 
@@ -445,6 +467,7 @@ func (s *System) EndFrame() {
 		// glyphs as it makes room; the next frame lays out and draws its
 		// text anew.
 		clear(s.layouts)
+		clear(s.marks)
 		clear(s.fonts)
 		clear(s.glyphs)
 		clear(s.places)
@@ -469,11 +492,20 @@ func (s *System) Layout(p Params) *Layout {
 	defer s.mu.Unlock()
 	if c, ok := s.layouts[p]; ok {
 		c.used = s.frame
-		return c.layout
+		return &c.layout
 	}
-	l := s.layout(p)
-	s.layouts[p] = &cached{l, s.frame}
-	return l
+	c := s.layout(p)
+	c.used = s.frame
+	s.layouts[p] = c
+	return &c.layout
+}
+
+// LayoutsMade returns how many layouts the system has made, those Layout
+// found in its cache left out.
+func (s *System) LayoutsMade() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.made
 }
 
 // Shape lays out p.Text as Layout does, but caches nothing, for text that
@@ -482,7 +514,7 @@ func (s *System) Layout(p Params) *Layout {
 func (s *System) Shape(p Params) *Layout {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.layout(p)
+	return &s.layout(p).layout
 }
 
 // Metrics returns the ascent, descent and default line height of a style.
@@ -526,11 +558,15 @@ func metricsOf(f *Font, style Style) lineMetrics {
 	return m
 }
 
-func (s *System) layout(p Params) *Layout {
+func (s *System) layout(p Params) *cached {
+	s.made++
+	s.engine().resetScratch()
 	m := metricsOf(s.font(p.Style), p.Style)
 	runes := []rune(p.Text)
 	spans := decodeSpans(p.Spans)
-	l := &Layout{Params: p, Runes: runes}
+	c := &cached{layout: Layout{Params: p, Runes: runes}}
+	l := &c.layout
+	l.Lines = c.line[:0]
 	y := float32(0)
 	for start := 0; start <= len(runes); {
 		end := start
@@ -541,8 +577,8 @@ func (s *System) layout(p Params) *Layout {
 		if p.MaxLines > 0 {
 			maxLines = p.MaxLines - len(l.Lines)
 		}
-		lines, truncated := s.paragraph(p, spans, runes, start, end, maxLines, end < len(runes), m, &y)
-		l.Lines = append(l.Lines, lines...)
+		var truncated bool
+		l.Lines, truncated = s.paragraph(l.Lines, p, spans, runes, start, end, maxLines, end < len(runes), m, &y)
 		if truncated {
 			l.Truncated = true
 			break
@@ -583,14 +619,14 @@ func (s *System) layout(p Params) *Layout {
 			}
 		}
 	}
-	return l
+	return c
 }
 
 // paragraph lays out runes[start:end], a paragraph without newlines, in at
-// most maxLines lines (0 is unlimited) from *y down, and moves *y past it.
-// It reports whether it cut the text, which continues after the paragraph
-// when continues is set.
-func (s *System) paragraph(p Params, spans []Span, runes []rune, start, end, maxLines int, continues bool, m lineMetrics, y *float32) ([]Line, bool) {
+// most maxLines lines (0 is unlimited) from *y down, appends them to out,
+// and moves *y past it. It reports whether it cut the text, which
+// continues after the paragraph when continues is set.
+func (s *System) paragraph(out []Line, p Params, spans []Span, runes []rune, start, end, maxLines int, continues bool, m lineMetrics, y *float32) ([]Line, bool) {
 	text := runes[start:end]
 	// A carriage return before the newline is part of it.
 	if n := len(text); n > 0 && text[n-1] == '\r' {
@@ -615,10 +651,22 @@ func (s *System) paragraph(p Params, spans []Span, runes []rune, start, end, max
 		shaped = append(shaped[:maxLines-1], last)
 		truncated = true
 	}
-	lines := make([]Line, len(shaped))
-	for i, sl := range shaped {
-		lines[i] = line(p, text, sl, start, rtl, m, y)
+	// The glyphs of the lines share one allocation.
+	n := 0
+	for _, sl := range shaped {
+		n += glyphCount(sl)
 	}
+	var room []Glyph
+	if n > 0 {
+		room = make([]Glyph, n)
+	}
+	first := len(out)
+	for _, sl := range shaped {
+		k := glyphCount(sl)
+		out = append(out, line(p, text, sl, start, rtl, m, y, room[:0:k], &s.starts))
+		room = room[k:]
+	}
+	lines := out[first:]
 	// Runes between lines, if an engine left any out, belong to the line
 	// before.
 	for i := 0; i < len(lines)-1; i++ {
@@ -627,13 +675,26 @@ func (s *System) paragraph(p Params, spans []Span, runes []rune, start, end, max
 	if !truncated {
 		lines[len(lines)-1].End = end
 	}
-	return lines, truncated
+	return out, truncated
+}
+
+// glyphCount returns how many glyphs a shaped line has.
+func glyphCount(sl shapedLine) int {
+	n := 0
+	for _, run := range sl.runs {
+		n += len(run.glyphs)
+	}
+	return n
 }
 
 // line positions a line of the paragraph text, which starts at rune
-// offset of the layout, with its top at *y, and moves *y past it.
-func line(p Params, text []rune, sl shapedLine, offset int, rtl bool, m lineMetrics, y *float32) Line {
+// offset of the layout, with its top at *y, and moves *y past it. Its
+// glyphs go to room, which has room for those of sl; buf is a buffer.
+func line(p Params, text []rune, sl shapedLine, offset int, rtl bool, m lineMetrics, y *float32, room []Glyph, buf *[]int) Line {
 	line := Line{Start: offset + sl.start, End: offset + sl.end, RTL: rtl, Ascent: m.ascent, Descent: m.descent}
+	if cap(room) > 0 {
+		line.Glyphs = room
+	}
 	// Whitespace ending a line takes no room, unless kept.
 	trim := sl.end
 	if !p.KeepSpaces {
@@ -643,7 +704,7 @@ func line(p Params, text []rune, sl shapedLine, offset int, rtl bool, m lineMetr
 	}
 	size := p.Style.FontSize()
 	x0, x1 := float32(math.MaxFloat32), float32(-math.MaxFloat32)
-	var starts []int
+	starts := *buf
 	for _, run := range sl.runs {
 		runSize := size
 		if f := run.font; f != nil {
@@ -693,8 +754,12 @@ func line(p Params, text []rune, sl shapedLine, offset int, rtl bool, m lineMetr
 		line.Glyphs[i].Y += line.Baseline
 	}
 	*y += line.Height
+	*buf = starts
 	return line
 }
+
+// ellipsis ends text cut short, unless Params.Ellipsis gives another.
+var ellipsis = []rune{'…'}
 
 // ellipsize lays out the paragraph text from rune start on one line ending
 // with an ellipsis: as many of its graphemes as fit the width with it.
@@ -702,18 +767,27 @@ func (s *System) ellipsize(text []rune, spans []Span, start int, p Params, rtl b
 	e := s.engine()
 	rest := text[start:]
 	restSpans := spansIn(spans, start, len(text))
-	mark := []rune(p.Ellipsis)
-	if p.Ellipsis == "" {
-		mark = []rune{'…'}
+	mark := ellipsis
+	if p.Ellipsis != "" {
+		mark = []rune(p.Ellipsis)
 	}
 	cut := len(rest)
 	if p.Width > 0 {
-		var ellipsis float32
-		for _, l := range e.shape(mark, p.Style, nil, 0, rtl, false) {
-			ellipsis = max(ellipsis, advance(l))
+		key := markKey{p.Style, p.Ellipsis, rtl}
+		ellipsis, ok := s.marks[key]
+		if !ok {
+			for _, l := range e.shape(mark, p.Style, nil, 0, rtl, false) {
+				ellipsis = max(ellipsis, advance(l))
+			}
+			if len(s.marks) >= 256 {
+				clear(s.marks)
+			}
+			s.marks[key] = ellipsis
 		}
 		// The advance of each cluster, at its first rune.
-		advances := make([]float32, len(rest))
+		s.advances = slices.Grow(s.advances[:0], len(rest))[:len(rest)]
+		advances := s.advances
+		clear(advances)
 		for _, l := range e.shape(rest, p.Style, restSpans, 0, rtl, false) {
 			for _, run := range l.runs {
 				for _, g := range run.glyphs {
@@ -743,9 +817,8 @@ func (s *System) ellipsize(text []rune, spans []Span, start int, p Params, rtl b
 	for cut > 0 && unicode.IsSpace(rest[cut-1]) {
 		cut--
 	}
-	t := make([]rune, cut+len(mark))
-	copy(t, rest[:cut])
-	copy(t[cut:], mark)
+	t := append(append(s.ellipsized[:0], rest[:cut]...), mark...)
+	s.ellipsized = t
 	out := shapedLine{start: start, end: start + cut}
 	// The ellipsis takes the style of the text it ends.
 	tSpans := spansIn(restSpans, 0, cut)

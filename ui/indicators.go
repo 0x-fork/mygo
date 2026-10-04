@@ -1,9 +1,7 @@
 package ui
 
 import (
-	"hash/fnv"
 	"math"
-	"strings"
 	"time"
 	"unicode"
 )
@@ -389,26 +387,46 @@ func Avatar(c *Context, name string, image *Bitmap) *Element {
 		e.Children(func() { Image(c, image).Fit(Cover).Size(size, size) })
 		return e
 	}
-	h := fnv.New32a()
-	h.Write([]byte(name))
-	hue := float64(h.Sum32() % 360)
+	// The hue of the name's FNV-1a hash.
+	h := uint32(2166136261)
+	for i := 0; i < len(name); i++ {
+		h = (h ^ uint32(name[i])) * 16777619
+	}
+	hue := float64(h % 360)
 	e.Background(hslColor(hue, 0.45, 0.55)).TextColor(RGB(255, 255, 255))
+	// The initials of the last frame's name, unless it changed.
+	in := Local(e, "initials", func() [2]string { return [2]string{} })
+	if in[0] != name || in[1] == "" && name != "" {
+		in[0], in[1] = name, initials(name)
+	}
 	e.Children(func() {
-		Text(c, initials(name)).FontWeight(600).FontSize(size * 0.4).SingleLine()
+		Text(c, in[1]).FontWeight(600).FontSize(size * 0.4).SingleLine()
 	})
 	return e
 }
 
 // initials returns the first letters of the first and last words of name.
 func initials(name string) string {
-	words := strings.FieldsFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
-	var out []rune
-	for i, w := range words {
-		if i == 0 || i == len(words)-1 {
-			out = append(out, unicode.ToUpper([]rune(w)[0]))
+	var first, last rune
+	inWord := false
+	for _, r := range name {
+		letter := unicode.IsLetter(r) || unicode.IsDigit(r)
+		if letter && !inWord {
+			if first == 0 {
+				first = unicode.ToUpper(r)
+			} else {
+				last = unicode.ToUpper(r)
+			}
 		}
+		inWord = letter
 	}
-	return string(out)
+	switch {
+	case first == 0:
+		return ""
+	case last == 0:
+		return string(first)
+	}
+	return string([]rune{first, last})
 }
 
 // hslColor returns the color of hue h in degrees, saturation s and

@@ -342,10 +342,12 @@ type state struct {
 	hasDropped   bool
 	dropX, dropY float32
 	editor       *editor
-	locals       map[any]any
-	anims        map[any]*anim
-	shortcuts    []shortcut
-	delivered    []shortcut
+	// spans keeps what a text made of its spans in the last frame.
+	spans     *spanCache
+	locals    map[any]any
+	anims     map[any]*anim
+	shortcuts []shortcut
+	delivered []shortcut
 
 	// input, caret and takesText are those of the last frame's element
 	// (HandleInput, TextCaret).
@@ -366,7 +368,13 @@ type shortcut struct {
 func (rt *engine) stateFor(id uint64) *state {
 	s := rt.states[id]
 	if s == nil {
-		s = &state{id: id, born: rt.frame}
+		if n := len(rt.free); n > 0 {
+			// A state pruned, which nothing refers to any more.
+			s, rt.free = rt.free[n-1], rt.free[:n-1]
+			*s = state{id: id, born: rt.frame}
+		} else {
+			s = &state{id: id, born: rt.frame}
+		}
 		rt.states[id] = s
 	}
 	s.seen, s.pass = rt.frame, rt.pass

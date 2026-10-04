@@ -1,5 +1,7 @@
 package ui
 
+import "slices"
+
 // Overlays scope the keyboard. A dialog (DialogBase) keeps the focus: Tab
 // moves it among the dialog's elements alone, it moves into the dialog as
 // the dialog opens, unless something in it took it, and the window's
@@ -40,6 +42,22 @@ func (rt *engine) enterScope(e *Element) focusScope {
 // focus order, and the focus into the dialog on top when it is out of it.
 func (rt *engine) arrangeFocus() {
 	order, scopes := rt.focusOrder, rt.focusScopes
+	if slices.ContainsFunc(scopes, func(sc focusScope) bool { return sc.anchor != 0 }) {
+		rt.placePopovers(order, scopes)
+	}
+	if m := rt.modal; m != 0 && rt.scopeOf(rt.focused) != m {
+		for i, sc := range rt.focusScopes {
+			if sc.modal == m {
+				rt.focused = rt.focusOrder[i]
+				break
+			}
+		}
+	}
+}
+
+// placePopovers moves the elements of popovers after their anchors in the
+// focus order.
+func (rt *engine) placePopovers(order []uint64, scopes []focusScope) {
 	at := make(map[uint64]int, len(order))
 	for i, id := range order {
 		at[id] = i
@@ -74,14 +92,6 @@ func (rt *engine) arrangeFocus() {
 			add(i) // popovers of anchors in no order
 		}
 		rt.focusOrder, rt.focusScopes = ids, scs
-	}
-	if m := rt.modal; m != 0 && rt.scopeOf(rt.focused) != m {
-		for i, sc := range rt.focusScopes {
-			if sc.modal == m {
-				rt.focused = rt.focusOrder[i]
-				break
-			}
-		}
 	}
 }
 

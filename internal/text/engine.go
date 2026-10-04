@@ -57,6 +57,54 @@ type engine interface {
 	// register adds the fonts of a font file under family, or under their
 	// own family names when family is "".
 	register(data []byte, family string) error
+	// resetScratch frees the room shape took from the engine's scratch,
+	// as a layout starts.
+	resetScratch()
+}
+
+// shapeScratch is room engines take the glyphs, runs and lines shape returns
+// from, which live until the System lays out the next text: a layout
+// copies them into its own lines. Engines embed it.
+type shapeScratch struct {
+	glyphs []Glyph
+	runs   []shapedRun
+	lines  []shapedLine
+}
+
+// maxScratch is how many glyphs shapeScratch keeps room for between layouts:
+// a long text's room goes with it.
+const maxScratch = 4096
+
+func (s *shapeScratch) resetScratch() {
+	if cap(s.glyphs) > maxScratch {
+		s.glyphs, s.runs, s.lines = nil, nil, nil
+	}
+	s.glyphs, s.runs, s.lines = s.glyphs[:0], s.runs[:0], s.lines[:0]
+}
+
+// glyphRoom returns room for n glyphs until the next layout.
+func (s *shapeScratch) glyphRoom(n int) []Glyph {
+	if cap(s.glyphs)-len(s.glyphs) < n {
+		// Slices taken before keep the old room.
+		s.glyphs = make([]Glyph, 0, max(2*cap(s.glyphs), n, 256))
+	}
+	k := len(s.glyphs)
+	s.glyphs = s.glyphs[:k+n]
+	return s.glyphs[k : k+n : k+n]
+}
+
+// addRun adds a run after those taken since mark, the length of runs
+// then, and returns them.
+func (s *shapeScratch) addRun(mark int, r shapedRun) []shapedRun {
+	s.runs = append(s.runs, r)
+	return s.runs[mark:len(s.runs):len(s.runs)]
+}
+
+// addLine adds a line after those taken since mark, the length of lines
+// then, and returns them.
+func (s *shapeScratch) addLine(mark int, l shapedLine) []shapedLine {
+	s.lines = append(s.lines, l)
+	return s.lines[mark:len(s.lines):len(s.lines)]
 }
 
 // shapedLine is a line of a paragraph as an engine laid it out.
@@ -137,6 +185,9 @@ type feature struct {
 // features parses Style.Features, leaving out what is not a tag of four
 // printable characters with an optional =value.
 func features(list string) []feature {
+	if list == "" {
+		return nil
+	}
 	var out []feature
 	for _, item := range strings.Split(list, ",") {
 		tag, value, set := strings.Cut(strings.TrimSpace(item), "=")
@@ -172,8 +223,12 @@ func familyList(family string) []string {
 // utf16Text encodes runes as UTF-16, with the rune index of every code
 // unit and of the end.
 func utf16Text(runes []rune) (text []uint16, index []int) {
-	text = make([]uint16, 0, len(runes)+1)
-	index = make([]int, 0, len(runes)+1)
+	return appendUTF16(make([]uint16, 0, len(runes)+1), make([]int, 0, len(runes)+1), runes)
+}
+
+// appendUTF16 appends the UTF-16 encoding of runes to text, and the rune
+// index of every code unit and of the end to index.
+func appendUTF16(text []uint16, index []int, runes []rune) ([]uint16, []int) {
 	for i, r := range runes {
 		if r >= 0x10000 && r <= utf8.MaxRune {
 			a, b := utf16.EncodeRune(r)

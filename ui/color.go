@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/internal/scene"
@@ -32,22 +31,43 @@ func Hex(s string) Color {
 
 func parseHex(s string) (Color, error) {
 	h := strings.TrimPrefix(strings.TrimSpace(s), "#")
-	if len(h) == 3 || len(h) == 4 {
-		var b strings.Builder
-		for _, c := range h {
-			b.WriteRune(c)
-			b.WriteRune(c)
+	var v [8]uint8
+	for i := 0; i < len(h) && i < len(v); i++ {
+		d, ok := hexDigit(h[i])
+		if !ok {
+			return Color{}, fmt.Errorf("ui: invalid color %q", s)
 		}
-		h = b.String()
+		v[i] = d
 	}
-	if len(h) == 6 {
-		h += "ff"
+	switch len(h) {
+	case 3, 4:
+		// #rgb and #rgba double each digit.
+		a := uint8(15)
+		if len(h) == 4 {
+			a = v[3]
+		}
+		return Color{v[0] * 17, v[1] * 17, v[2] * 17, a * 17}, nil
+	case 6, 8:
+		a := uint8(255)
+		if len(h) == 8 {
+			a = v[6]<<4 | v[7]
+		}
+		return Color{v[0]<<4 | v[1], v[2]<<4 | v[3], v[4]<<4 | v[5], a}, nil
 	}
-	v, err := strconv.ParseUint(h, 16, 32)
-	if len(h) != 8 || err != nil {
-		return Color{}, fmt.Errorf("ui: invalid color %q", s)
+	return Color{}, fmt.Errorf("ui: invalid color %q", s)
+}
+
+// hexDigit returns the value of a hexadecimal digit.
+func hexDigit(c byte) (uint8, bool) {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0', true
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10, true
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10, true
 	}
-	return Color{uint8(v >> 24), uint8(v >> 16), uint8(v >> 8), uint8(v)}, nil
+	return 0, false
 }
 
 func alphaByte(a float32) uint8 {

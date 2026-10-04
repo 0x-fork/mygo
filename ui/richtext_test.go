@@ -49,3 +49,19 @@ func TestRichText(t *testing.T) {
 		t.Errorf("the widest row of blue is %d pixels of %v", widest, lined.W)
 	}
 }
+
+// TestMeasureTextAgain checks that measuring spans measured before
+// allocates nothing, and that other spans measure anew.
+func TestMeasureTextAgain(t *testing.T) {
+	tt := NewTester(func(c *Context) {}, 100, 100)
+	c := &tt.rt.c
+	short, _ := c.MeasureText(0, Span{Text: "000"})
+	long, _ := c.MeasureText(0, Span{Text: "000000"})
+	bold, _ := c.MeasureText(0, Span{Text: "000", Weight: 800, Size: 30})
+	if again, _ := c.MeasureText(0, Span{Text: "000"}); again != short || long <= short || bold <= short {
+		t.Errorf("widths %v, %v, %v, then %v", short, long, bold, again)
+	}
+	if n := testing.AllocsPerRun(20, func() { c.MeasureText(0, Span{Text: "000"}, Span{Text: "1", Weight: 700}) }); n != 0 {
+		t.Errorf("measuring the same spans allocates %v times", n)
+	}
+}

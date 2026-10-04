@@ -10,6 +10,7 @@ import (
 // stubEngine lays out text without fonts where the system has no text
 // engine MyGo can use: every rune takes half an em and draws nothing.
 type stubEngine struct {
+	shapeScratch
 	fonts map[float32]*Font
 }
 

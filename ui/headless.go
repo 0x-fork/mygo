@@ -40,6 +40,7 @@ func (h *headless) size() (float32, float32, float32) { return h.w, h.h, h.scale
 func (h *headless) present(s *scene.Scene) {
 	h.img.Render(s)
 }
+func (h *headless) framePath() string                          { return "drawn in memory" }
 func (h *headless) requestFrame()                              { h.requested.Store(true) }
 func (h *headless) setCursor(c Cursor)                         { h.cursor = c }
 func (h *headless) setTextInput(t platform.TextInputState)     { h.ime = t }

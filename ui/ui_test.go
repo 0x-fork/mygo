@@ -409,3 +409,43 @@ func TestElementsGoneInARebuild(t *testing.T) {
 		t.Errorf("the field that came back does not take the focus (open %v)", open)
 	}
 }
+
+// TestRecycledStateIsFresh checks that an element taking the state of one
+// that went away, as rows coming into a list's view do, keeps nothing of
+// it.
+func TestRecycledStateIsFresh(t *testing.T) {
+	key, inits := "a", 0
+	var st *state
+	tt := NewTester(func(c *Context) {
+		if key == "" {
+			return
+		}
+		e := Scroll(c).Key(key).Size(100, 50).Children(func() { Box(c).Height(200) })
+		n := Local(e, "n", func() int { inits++; return 1 })
+		*n *= 2
+		e.Clicked()
+		st = e.st
+	}, 200, 200)
+	tt.Scroll(10, 10, 0, 30)
+	a := st
+	if a.scrollY == 0 || len(a.locals) == 0 {
+		t.Fatalf("a kept no scroll offset (%v) or local", a.scrollY)
+	}
+	key = ""
+	tt.Frame() // a goes, and its states are free
+	gone := map[*state]bool{}
+	for _, s := range tt.rt.free {
+		gone[s] = true
+	}
+	if !gone[a] {
+		t.Fatal("a's state is not free")
+	}
+	key = "b"
+	tt.Frame()
+	if !gone[st] {
+		t.Fatal("b made a state rather than take one that is free")
+	}
+	if st.scrollY != 0 || st.clicks != 0 || inits != 2 || *st.locals["n"].(*int) != 2 {
+		t.Errorf("b took a's scroll offset %v, clicks %d, or local (%d inits)", st.scrollY, st.clicks, inits)
+	}
+}

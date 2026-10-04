@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"hash/fnv"
 	"image/color"
 	"testing"
 	"time"
@@ -195,4 +196,32 @@ func TestAvatar(t *testing.T) {
 	}
 	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
 	node(t, tt.h.access, platform.RoleImage, "Ada Lovelace")
+}
+
+func TestInitials(t *testing.T) {
+	for name, want := range map[string]string{
+		"Ada Lovelace":          "AL",
+		"grace":                 "G",
+		"  jean-luc  picard ":   "JP",
+		"Grace Brewster Hopper": "GH",
+		"李 小龙":                  "李小",
+		"--":                    "",
+		"":                      "",
+		"élodie 2nd":            "É2",
+		"o'brien":               "OB",
+		"Ada\tLovelace\nByron ": "AB",
+	} {
+		if got := initials(name); got != want {
+			t.Errorf("initials(%q) = %q, want %q", name, got, want)
+		}
+	}
+	// The color is the hue of FNV-1a, as hash/fnv computes it.
+	h := fnv.New32a()
+	h.Write([]byte("Ada Lovelace"))
+	want := hslColor(float64(h.Sum32()%360), 0.45, 0.55)
+	var got Color
+	NewTester(func(c *Context) { got = Avatar(c, "Ada Lovelace", nil).bg }, 100, 100)
+	if got != want {
+		t.Errorf("Avatar's color is %v, want %v", got, want)
+	}
 }

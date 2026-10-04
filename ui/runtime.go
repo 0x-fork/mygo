@@ -38,18 +38,26 @@ type host interface {
 // the view function, lays them out, paints them and routes input to the
 // elements of the last frame. Main thread only, except where noted.
 type engine struct {
-	view  func(*Context)
-	host  host
-	c     Context
-	text  *text.System
-	scene scene.Scene
-	paths paths
-	svgs  svgs
-	flex  flexScratch
-	grid  gridScratch
+	view     func(*Context)
+	host     host
+	c        Context
+	text     *text.System
+	scene    scene.Scene
+	painter  Painter
+	glyphRun glyphRun
+	// measured are the last spans laid out outside elements (richParams).
+	measured     [8]measuredSpans
+	nextMeasured int
+	paths        paths
+	svgs         svgs
+	flex         flexScratch
+	grid         gridScratch
 
 	states map[uint64]*state
-	frame  uint64
+	// free are states pruned, which new elements take: rows coming into
+	// a list's view take those of rows that went out of it.
+	free  []*state
+	frame uint64
 	// pass is the pass of the view building the frame: the last one
 	// builds the elements that stay.
 	pass int
@@ -80,15 +88,17 @@ type engine struct {
 	pointerX, pointerY float32
 	pointerIn          bool
 	hover              []uint64
-	pressed            *state
-	pressButton        int
-	focused            uint64
-	focusVisible       bool
-	windowFocused      bool
-	keys               []keyEvent
-	menu               menuState
-	toasts             []toast
-	nextToast          uint64
+	// chain is a buffer for the elements under the pointer.
+	chain         []uint64
+	pressed       *state
+	pressButton   int
+	focused       uint64
+	focusVisible  bool
+	windowFocused bool
+	keys          []keyEvent
+	menu          menuState
+	toasts        []toast
+	nextToast     uint64
 	// mods are the modifiers of the last pointer event.
 	mods Modifiers
 
@@ -118,6 +128,8 @@ type engine struct {
 	// announcements are the texts for assistive technology to read out
 	// (Context.Announce).
 	announcements []string
+	// stats measures frames for MYGO_FRAME_STATS, nil when it is unset.
+	stats *frameStats
 	// dropOver is the element files are dragged over; access is true once
 	// assistive technology asked for the content.
 	dropOver   uint64
@@ -127,8 +139,14 @@ type engine struct {
 	dark       bool
 	darkKnown  bool
 	// prefs are the desktop's preferences, read once until they change.
-	prefs        Preferences
-	prefsKnown   bool
+	prefs      Preferences
+	prefsKnown bool
+	// theme is the default theme, which follows the appearance and the
+	// preferences, made once until they change (themeOK); each pass
+	// starts from a copy, passTheme, which the view may change.
+	theme        Theme
+	themeOK      bool
+	passTheme    Theme
 	collect      bool
 	labels       []labelNode
 	tooltipFrame uint64
@@ -185,19 +203,30 @@ type keyEvent struct {
 func newRuntime(view func(*Context), h host) *engine {
 	rt := &engine{view: view, host: h, text: textSystem(), states: map[uint64]*state{}, windowFocused: true}
 	rt.c.rt = rt
+	if frameStatsOn {
+		rt.stats = newFrameStats(frameStatsThreshold)
+	}
 	return rt
 }
 
 func (rt *engine) defaultTheme() *Theme {
 	if !rt.darkKnown {
 		rt.dark, rt.darkKnown = rt.host.isDark(), true
+		rt.themeOK = false
 	}
-	t := LightTheme()
-	if rt.dark {
-		t = DarkTheme()
+	if !rt.prefsKnown {
+		rt.themeOK = false
 	}
-	t.follow(rt.preferences())
-	return t
+	if !rt.themeOK {
+		t := LightTheme()
+		if rt.dark {
+			t = DarkTheme()
+		}
+		t.follow(rt.preferences())
+		rt.theme, rt.themeOK = *t, true
+	}
+	rt.passTheme = rt.theme
+	return &rt.passTheme
 }
 
 // themeChanged follows a change of the system appearance, or of the
@@ -216,6 +245,7 @@ func (rt *engine) runFrame() {
 	defer func() { rt.inFrame = false }()
 
 	rt.frame++
+	rt.stats.begin(rt)
 	now := time.Now()
 	w, h, scale := rt.host.size()
 	rt.c.titleBar = rt.host.titleBar()
@@ -247,9 +277,14 @@ func (rt *engine) runFrame() {
 			break
 		}
 	}
+	if rt.stats != nil {
+		rt.stats.passes = rt.pass + 1
+	}
+	rt.stats.lap(phaseBuild)
 	root := rt.c.root
 	layoutTree(root, w, h)
 	rt.commit(root)
+	rt.stats.lap(phaseLayout)
 	rt.paint(root, w, h, scale)
 	for try := 0; try < 2 && rt.text.Full(); try++ {
 		// The glyph atlas filled up and left some out: make room, keeping
@@ -257,7 +292,9 @@ func (rt *engine) runFrame() {
 		rt.text.MakeRoom()
 		rt.paint(root, w, h, scale)
 	}
+	rt.stats.lap(phasePaint)
 	rt.host.present(&rt.scene)
+	rt.stats.lap(phasePresent)
 	rt.prune()
 	rt.prunePictures()
 	rt.text.EndFrame()
@@ -277,6 +314,7 @@ func (rt *engine) runFrame() {
 	}
 	rt.armTimer()
 	rt.showMenu()
+	rt.stats.end(rt)
 }
 
 // endPass forgets the input the pass handled.
@@ -325,6 +363,12 @@ func (rt *engine) prune() {
 			}
 			if !rt.keptAlive(s) {
 				delete(rt.states, id)
+				if rt.scrollDrag.st == s {
+					rt.scrollDrag.st = nil
+				}
+				if len(rt.free) < maxFree {
+					rt.free = append(rt.free, s)
+				}
 			}
 		}
 	}
@@ -334,6 +378,9 @@ func (rt *engine) prune() {
 		rt.focused = 0
 	}
 }
+
+// maxFree is how many pruned states the engine keeps for new elements.
+const maxFree = 256
 
 // keptAlive reports whether a state the frame did not build is in a page
 // that a Router keeps: one of its history, or inside one.
@@ -376,14 +423,16 @@ func (rt *engine) armTimer() {
 	at := rt.wakeAt
 	rt.wakeAt = time.Time{}
 	rt.wakeMu.Unlock()
-	if rt.timer != nil {
-		rt.timer.Stop()
-		rt.timer = nil
+	switch {
+	case at.IsZero():
+		if rt.timer != nil {
+			rt.timer.Stop()
+		}
+	case rt.timer != nil:
+		rt.timer.Reset(max(time.Until(at), time.Millisecond))
+	default:
+		rt.timer = time.AfterFunc(max(time.Until(at), time.Millisecond), rt.host.invalidate)
 	}
-	if at.IsZero() {
-		return
-	}
-	rt.timer = time.AfterFunc(max(time.Until(at), time.Millisecond), rt.host.invalidate)
 }
 
 func (rt *engine) close() {

@@ -87,13 +87,15 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 
 // hitChain returns the ids of the topmost element at (x, y) and of its
 // ancestors, innermost first.
-func (rt *engine) hitChain(x, y float32) []uint64 {
+func (rt *engine) hitChain(x, y float32) []uint64 { return rt.appendHitChain(nil, x, y) }
+
+// appendHitChain appends hitChain(x, y) to chain.
+func (rt *engine) appendHitChain(chain []uint64, x, y float32) []uint64 {
 	for i := len(rt.hits) - 1; i >= 0; i-- {
 		h := &rt.hits[i]
 		if !h.r.Contains(x, y) {
 			continue
 		}
-		var chain []uint64
 		for s := h.st; s != nil; s = rt.states[s.parent] {
 			chain = append(chain, s.id)
 			if s.parent == 0 {
@@ -102,10 +104,12 @@ func (rt *engine) hitChain(x, y float32) []uint64 {
 		}
 		return chain
 	}
-	return nil
+	return chain
 }
 
-func (rt *engine) setHover(chain []uint64) {
+// setHover makes chain the elements under the pointer, and reports
+// whether it took chain, which then must not change.
+func (rt *engine) setHover(chain []uint64) bool {
 	changed := len(chain) != len(rt.hover)
 	if !changed {
 		for i := range chain {
@@ -116,7 +120,7 @@ func (rt *engine) setHover(chain []uint64) {
 		}
 	}
 	if !changed {
-		return
+		return false
 	}
 	// Only elements that look at their hover need a frame.
 	need := false
@@ -133,6 +137,7 @@ func (rt *engine) setHover(chain []uint64) {
 		rt.requestFrame()
 	}
 	rt.updateCursor()
+	return true
 }
 
 func (rt *engine) pointerMove(x, y float32) {
@@ -161,7 +166,14 @@ func (rt *engine) pointerMove(x, y float32) {
 	moved := x != rt.pointerX || y != rt.pointerY
 	rt.pointerX, rt.pointerY, rt.pointerIn = x, y, true
 	if rt.pressed == nil {
-		rt.setHover(rt.hitChain(x, y))
+		// The chain goes in a buffer, which the hover's last chain
+		// becomes when the hover takes it.
+		old, chain := rt.hover, rt.appendHitChain(rt.chain[:0], x, y)
+		if rt.setHover(chain) {
+			rt.chain = old[:0]
+		} else {
+			rt.chain = chain[:0]
+		}
 	}
 	if moved {
 		// The element pressed takes the moves, else the one under the
@@ -311,13 +323,15 @@ func (rt *engine) pointerUp(button, clicks int) {
 }
 
 func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise bool) {
-	if h := rt.handler(rt.hitChain(rt.pointerX, rt.pointerY)); h != nil && rt.deliver(h, InputEvent{Kind: InputScroll, DX: dx, DY: dy, Mods: mods, Precise: precise}) {
+	chain := rt.appendHitChain(rt.chain[:0], rt.pointerX, rt.pointerY)
+	rt.chain = chain[:0]
+	if h := rt.handler(chain); h != nil && rt.deliver(h, InputEvent{Kind: InputScroll, DX: dx, DY: dy, Mods: mods, Precise: precise}) {
 		return
 	}
 	if mods&Shift != 0 && dx == 0 {
 		dx, dy = dy, 0
 	}
-	for _, id := range rt.hitChain(rt.pointerX, rt.pointerY) {
+	for _, id := range chain {
 		if s := rt.states[id]; s != nil && scrollBy(s, dx, dy) {
 			rt.requestFrame()
 			return
@@ -809,9 +823,13 @@ func (e *Element) FocusVisible() bool { return e.Focused() && e.c.rt.focusVisibl
 // FocusWithin reports whether the element or one of its descendants has
 // the keyboard focus.
 func (e *Element) FocusWithin() bool {
-	for _, id := range e.c.rt.focusChain() {
-		if id == e.id {
+	rt := e.c.rt
+	for s := rt.states[rt.focused]; s != nil; s = rt.states[s.parent] {
+		if s.id == e.id {
 			return true
+		}
+		if s.parent == 0 {
+			break
 		}
 	}
 	return false

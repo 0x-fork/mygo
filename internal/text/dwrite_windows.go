@@ -338,6 +338,7 @@ var dwGeneric = map[string][]string{
 }
 
 type dwrite struct {
+	shapeScratch
 	factory  uintptr // IDWriteFactory
 	factory2 uintptr // IDWriteFactory2, from Windows 8.1
 	factory3 uintptr // IDWriteFactory3, from Windows 10

@@ -17,6 +17,7 @@ import (
 	"github.com/ebitengine/purego"
 	"github.com/ebitengine/purego/objc"
 	"github.com/egoist/mygo/internal/scene"
+	"github.com/go-text/typesetting/segmenter"
 )
 
 // Core Text lays out paragraphs: a typesetter finds the fonts, falls back
@@ -207,7 +208,7 @@ func loadCoreText() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("cannot load %s", strings.Join(missing, ", "))
 	}
-	bind(cf, &ct.release, "CFRelease")
+	bindDirect(cf, text, addr)
 	bind(cf, &ct.dataGetLength, "CFDataGetLength")
 	bind(cf, &ct.dataGetBytePtr, "CFDataGetBytePtr")
 	bind(text, &ct.fontGetUnderlinePos, "CTFontGetUnderlinePosition")
@@ -218,24 +219,12 @@ func loadCoreText() error {
 	bind(text, &ct.fontCreatePath, "CTFontCreatePathForGlyph")
 	bind(cg, &ct.pathApply, "CGPathApply")
 	bind(cg, &ct.pathRelease, "CGPathRelease")
-	bind(cf, &ct.retain, "CFRetain")
-	bind(cf, &ct.hash, "CFHash")
-	bind(cf, &ct.equal, "CFEqual")
-	bind(cf, &ct.stringWithCharacters, "CFStringCreateWithCharacters")
 	bind(cf, &ct.stringWithBytes, "CFStringCreateWithBytes")
 	bind(cf, &ct.stringGetLength, "CFStringGetLength")
 	bind(cf, &ct.stringGetCharacters, "CFStringGetCharacters")
-	bind(cf, &ct.dictionaryCreate, "CFDictionaryCreate")
-	bind(cf, &ct.dictionaryGetValue, "CFDictionaryGetValue")
-	bind(cf, &ct.arrayGetCount, "CFArrayGetCount")
-	bind(cf, &ct.arrayGetValueAtIndex, "CFArrayGetValueAtIndex")
 	bind(cf, &ct.setCreate, "CFSetCreate")
 	bind(cf, &ct.arrayCreate, "CFArrayCreate")
-	bind(cf, &ct.numberCreate, "CFNumberCreate")
 	bind(cf, &ct.numberGetValue, "CFNumberGetValue")
-	bind(cf, &ct.attributedString, "CFAttributedStringCreate")
-	bind(cf, &ct.attributedMutable, "CFAttributedStringCreateMutableCopy")
-	bind(cf, &ct.attributedSet, "CFAttributedStringSetAttribute")
 	bind(cf, &ct.dataCreate, "CFDataCreate")
 	ct.keyCallbacks = addr(cf, "kCFTypeDictionaryKeyCallBacks")
 	ct.valueCallbacks = addr(cf, "kCFTypeDictionaryValueCallBacks")
@@ -262,19 +251,7 @@ func loadCoreText() error {
 	bind(text, &ct.fontGetBoundingRects, "CTFontGetBoundingRectsForGlyphs")
 	bind(text, &ct.fontDrawGlyphs, "CTFontDrawGlyphs")
 	bind(text, &ct.paragraphStyleCreate, "CTParagraphStyleCreate")
-	bind(text, &ct.typesetterCreate, "CTTypesetterCreateWithAttributedString")
 	bind(text, &ct.suggestLineBreak, "CTTypesetterSuggestLineBreak")
-	bind(text, &ct.typesetterCreateLine, "CTTypesetterCreateLine")
-	bind(text, &ct.lineGetGlyphRuns, "CTLineGetGlyphRuns")
-	bind(text, &ct.lineGetStringRange, "CTLineGetStringRange")
-	bind(text, &ct.runGetGlyphCount, "CTRunGetGlyphCount")
-	bind(text, &ct.runGetStringRange, "CTRunGetStringRange")
-	bind(text, &ct.runGetStatus, "CTRunGetStatus")
-	bind(text, &ct.runGetAttributes, "CTRunGetAttributes")
-	bind(text, &ct.runGetGlyphs, "CTRunGetGlyphs")
-	bind(text, &ct.runGetPositions, "CTRunGetPositions")
-	bind(text, &ct.runGetAdvances, "CTRunGetAdvances")
-	bind(text, &ct.runGetStringIndices, "CTRunGetStringIndices")
 	bind(cg, &ct.colorSpaceDeviceRGB, "CGColorSpaceCreateDeviceRGB")
 	bind(cg, &ct.bitmapContextCreate, "CGBitmapContextCreate")
 	bind(cg, &ct.contextRelease, "CGContextRelease")
@@ -316,7 +293,93 @@ func loadCoreText() error {
 	return nil
 }
 
+// bindDirect binds the functions of Core Foundation and Core Text that
+// each layout calls to call them through purego.SyscallN, which allocates
+// once a call where RegisterFunc's reflection allocates three or more
+// times. They take integers, pointers and CFRanges, which C passes in two
+// integer registers and returns in the first two on arm64 and amd64, as
+// SyscallN's r1 and r2.
+func bindDirect(cf, text uintptr, addr func(lib uintptr, name string) uintptr) {
+	release, retain := addr(cf, "CFRelease"), addr(cf, "CFRetain")
+	ct.release = func(obj uintptr) { purego.SyscallN(release, obj) }
+	ct.retain = func(obj uintptr) uintptr { r, _, _ := purego.SyscallN(retain, obj); return r }
+	hash, equal := addr(cf, "CFHash"), addr(cf, "CFEqual")
+	ct.hash = func(obj uintptr) uint { r, _, _ := purego.SyscallN(hash, obj); return uint(r) }
+	ct.equal = func(a, b uintptr) bool { r, _, _ := purego.SyscallN(equal, a, b); return uint8(r) != 0 }
+	stringWithCharacters := addr(cf, "CFStringCreateWithCharacters")
+	ct.stringWithCharacters = func(alloc uintptr, chars *uint16, n int) uintptr {
+		r, _, _ := purego.SyscallN(stringWithCharacters, alloc, uintptr(unsafe.Pointer(chars)), uintptr(n))
+		return r
+	}
+	dictionaryCreate, dictionaryGetValue := addr(cf, "CFDictionaryCreate"), addr(cf, "CFDictionaryGetValue")
+	ct.dictionaryCreate = func(alloc uintptr, keys, values *uintptr, n int, keyCallbacks, valueCallbacks uintptr) uintptr {
+		r, _, _ := purego.SyscallN(dictionaryCreate, alloc, uintptr(unsafe.Pointer(keys)), uintptr(unsafe.Pointer(values)), uintptr(n), keyCallbacks, valueCallbacks)
+		return r
+	}
+	ct.dictionaryGetValue = func(d, key uintptr) uintptr { r, _, _ := purego.SyscallN(dictionaryGetValue, d, key); return r }
+	arrayGetCount, arrayGetValueAtIndex := addr(cf, "CFArrayGetCount"), addr(cf, "CFArrayGetValueAtIndex")
+	ct.arrayGetCount = func(a uintptr) int { r, _, _ := purego.SyscallN(arrayGetCount, a); return int(r) }
+	ct.arrayGetValueAtIndex = func(a uintptr, i int) uintptr {
+		r, _, _ := purego.SyscallN(arrayGetValueAtIndex, a, uintptr(i))
+		return r
+	}
+	numberCreate := addr(cf, "CFNumberCreate")
+	ct.numberCreate = func(alloc uintptr, typ int, value unsafe.Pointer) uintptr {
+		r, _, _ := purego.SyscallN(numberCreate, alloc, uintptr(typ), uintptr(value))
+		return r
+	}
+	attributedString, attributedMutable := addr(cf, "CFAttributedStringCreate"), addr(cf, "CFAttributedStringCreateMutableCopy")
+	attributedSet := addr(cf, "CFAttributedStringSetAttribute")
+	ct.attributedString = func(alloc, str, attrs uintptr) uintptr {
+		r, _, _ := purego.SyscallN(attributedString, alloc, str, attrs)
+		return r
+	}
+	ct.attributedMutable = func(alloc uintptr, max int, attributed uintptr) uintptr {
+		r, _, _ := purego.SyscallN(attributedMutable, alloc, uintptr(max), attributed)
+		return r
+	}
+	ct.attributedSet = func(attributed uintptr, r cfRange, name, value uintptr) {
+		purego.SyscallN(attributedSet, attributed, uintptr(r.location), uintptr(r.length), name, value)
+	}
+	typesetterCreate, typesetterCreateLine := addr(text, "CTTypesetterCreateWithAttributedString"), addr(text, "CTTypesetterCreateLine")
+	ct.typesetterCreate = func(str uintptr) uintptr { r, _, _ := purego.SyscallN(typesetterCreate, str); return r }
+	ct.typesetterCreateLine = func(typesetter uintptr, r cfRange) uintptr {
+		line, _, _ := purego.SyscallN(typesetterCreateLine, typesetter, uintptr(r.location), uintptr(r.length))
+		return line
+	}
+	lineGetGlyphRuns, lineGetStringRange := addr(text, "CTLineGetGlyphRuns"), addr(text, "CTLineGetStringRange")
+	ct.lineGetGlyphRuns = func(line uintptr) uintptr { r, _, _ := purego.SyscallN(lineGetGlyphRuns, line); return r }
+	ct.lineGetStringRange = func(line uintptr) cfRange {
+		loc, n, _ := purego.SyscallN(lineGetStringRange, line)
+		return cfRange{int(loc), int(n)}
+	}
+	runGetGlyphCount, runGetStringRange := addr(text, "CTRunGetGlyphCount"), addr(text, "CTRunGetStringRange")
+	runGetStatus, runGetAttributes := addr(text, "CTRunGetStatus"), addr(text, "CTRunGetAttributes")
+	ct.runGetGlyphCount = func(run uintptr) int { r, _, _ := purego.SyscallN(runGetGlyphCount, run); return int(r) }
+	ct.runGetStringRange = func(run uintptr) cfRange {
+		loc, n, _ := purego.SyscallN(runGetStringRange, run)
+		return cfRange{int(loc), int(n)}
+	}
+	ct.runGetStatus = func(run uintptr) uint32 { r, _, _ := purego.SyscallN(runGetStatus, run); return uint32(r) }
+	ct.runGetAttributes = func(run uintptr) uintptr { r, _, _ := purego.SyscallN(runGetAttributes, run); return r }
+	runGetGlyphs, runGetPositions := addr(text, "CTRunGetGlyphs"), addr(text, "CTRunGetPositions")
+	runGetAdvances, runGetStringIndices := addr(text, "CTRunGetAdvances"), addr(text, "CTRunGetStringIndices")
+	ct.runGetGlyphs = func(run uintptr, r cfRange, out *uint16) {
+		purego.SyscallN(runGetGlyphs, run, uintptr(r.location), uintptr(r.length), uintptr(unsafe.Pointer(out)))
+	}
+	ct.runGetPositions = func(run uintptr, r cfRange, out *cgPoint) {
+		purego.SyscallN(runGetPositions, run, uintptr(r.location), uintptr(r.length), uintptr(unsafe.Pointer(out)))
+	}
+	ct.runGetAdvances = func(run uintptr, r cfRange, out *cgSize) {
+		purego.SyscallN(runGetAdvances, run, uintptr(r.location), uintptr(r.length), uintptr(unsafe.Pointer(out)))
+	}
+	ct.runGetStringIndices = func(run uintptr, r cfRange, out *int) {
+		purego.SyscallN(runGetStringIndices, run, uintptr(r.location), uintptr(r.length), uintptr(unsafe.Pointer(out)))
+	}
+}
+
 type coreText struct {
+	shapeScratch
 	styles [2]uintptr // paragraph styles: left-to-right, right-to-left
 	srgb   uintptr
 	smooth bool // the user leaves font smoothing on
@@ -325,9 +388,33 @@ type coreText struct {
 
 	primary map[Style]uintptr // the CTFont of each style
 	fonts   map[uint][]*Font  // by CFHash of their CTFont
-	color   map[uintptr]bool
+	// native finds Fonts by their CTFont, which they retain.
+	native map[uintptr]*Font
+	// attrs are the attributes of strings in a font of primary, in each
+	// direction, without tracking or kerning, owned.
+	attrs map[attrsKey]uintptr
+	// seg and breaks find where lines may break (lineBreaks).
+	seg    segmenter.Segmenter
+	breaks []bool
+	color  map[uintptr]bool
+
+	// Buffers shape reuses: the text in UTF-16 with the rune of each code
+	// unit, the attributes of the string, the code unit of each rune, and
+	// what Core Text tells of a run.
+	u16          []uint16
+	index, at    []int
+	keys, values []uintptr
+	runIDs       []uint16
+	runPoints    []cgPoint
+	runAdvances  []cgSize
+	runIndices   []int
 
 	registered map[string][]registeredFace // by lowercased family
+}
+
+type attrsKey struct {
+	font uintptr
+	rtl  bool
 }
 
 type registeredFace struct {
@@ -343,6 +430,8 @@ func newCoreText() (*coreText, error) {
 	e := &coreText{
 		primary:    map[Style]uintptr{},
 		fonts:      map[uint][]*Font{},
+		native:     map[uintptr]*Font{},
+		attrs:      map[attrsKey]uintptr{},
 		color:      map[uintptr]bool{},
 		registered: map[string][]registeredFace{},
 		bands:      map[bandKey][2]float32{},
@@ -509,10 +598,7 @@ func (e *coreText) ctFont(style Style) uintptr {
 		return f
 	}
 	if len(e.primary) >= 256 {
-		for _, f := range e.primary {
-			ct.release(f)
-		}
-		clear(e.primary)
+		e.forgetPrimary()
 	}
 	if key.Features != "" {
 		// The font without the features, with them.
@@ -593,7 +679,9 @@ func (e *coreText) ctFont(style Style) uintptr {
 func (e *coreText) styleSpans(attributed uintptr, style Style, spans []Span, text []rune) uintptr {
 	styled := ct.attributedMutable(0, 0, attributed)
 	// The UTF-16 code unit of each rune.
-	at := make([]int, len(text)+1)
+	e.at = slices.Grow(e.at[:0], len(text)+1)[:len(text)+1]
+	at := e.at
+	at[0] = 0
 	for i, r := range text {
 		at[i+1] = at[i] + 1
 		if r >= 0x10000 {
@@ -700,6 +788,9 @@ func (e *coreText) font(style Style) *Font {
 
 // fontOf returns the Font of a CTFont.
 func (e *coreText) fontOf(font uintptr) *Font {
+	if f, ok := e.native[font]; ok {
+		return f
+	}
 	h := ct.hash(font)
 	for _, f := range e.fonts[h] {
 		if f.native == font || ct.equal(f.native, font) {
@@ -718,6 +809,7 @@ func (e *coreText) fontOf(font uintptr) *Font {
 		thickens: !e.isColor(font),
 	}
 	e.fonts[h] = append(e.fonts[h], f)
+	e.native[font] = f
 	return f
 }
 
@@ -726,7 +818,8 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 	if font == 0 || len(text) == 0 {
 		return nil
 	}
-	u16, index := utf16Text(text)
+	e.u16, e.index = appendUTF16(e.u16[:0], e.index[:0], text)
+	u16, index := e.u16, e.index
 	n := len(u16)
 	str := ct.stringWithCharacters(0, &u16[0], n)
 	defer ct.release(str)
@@ -734,7 +827,8 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 	if rtl {
 		paragraph = e.styles[1]
 	}
-	keys, values := []uintptr{ct.fontAttributeName, ct.paragraphStyleName}, []uintptr{font, paragraph}
+	attrs, cached := e.attrs[attrsKey{font, rtl}]
+	keys, values := append(e.keys[:0], ct.fontAttributeName, ct.paragraphStyleName), append(e.values[:0], font, paragraph)
 	if style.LetterSpacing != 0 && ct.trackingName != 0 {
 		// Tracking, in points as DIPs, keeps the font's kerning.
 		tracking := cfFloat(float64(style.LetterSpacing))
@@ -746,8 +840,16 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 		defer ct.release(zero)
 		keys, values = append(keys, ct.kernName), append(values, zero)
 	}
-	attrs := cfDictionary(keys, values)
-	defer ct.release(attrs)
+	e.keys, e.values = keys, values
+	switch {
+	case len(keys) > 2:
+		attrs = cfDictionary(keys, values)
+		defer ct.release(attrs)
+	case !cached:
+		// The font of a style lives in primary, with its attributes.
+		attrs = cfDictionary(keys, values)
+		e.attrs[attrsKey{font, rtl}] = attrs
+	}
 	attributed := ct.attributedString(0, str, attrs)
 	defer ct.release(attributed)
 	if len(spans) > 0 {
@@ -762,9 +864,11 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 	defer ct.release(typesetter)
 	var breaks []bool
 	if wholeWords && width > 0 {
-		breaks = lineBreaks(text)
+		e.breaks = lineBreaks(&e.seg, e.breaks, text)
+		breaks = e.breaks
 	}
 	var lines []shapedLine
+	mark := len(e.shapeScratch.lines)
 	for start := 0; start < n; {
 		count := n - start
 		if width > 0 {
@@ -783,7 +887,7 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 		if line == 0 {
 			break
 		}
-		lines = append(lines, e.line(line, index, n))
+		lines = e.addLine(mark, e.line(line, index, n))
 		ct.release(line)
 		start += count
 	}
@@ -795,23 +899,25 @@ func (e *coreText) line(line uintptr, index []int, n int) shapedLine {
 	r := ct.lineGetStringRange(line)
 	sl := shapedLine{start: at(r.location), end: at(r.location + r.length)}
 	runs := ct.lineGetGlyphRuns(line)
+	mark := len(e.shapeScratch.runs)
 	for i := range ct.arrayGetCount(runs) {
 		run := ct.arrayGetValueAtIndex(runs, i)
 		rr := ct.runGetStringRange(run)
 		f := e.fontOf(ct.dictionaryGetValue(ct.runGetAttributes(run), ct.fontAttributeName))
 		sr := shapedRun{font: f, start: at(rr.location), end: at(rr.location + rr.length)}
 		if count := ct.runGetGlyphCount(run); count > 0 {
-			glyphs := make([]uint16, count)
-			positions := make([]cgPoint, count)
-			advances := make([]cgSize, count)
-			indices := make([]int, count)
+			e.runIDs = slices.Grow(e.runIDs[:0], count)[:count]
+			e.runPoints = slices.Grow(e.runPoints[:0], count)[:count]
+			e.runAdvances = slices.Grow(e.runAdvances[:0], count)[:count]
+			e.runIndices = slices.Grow(e.runIndices[:0], count)[:count]
+			glyphs, positions, advances, indices := e.runIDs, e.runPoints, e.runAdvances, e.runIndices
 			all := cfRange{}
 			ct.runGetGlyphs(run, all, &glyphs[0])
 			ct.runGetPositions(run, all, &positions[0])
 			ct.runGetAdvances(run, all, &advances[0])
 			ct.runGetStringIndices(run, all, &indices[0])
 			rtl := ct.runGetStatus(run)&ctRunStatusRightToLeft != 0
-			sr.glyphs = make([]Glyph, count)
+			sr.glyphs = e.glyphRoom(count)
 			for j := range count {
 				sr.glyphs[j] = Glyph{
 					Font: f, ID: uint32(glyphs[j]),
@@ -821,7 +927,7 @@ func (e *coreText) line(line uintptr, index []int, n int) shapedLine {
 				}
 			}
 		}
-		sl.runs = append(sl.runs, sr)
+		sl.runs = e.addRun(mark, sr)
 	}
 	return sl
 }
@@ -1207,11 +1313,20 @@ func (e *coreText) register(data []byte, family string) error {
 			}
 		}
 	}
+	e.forgetPrimary()
+	return nil
+}
+
+// forgetPrimary lets go of the fonts of styles, and of their attributes.
+func (e *coreText) forgetPrimary() {
 	for _, f := range e.primary {
 		ct.release(f)
 	}
 	clear(e.primary)
-	return nil
+	for _, a := range e.attrs {
+		ct.release(a)
+	}
+	clear(e.attrs)
 }
 
 func (e *coreText) fontCount() int {
@@ -1231,5 +1346,6 @@ func (e *coreText) forgetFonts() {
 		}
 	}
 	clear(e.fonts)
+	clear(e.native)
 	clear(e.color)
 }

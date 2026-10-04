@@ -324,6 +324,7 @@ func loadPango() error {
 }
 
 type pangoEngine struct {
+	shapeScratch
 	fontMap uintptr
 	context uintptr
 
