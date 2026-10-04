@@ -654,7 +654,14 @@ look of your own, build on the widgets' bases, which have none: see
 | `TokenField` | edits a `*[]string` as chips, as tags or recipients: Enter or a comma adds what was typed, Backspace takes out the last, and suggestions show below |
 | `SearchField` | a text input for searching, with a magnifying glass and a button clearing it, as Escape does |
 | `Slider` | sets a `*float64` within a range, by dragging or with the arrow keys |
+| `StepSlider` | a slider snapping to multiples of a step, with tick marks |
+| `RangeSlider` | two knobs setting a low and a high `*float64`, each taking the focus |
 | `Progress` | a bar filled from 0 to 1, or sliding across for a negative value, for work of unknown length; `Reverse` fills it from the right |
+| `Spinner` | spokes turning, for work of unknown length, as AppKit's spinning indicator |
+| `Meter` | a bar showing a value in a range, in the theme's `Success`, `Warning` or `Danger` color from its `MeterLevels`, as AppKit's level indicator |
+| `Rating` | stars setting a `*int`, by click or with the arrow keys |
+| `Stepper` | arrows stepping a `*float64`, as AppKit's stepper beside a field; held, they keep stepping |
+| `Avatar` | a picture of a person, or their initials on a color picked from their name |
 | `TextInput`, `TextArea` | edit a `*string` on one line or several, with selection, undo, the clipboard and input methods; `Placeholder`, `Password`, `Submitted` (Enter) and `Changed` |
 | `NumberInput` | edits a `*float64` within a range, typed or stepped with Up, Down and its buttons |
 | `DateInput` | edits a `*time.Time` with a calendar, by click or with the arrow keys and Page Up and Down |

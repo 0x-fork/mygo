@@ -313,55 +313,127 @@ func Switch(c *Context, on *bool) *Element {
 
 // Slider creates a slider setting *value between lo and hi.
 func Slider(c *Context, value *float64, lo, hi float64) *Element {
+	return slider(c, value, lo, hi, 0)
+}
+
+// StepSlider creates a slider setting *value to lo or a multiple of step
+// from it, up to hi, with a tick mark at each, as AppKit's sliders with
+// tick marks: dragging snaps to them, and the arrows step by step.
+func StepSlider(c *Context, value *float64, lo, hi, step float64) *Element {
+	return slider(c, value, lo, hi, step)
+}
+
+// slider creates a Slider, or with step a StepSlider.
+func slider(c *Context, value *float64, lo, hi, step float64) *Element {
 	t := c.theme
 	// The knob, a capsule like AppKit's, moves across the content box,
 	// half of it inside the padding on each side, so it stays on the
 	// track, which spans the slider. Held, it grows into a lens of glass
 	// that the track shows through, as AppKit's does.
 	kw, kh := t.Space(5), t.Space(4)
-	s := SliderBase(c, value, lo, hi).Height(t.Space(5)).MinWidth(t.Space(20)).PaddingX(kw / 2).FocusRing(false)
-	frac := float32(0)
-	if hi > lo {
-		frac = float32((*value - lo) / (hi - lo))
+	s := sliderBase(c, value, lo, hi, step).Height(t.Space(5)).MinWidth(t.Space(20)).PaddingX(kw / 2).FocusRing(false)
+	ticks := tickCount(lo, hi, step)
+	if ticks > 0 {
+		s.Height(t.Space(7))
 	}
+	frac := fraction(*value, lo, hi)
+	held := s.Animate("held", b2f(s.st.pressed), 150*time.Millisecond)
+	s.Draw(func(p *Painter, r Rect) {
+		// As thick as Progress; above the ticks.
+		h := t.Space(1.5)
+		cy := r.Y + t.Space(2.5)
+		track := Rect{r.X, cy - h/2, r.W, h}
+		paintTicks(p, t, r, kw, ticks, cy+kh/2+t.Space(1))
+		x := r.X + kw/2 + (r.W-kw)*frac
+		k := knobRect(t, x, cy, held)
+		if held > 0 {
+			// The lens lightens what is behind it, under the track.
+			p.Fill(k, RGBA(255, 255, 255, 0.1*held), k.H/2)
+		}
+		p.Fill(track, t.Border, h/2)
+		p.Fill(Rect{track.X, track.Y, x - track.X, h}, t.Accent, h/2)
+		paintKnob(p, t, k, held, s.FocusVisible())
+	})
+	return s
+}
+
+// fraction returns where v is from lo to hi, from 0 to 1.
+func fraction(v, lo, hi float64) float32 {
+	if hi <= lo {
+		return 0
+	}
+	return float32(max(0, min(1, (v-lo)/(hi-lo))))
+}
+
+// snap returns v rounded to lo or a multiple of step from it, within hi;
+// v itself for no step.
+func snap(v, lo, hi, step float64) float64 {
+	if step <= 0 {
+		return v
+	}
+	v = lo + math.Round((v-lo)/step)*step
+	if v > hi {
+		v -= step
+	}
+	// Away from the rounding of floating point, as 0.1 steps add up.
+	return math.Round(v*1e9) / 1e9
+}
+
+// tickCount returns how many tick marks a slider of step shows, 0 for none
+// or too many to tell apart.
+func tickCount(lo, hi, step float64) int {
+	if step <= 0 || hi <= lo {
+		return 0
+	}
+	n := int(math.Floor((hi-lo)/step+1e-9)) + 1
+	if n > 61 {
+		return 0
+	}
+	return n
+}
+
+// paintTicks paints n tick marks across a slider's track, at y.
+func paintTicks(p *Painter, t *Theme, r Rect, kw float32, n int, y float32) {
+	for i := range n {
+		x := r.X + kw/2 + (r.W-kw)*float32(i)/float32(max(n-1, 1))
+		p.Fill(Rect{x - 0.5, y, 1, t.Space(1.5)}, t.TextMuted.Alpha(0.6), 0)
+	}
+}
+
+// knobRect returns the box of a slider's knob centered at (x, y), held
+// from 0 to 1, when it grows into a lens.
+func knobRect(t *Theme, x, y, held float32) Rect {
+	kw, kh := t.Space(5), t.Space(4)
+	g := 1 + 0.35*held
+	return Rect{x - kw*g/2, y - kh*g/2, kw * g, kh * g}
+}
+
+// paintKnob paints a slider's knob k, held from 0 to 1, over its track:
+// a capsule of white, which grows into a lens of glass as it is held, as
+// AppKit's does.
+func paintKnob(p *Painter, t *Theme, k Rect, held float32, focus bool) {
 	face, rim, drop := RGB(255, 255, 255), RGBA(0, 0, 0, 0.22), RGBA(0, 0, 0, 0.14)
 	if t.Dark {
 		face, rim, drop = RGB(224, 225, 225), RGBA(0, 0, 0, 0.7), RGBA(0, 0, 0, 0.3)
 	}
-	held := s.Animate("held", b2f(s.st.pressed), 150*time.Millisecond)
-	s.Draw(func(p *Painter, r Rect) {
-		// As thick as Progress.
-		h := t.Space(1.5)
-		track := Rect{r.X, r.Y + r.H/2 - h/2, r.W, h}
-		x := r.X + kw/2 + (r.W-kw)*frac
-		g := 1 + 0.35*held
-		k := Rect{x - kw*g/2, r.Y + r.H/2 - kh*g/2, kw * g, kh * g}
-		rad := k.H / 2
-		if held > 0 {
-			// The lens lightens what is behind it, under the track.
-			p.Fill(k, RGBA(255, 255, 255, 0.1*held), rad)
-		}
-		p.Fill(track, t.Border, h/2)
-		p.Fill(Rect{track.X, track.Y, x - track.X, h}, t.Accent, h/2)
-		if held > 0 {
-			p.Shadow(k, rad, 0, 8, 14, -3, drop.Alpha(held))
-		}
-		if held < 1 {
-			// A tight shadow edges the knob, a soft one lifts it.
-			p.Shadow(k, rad, 0, 0.5, 1, 0, RGBA(0, 0, 0, 0.08*(1-held)))
-			p.Shadow(k, rad, 0, 1.5, 7, 0, RGBA(0, 0, 0, 0.1*(1-held)))
-			p.Fill(k, face.Alpha(1-held), rad)
-		}
-		if held > 0 {
-			// The lens's rim, lit on the inside.
-			p.Stroke(k, rim.Alpha(held), rad, 1)
-			p.Stroke(Rect{k.X + 1, k.Y + 1, k.W - 2, k.H - 2}, RGBA(255, 255, 255, 0.25*held), rad-1, 1)
-		}
-		if s.FocusVisible() {
-			p.FocusRing(k, [4]float32{rad, rad, rad, rad})
-		}
-	})
-	return s
+	rad := k.H / 2
+	if held > 0 {
+		p.Shadow(k, rad, 0, 8, 14, -3, drop.Alpha(held))
+	}
+	if held < 1 {
+		// A tight shadow edges the knob, a soft one lifts it.
+		p.Shadow(k, rad, 0, 0.5, 1, 0, RGBA(0, 0, 0, 0.08*(1-held)))
+		p.Shadow(k, rad, 0, 1.5, 7, 0, RGBA(0, 0, 0, 0.1*(1-held)))
+		p.Fill(k, face.Alpha(1-held), rad)
+	}
+	if held > 0 {
+		// The lens's rim, lit on the inside.
+		p.Stroke(k, rim.Alpha(held), rad, 1)
+		p.Stroke(Rect{k.X + 1, k.Y + 1, k.W - 2, k.H - 2}, RGBA(255, 255, 255, 0.25*held), rad-1, 1)
+	}
+	if focus {
+		p.FocusRing(k, [4]float32{rad, rad, rad, rad})
+	}
 }
 
 // Progress creates a progress bar filled to value between 0 and 1; a

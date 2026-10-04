@@ -90,7 +90,17 @@ const (
 	// is AccessExpanded while it shows: the trigger of a collapsible, or
 	// the header of an accordion's section.
 	RoleDisclosure
+	// RoleMeter shows a value in a range, as a level indicator, and
+	// RoleStepper steps one, as a spin button: both have Min, Max and Now.
+	RoleMeter
+	RoleStepper
 )
+
+// Ranged reports whether nodes of a role have a value in a range (Min,
+// Max and Now).
+func (r AccessRole) Ranged() bool {
+	return r == RoleSlider || r == RoleProgress || r == RoleMeter || r == RoleStepper
+}
 
 // AccessStates are the states of an element of an AccessTree.
 // AccessChecked is the choice among a tab list's tabs, a tree's items, and

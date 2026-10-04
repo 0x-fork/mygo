@@ -1199,6 +1199,12 @@ either.
   combobox's option. Sections and items are tree items, the sections'
   RoleNone containers leaving them all in the sidebar's tree, whose rows
   macOS keeps as an outline's.
+- **Indicators** (`ui/indicators.go`). Meters and steppers have a value
+  in a range, as sliders and progress bars do (`AccessRole.Ranged`):
+  a meter is AppKit's `AXLevelIndicator`, ATK's level bar and UIA's
+  ProgressBar; a stepper AppKit's `AXIncrementor`, ATK's spin button and
+  UIA's Spinner, taking increments. A range slider's knobs are sliders of
+  their own, named after it (`nameJoin`).
 - **Forms** (`ui/form.go`). A form notes the label boxes of its fields as
   they are built, and makes them as wide as the widest before the layout
   first measures or lays it out (`intrinsic` and `boxLayout` call

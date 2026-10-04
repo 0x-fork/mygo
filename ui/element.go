@@ -317,9 +317,12 @@ type Element struct {
 	// search a search field.
 	activeDescendant *Element
 	nameFrom         *Element
-	setPos, setSize  int
-	choosesItems     bool
-	search           bool
+	// nameJoin makes the element's name nameFrom's followed by its Label,
+	// as a range slider's knobs.
+	nameJoin        bool
+	setPos, setSize int
+	choosesItems    bool
+	search          bool
 	// description tells assistive technology more than the name, and
 	// invalid marks a value that is not valid (Description, Error).
 	description string

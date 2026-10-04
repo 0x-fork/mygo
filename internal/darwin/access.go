@@ -98,6 +98,8 @@ var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleToggleButton: {"AXCheckBox", "AXToggle"},
 	platform.RoleComboBox:     {"AXComboBox", ""},
 	platform.RoleDisclosure:   {"AXDisclosureTriangle", ""},
+	platform.RoleMeter:        {"AXLevelIndicator", ""},
+	platform.RoleStepper:      {"AXIncrementor", ""},
 }
 
 // chooses reports whether a node is the row of a list, a table or an
@@ -167,7 +169,7 @@ func valueOf(n platform.AccessNode) id {
 			v = 1
 		}
 		return nsNumberInt(v)
-	case n.Role == platform.RoleSlider || n.Role == platform.RoleProgress:
+	case n.Role.Ranged():
 		if n.Now < n.Min {
 			return 0 // a progress of unknown length
 		}
@@ -213,7 +215,7 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 	if fresh || n.States&platform.AccessExpanded != o.States&platform.AccessExpanded {
 		send(obj, "setAccessibilityExpanded:", boolArg(n.States&platform.AccessExpanded != 0))
 	}
-	if n.Role == platform.RoleSlider || n.Role == platform.RoleProgress {
+	if n.Role.Ranged() {
 		if fresh || n.Min != o.Min || n.Max != o.Max {
 			send(obj, "setAccessibilityMinValue:", uintptr(msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Min)))
 			send(obj, "setAccessibilityMaxValue:", uintptr(msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Max)))

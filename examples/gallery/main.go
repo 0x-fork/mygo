@@ -69,6 +69,11 @@ type gallery struct {
 	sort       ui.SortOrder
 	// Which sections of the sidebar show.
 	sectionsOpen [2]bool
+	// The indicators' values: the rating, the battery, the quality and
+	// the range of prices.
+	stars               int
+	battery, quality    float64
+	priceLow, priceHigh float64
 	// The grid of swatches, the one last chosen, those chosen, and their
 	// order; the tasks dragged between two columns.
 	swatches       ui.GridState
@@ -480,6 +485,36 @@ func (g *gallery) controls(c *ui.Context) {
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "Copies")
 			ui.NumberInput(c, &g.copies, 1, 99, 1).Label("Copies")
+		})
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "Quality").Width(64)
+			ui.StepSlider(c, &g.quality, 0, 100, 25).Label("Quality").Grow(1)
+			ui.Textf(c, "%3.0f%%", g.quality).Width(48).TextAlign(ui.End)
+		})
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "Price").Width(64)
+			ui.RangeSlider(c, &g.priceLow, &g.priceHigh, 0, 500, 10).Label("Price").Grow(1)
+			ui.Textf(c, "$%.0f–%.0f", g.priceLow, g.priceHigh).Width(72).TextAlign(ui.End)
+		})
+	})
+	card(c, "Indicators", func() {
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Spinner(c).Label("Syncing")
+			ui.Text(c, "Syncing…").TextColor(t.TextMuted).Grow(1)
+			ui.Rating(c, &g.stars, 5).Label("Rating")
+		})
+		disk := 412.0
+		ui.Textf(c, "Disk: %.0f of 500 GB", disk).FontSize(12).TextColor(t.TextMuted)
+		ui.Meter(c, disk, 0, 500, &ui.MeterLevels{Warning: 400, Critical: 475}).Label("Disk")
+		ui.Textf(c, "Battery: %.0f%%", g.battery).FontSize(12).TextColor(t.TextMuted)
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+			ui.Meter(c, g.battery, 0, 100, &ui.MeterLevels{Warning: 20, Critical: 10}).Label("Battery").Grow(1)
+			ui.Stepper(c, &g.battery, 0, 100, 5).Label("Battery")
+		})
+		ui.Row(c).Gap(8).Children(func() {
+			for _, name := range []string{"Ada Lovelace", "Grace Hopper", "Alan Turing", "Margaret Hamilton"} {
+				ui.Avatar(c, name, nil).Tooltip(name)
+			}
 		})
 	})
 	card(c, "Buttons", func() {
@@ -1079,7 +1114,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}}
+	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

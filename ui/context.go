@@ -290,8 +290,13 @@ type state struct {
 	changed, submitted bool
 	// expand is what assistive technology asked of an item of a tree: 1
 	// to open it, -1 to close it.
-	expand  int8
-	dropped []string
+	expand int8
+	// holding is set while a stepper's arrow is held, since holdStart, and
+	// holdSteps counts the steps it took.
+	holding   bool
+	holdStart time.Time
+	holdSteps int
+	dropped   []string
 	// dragValue is the value the element drags (Drag), or dragFn returns
 	// it as the drag starts; accepts reports whether it takes a value
 	// dragged (Drop), and droppedValue is the value dropped on it, while

@@ -87,12 +87,18 @@ func RadioBase[T comparable](c *Context, selected *T, value T) *Element {
 //
 // Slider is SliderBase with the theme's look.
 func SliderBase(c *Context, value *float64, lo, hi float64) *Element {
+	return sliderBase(c, value, lo, hi, 0)
+}
+
+// sliderBase creates a SliderBase whose values are lo and the multiples of
+// step from it, any for 0.
+func sliderBase(c *Context, value *float64, lo, hi, step float64) *Element {
 	s := Box(c).Focusable()
 	s.flags |= flagDraggable | flagHover
 	s.widget = "Slider"
 	st := s.st
 	set := func(v float64) {
-		v = max(lo, min(hi, v))
+		v = snap(max(lo, min(hi, v)), lo, hi, step)
 		if v != *value {
 			*value = v
 			st.changed = true
@@ -103,7 +109,9 @@ func SliderBase(c *Context, value *float64, lo, hi float64) *Element {
 		frac := (c.rt.pointerX - st.cx) / st.cw
 		set(lo + float64(max(0, min(1, frac)))*(hi-lo))
 	}
-	step := (hi - lo) / 100
+	if step <= 0 {
+		step = (hi - lo) / 100
+	}
 	switch {
 	case s.Shortcut(0, KeyLeft), s.Shortcut(0, KeyDown):
 		set(*value - step)

@@ -26,6 +26,10 @@ type Theme struct {
 	AccentPressed Color
 	AccentText    Color
 	Danger        Color
+	// Warning and Success color what calls for attention and what went
+	// well, as a Meter's levels.
+	Warning Color
+	Success Color
 	// Selection highlights selected text.
 	Selection Color
 	// Focus is the ring around the control with the keyboard focus.
@@ -94,6 +98,8 @@ func LightTheme() *Theme {
 		AccentPressed:  Hex("#1e40af"),
 		AccentText:     Hex("#ffffff"),
 		Danger:         Hex("#dc2626"),
+		Warning:        Hex("#d97706"),
+		Success:        Hex("#16a34a"),
 		Selection:      RGBA(37, 99, 235, 0.25),
 		Focus:          RGBA(37, 99, 235, 0.55),
 		Scrollbar:      RGBA(0, 0, 0, 0.32),
@@ -119,6 +125,8 @@ func DarkTheme() *Theme {
 		AccentPressed:  Hex("#2563eb"),
 		AccentText:     Hex("#ffffff"),
 		Danger:         Hex("#ef4444"),
+		Warning:        Hex("#f59e0b"),
+		Success:        Hex("#22c55e"),
 		Selection:      RGBA(59, 130, 246, 0.4),
 		Focus:          RGBA(96, 165, 250, 0.6),
 		Scrollbar:      RGBA(255, 255, 255, 0.35),

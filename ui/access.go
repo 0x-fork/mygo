@@ -67,6 +67,10 @@ const (
 	// RoleDisclosure is a button showing or hiding content below it, as
 	// the trigger of a collapsible (CollapsibleBase), expanded while open.
 	RoleDisclosure
+	// RoleMeter shows a value in a range (Meter), and RoleStepper steps a
+	// value in one (Stepper).
+	RoleMeter
+	RoleStepper
 )
 
 // Role sets what the element is to assistive technology, for an element
@@ -265,8 +269,13 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 		n.States |= platform.AccessSortDescending
 	}
 	n.Description = e.description
-	if f := e.nameFrom; n.Label == "" && f != nil {
-		n.Label = f.nameOf()
+	if f := e.nameFrom; f != nil {
+		switch {
+		case n.Label == "":
+			n.Label = f.nameOf()
+		case e.nameJoin && f.nameOf() != "":
+			n.Label = f.nameOf() + " " + n.Label
+		}
 	}
 	if e.setSize > 0 {
 		n.PosInSet, n.SetSize = e.setPos, e.setSize
@@ -332,7 +341,7 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if e.flags&flagClickable != 0 {
 		n.Actions |= platform.ActionPress
 	}
-	if n.Role == platform.RoleSlider {
+	if n.Role == platform.RoleSlider || n.Role == platform.RoleStepper {
 		n.Actions |= platform.ActionIncrement | platform.ActionDecrement
 	}
 	if e.expandable {
