@@ -26,12 +26,21 @@ type GridState struct {
 	// the grid has the focus chooses it, and assistive technology reads it
 	// as the item's name.
 	Label func(item int) string
+	// Reorder, when set, lets the user drag items to another place in the
+	// grid, as ListState.Reorder does rows: the items chosen, when the item
+	// dragged is one, else that item, in order, and the item they go
+	// before, the number of items for the end.
+	Reorder func(items []int, to int)
 
 	rows ListState
+	// cells are the items of the cells the last frame built, by their
+	// elements' IDs, and built those of this frame.
+	cells, built map[uint64]int
 	// cols is how many columns the items took in the last frame, and pivot
 	// the item Shift chooses from.
 	cols, pivot int
 	started     bool
+	rt          *engine
 }
 
 // ScrollTo scrolls the grid to show item at align, as ListState.ScrollTo
@@ -129,8 +138,114 @@ func GridView(c *Context, s *GridState, n int, minWidth, height float32, item fu
 	e.gridFit = &gridFit{cols: cols, minW: minWidth, gap: gap}
 	s.keys(e, n)
 	e.activeDescendant = cursor
+	s.reorder(e, n, gap)
+	s.cells, s.built = s.built, s.cells
+	clear(s.built)
 	return e
 }
+
+// itemDrag is items of a grid being dragged to another place in it
+// (GridState.Reorder).
+type itemDrag struct {
+	s     *GridState
+	items []int
+}
+
+func (d *itemDrag) dragCount() int { return len(d.items) }
+
+// dragged returns the items a drag from item i moves: those chosen when it
+// is one of them, else item i.
+func (s *GridState) dragged(i, n int) []int {
+	if s.Selection == nil || !s.chosen(i) {
+		return []int{i}
+	}
+	var items []int
+	for j := range n {
+		if s.chosen(j) {
+			items = append(items, j)
+		}
+	}
+	return items
+}
+
+// reorder makes the grid take its own items dragged over it: it shows where
+// they would go, and moves them there as they drop.
+func (s *GridState) reorder(e *Element, n int, gap float32) {
+	if s.Reorder == nil {
+		return
+	}
+	e.flags |= flagValueDrop
+	e.st.accepts = func(v any) bool { d, ok := v.(*itemDrag); return ok && d.s == s }
+	rt := e.c.rt
+	var d *itemDrag
+	dropped, x, y := false, rt.pointerX, rt.pointerY
+	switch {
+	case e.st.hasDropped:
+		// Where the items dropped, which the pointer may have left since.
+		d, _ = e.st.droppedValue.(*itemDrag)
+		e.st.hasDropped, dropped, x, y = false, true, e.st.dropX, e.st.dropY
+	case rt.drag != nil && !rt.drag.canceled && rt.drag.over == e.id:
+		d, _ = rt.drag.value.(*itemDrag)
+	}
+	if d == nil || d.s != s {
+		return
+	}
+	to, at, after := s.dropAt(x, y, n)
+	if dropped {
+		if !(len(d.items) == 1 && (to == d.items[0] || to == d.items[0]+1)) {
+			s.Reorder(d.items, to)
+			rt.consumed = true
+		}
+		return
+	}
+	t := e.c.theme
+	e.DrawOver(func(p *Painter, r Rect) {
+		cell := rt.states[at]
+		if cell == nil {
+			return
+		}
+		x := cell.x - gap/2
+		if after {
+			x = cell.x + cell.w + gap/2
+		}
+		p.Fill(Rect{x - 1, cell.y + 4, 2, cell.h - 8}, t.Accent, 1)
+	})
+}
+
+// dropAt returns the item before which items dropped at (x, y) go, and
+// the cell of the last frame the line showing it goes beside, and on which
+// side: the cell under the pointer, or the nearest in its row.
+func (s *GridState) dropAt(x, y float32, n int) (to int, cell uint64, after bool) {
+	best, dist := -1, float32(-1)
+	for id, i := range s.cells {
+		st := s.cellState(id)
+		if st == nil || y < st.y || y >= st.y+st.h {
+			continue
+		}
+		d := abs(x - (st.x + st.w/2))
+		if best < 0 || d < dist {
+			best, dist, cell = i, d, id
+		}
+	}
+	if best < 0 {
+		// Below the cells: past the last.
+		for id, i := range s.cells {
+			if i == n-1 {
+				return n, id, true
+			}
+		}
+		return n, 0, false
+	}
+	st := s.cellState(cell)
+	if x >= st.x+st.w/2 {
+		return best + 1, cell, true
+	}
+	return best, cell, false
+}
+
+// cellState returns the state of the cell of the last frame whose element
+// has id.
+func (s *GridState) cellState(id uint64) *state { return s.rt.states[id] }
 
 // cell builds item i of a grid, choosing it when clicked.
 func (s *GridState) cell(c *Context, grid *Element, i, n int, height float32, item func(i int)) *Element {
@@ -140,6 +255,16 @@ func (s *GridState) cell(c *Context, grid *Element, i, n int, height float32, it
 	cell.setPos, cell.setSize = i+1, n
 	if s.Label != nil {
 		cell.Label(s.Label(i))
+	}
+	if s.built == nil {
+		s.built = map[uint64]int{}
+	}
+	s.built[cell.id], s.rt = i, c.rt
+	if s.Reorder != nil {
+		cell.dragFrom(func() any { return &itemDrag{s: s, items: s.dragged(i, n)} })
+		if cell.Dragging() {
+			cell.Opacity(0.4)
+		}
 	}
 	if s.Selected != nil {
 		cell.flags |= flagClickable | flagHover | flagChoosable

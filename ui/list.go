@@ -71,6 +71,12 @@ type ListState struct {
 	// its section scroll under it, until the next header pushes it away.
 	// Give headers a background. Headers are not chosen.
 	Header func(row int) bool
+	// Reorder, when set, lets the user drag rows to another place in the
+	// list: the rows chosen, when the row dragged is one, else that row,
+	// which the list passes in order, and the row they go before, the
+	// number of rows for the end. Move them there: the list shows where
+	// they would go as they are dragged, and scrolls near its edges.
+	Reorder func(rows []int, to int)
 	// Sort, when set, is the column a Table's rows are sorted by: a click
 	// on the header of a Sortable column sorts by it, ascending, and
 	// another reverses the order, which the header shows. Sort the rows as
@@ -303,6 +309,7 @@ func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i in
 	if s.cursor() != nil {
 		f.navigate()
 	}
+	f.reorder()
 }
 
 // sync follows what changed since the last frame: rows added or removed,
@@ -507,6 +514,13 @@ func (f *listFrame) build(i int) *Element {
 			})
 		}
 	}
+	if s.Reorder != nil && !f.isHeader(i) {
+		w.dragFrom(func() any { return &rowDrag{s: s, rows: f.dragged(i)} })
+		if w.Dragging() {
+			// Where the row was, as it moves with the pointer.
+			w.Opacity(0.4)
+		}
+	}
 	saved := c.row
 	c.row = &rb
 	w.Children(func() { f.row(i) })
@@ -544,6 +558,116 @@ func (s *ListState) cursor() *int {
 }
 
 // key returns the key of row i, its index without ListState.Key.
+// rowDrag is rows of a list being dragged to another place in it
+// (ListState.Reorder).
+type rowDrag struct {
+	s    *ListState
+	rows []int
+}
+
+func (d *rowDrag) dragCount() int { return len(d.rows) }
+
+// dragged returns the rows a drag from row i moves: those chosen when it
+// is one of them, else row i.
+func (f *listFrame) dragged(i int) []int {
+	s := f.s
+	if s.Selection == nil || !f.chosen(i, f.key(i)) {
+		return []int{i}
+	}
+	var rows []int
+	for j := range f.n {
+		if !f.isHeader(j) && f.chosen(j, f.key(j)) {
+			rows = append(rows, j)
+		}
+	}
+	return rows
+}
+
+// reorder makes the list take its own rows dragged over it: it shows where
+// they would go, and moves them there as they drop (ListState.Reorder).
+func (f *listFrame) reorder() {
+	s, e := f.s, f.e
+	if s.Reorder == nil {
+		return
+	}
+	e.flags |= flagValueDrop
+	e.st.accepts = func(v any) bool { d, ok := v.(*rowDrag); return ok && d.s == s }
+	rt := f.c.rt
+	var d *rowDrag
+	dropped, y := false, rt.pointerY
+	switch {
+	case e.st.hasDropped:
+		// Where the rows dropped, which the pointer may have left since,
+		// as when Windows moves it back to the mouse after a test's drag.
+		d, _ = e.st.droppedValue.(*rowDrag)
+		e.st.hasDropped, dropped, y = false, true, e.st.dropY
+	case rt.drag != nil && !rt.drag.canceled && rt.drag.over == e.id:
+		d, _ = rt.drag.value.(*rowDrag)
+	}
+	if d == nil || d.s != s {
+		return
+	}
+	to := f.dropAt(y)
+	if dropped {
+		// Rows already there stay.
+		if !(len(d.rows) == 1 && (to == d.rows[0] || to == d.rows[0]+1)) {
+			s.Reorder(d.rows, to)
+			rt.consumed = true
+		}
+		return
+	}
+	t := f.c.theme
+	e.DrawOver(func(p *Painter, r Rect) {
+		y, ok := f.boundary(to)
+		if !ok {
+			return
+		}
+		x := r.X + e.contentX()
+		p.Fill(Rect{x + 4, y - 1, r.W - e.padX() - 4, 2}, t.Accent, 1)
+		p.Fill(Rect{x, y - 4, 8, 8}, t.Accent, 4)
+	})
+}
+
+// dropAt returns the row before which rows dropped at y go: that of the
+// row of the last frame whose middle is below y, the number of rows past
+// the last.
+func (f *listFrame) dropAt(y float32) int {
+	to, below := -1, -1
+	for id, r := range f.s.rows {
+		st := f.c.rt.states[id]
+		if st == nil || f.isHeader(r.row) {
+			continue
+		}
+		if y < st.y+st.h/2 {
+			if to < 0 || r.row < to {
+				to = r.row
+			}
+		} else if r.row > below {
+			below = r.row
+		}
+	}
+	if to < 0 {
+		return min(below+1, f.n)
+	}
+	return to
+}
+
+// boundary returns where row i starts, in this frame, or the end of the
+// row before it, for the last.
+func (f *listFrame) boundary(i int) (float32, bool) {
+	for _, r := range f.rows {
+		if r.i == i {
+			return r.e.y - max(f.e.gapY, 0)/2, true
+		}
+	}
+	for _, r := range f.rows {
+		if r.i == i-1 {
+			return r.e.y + r.e.h + max(f.e.gapY, 0)/2, true
+		}
+	}
+	return 0, false
+}
+
 func (f *listFrame) key(i int) any {
 	if f.s.Key != nil {
 		return f.s.Key(i)

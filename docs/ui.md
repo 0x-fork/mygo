@@ -937,6 +937,23 @@ and the field's label names the group around them.
   	return false
   }).TextCaret(app.caretRect())
   ```
+- **Drag and drop.** `Drag(value)` makes an element the source of a value
+  dragged within the window: once the pointer pressing it moves a few
+  DIPs, a copy of the element follows the pointer, and the press is no
+  click. `ui.Drop[T](e)` makes `e` take values of type `T`, returning the
+  one dropped on it, and `ui.DragOver[T](e)` the one over it, for showing
+  it would take it; the innermost element taking the value under the
+  pointer gets it. Escape gives up a drag. Lists, tables and grid views
+  reorder their rows with `ListState.Reorder` and `GridState.Reorder`,
+  showing where the rows would go and scrolling near their edges:
+
+  ```go
+  row := ui.Row(c).Drag(task)
+  if t, ok := ui.Drop[*Task](doneColumn); ok {
+  	t.Done = true
+  }
+  app.list.Reorder = func(rows []int, to int) { app.items = move(app.items, rows, to) }
+  ```
 - **Tooltips.** `Tooltip("…")` shows a tip once the pointer rests on the
   element, and describes the element to assistive technology.
 - **Custom title bars.** In a `Frameless` window, `DragWindow` makes an

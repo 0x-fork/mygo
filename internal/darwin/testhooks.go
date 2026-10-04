@@ -85,6 +85,29 @@ func TestClick(handle uintptr, x, y float64) {
 	})
 }
 
+// TestDrag presses the primary button at the first of points, in points
+// from the top-left corner of a window's content, drags the pointer through
+// the others, and releases it at the last.
+func TestDrag(handle uintptr, points [][2]float64) {
+	withPool(func() {
+		win := id(handle)
+		content := msgRect(send(win, "contentView"), sel("frame"))
+		number := sendInt(win, "windowNumber")
+		for i, p := range points {
+			typ := uint(6) // NSEventTypeLeftMouseDragged
+			switch i {
+			case 0:
+				typ = 1 // NSEventTypeLeftMouseDown
+			case len(points) - 1:
+				typ = 2 // NSEventTypeLeftMouseUp
+			}
+			ev := msgMouseEvent(class("NSEvent"), sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
+				typ, NSPoint{p[0], content.Size.Height - p[1]}, 0, 0, number, 0, 0, 1, 1)
+			send(win, "sendEvent:", uintptr(ev))
+		}
+	})
+}
+
 // TestControlClick Control-clicks (x, y), in points from the top-left
 // corner of a window's content.
 func TestControlClick(handle uintptr, x, y float64) {

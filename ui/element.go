@@ -113,6 +113,9 @@ const (
 	// flagKeepFocus keeps the focus where it is when the element is
 	// pressed, as a combobox's popup does for its input.
 	flagKeepFocus
+	// flagValueDrop marks an element taking values dragged within the
+	// window (Drop, DragOver).
+	flagValueDrop
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY

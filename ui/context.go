@@ -290,13 +290,23 @@ type state struct {
 	changed, submitted bool
 	// expand is what assistive technology asked of an item of a tree: 1
 	// to open it, -1 to close it.
-	expand    int8
-	dropped   []string
-	editor    *editor
-	locals    map[any]any
-	anims     map[any]*anim
-	shortcuts []shortcut
-	delivered []shortcut
+	expand  int8
+	dropped []string
+	// dragValue is the value the element drags (Drag), or dragFn returns
+	// it as the drag starts; accepts reports whether it takes a value
+	// dragged (Drop), and droppedValue is the value dropped on it, while
+	// hasDropped, at (dropX, dropY).
+	dragValue    any
+	dragFn       func() any
+	accepts      func(any) bool
+	droppedValue any
+	hasDropped   bool
+	dropX, dropY float32
+	editor       *editor
+	locals       map[any]any
+	anims        map[any]*anim
+	shortcuts    []shortcut
+	delivered    []shortcut
 
 	// input, caret and takesText are those of the last frame's element
 	// (HandleInput, TextCaret).
@@ -319,6 +329,8 @@ func (rt *engine) stateFor(id uint64) *state {
 		rt.states[id] = s
 	}
 	s.seen, s.pass = rt.frame, rt.pass
+	// What the element drags and takes, as this pass asks.
+	s.dragValue, s.dragFn, s.accepts = nil, nil, nil
 	return s
 }
 

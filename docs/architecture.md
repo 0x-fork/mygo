@@ -1173,6 +1173,18 @@ either.
   its rows as a table does; on Linux, the `level` attribute and the
   expandable state; on Windows, Level, and ExpandCollapse with LeafNode
   for items without children.
+- **Drag and drop within a window** (`ui/dragdrop.go`). An element
+  dragging a value notes it in its state (`Drag`), or a function giving it
+  as a drag starts, as a list's rows chosen. The engine starts the drag
+  once the pointer pressing it moves a few DIPs (`dragMove`), and follows
+  the innermost element under the pointer whose `accepts` takes the value,
+  which `Drop` and `DragOver` set from their type. Releasing drops the
+  value on it and is no click (`dragEnd`); Escape gives up. Each frame
+  scrolls the scroll container under the pointer near its edges, and
+  paints the source's element of the frame again under the pointer,
+  shifting it there and back, with a count beside the pointer for
+  several rows. Lists and grids take their own rows (`rowDrag`,
+  `itemDrag`), placing them by the middles of the rows of the last frame.
 - **Grid views** (`ui/gridview.go`). A grid view is a `List` of rows of
   items, whose columns it takes from the width its rows had in the last
   frame: the layout asks for another frame when the width calls for

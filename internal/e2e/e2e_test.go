@@ -2288,6 +2288,38 @@ func TestContentWindowMenuButton(t *testing.T) {
 	})
 }
 
+// TestReorderByDragging drags a row of a list below another with the
+// events of a real mouse.
+func TestReorderByDragging(t *testing.T) {
+	var frames atomic.Int32
+	var order atomic.Value
+	items := []string{"a", "b", "c", "d", "e"}
+	order.Store(strings.Join(items, ""))
+	s := ui.ListState{Key: func(i int) any { return items[i] }}
+	s.Reorder = func(rows []int, to int) {
+		moved := items[rows[0]]
+		items = slices.Delete(slices.Clone(items), rows[0], rows[0]+1)
+		if to > rows[0] {
+			to--
+		}
+		items = slices.Insert(items, to, moved)
+		order.Store(strings.Join(items, ""))
+	}
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.List(c, &s, len(items), func(i int) {
+			ui.Box(c).Height(30).Children(func() { ui.Text(c, items[i]) })
+		}).Fill()
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Reorder", Width: 300, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	// Row b, from 30 to 60, to the bottom of row d, from 90 to 120.
+	if !drag(w, [][2]float64{{50, 45}, {50, 50}, {50, 70}, {50, 100}, {50, 118}}) {
+		t.Skip("pointer automation not available on this platform")
+	}
+	eventually(t, "the new order", func() bool { return order.Load() == "acdbe" })
+}
+
 func TestContentWindowContextMenu(t *testing.T) {
 	var frames atomic.Int32
 	var chosen atomic.Value

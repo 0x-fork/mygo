@@ -109,6 +109,8 @@ type engine struct {
 		state platform.TextInputState
 		base  int
 	}
+	// drag is the value being dragged within the window.
+	drag *valueDrag
 	// dropOver is the element files are dragged over; access is true once
 	// assistive technology asked for the content.
 	dropOver   uint64
@@ -213,6 +215,11 @@ func (rt *engine) runFrame() {
 	rt.text.BeginFrame()
 	rt.animating = false
 	rt.routeKeys()
+	if rt.drag != nil {
+		// The source's element is this frame's, if it builds one.
+		rt.drag.elem = nil
+		rt.dragScroll()
+	}
 
 	// An event handled while building (a click, an edit) may change what
 	// was built before it: build again, so the frame shows the outcome.
@@ -291,6 +298,7 @@ func (rt *engine) forgetInput() {
 		s.dragX, s.dragY = 0, 0
 		s.changed, s.submitted, s.typing = false, false, false
 		s.dropped = nil
+		s.droppedValue, s.hasDropped = nil, false
 	}
 }
 

@@ -27,6 +27,11 @@ func click(w *mygo.Window, x, y float64) bool {
 	return true
 }
 
+func drag(w *mygo.Window, points [][2]float64) bool {
+	mygo.RunOnMain(func() { darwin.TestDrag(w.NativeHandle(), points) })
+	return true
+}
+
 func webViewAttached(w *mygo.Window) (attached bool, supported bool) {
 	mygo.RunOnMain(func() { attached = darwin.TestWebViewAttached(w.NativeHandle()) })
 	return attached, true

@@ -204,6 +204,28 @@ func TestClickSurface(hwnd uintptr, x, y float64) bool {
 	return true
 }
 
+// TestDragSurface presses the primary button at the first of points, in
+// DIPs, in a window showing native UI, moves the pointer through the
+// others, and releases it at the last, with the messages a mouse sends.
+func TestDragSurface(hwnd uintptr, points [][2]float64) bool {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.surface == nil || len(points) < 2 {
+		return false
+	}
+	scale := float64(w.surface.dpi()) / 96
+	lp := func(p [2]float64) uintptr {
+		return uintptr(uint16(int16(p[1]*scale)))<<16 | uintptr(uint16(int16(p[0]*scale)))
+	}
+	const mkLButton = 1
+	procSendMessageW.Call(w.surface.hwnd, wmMouseMove, 0, lp(points[0]))
+	procSendMessageW.Call(w.surface.hwnd, wmLButtonDown, mkLButton, lp(points[0]))
+	for _, p := range points[1:] {
+		procSendMessageW.Call(w.surface.hwnd, wmMouseMove, mkLButton, lp(p))
+	}
+	procSendMessageW.Call(w.surface.hwnd, wmLButtonUp, 0, lp(points[len(points)-1]))
+	return true
+}
+
 // TestRightClickSurface clicks (x, y), in DIPs, in a window showing native
 // UI with the secondary button, as TestClickSurface does with the primary.
 func TestRightClickSurface(hwnd uintptr, x, y float64) bool {

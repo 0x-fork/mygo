@@ -156,6 +156,7 @@ func (rt *engine) pointerMove(x, y float32) {
 		if rt.pressed.flags&(flagTrackPointer|flagDraggable|flagEditable|flagSelectable) != 0 {
 			rt.requestFrame()
 		}
+		rt.dragMove(x, y)
 	}
 	moved := x != rt.pointerX || y != rt.pointerY
 	rt.pointerX, rt.pointerY, rt.pointerIn = x, y, true
@@ -271,6 +272,13 @@ func (rt *engine) pointerUp(button, clicks int) {
 	if rt.scrollDrag.st != nil {
 		rt.scrollDrag.st = nil
 		rt.requestFrame()
+		return
+	}
+	if s := rt.pressed; s != nil && button == rt.pressButton && rt.dragEnd() {
+		// A drag ended, dropping its value: no click.
+		rt.pressed = nil
+		s.pressed = false
+		rt.setHover(rt.hitChain(rt.pointerX, rt.pointerY))
 		return
 	}
 	if p := rt.pressed; p != nil && p.input != nil {
@@ -449,6 +457,9 @@ func (rt *engine) claimedBy(k keyEvent, window bool) bool {
 // it came (HandleInput).
 func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 	k := keyEvent{mods, key}
+	if key == KeyEscape && mods == 0 && rt.dragCancel() {
+		return true
+	}
 	if h := rt.focusHandler(); h != nil && !rt.claimed(k) && rt.deliver(h, InputEvent{Kind: InputKeyDown, Key: key, Mods: mods, Repeat: repeat}) {
 		rt.blinkStart = time.Now()
 		return true

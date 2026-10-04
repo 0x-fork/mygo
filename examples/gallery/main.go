@@ -69,10 +69,13 @@ type gallery struct {
 	sort       ui.SortOrder
 	// Which sections of the sidebar show.
 	sectionsOpen [2]bool
-	// The grid of swatches, the one last chosen, and those chosen.
+	// The grid of swatches, the one last chosen, those chosen, and their
+	// order; the tasks dragged between two columns.
 	swatches       ui.GridState
 	swatch         int
 	swatchesChosen ui.Selection[int]
+	swatchOrder    []int
+	tasks          []galleryTask
 	// The outline, its row chosen, and its order.
 	outline     ui.OutlineState[string]
 	outlineRow  int
@@ -85,6 +88,33 @@ type gallery struct {
 	table    ui.ListState
 	messages []message
 	draft    string
+}
+
+// galleryTask is a task of the Drag and drop card.
+type galleryTask struct {
+	name string
+	done bool
+}
+
+// reorder moves items of order before to, as GridState.Reorder asks.
+func reorder(order, items []int, to int) []int {
+	moved := make([]int, 0, len(items))
+	rest := make([]int, 0, len(order))
+	at := -1
+	for i, v := range order {
+		if i == to {
+			at = len(rest)
+		}
+		if slices.Contains(items, i) {
+			moved = append(moved, v)
+		} else {
+			rest = append(rest, v)
+		}
+	}
+	if at < 0 {
+		at = len(rest)
+	}
+	return slices.Insert(rest, at, moved...)
 }
 
 // hsl returns the color of hue h in degrees, saturation s and lightness l.
@@ -395,6 +425,34 @@ func (g *gallery) controls(c *ui.Context) {
 		ui.TokenField(c, &g.tags, []string{"design", "go", "native", "performance", "release", "typescript"}).Label("Tags")
 		ui.Text(c, "Type to filter; Up and Down move, Enter chooses. In the tags, Enter or a comma adds a tag, and Backspace takes out the last.").TextColor(t.TextMuted)
 	})
+	card(c, "Drag and drop", func() {
+		if g.tasks == nil {
+			g.tasks = []galleryTask{{"Write the docs", false}, {"Fix the layout", false}, {"Ship it", false}, {"Plan the release", true}}
+		}
+		ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
+			for col, title := range []string{"To do", "Done"} {
+				done := col == 1
+				bin := ui.Column(c).Grow(1).Basis(0).Gap(6).Padding(10).Radius(8).MinHeight(150).Background(t.Surface).Border(1, t.Border).Label(title)
+				if task, ok := ui.Drop[*galleryTask](bin); ok {
+					task.done = done
+				}
+				if task, ok := ui.DragOver[*galleryTask](bin); ok && task.done != done {
+					bin.Border(2, t.Accent)
+				}
+				bin.Children(func() {
+					ui.Text(c, title).FontWeight(600)
+					for i := range g.tasks {
+						if task := &g.tasks[i]; task.done == done {
+							ui.Row(c).Key(task.name).Padding(7, 10).Radius(6).Background(t.Background).Border(1, t.Border).Cursor(ui.CursorPointer).Drag(task).Children(func() {
+								ui.Text(c, task.name)
+							})
+						}
+					}
+				})
+			}
+		})
+		ui.Text(c, "Drag a task to the other column; Escape gives up.").FontSize(12).TextColor(t.TextMuted)
+	})
 	card(c, "Disclosure", func() {
 		ui.Collapsible(c, "Advanced options", &g.advanced, func() {
 			ui.Checkbox(c, &g.verbose, "Verbose logging")
@@ -700,16 +758,24 @@ func (g *gallery) list(c *ui.Context) {
 	}).Height(340)
 	card(c, "Grid view", func() {
 		// 10,000 swatches, as many columns as fit, several chosen by
-		// their numbers.
+		// their numbers, in the order the user drags them to.
+		if g.swatchOrder == nil {
+			g.swatchOrder = make([]int, 10000)
+			for i := range g.swatchOrder {
+				g.swatchOrder[i] = i
+			}
+		}
+		g.swatches.Key = func(i int) any { return g.swatchOrder[i] }
 		g.swatches.Selected = &g.swatch
 		g.swatches.Selection = &g.swatchesChosen
-		g.swatches.Label = func(i int) string { return fmt.Sprintf("Swatch %d", i) }
-		ui.GridView(c, &g.swatches, 10000, 96, 96, func(i int) {
-			hue := float64(i%36) * 10
-			ui.Box(c).Grow(1).Margin(6).Radius(6).Background(hsl(hue, 0.6, 0.65))
-			ui.Textf(c, "%d", i).FontSize(12).AlignSelf(ui.Center).Padding(0, 0, 4)
+		g.swatches.Label = func(i int) string { return fmt.Sprintf("Swatch %d", g.swatchOrder[i]) }
+		g.swatches.Reorder = func(items []int, to int) { g.swatchOrder = reorder(g.swatchOrder, items, to) }
+		ui.GridView(c, &g.swatches, len(g.swatchOrder), 96, 96, func(i int) {
+			n := g.swatchOrder[i]
+			ui.Box(c).Grow(1).Margin(6).Radius(6).Background(hsl(float64(n%36)*10, 0.6, 0.65))
+			ui.Textf(c, "%d", n).FontSize(12).AlignSelf(ui.Center).Padding(0, 0, 4)
 		}).Grow(1)
-		ui.Textf(c, "%d chosen of 10,000, built only as they show. The arrows move in both directions; Shift and %s choose several.", g.swatchesChosen.Len(), map[bool]string{true: "Cmd", false: "Ctrl"}[runtime.GOOS == "darwin"]).FontSize(12).TextColor(t.TextMuted)
+		ui.Textf(c, "%d chosen of 10,000, built only as they show. The arrows move in both directions; Shift and %s choose several, and dragging moves them.", g.swatchesChosen.Len(), map[bool]string{true: "Cmd", false: "Ctrl"}[runtime.GOOS == "darwin"]).FontSize(12).TextColor(t.TextMuted)
 	}).Height(380)
 }
 

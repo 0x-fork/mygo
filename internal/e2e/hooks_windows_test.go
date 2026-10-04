@@ -26,6 +26,11 @@ func click(w *mygo.Window, x, y float64) (ok bool) {
 	return ok
 }
 
+func drag(w *mygo.Window, points [][2]float64) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestDragSurface(w.NativeHandle(), points) })
+	return ok
+}
+
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
 // WebView2 opens DevTools in a window of its own.

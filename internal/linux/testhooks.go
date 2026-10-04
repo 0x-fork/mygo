@@ -342,6 +342,33 @@ func clickSurface(handle uintptr, x, y float64, button uint32) bool {
 	return pressButton(button, true) && pressButton(button, false)
 }
 
+// TestDragSurface presses the primary button at the first of points, in
+// DIPs, in a window showing native UI, moves the pointer through the
+// others, and releases it at the last, through XTEST.
+func TestDragSurface(handle uintptr, points [][2]float64) bool {
+	w := windowByHandle(handle)
+	if w == nil || w.surface == nil || len(points) < 2 {
+		return false
+	}
+	var origin func(window ptr, x, y *int32) int32
+	if !bind(libGDK, &origin, "gdk_window_get_origin") {
+		return false
+	}
+	var ox, oy int32
+	origin(w.surface.eventWindow(), &ox, &oy)
+	scale := float64(gtkWidgetGetScaleFactor(w.surface.area))
+	move := func(p [2]float64) bool {
+		return TestMovePointer(int((float64(ox)+p[0])*scale), int((float64(oy)+p[1])*scale))
+	}
+	if !move(points[0]) || !pressButton(1, true) {
+		return false
+	}
+	for _, p := range points[1:] {
+		move(p)
+	}
+	return pressButton(1, false)
+}
+
 // TestRightClickSurface clicks (x, y) with the secondary button, as
 // TestClickSurface does with the primary.
 func TestRightClickSurface(handle uintptr, x, y float64) bool {
