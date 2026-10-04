@@ -1126,6 +1126,17 @@ either.
   in the frame after, matched by place and label. A menu button opens as
   the primary button goes down on it, taking the release, as AppKit's and
   GTK's pop-up buttons do, and for Enter, Space and Down.
+- **Focus groups** (`ui/focusgroup.go`). Committing a frame notes the
+  outermost focus group (`FocusGroup`) each element of the focus order is
+  in, beside its dialog. Tab skips the elements of a group but its entry,
+  the one that had the focus last, else the radio button or tab chosen,
+  else the first, and leaves the group; the arrows, Home and End move the
+  focus among its elements when no element around the focus takes them as
+  a shortcut, and click the element they reach in a radio group.
+  `Toolbar` lays out (`layoutToolbar`) the controls that fit, takes the
+  others out of the flow (absolute and invisible, `collapsed`), and lists
+  them, by label, for its overflow menu, whose choices click them after
+  the pass (`clickLater`).
 - **Overlays** (`ui/scope.go`) scope the keyboard. Committing a frame
   notes the dialog each focusable element is in (`DialogBase`'s backdrop,
   `flagModal`; a popover is in its anchor's), the dialog on top

@@ -528,6 +528,11 @@ look of your own, build on the widgets' bases, which have none: see
 | `Link` | text that opens a URL in the browser |
 | `Checkbox`, `Switch` | toggle a `*bool` |
 | `Radio` | sets a `*T` to its value |
+| `RadioGroup` | holds radio buttons as one stop of Tab, among which the arrows choose |
+| `Toggle` | a button that stays pressed while a `*bool` is true, as Bold in an editor |
+| `ToggleGroup` | toggles and buttons joined as the segments of one control |
+| `Segmented` | a segmented control choosing a `*int`, as between views |
+| `Toolbar` | a row of controls that is one stop of Tab, the arrows moving among them; what does not fit goes into a menu at its end |
 | `Select` | picks one of a list of strings, from a popup |
 | `Slider` | sets a `*float64` within a range, by dragging or with the arrow keys |
 | `Progress` | a bar filled from 0 to 1, or sliding across for a negative value, for work of unknown length; `Reverse` fills it from the right |
@@ -557,22 +562,23 @@ own on them, as headless component libraries do on the web:
 | | |
 |---|---|
 | `ButtonBase` | a row that takes the focus, and reports `Clicked` for the pointer, Enter and Space |
-| `CheckboxBase`, `SwitchBase` | a row that toggles a `*bool` |
+| `CheckboxBase`, `SwitchBase`, `ToggleBase` | a row that toggles a `*bool` |
 | `RadioBase` | a row that selects its value into a `*T` |
 | `SliderBase` | sets a `*float64` from where the pointer is across its content box, inside its padding, and with the arrows, Home and End |
 | `TabsBase` | the tab `List`, whose `Tab`s choose a `*int`, with the arrows moving the choice and the focus |
+| `SegmentedBase` | a `Track` of `Segment`s, a radio group choosing a `*int` |
 | `SelectBase` | a `Trigger` opening a `Popup` of `Item`s choosing a `*T`, which the arrows highlight (`Highlighted`) and Enter chooses |
 | `PopoverBase`, `DialogBase` | a panel below an anchor, or over a backdrop covering the window, that a click outside or Escape closes |
 | `TextInputBase`, `TextAreaBase` | text inputs without padding, background, border or corners |
 
-A segmented control on `TabsBase`, and a select on `SelectBase`:
+A segmented control on `SegmentedBase`, and a select on `SelectBase`:
 
 ```go
 t := c.Theme()
-tabs := ui.TabsBase(c, &app.view, 3)
-tabs.List.Padding(3).Radius(999).Background(t.Surface).Children(func() {
+view := ui.SegmentedBase(c, &app.view, 3)
+view.Track.Padding(3).Radius(999).Background(t.Surface).Children(func() {
 	for i, name := range []string{"Day", "Week", "Month"} {
-		seg := tabs.Tab(i).Padding(5, 14).Radius(999)
+		seg := view.Segment(i).Padding(5, 14).Radius(999)
 		if i == app.view {
 			seg.Background(t.Background).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.15))
 		}
@@ -647,7 +653,15 @@ func Disclosure(c *ui.Context, title string, body func()) {
   as the first field of a dialog, and `Focus` keeps it there while you call
   it; `Focused`, `FocusVisible` and `FocusWithin` report it. Enter and Space
   press a focused button or link, and Space toggles a focused check box,
-  switch or radio button.
+  switch, toggle or radio button.
+- **Focus groups.** The controls of a toolbar, a radio group, a segmented
+  control or a tab list are one stop of Tab, as they are natively: Tab
+  moves the focus into the group, to the control that had it last (or the
+  radio button or tab chosen), and on out of it, while the arrows move it
+  among them, Home and End to the first and last. `FocusGroup` does it for
+  a container of your own, with the arrows `ui.Horizontal`,
+  `ui.Vertical` or both; a slider or a text input inside keeps the arrows
+  it takes.
 - **Shortcuts.** `c.Shortcut(ui.Cmd, ui.KeyS)` reports a key pressed with
   exactly those modifiers anywhere in the window, and `Element.Shortcut`
   only while the element or one inside it has the focus, which comes first.

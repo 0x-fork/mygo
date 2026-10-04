@@ -56,6 +56,12 @@ const (
 	RoleListItem
 	// RoleMenuButton is a button opening a menu (Element.Menu).
 	RoleMenuButton
+	// RoleToolbar holds controls (Toolbar), RoleRadioGroup radio buttons
+	// (RadioGroup, Segmented), and RoleToggleButton is a button that stays
+	// pressed (Toggle).
+	RoleToolbar
+	RoleRadioGroup
+	RoleToggleButton
 )
 
 // Role sets what the element is to assistive technology, for an element
@@ -97,7 +103,8 @@ func (e *Element) accessRole() (platform.AccessRole, bool) {
 func leafRole(r platform.AccessRole) bool {
 	switch r {
 	case platform.RoleGroup, platform.RoleList, platform.RoleScroll, platform.RoleDialog, platform.RolePopup,
-		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleTree, platform.RoleListItem:
+		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleTree, platform.RoleListItem,
+		platform.RoleToolbar, platform.RoleRadioGroup:
 		return false
 	}
 	return true
@@ -232,6 +239,9 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	disabled := e.IsDisabled()
 	if disabled {
 		n.States |= platform.AccessDisabled
+	}
+	if e.segment {
+		n.States |= platform.AccessSegment
 	}
 	// Rows and items of lists are named by their content, as leaves are,
 	// but show what is inside them too.

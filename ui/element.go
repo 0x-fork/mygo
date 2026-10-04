@@ -292,6 +292,17 @@ type Element struct {
 	listRow  bool
 	rowIndex int
 	rowsOf   *listFrame
+	// focusGroup makes the element a focus group (FocusGroup), whose
+	// arrows click the element they move to with groupSelects.
+	focusGroup   Orientation
+	groupSelects bool
+	// overflow is set on a toolbar, whose layout notes there the controls
+	// it had no room for, and takes them out of the flow, collapsed.
+	overflow  *[]toolbarItem
+	collapsed bool
+	// segment marks a segment of a segmented control or a group of
+	// toggles.
+	segment  bool
 	tl       *text.Layout
 	measures [4]measure
 	nmeasure int

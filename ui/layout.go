@@ -413,6 +413,9 @@ func layoutBox(e *Element, w, h float32) {
 		e.layoutList(w, h)
 		return
 	}
+	if e.overflow != nil {
+		e.layoutToolbar(cw)
+	}
 	lw, lh := cw, ch
 	if e.flags&flagScrollX != 0 {
 		lw = inf

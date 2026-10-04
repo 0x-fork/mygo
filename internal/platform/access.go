@@ -73,6 +73,10 @@ const (
 	RoleTreeItem
 	RoleListItem
 	RoleMenuButton
+	RoleToolbar
+	RoleRadioGroup
+	// RoleToggleButton is pressed while AccessChecked.
+	RoleToggleButton
 )
 
 // AccessStates are the states of an element of an AccessTree.
@@ -97,6 +101,9 @@ const (
 	// AccessMultiselectable is set on a list or a table whose user
 	// chooses several rows.
 	AccessMultiselectable
+	// AccessSegment is set on the segments of a segmented control or a
+	// group of toggles, as AppKit's subrole AXSegment says.
+	AccessSegment
 )
 
 // AccessActions are the actions an element of an AccessTree takes.

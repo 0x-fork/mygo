@@ -13,7 +13,7 @@ package ui
 // focusScope is where an element of the focus order is: in the dialog
 // with that backdrop (0 for none), in the popover of that anchor (0 for
 // none).
-type focusScope struct{ modal, anchor uint64 }
+type focusScope struct{ modal, anchor, group uint64 }
 
 // enterScope notes the scope of e and the elements inside it as the
 // frame is committed, and returns the scope to restore after them.
@@ -26,6 +26,11 @@ func (rt *engine) enterScope(e *Element) focusScope {
 	if a := e.popover; a != nil {
 		// A popover opened from a dialog is in the dialog.
 		rt.commitScope = focusScope{modal: a.st.scope, anchor: a.id}
+	}
+	if e.focusGroup != 0 && rt.commitScope.group == 0 {
+		// The outermost group: those inside it are part of it.
+		rt.commitScope.group = e.id
+		rt.groups[e.id] = groupInfo{orient: e.focusGroup, selects: e.groupSelects}
 	}
 	e.st.scope = rt.commitScope.modal
 	return saved

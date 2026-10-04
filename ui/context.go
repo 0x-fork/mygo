@@ -25,6 +25,9 @@ type Context struct {
 	overlay  *Element
 	// tree is the Tree being built, for its items.
 	tree *treeBuild
+	// buttons is how the buttons being built look, in a toolbar or a
+	// group of toggles.
+	buttons buttonStyle
 	// reveal lists the elements to scroll into view (ScrollIntoView).
 	reveal []*Element
 }

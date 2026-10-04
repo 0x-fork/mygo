@@ -93,6 +93,9 @@ var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleTreeItem:     {"AXRow", "AXOutlineRow"},
 	platform.RoleListItem:     {"AXRow", "AXTableRow"},
 	platform.RoleMenuButton:   {"AXMenuButton", ""},
+	platform.RoleToolbar:      {"AXToolbar", ""},
+	platform.RoleRadioGroup:   {"AXRadioGroup", ""},
+	platform.RoleToggleButton: {"AXCheckBox", "AXToggle"},
 }
 
 // chooses reports whether a node is the row of a list or a table that its
@@ -104,6 +107,9 @@ func chooses(n platform.AccessNode) bool {
 func roleOf(n platform.AccessNode) (role, subrole string) {
 	r := accessRoles[n.Role]
 	role, subrole = r[0], r[1]
+	if n.States&platform.AccessSegment != 0 {
+		subrole = "AXSegment" // as NSSegmentedControl's
+	}
 	if n.Role == platform.RoleTextField {
 		switch {
 		case n.States&platform.AccessPassword != 0:
@@ -119,7 +125,7 @@ func roleOf(n platform.AccessNode) (role, subrole string) {
 func titled(r platform.AccessRole) bool {
 	switch r {
 	case platform.RoleButton, platform.RoleLink, platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RolePopUpButton, platform.RoleTab,
-		platform.RoleMenuButton:
+		platform.RoleMenuButton, platform.RoleToggleButton:
 		return true
 	}
 	return false
@@ -131,7 +137,7 @@ func titled(r platform.AccessRole) bool {
 // value.
 func toggle(r platform.AccessRole) bool {
 	switch r {
-	case platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RoleTab:
+	case platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RoleTab, platform.RoleToggleButton:
 		return true
 	}
 	return false

@@ -146,7 +146,8 @@ var uiaControlTypes = map[platform.AccessRole]int32{
 	platform.RolePopUpButton: 50003, platform.RoleTabList: 50018, platform.RoleTab: 50019, platform.RoleSplitter: 50038,
 	platform.RoleStatus: 50017, platform.RoleTable: 50036, platform.RoleRow: 50029, platform.RoleCell: 50025,
 	platform.RoleColumnHeader: 50035, platform.RoleTree: 50023, platform.RoleTreeItem: 50024,
-	platform.RoleListItem: 50007, platform.RoleMenuButton: 50000,
+	platform.RoleListItem: 50007, platform.RoleMenuButton: 50000, platform.RoleToolbar: 50021, platform.RoleRadioGroup: 50026,
+	platform.RoleToggleButton: 50000,
 }
 
 // variant is VARIANT, with the value of the types used here.
@@ -229,12 +230,13 @@ func (e *uiaElement) supports(i int) bool {
 	switch i {
 	case ifaceInvoke:
 		switch n.Role {
-		case platform.RoleCheckBox, platform.RoleSwitch, platform.RoleRadio, platform.RolePopUpButton, platform.RoleTab, platform.RoleMenuButton:
+		case platform.RoleCheckBox, platform.RoleSwitch, platform.RoleRadio, platform.RolePopUpButton, platform.RoleTab, platform.RoleMenuButton,
+			platform.RoleToggleButton:
 			return false
 		}
 		return n.Actions&platform.ActionPress != 0
 	case ifaceToggle:
-		return n.Role == platform.RoleCheckBox || n.Role == platform.RoleSwitch
+		return n.Role == platform.RoleCheckBox || n.Role == platform.RoleSwitch || n.Role == platform.RoleToggleButton
 	case ifaceSelectionItem:
 		switch n.Role {
 		case platform.RoleRadio, platform.RoleTab, platform.RoleTreeItem:
@@ -921,6 +923,8 @@ func (e *uiaElement) property(id int, v *variant) {
 			str("toggle switch")
 		case platform.RoleMenuButton:
 			str("menu button")
+		case platform.RoleRadioGroup:
+			str("radio group")
 		case platform.RoleDialog:
 			str("dialog")
 		case platform.RolePopup:

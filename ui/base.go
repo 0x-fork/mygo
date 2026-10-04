@@ -150,7 +150,7 @@ type TabsParts struct {
 //
 // Tabs is TabsBase with the theme's look.
 func TabsBase(c *Context, selected *int, n int) TabsParts {
-	list := Row(c).Shrink(0).Role(RoleTabList)
+	list := Row(c).Shrink(0).Role(RoleTabList).FocusGroup(Horizontal)
 	list.widget = "Tabs"
 	if n > 0 {
 		*selected = max(0, min(*selected, n-1))

@@ -61,6 +61,15 @@ type engine struct {
 	focusScopes []focusScope
 	modal       uint64
 	commitScope focusScope
+	// The focus groups of the frame, the group of each element of the
+	// focus order in one, and the element of each that had the focus
+	// last.
+	// clickLater are the elements the view clicked, as a toolbar's
+	// overflow menu does, whose clicks the next pass sees.
+	clickLater []uint64
+	groups     map[uint64]groupInfo
+	memberOf   map[uint64]uint64
+	groupLast  map[uint64]uint64
 	// openers are the elements that had the focus as overlays opened, by
 	// overlay.
 	openers   map[uint64]uint64
@@ -253,6 +262,14 @@ func (rt *engine) runFrame() {
 // endPass forgets the input the pass handled.
 func (rt *engine) endPass() {
 	rt.forgetInput()
+	// Clicks the view gave its elements, which the next pass sees.
+	for _, id := range rt.clickLater {
+		if s := rt.states[id]; s != nil {
+			s.clicks++
+			s.clickMods = 0
+		}
+	}
+	rt.clickLater = rt.clickLater[:0]
 	rt.menu.chosen = 0
 	rt.delivered = rt.delivered[:0]
 	// The next pass may not ask again, as when the view cleared what asked.
@@ -335,10 +352,15 @@ func (rt *engine) commit(root *Element) {
 	rt.hits = rt.hits[:0]
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
 	rt.modal, rt.commitScope = 0, focusScope{}
+	if rt.groups == nil {
+		rt.groups = map[uint64]groupInfo{}
+	}
+	clear(rt.groups)
 	rt.labels = rt.labels[:0]
 	full := Rect{0, 0, root.w, root.h}
 	rt.commitElement(root, full, false)
 	rt.arrangeFocus()
+	rt.noteGroups()
 }
 
 func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
@@ -401,6 +423,14 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	if e.flags&flagFocusable != 0 && !e.IsDisabled() && !invisible {
 		rt.focusOrder = append(rt.focusOrder, e.id)
 		rt.focusScopes = append(rt.focusScopes, rt.commitScope)
+		// Tab goes to the radio button or tab chosen; not to a toggle
+		// that is on.
+		if g := rt.commitScope.group; g != 0 && e.checked == 2 && (e.role == RoleRadio || e.role == RoleTab) {
+			if info := rt.groups[g]; info.checked == 0 {
+				info.checked = e.id
+				rt.groups[g] = info
+			}
+		}
 	}
 	if e.flags&(flagClipX|flagClipY|flagScrollX|flagScrollY) != 0 {
 		r, _ := e.clipRect()

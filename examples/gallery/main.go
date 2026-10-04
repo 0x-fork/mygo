@@ -54,7 +54,10 @@ type gallery struct {
 	period   int
 	pinned   bool
 	fruit    string
-	eased    bool
+	// The toolbar's toggles and view.
+	bold, italic, underline, inspector bool
+	layout                             int
+	eased                              bool
 	// places keeps where each page is scrolled.
 	places map[string]*ui.ScrollState
 	// rows, chat and table keep the places of the lists of the List page.
@@ -294,11 +297,11 @@ func (g *gallery) controls(c *ui.Context) {
 			ui.Switch(c, &g.notify).Label("Notifications")
 			ui.Text(c, map[bool]string{true: "Notifications on", false: "Notifications off"}[g.notify])
 		})
-		ui.Row(c).Gap(18).Children(func() {
+		ui.RadioGroup(c, func() {
 			for _, p := range []string{"Free", "Pro", "Team"} {
 				ui.Radio(c, &g.plan, p, p)
 			}
-		})
+		}).Row().Gap(18).Label("Plan")
 		ui.Row(c).Gap(10).Children(func() {
 			ui.Text(c, "Size")
 			ui.Select(c, &g.size, []string{"Small", "Medium", "Large", "Extra large"})
@@ -333,6 +336,21 @@ func (g *gallery) controls(c *ui.Context) {
 			ui.Link(c, "Open mygo.dev", "https://github.com/egoist/mygo")
 		})
 		ui.Text(c, "Tab moves the focus; Enter or Space presses the focused button.").TextColor(t.TextMuted)
+	})
+	card(c, "Toolbar", func() {
+		ui.Toolbar(c, func() {
+			ui.Button(c, "New")
+			ui.Button(c, "Open")
+			ui.ToggleGroup(c, func() {
+				ui.Toggle(c, &g.bold, "Bold")
+				ui.Toggle(c, &g.italic, "Italic")
+				ui.Toggle(c, &g.underline, "Underline")
+			}).Label("Style")
+			ui.Segmented(c, &g.layout, "List", "Grid", "Columns").Label("View")
+			ui.Spacer(c)
+			ui.Toggle(c, &g.inspector, "Inspector")
+		}).Label("Document").Border(1, t.Border).Radius(8)
+		ui.Text(c, "Tab stops once in the toolbar, and the arrows move between its controls. Narrow the window: what does not fit goes into the » menu.").TextColor(t.TextMuted)
 	})
 	card(c, "Tabs and panes", func() {
 		ui.Tabs(c, &g.tab, "Files", "Search", "History")

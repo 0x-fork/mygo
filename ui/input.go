@@ -472,6 +472,9 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 			return false
 		}
 	}
+	if !rt.claimedBy(k, false) && rt.groupKey(mods, key) {
+		return false
+	}
 	if key == KeyTab && (mods == 0 || mods == Shift) && !rt.claimed(k) {
 		rt.moveFocus(mods == Shift)
 		rt.requestFrame()
@@ -548,17 +551,30 @@ func (rt *engine) moveFocus(back bool) {
 			break
 		}
 	}
-	switch {
-	case i < 0 && back:
-		i = n - 1
-	case i < 0:
-		i = 0
-	case back:
-		i = (i - 1 + n) % n
-	default:
-		i = (i + 1) % n
+	// Tab stops once in a focus group, at its entry, and leaves it.
+	g := rt.groupOf(rt.focused)
+	d := 1
+	if back {
+		d = -1
 	}
-	rt.focused = order[i]
+	next := -1
+	for k := 1; k <= n; k++ {
+		j := (i + d*k + 2*n) % n
+		if i < 0 {
+			j = (k - 1) % n
+			if back {
+				j = n - k
+			}
+		}
+		if id := order[j]; rt.tabStop(id) && (g == 0 || rt.groupOf(id) != g) {
+			next = j
+			break
+		}
+	}
+	if next < 0 {
+		return // the group is all there is
+	}
+	rt.focused = order[next]
 	rt.focusVisible = true
 	rt.blinkStart = time.Now()
 	if s := rt.states[rt.focused]; s != nil && s.editor != nil {

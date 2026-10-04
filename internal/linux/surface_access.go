@@ -250,6 +250,7 @@ func loadAccessNames() {
 		platform.RoleCell: {"table cell"}, platform.RoleColumnHeader: {"column header", "table column header"},
 		platform.RoleTree: {"tree", "tree table"}, platform.RoleTreeItem: {"tree item", "list item"},
 		platform.RoleListItem: {"list item"}, platform.RoleMenuButton: {"push button menu", "push button", "button"},
+		platform.RoleToolbar: {"tool bar"}, platform.RoleRadioGroup: {"panel"}, platform.RoleToggleButton: {"toggle button"},
 	} {
 		atkRoles[r] = role(names...)
 	}
@@ -585,6 +586,7 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 			list = append(list, st.singleLine)
 		}
 	}
+	// A toggle button is checked while pressed, as GTK's are.
 	if n.States&platform.AccessChecked != 0 && n.Role != platform.RoleTab && n.Role != platform.RoleTreeItem && n.Role != platform.RoleRow && n.Role != platform.RoleListItem {
 		list = append(list, st.checked)
 	}

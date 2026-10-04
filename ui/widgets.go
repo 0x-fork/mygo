@@ -173,13 +173,22 @@ func button(c *Context, label string, primary bool) *Element {
 }
 
 // styleButton gives a button the theme's look, in the accent color when
-// primary.
+// primary: without a face of its own until hovered in a toolbar, and as a
+// segment in a ToggleGroup or Segmented.
 func styleButton(c *Context, b *Element, primary bool) {
 	t := c.theme
 	b.Padding(t.Space(1.5), t.Space(3.5)).Gap(t.Space(1.5)).Radius(t.Radius)
 	base, hover, pressed, fg, border := t.Surface, t.SurfaceHover, t.SurfacePressed, t.Text, t.Border
-	if primary {
+	switch {
+	case primary:
 		base, hover, pressed, fg, border = t.Accent, t.AccentHover, t.AccentPressed, t.AccentText, Color{}
+	case c.buttons == toolbarButtons:
+		b.Padding(t.Space(1.5), t.Space(2.5))
+		base, border = Color{}, Color{}
+	case c.buttons == segmentButtons:
+		b.Padding(t.Space(1), t.Space(3)).Radius(max(t.Radius-t.Space(0.5), 0))
+		base, border = Color{}, Color{}
+		b.segment = true
 	}
 	b.Background(base).TextColor(fg)
 	if border.A > 0 {
