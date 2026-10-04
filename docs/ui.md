@@ -687,6 +687,10 @@ look of your own, build on the widgets' bases, which have none: see
 | `List` | rows of any number and height, built only while in view, see [lists](#lists) |
 | `Grid` | a grid of cells, see [grids](#grids) |
 | `Modal`, `Popover`, `Overlay` | dialogs and panels above the window, see [overlays](#overlays) |
+| `AlertDialog` | asks about something important, as AppKit's alerts: the last button the default, Cancel for Escape, no closing by a click outside |
+| `FindBar` | a bar for finding text: the field, "3 of 12", previous and next, Enter and Shift+Enter, Cmd+G or F3, Escape |
+| `CheckboxGroup` | a check box over others, mixed while some are checked, checking them all or none |
+| `Breadcrumbs` | a path of items, as Finder's path bar, whose items take the user back |
 
 ### Widgets without a look
 
@@ -964,6 +968,10 @@ and the field's label names the group around them.
   }
   app.list.Reorder = func(rows []int, to int) { app.items = move(app.items, rows, to) }
   ```
+- **Toasts.** `c.Toast("Saved")` shows a message for a few seconds near
+  the bottom of the window, and `c.ToastAction("Note deleted", "Undo",
+  restore)` one with a button, for longer; a toast stays while the
+  pointer rests on it, and assistive technology reads it as it shows.
 - **Tooltips.** `Tooltip("…")` shows a tip once the pointer rests on the
   element, and describes the element to assistive technology.
 - **Custom title bars.** In a `Frameless` window, `DragWindow` makes an

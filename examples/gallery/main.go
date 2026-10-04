@@ -69,6 +69,13 @@ type gallery struct {
 	sort       ui.SortOrder
 	// Which sections of the sidebar show.
 	sectionsOpen [2]bool
+	// The alert, the notes deleted with an undo, the find bar, the
+	// notifications' check boxes, and the path.
+	alert, finding                             bool
+	notes, findAt                              int
+	findQuery                                  string
+	notifyMail, notifyCalendar, notifyMessages bool
+	pathAt, pathDepth                          int
 	// The meeting's day and time, and the tint of its text.
 	meeting time.Time
 	tint    ui.Color
@@ -461,6 +468,20 @@ func (g *gallery) controls(c *ui.Context) {
 		})
 		ui.Text(c, "Drag a task to the other column; Escape gives up.").FontSize(12).TextColor(t.TextMuted)
 	})
+	card(c, "Groups and paths", func() {
+		ui.CheckboxGroup(c, "Notifications", func() {
+			ui.Checkbox(c, &g.notifyMail, "Mail")
+			ui.Checkbox(c, &g.notifyCalendar, "Calendar")
+			ui.Checkbox(c, &g.notifyMessages, "Messages")
+		})
+		path := []string{"Macintosh HD", "Users", "ada", "Documents", "Reports"}
+		if ui.Breadcrumbs(c, path[:g.pathDepth+1], &g.pathAt).Label("Path").Changed() {
+			g.pathDepth = g.pathAt
+		}
+		if g.pathDepth < len(path)-1 && ui.Button(c, "Open "+path[g.pathDepth+1]).Clicked() {
+			g.pathDepth++
+		}
+	})
 	card(c, "Disclosure", func() {
 		ui.Collapsible(c, "Advanced options", &g.advanced, func() {
 			ui.Checkbox(c, &g.verbose, "Verbose logging")
@@ -651,6 +672,21 @@ func (g *gallery) text(c *ui.Context) {
 				ui.Field(c, "Updates", func() { ui.Checkbox(c, &g.news, "Send me the newsletter") })
 			})
 		})
+	})
+	card(c, "Find", func() {
+		text := "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs on."
+		matches := strings.Count(strings.ToLower(text), strings.ToLower(g.findQuery))
+		if g.findQuery == "" {
+			matches = 0
+		}
+		if c.Shortcut(ui.Cmd, ui.KeyF) {
+			g.finding = true
+		}
+		if !g.finding && ui.Button(c, "Find…").Clicked() {
+			g.finding = true
+		}
+		ui.FindBar(c, &g.finding, &g.findQuery, matches, &g.findAt).Radius(8)
+		ui.Text(c, text)
 	})
 	card(c, "Typography", func() {
 		ui.Text(c, "Display 28").FontSize(28).Bold()
@@ -1112,11 +1148,23 @@ func (g *gallery) overlays(c *ui.Context) {
 				}
 			})
 			ui.Button(c, "Hover me").Tooltip("Tooltips show after the pointer rests a moment.")
+			if ui.Button(c, "Alert").Clicked() {
+				g.alert = true
+			}
+			if ui.Button(c, "Delete a note").Clicked() {
+				g.notes--
+				c.ToastAction("Note deleted", "Undo", func() { g.notes++ })
+			}
 			if ui.Button(c, "Native dialog").Clicked() {
 				go mygo.Dialog.Message(mygo.MessageOptions{Parent: g.win, Message: "Native dialogs work from MyGo UI windows too."})
 			}
 		})
 	})
+	ui.Textf(c, "%d notes. Undo in the toast brings a deleted one back.", g.notes).FontSize(12).TextColor(t.TextMuted)
+	if ui.AlertDialog(c, &g.alert, "Delete “Notes”?", "This deletes the note on all your devices. You can't undo this.", "Cancel", "Delete") == 1 {
+		g.notes--
+		c.Toast("Note deleted")
+	}
 	ui.Modal(c, &g.dialog, func() {
 		ui.Text(c, "A modal dialog").FontSize(18).Bold()
 		ui.Text(c, "Click outside or press Escape to close it.").TextColor(t.TextMuted)
@@ -1129,7 +1177,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb")}
+	g := &gallery{page: "Overview", size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, places: map[string]*ui.ScrollState{}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), notes: 12, notifyMail: true, pathDepth: 4}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

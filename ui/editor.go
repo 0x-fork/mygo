@@ -126,6 +126,10 @@ func (ed *editor) wants(k keyEvent) bool {
 		return m == 0
 	case KeyTab, KeyEscape:
 		return false
+	case KeyF1, KeyF2, KeyF3, KeyF4, KeyF5, KeyF6, KeyF7, KeyF8, KeyF9, KeyF10, KeyF11, KeyF12:
+		// They type nothing: they go to shortcuts, as F3 finding the next
+		// match.
+		return false
 	case KeyA, KeyC, KeyX, KeyV, KeyZ, KeyY:
 		if m == Cmd {
 			return true
@@ -380,7 +384,7 @@ func (ed *editor) key(c *Context, st *state, k editEvent) {
 		if ed.multiline {
 			ed.insert("\n")
 		} else {
-			st.submitted = true
+			st.submitted, st.submitMods = true, k.mods
 			c.rt.consumed = true
 		}
 		return

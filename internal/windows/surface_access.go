@@ -152,7 +152,7 @@ var uiaControlTypes = map[platform.AccessRole]int32{
 	platform.RoleColumnHeader: 50035, platform.RoleTree: 50023, platform.RoleTreeItem: 50024,
 	platform.RoleListItem: 50007, platform.RoleMenuButton: 50000, platform.RoleToolbar: 50021, platform.RoleRadioGroup: 50026,
 	platform.RoleToggleButton: 50000, platform.RoleComboBox: 50003, platform.RoleDisclosure: 50000,
-	platform.RoleMeter: 50012, platform.RoleStepper: 50016, platform.RoleColorWell: 50000,
+	platform.RoleMeter: 50012, platform.RoleStepper: 50016, platform.RoleColorWell: 50000, platform.RoleAlertDialog: 50033,
 }
 
 // variant is VARIANT, with the value of the types used here.
@@ -944,6 +944,8 @@ func (e *uiaElement) property(id int, v *variant) {
 			str("radio group")
 		case platform.RoleDialog:
 			str("dialog")
+		case platform.RoleAlertDialog:
+			str("alert dialog")
 		case platform.RolePopup:
 			str("popup")
 		}
@@ -980,7 +982,7 @@ func (e *uiaElement) property(id int, v *variant) {
 	case uiaFrameworkIDProperty:
 		str("MyGo")
 	case uiaIsDialogProperty:
-		*v = boolVariant(n.Role == platform.RoleDialog)
+		*v = boolVariant(n.Role == platform.RoleDialog || n.Role == platform.RoleAlertDialog)
 	case uiaIsOffscreenProperty:
 		*v = boolVariant(n.States&platform.AccessOffscreen != 0)
 	case uiaLevelProperty:

@@ -74,6 +74,9 @@ const (
 	// RoleColorWell is a button showing a color, which it opens a picker
 	// of (ColorWell).
 	RoleColorWell
+	// RoleAlertDialog is a dialog asking about something important
+	// (AlertDialog).
+	RoleAlertDialog
 )
 
 // Role sets what the element is to assistive technology, for an element
@@ -114,7 +117,7 @@ func (e *Element) accessRole() (platform.AccessRole, bool) {
 // as their name, rather than showing it as elements of its own.
 func leafRole(r platform.AccessRole) bool {
 	switch r {
-	case platform.RoleGroup, platform.RoleList, platform.RoleScroll, platform.RoleDialog, platform.RolePopup,
+	case platform.RoleGroup, platform.RoleList, platform.RoleScroll, platform.RoleDialog, platform.RoleAlertDialog, platform.RolePopup, platform.RoleStatus,
 		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleTree, platform.RoleListItem,
 		platform.RoleToolbar, platform.RoleRadioGroup:
 		return false
@@ -289,9 +292,9 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if e.chooseMany {
 		n.States |= platform.AccessMultiselectable
 	}
-	// Rows and items of lists are named by their content, as leaves are,
-	// but show what is inside them too.
-	if n.Label == "" && (leafRole(n.Role) || n.Role == platform.RoleListItem || n.Role == platform.RoleRow) {
+	// Rows and items of lists, and statuses, are named by their content,
+	// as leaves are, but show what is inside them too, as a toast's button.
+	if n.Label == "" && (leafRole(n.Role) || n.Role == platform.RoleListItem || n.Role == platform.RoleRow || n.Role == platform.RoleStatus) {
 		n.Label = e.innerText()
 	}
 	switch e.checked {

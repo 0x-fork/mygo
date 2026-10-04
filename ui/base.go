@@ -34,6 +34,9 @@ func ButtonBase(c *Context) *Element {
 // checked or not. Draw its box from *checked; Checkbox is CheckboxBase
 // with the theme's look.
 func CheckboxBase(c *Context, checked *bool) *Element {
+	if g := c.checks; g != nil {
+		g.boxes = append(g.boxes, checked)
+	}
 	return toggle(c, checked, RoleCheckBox, "Checkbox")
 }
 

@@ -32,6 +32,8 @@ type Context struct {
 	// their fields and sections.
 	form      *formBuild
 	accordion *accordionBuild
+	// checks is the CheckboxGroup being built.
+	checks *checkGroup
 	// row is the row of a List or a Table being built, and sidebar the
 	// Sidebar.
 	row     *rowBuild
@@ -288,6 +290,9 @@ type state struct {
 	cx, cw float32
 
 	changed, submitted bool
+	// submitMods are the modifiers held with the Enter submitting a text
+	// input, as Shift going back in a find bar.
+	submitMods Modifiers
 	// expand is what assistive technology asked of an item of a tree: 1
 	// to open it, -1 to close it.
 	expand int8

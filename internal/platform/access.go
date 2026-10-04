@@ -97,6 +97,9 @@ const (
 	// RoleColorWell is a button showing a color, its Value, which opens a
 	// picker of it, as AppKit's color well.
 	RoleColorWell
+	// RoleAlertDialog is a dialog asking about something important, its
+	// Description the message.
+	RoleAlertDialog
 )
 
 // Ranged reports whether nodes of a role have a value in a range (Min,

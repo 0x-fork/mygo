@@ -1199,6 +1199,16 @@ either.
   combobox's option. Sections and items are tree items, the sections'
   RoleNone containers leaving them all in the sidebar's tree, whose rows
   macOS keeps as an outline's.
+- **Feedback** (`ui/feedback.go`, `ui/toast.go`). An alert dialog is a
+  modal overlay as a dialog's, which a click outside leaves, as AppKit's
+  alerts beep: an alert role (AppKit's `AXApplicationAlertDialog`, ATK's
+  alert, UIA's dialog pane) named by its title and described by its
+  message. A find bar is keyed, for its state, which focuses its field
+  as it opens, to go as it closes. A checkbox group finds its check boxes
+  as they register with it (`Context.checks`), then applies a click to
+  them all. A text input notes the modifiers of the Enter submitting it
+  (`submitMods`), as the editor takes Shift+Enter: the find bar goes back
+  with it.
 - **Dates, times and colors** (`ui/date.go`, `ui/timeinput.go`,
   `ui/colorpicker.go`). `DateInput` and `Calendar` share one month's grid,
   whose day under the keys is its active descendant. A time input's

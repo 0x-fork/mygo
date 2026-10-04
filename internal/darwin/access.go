@@ -101,6 +101,7 @@ var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleMeter:        {"AXLevelIndicator", ""},
 	platform.RoleStepper:      {"AXIncrementor", ""},
 	platform.RoleColorWell:    {"AXColorWell", ""},
+	platform.RoleAlertDialog:  {"AXGroup", "AXApplicationAlertDialog"},
 }
 
 // chooses reports whether a node is the row of a list, a table or an
