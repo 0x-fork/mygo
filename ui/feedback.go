@@ -250,13 +250,7 @@ func FindBar(c *Context, open *bool, query *string, matches int, current *int) *
 	}
 	bar.Children(func() {
 		f, in := field(c, func() *Element {
-			Box(c).Size(t.Space(3.5), t.Space(3.5)).Shrink(0).Role(RoleNone).Draw(func(p *Painter, r Rect) {
-				// A magnifying glass.
-				p.Stroke(Rect{r.X + 1, r.Y + 1, r.W * 0.6, r.W * 0.6}, t.TextMuted, r.W*0.3, 1.4)
-				var path Path
-				path.MoveTo(r.X+r.W*0.62, r.Y+r.H*0.62).LineTo(r.X+r.W-1, r.Y+r.H-1)
-				p.StrokePath(&path, 1.4, t.TextMuted)
-			})
+			magnifier(c)
 			in := TextInputBase(c, query).Grow(1).MinWidth(t.Space(25)).Placeholder("Find")
 			in.search = true
 			return in

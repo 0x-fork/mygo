@@ -378,16 +378,7 @@ func Autocomplete(c *Context, value *string, suggestions []string) *Element {
 func SearchField(c *Context, query *string) *Element {
 	t := c.theme
 	f, in := field(c, func() *Element {
-		Box(c).Size(t.Space(3.5), t.Space(3.5)).Shrink(0).Draw(func(p *Painter, r Rect) {
-			// A magnifying glass.
-			d := r.W * 0.62
-			var ring Path
-			ring.Circle(r.X+d/2, r.Y+d/2, d/2-0.75)
-			p.StrokePath(&ring, 1.5, t.TextMuted)
-			var handle Path
-			handle.MoveTo(r.X+d*0.85, r.Y+d*0.85).LineTo(r.X+r.W*0.95, r.Y+r.H*0.95)
-			p.StrokePath(&handle, 1.5, t.TextMuted)
-		})
+		magnifier(c)
 		in := TextInputBase(c, query).Grow(1).MinWidth(t.Space(15)).Placeholder("Search")
 		in.search = true
 		if *query != "" {
@@ -419,6 +410,17 @@ func SearchField(c *Context, query *string) *Element {
 		f.st.submitted = true
 	}
 	return f
+}
+
+// searchIcon is Lucide's search icon (ISC License): a magnifying glass.
+var searchIcon = MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>`))
+
+// magnifier shows the magnifying glass of a field for searching, in the
+// muted color of the theme's text, no higher than a line of the field's
+// text, so that the field is as high as a text input.
+func magnifier(c *Context) *Element {
+	t := c.theme
+	return Icon(c, searchIcon).Size(t.Space(3.75), t.Space(3.75)).Shrink(0).TextColor(t.TextMuted)
 }
 
 // TokenField creates a field of tokens, as of tags or the recipients of a
