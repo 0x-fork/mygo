@@ -1164,6 +1164,15 @@ either.
   takes only once a row has such a text; a click on the text of a row
   chosen before the click edits it once the double-click time has
   passed.
+- **Outlines** (`ui/outline.go`). An outline flattens the open part of
+  its tree into rows every frame (`OutlineState.flatten`), which a `List`
+  or a `Table` builds as they show, keyed by their items. Rows are tree
+  items, with how deep they are (`AccessNode.Level`) and whether they
+  have children (`AccessExpandable`), open or not: on macOS, the rows of
+  an `AXOutline` with `AXDisclosureLevel` and `AXDisclosing`, which keeps
+  its rows as a table does; on Linux, the `level` attribute and the
+  expandable state; on Windows, Level, and ExpandCollapse with LeafNode
+  for items without children.
 - **Forms** (`ui/form.go`). A form notes the label boxes of its fields as
   they are built, and makes them as wide as the widest before the layout
   first measures or lays it out (`intrinsic` and `boxLayout` call

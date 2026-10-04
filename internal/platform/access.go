@@ -35,6 +35,8 @@ type AccessNode struct {
 	// text read after it: a field's description and its error, or a
 	// tooltip.
 	Description string
+	// Level is how deep an item of a tree is, from 1; 0 for other nodes.
+	Level int
 	// PosInSet is the place of an item in its set, from 1, and SetSize
 	// the size of the set, 0 when not given: a list's rows say which of
 	// all they are, whether or not the others are built, and the list how
@@ -124,6 +126,9 @@ const (
 	// of the column a table's rows are sorted by.
 	AccessSortAscending
 	AccessSortDescending
+	// AccessExpandable is set on an item of a tree with children, which
+	// AccessExpanded shows.
+	AccessExpandable
 )
 
 // AccessActions are the actions an element of an AccessTree takes.
@@ -138,6 +143,9 @@ const (
 	// ActionScrollIntoView scrolls the containers around the element to
 	// show it, as assistive technology moving to it out of view asks.
 	ActionScrollIntoView
+	// ActionExpand opens and closes an item of a tree with children
+	// (AccessExpand, AccessCollapse), which pressing chooses.
+	ActionExpand
 )
 
 // AccessActionKind is the action of an AccessAction event.
@@ -150,4 +158,6 @@ const (
 	AccessDecrement
 	AccessSetValue
 	AccessScrollIntoView
+	AccessExpand
+	AccessCollapse
 )

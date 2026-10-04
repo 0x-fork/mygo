@@ -191,8 +191,9 @@ type listFrame struct {
 	row   func(i int)
 	frame uint64
 	pass  int
-	// flat leaves the corners of chosen rows square, as a Table's.
-	flat bool
+	// flat leaves the corners of chosen rows square, as a Table's; tree
+	// makes the rows items of a tree, as an Outline's.
+	flat, tree bool
 	// theme is the theme the rows are built with, laying out as well.
 	theme *Theme
 	rows  []listRow
@@ -239,20 +240,32 @@ func List(c *Context, s *ListState, n int, row func(i int)) *Element {
 	if s == nil {
 		s = Local(e, "list", func() ListState { return ListState{} })
 	}
-	buildList(c, e, e, s, n, row, false)
+	buildList(c, e, e, s, n, row, plainList)
 	return e
 }
 
 // buildList builds the rows of list e that its place shows, with owner
 // taking the focus and reporting choices.
-func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i int), flat bool) {
+// listKind is what a list's rows are: a List's, a Table's, an
+// Outline's, or an OutlineTable's.
+type listKind uint8
+
+const (
+	plainList listKind = iota
+	tableList
+	treeList
+	treeTableList
+)
+
+func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i int), kind listKind) {
+	flat, tree := kind == tableList || kind == treeTableList, kind == treeList || kind == treeTableList
 	rt := c.rt
 	f := &s.frame
 	if f.e != nil && f.frame == rt.frame && f.pass == rt.pass {
 		panic("ui: a ListState shown by two Lists")
 	}
 	n = max(n, 0)
-	*f = listFrame{c: c, e: e, owner: owner, s: s, n: n, row: row, frame: rt.frame, pass: rt.pass, flat: flat, theme: c.theme, rows: f.rows[:0], at: f.at}
+	*f = listFrame{c: c, e: e, owner: owner, s: s, n: n, row: row, frame: rt.frame, pass: rt.pass, flat: flat, tree: tree, theme: c.theme, rows: f.rows[:0], at: f.at}
 	if rt.pass == 0 {
 		s.editables, s.editablesNow = s.editablesNow, false
 	}
@@ -431,10 +444,14 @@ func (f *listFrame) build(i int) *Element {
 	if s.Label != nil {
 		w.Label(s.Label(i))
 	}
-	// Assistive technology sees a row of a table, an item of a list.
-	if f.flat {
+	// Assistive technology sees a row of a table, an item of a tree or of
+	// a list.
+	switch {
+	case f.tree:
+		w.Role(RoleTreeItem)
+	case f.flat:
 		w.Role(RoleRow)
-	} else {
+	default:
 		w.Role(RoleListItem)
 	}
 	rb := rowBuild{f: f, i: i, key: key}

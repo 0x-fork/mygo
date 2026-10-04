@@ -373,6 +373,34 @@ ui.Table(c, &app.files, cols, len(files), func(row, col int) {
 })
 ```
 
+### Outlines
+
+`ui.Outline` shows a tree of items, as AppKit's outline view and Finder's
+list view: items at the top, and below each item open its children,
+indented, with an arrow that opens and closes it (Option-click opens or
+closes all inside). The app gives the items at the top and `children`,
+which returns an item's, nil for one without any; the outline builds only
+the rows in view, so trees of any size are as fast as small ones. Its
+state, an `OutlineState`, holds the rows' `ListState` and the items `Open`;
+the rows' keys are the items, so their choice and state follow them as
+items open and close above them. While the outline has the focus, Right
+opens the item chosen or goes to its first child, and Left closes it or
+goes to its parent; with Option (Alt), they open and close all inside.
+
+```go
+app.files.List.Selected = &app.row
+ui.Outline(c, &app.files, []string{"/"}, func(dir string) []string {
+	return app.children[dir] // nil for a file
+}, func(path string) {
+	ui.Text(c, filepath.Base(path))
+}).Grow(1)
+chosen := app.files.Item(app.row)
+```
+
+`ui.OutlineTable` is the same in a table's columns, the first of which
+shows the arrows: the columns are a `Table`'s, which the user sorts,
+resizes and moves.
+
 ### Grids
 
 `ui.Grid` lays its children out in columns and rows, as CSS grid does:
@@ -590,6 +618,7 @@ look of your own, build on the widgets' bases, which have none: see
 | `Table` | rows under a header of `TableColumn`s, as high as their tallest cell: a `List`'s rows, with its `ListState`; the user sorts, resizes and moves the columns, see [tables](#tables) |
 | `EditableText` | a text the user renames in place, as Finder's file names, in a table's rows too |
 | `Tree`, `TreeItem` | items that open and close, built inside the items they belong to, with the arrow keys moving between them; `Clicked` and `Selected` choose one |
+| `Outline`, `OutlineTable` | a tree of items of any size, built only as they show, as a list or a table, see [outlines](#outlines) |
 | `Collapsible` | a label beside an arrow that shows and hides content below it while a `*bool` is true, as SwiftUI's `DisclosureGroup`; the arrow turns and the content grows into view |
 | `Accordion`, `AccordionItem` | sections in a bordered box, each opening and closing on its own, with Up, Down, Home and End moving between their headers |
 | `Form`, `Field`, `Fieldset` | labeled controls with descriptions and errors, see [forms](#forms) |

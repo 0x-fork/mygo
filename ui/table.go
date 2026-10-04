@@ -140,11 +140,19 @@ type tableDrag struct {
 //		app.open(files[app.file])
 //	}
 func Table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row, col int)) *Element {
+	return table(c, s, columns, n, cell, tableList)
+}
+
+// table creates a Table, or with kind treeTableList an OutlineTable.
+func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row, col int), kind listKind) *Element {
 	t := c.theme
 	// The height of the header, and the least of the rows.
 	tableRow := t.Space(8)
 	table := Column(c).Role(RoleTable).Focusable().Clip()
 	table.widget = "Table"
+	if kind == treeTableList {
+		table.widget, table.role = "OutlineTable", RoleTree
+	}
 	table.flags |= flagOwnRing
 	if s == nil {
 		s = Local(table, "rows", func() ListState { return ListState{} })
@@ -235,7 +243,7 @@ func Table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 			row.Children(func() {
 				cells(RoleCell, func(j int) { cell(i, j) })
 			})
-		}, true)
+		}, kind)
 	})
 	if id := drag.fit; id != "" {
 		table.colFit = &tableFit{id: id, cells: fitting, layout: layout, drag: drag}

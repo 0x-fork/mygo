@@ -67,6 +67,10 @@ type gallery struct {
 	// The files of the table, and how they are sorted.
 	tableFiles []tableFile
 	sort       ui.SortOrder
+	// The outline, its row chosen, and its order.
+	outline     ui.OutlineState[string]
+	outlineRow  int
+	outlineSort ui.SortOrder
 	// places keeps where each page is scrolled.
 	places map[string]*ui.ScrollState
 	// rows, chat and table keep the places of the lists of the List page.
@@ -631,6 +635,40 @@ func (g *gallery) list(c *ui.Context) {
 			ui.Textf(c, "%d chosen. Shift-click or %s-click to choose several; type a name to go to it; %s renames. Click a header to sort, drag it to move the column, and drag its edge to resize it.", g.chosen.Len(), cmd, rename).FontSize(12).TextColor(t.TextMuted)
 		}).Grow(1)
 	})
+	card(c, "Outline", func() {
+		// 100 folders of 100 files, in the order the Name column sorts.
+		names := func(prefix string, n int) []string {
+			items := make([]string, n)
+			for i := range items {
+				j := i + 1
+				if g.outlineSort.Descending {
+					j = n - i
+				}
+				items[i] = fmt.Sprintf("%s %03d", prefix, j)
+			}
+			return items
+		}
+		children := func(item string) []string {
+			if !strings.HasPrefix(item, "Folder") || strings.Contains(item, "/") {
+				return nil
+			}
+			return names(item+"/File", 100)
+		}
+		cols := []ui.TableColumn{{Title: "Name", Sortable: true}, {Title: "Kind", Width: 110}}
+		g.outline.List.Selected = &g.outlineRow
+		g.outline.List.Sort = &g.outlineSort
+		ui.OutlineTable(c, &g.outline, cols, names("Folder", 100), children, func(item string, col int) {
+			switch {
+			case col == 0:
+				ui.Text(c, item[strings.LastIndexByte(item, '/')+1:]).SingleLine()
+			case children(item) != nil:
+				ui.Text(c, "Folder")
+			default:
+				ui.Text(c, "Document")
+			}
+		}).Grow(1)
+		ui.Text(c, "10,100 items, built only as they show. Right and Left open and close the item chosen, and Option-click or Option with them all inside.").FontSize(12).TextColor(t.TextMuted)
+	}).Height(340)
 }
 
 // chatCard shows a chat: messages of every height, which the list

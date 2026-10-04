@@ -288,6 +288,10 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if e.expanded {
 		n.States |= platform.AccessExpanded
 	}
+	if e.expandable {
+		n.States |= platform.AccessExpandable
+	}
+	n.Level = e.level
 	n.Value = e.accValue
 	if e.hasRange {
 		n.Min, n.Max, n.Now = e.accRange[0], e.accRange[1], e.accRange[2]
@@ -327,6 +331,9 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	}
 	if n.Role == platform.RoleSlider {
 		n.Actions |= platform.ActionIncrement | platform.ActionDecrement
+	}
+	if e.expandable {
+		n.Actions |= platform.ActionExpand
 	}
 	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
 		n.Actions |= platform.ActionSetValue
@@ -404,6 +411,12 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 			k = KeyLeft
 		}
 		rt.keys = append(rt.keys, keyEvent{0, k})
+	case platform.AccessExpand, platform.AccessCollapse:
+		// The tree opens or closes the item as it builds it.
+		s.expand = 1
+		if ev.Action == platform.AccessCollapse {
+			s.expand = -1
+		}
 	case platform.AccessSetValue:
 		if s.editor == nil || s.flags&flagEditable == 0 {
 			return

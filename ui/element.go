@@ -335,13 +335,17 @@ type Element struct {
 	rowMinW float32
 	followX *Element
 	sort    int8
-	// fit fits a column of a table to its cells as it lays out.
-	colFit   *tableFit
-	tl       *text.Layout
-	measures [4]measure
-	nmeasure int
-	leaf     [2]float32 // the max-content and min-content widths of text
-	leafOK   bool
+	// colFit fits a column of a table to its cells as it lays out.
+	colFit *tableFit
+	// level is how deep an item of a tree is, from 1, and expandable
+	// marks one with children.
+	level      int
+	expandable bool
+	tl         *text.Layout
+	measures   [4]measure
+	nmeasure   int
+	leaf       [2]float32 // the max-content and min-content widths of text
+	leafOK     bool
 }
 
 type measure struct {

@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// sincos returns the sine and the cosine of deg degrees.
+func sincos(deg float32) (float32, float32) {
+	sin, cos := math.Sincos(float64(deg) * math.Pi / 180)
+	return float32(sin), float32(cos)
+}
+
 // CollapsibleParts are the parts of a collapsible without a look: its
 // Trigger shows and hides what Panel builds.
 type CollapsibleParts struct {
@@ -105,9 +111,7 @@ func disclosureArrow(c *Context, deg float32) *Element {
 	t := c.theme
 	return Box(c).Size(t.Space(4), t.Space(4)).Shrink(0).Draw(func(p *Painter, r Rect) {
 		cx, cy, d := r.X+r.W/2, r.Y+r.H/2, r.W/8
-		sin, cos := math.Sincos(float64(deg) * math.Pi / 180)
-		s, k := float32(sin), float32(cos)
-		at := func(x, y float32) (float32, float32) { return cx + x*k - y*s, cy + x*s + y*k }
+		at := rotate(cx, cy, deg)
 		var path Path
 		path.MoveTo(at(-d, -2*d)).LineTo(at(d, 0)).LineTo(at(-d, 2*d))
 		p.StrokePath(&path, 1.5, t.TextMuted)

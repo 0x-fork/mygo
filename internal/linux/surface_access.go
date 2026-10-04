@@ -92,7 +92,7 @@ var (
 	accessObjects = map[ptr]*accessNode{}
 
 	// Static strings of actions.
-	clickName, emptyName = []byte("click\x00"), []byte("\x00")
+	clickName, expandName, emptyName = []byte("click\x00"), []byte("expand or contract\x00"), []byte("\x00")
 )
 
 // gTypeQueryInfo is GTypeQuery.
@@ -293,10 +293,10 @@ type accessNode struct {
 	chosen []uint64
 }
 
-// chooses reports whether a node is the row of a list or a table that its
-// list chooses.
+// chooses reports whether a node is the row of a list, a table or an
+// outline that its list chooses.
 func chooses(n platform.AccessNode) bool {
-	return (n.Role == platform.RoleListItem || n.Role == platform.RoleRow) && n.States&platform.AccessSelectable != 0
+	return (n.Role == platform.RoleListItem || n.Role == platform.RoleRow || n.Role == platform.RoleTreeItem) && n.States&platform.AccessSelectable != 0
 }
 
 // chosenRows returns the rows of a list or table that are chosen.
@@ -366,7 +366,7 @@ func accessType(n platform.AccessNode) uintptr {
 		return editableType
 	case platform.RoleText:
 		return textType
-	case platform.RoleList, platform.RoleTable:
+	case platform.RoleList, platform.RoleTable, platform.RoleTree:
 		if n.States&platform.AccessSelectable != 0 {
 			return selectionType // choosing its rows
 		}
@@ -607,6 +607,9 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 	if n.States&platform.AccessMixed != 0 || n.Now < n.Min {
 		list = append(list, st.indeterminate) // a progress of unknown length
 	}
+	if n.States&platform.AccessExpandable != 0 {
+		list = append(list, st.expandable)
+	}
 	if n.States&platform.AccessExpanded != 0 {
 		list = append(list, st.expanded)
 	}
@@ -818,6 +821,9 @@ func initAccessCallbacks() {
 		if an.n.SetSize > 0 {
 			add("setsize", strconv.Itoa(an.n.SetSize))
 		}
+		if an.n.Level > 0 {
+			add("level", strconv.Itoa(an.n.Level))
+		}
 		// The order of the column a table is sorted by, as Chromium says.
 		switch {
 		case an.n.States&platform.AccessSortAscending != 0:
@@ -882,33 +888,55 @@ func initAccessCallbacks() {
 		setIface(iface, fns)
 	})
 
-	pressable := func(obj ptr, i int32) *accessNode {
-		if an := node(obj); an != nil && i == 0 && an.n.Actions&platform.ActionPress != 0 {
-			return an
+	// The actions of a node: click, then expand or contract, for an item
+	// of a tree with children, as GTK's tree views have.
+	actions := func(obj ptr) (*accessNode, []platform.AccessActions) {
+		an := node(obj)
+		if an == nil {
+			return nil, nil
 		}
-		return nil
+		var list []platform.AccessActions
+		for _, a := range []platform.AccessActions{platform.ActionPress, platform.ActionExpand} {
+			if an.n.Actions&a != 0 {
+				list = append(list, a)
+			}
+		}
+		return an, list
+	}
+	action := func(obj ptr, i int32) (*accessNode, platform.AccessActions) {
+		an, list := actions(obj)
+		if i < 0 || int(i) >= len(list) {
+			return nil, 0
+		}
+		return an, list[i]
 	}
 	doAction := purego.NewCallback(func(obj ptr, i int32) bool {
-		an := pressable(obj, i)
-		if an != nil {
+		an, a := action(obj, i)
+		switch {
+		case a == platform.ActionPress:
 			an.act(platform.AccessPress, "")
+		case a == platform.ActionExpand && an.n.States&platform.AccessExpanded != 0:
+			an.act(platform.AccessCollapse, "")
+		case a == platform.ActionExpand:
+			an.act(platform.AccessExpand, "")
 		}
 		return an != nil
 	})
 	nActions := purego.NewCallback(func(obj ptr) int32 {
-		if pressable(obj, 0) != nil {
-			return 1
-		}
-		return 0
+		_, list := actions(obj)
+		return int32(len(list))
 	})
 	actionName := purego.NewCallback(func(obj ptr, i int32) ptr {
-		if pressable(obj, i) != nil {
+		switch _, a := action(obj, i); a {
+		case platform.ActionPress:
 			return ptr(unsafe.Pointer(&clickName[0]))
+		case platform.ActionExpand:
+			return ptr(unsafe.Pointer(&expandName[0]))
 		}
 		return 0
 	})
 	actionEmpty := purego.NewCallback(func(obj ptr, i int32) ptr {
-		if pressable(obj, i) != nil {
+		if an, _ := action(obj, i); an != nil {
 			return ptr(unsafe.Pointer(&emptyName[0]))
 		}
 		return 0

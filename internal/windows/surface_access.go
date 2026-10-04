@@ -110,6 +110,7 @@ const (
 	uiaHelpTextProperty         = 30013
 	uiaIsDataValidProperty      = 30103
 	uiaItemStatusProperty       = 30026
+	uiaLevelProperty            = 30154
 	uiaFullDescriptionProperty  = 30159
 	uiaIsPasswordProperty       = 30019
 	uiaFrameworkIDProperty      = 30024
@@ -250,7 +251,7 @@ func (e *uiaElement) supports(i int) bool {
 		return false
 	case ifaceSelection:
 		// A list or table choosing its rows.
-		return (n.Role == platform.RoleList || n.Role == platform.RoleTable) && n.States&platform.AccessSelectable != 0
+		return (n.Role == platform.RoleList || n.Role == platform.RoleTable || n.Role == platform.RoleTree) && n.States&platform.AccessSelectable != 0
 	case ifaceScrollItem:
 		return n.Actions&platform.ActionScrollIntoView != 0
 	case ifaceRangeValue:
@@ -515,8 +516,11 @@ func toggleState(n platform.AccessNode) int32 {
 }
 
 func expandState(n platform.AccessNode) int32 {
-	if n.States&platform.AccessExpanded != 0 {
+	switch {
+	case n.States&platform.AccessExpanded != 0:
 		return 1 // ExpandCollapseState_Expanded
+	case n.Role == platform.RoleTreeItem && n.States&platform.AccessExpandable == 0:
+		return 3 // ExpandCollapseState_LeafNode
 	}
 	return 0
 }
@@ -880,6 +884,13 @@ func initUIA() {
 			if e == nil || (e.n.States&platform.AccessExpanded != 0) == open {
 				return hr
 			}
+			if e.n.Actions&platform.ActionExpand != 0 {
+				// An item of a tree, which pressing chooses.
+				if !open {
+					return e.act(platform.AccessCollapse, "")
+				}
+				return e.act(platform.AccessExpand, "")
+			}
 			return e.act(platform.AccessPress, "")
 		})
 	}
@@ -970,6 +981,10 @@ func (e *uiaElement) property(id int, v *variant) {
 		*v = boolVariant(n.Role == platform.RoleDialog)
 	case uiaIsOffscreenProperty:
 		*v = boolVariant(n.States&platform.AccessOffscreen != 0)
+	case uiaLevelProperty:
+		if n.Level > 0 {
+			*v = variant{VT: vtI4, Val: uint64(n.Level)}
+		}
 	case uiaPositionInSetProperty:
 		if n.PosInSet > 0 {
 			*v = variant{VT: vtI4, Val: uint64(n.PosInSet)}

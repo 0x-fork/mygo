@@ -286,12 +286,15 @@ type state struct {
 	cx, cw float32
 
 	changed, submitted bool
-	dropped            []string
-	editor             *editor
-	locals             map[any]any
-	anims              map[any]*anim
-	shortcuts          []shortcut
-	delivered          []shortcut
+	// expand is what assistive technology asked of an item of a tree: 1
+	// to open it, -1 to close it.
+	expand    int8
+	dropped   []string
+	editor    *editor
+	locals    map[any]any
+	anims     map[any]*anim
+	shortcuts []shortcut
+	delivered []shortcut
 
 	// input, caret and takesText are those of the last frame's element
 	// (HandleInput, TextCaret).

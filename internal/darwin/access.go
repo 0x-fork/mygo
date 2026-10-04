@@ -100,10 +100,10 @@ var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleDisclosure:   {"AXDisclosureTriangle", ""},
 }
 
-// chooses reports whether a node is the row of a list or a table that its
-// list chooses.
+// chooses reports whether a node is the row of a list, a table or an
+// outline that its list chooses.
 func chooses(n platform.AccessNode) bool {
-	return (n.Role == platform.RoleListItem || n.Role == platform.RoleRow) && n.States&platform.AccessSelectable != 0
+	return (n.Role == platform.RoleListItem || n.Role == platform.RoleRow || n.Role == platform.RoleTreeItem) && n.States&platform.AccessSelectable != 0
 }
 
 func roleOf(n platform.AccessNode) (role, subrole string) {
@@ -227,6 +227,13 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 		send(obj, "setAccessibilityValue:", uintptr(valueOf(n)))
 		valueChanged = !fresh
 	}
+	if n.Level > 0 && (fresh || n.Level != o.Level) {
+		// How deep the row of an outline is, from 0.
+		send(obj, "setAccessibilityDisclosureLevel:", uintptr(n.Level-1))
+	}
+	if n.Role == platform.RoleTreeItem && (fresh || n.States&platform.AccessExpanded != o.States&platform.AccessExpanded) {
+		send(obj, "setAccessibilityDisclosed:", boolArg(n.States&platform.AccessExpanded != 0))
+	}
 	if n.PosInSet > 0 && (fresh || n.PosInSet != o.PosInSet) {
 		send(obj, "setAccessibilityIndex:", uintptr(n.PosInSet-1))
 	}
@@ -338,7 +345,7 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 		// they are among all; the rows of other tables, where among those.
 		var selectionChanged []*accessElement
 		for i, n := range tree.Nodes {
-			if n.Role != platform.RoleList && n.Role != platform.RoleTable {
+			if n.Role != platform.RoleList && n.Role != platform.RoleTable && n.Role != platform.RoleTree {
 				continue
 			}
 			el := s.elements[n.ID]
@@ -346,7 +353,7 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 			var chosenIDs []uint64
 			for _, cid := range children[i] {
 				c := s.elements[cid]
-				if r := c.node.Role; r != platform.RoleRow && r != platform.RoleListItem || n.SetSize > 0 && c.node.PosInSet == 0 {
+				if r := c.node.Role; r != platform.RoleRow && r != platform.RoleListItem && r != platform.RoleTreeItem || n.SetSize > 0 && c.node.PosInSet == 0 {
 					continue // a table's header
 				}
 				if c.node.PosInSet == 0 {
@@ -483,6 +490,7 @@ func registerAccessClass() {
 		"accessibilityPerformDecrement": platform.ActionDecrement,
 		"setAccessibilityValue:":        platform.ActionSetValue,
 		"setAccessibilityFocused:":      platform.ActionFocus,
+		"setAccessibilityDisclosed:":    platform.ActionExpand,
 	}
 	classDef("MyGoAccessibilityElement", "NSAccessibilityElement", nil, []objc.MethodDef{
 		method("accessibilityFrame", func(self id, _ objc.SEL) NSRect {
@@ -561,6 +569,17 @@ func registerAccessClass() {
 		method("accessibilityPerformDecrement", func(self id, _ objc.SEL) bool {
 			el := b().accessElementOf(self)
 			return el != nil && el.act(platform.AccessDecrement, "")
+		}),
+		// Opening and closing a row of an outline, as VoiceOver does.
+		method("setAccessibilityDisclosed:", func(self id, cmd objc.SEL, open bool) {
+			objc.ID(self).SendSuper(cmd, open)
+			if el := b().accessElementOf(self); el != nil && el.node.Actions&platform.ActionExpand != 0 {
+				kind := platform.AccessCollapse
+				if open {
+					kind = platform.AccessExpand
+				}
+				el.act(kind, "")
+			}
 		}),
 		method("setAccessibilityFocused:", func(self id, _ objc.SEL, focused bool) {
 			if el := b().accessElementOf(self); el != nil && focused {
