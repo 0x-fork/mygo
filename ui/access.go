@@ -131,7 +131,18 @@ func (e *Element) innerText() string {
 func (rt *engine) accessTree() *platform.AccessTree {
 	t := &platform.AccessTree{}
 	var focused *Element
-	if root := rt.c.root; root != nil {
+	switch root := rt.c.root; {
+	case root == nil:
+	case rt.modal != 0 && rt.c.overlay != nil:
+		// What is behind a dialog is inert: the dialog on top and what
+		// shows above it alone.
+		on := false
+		for ch := rt.c.overlay.first; ch != nil; ch = ch.next {
+			if on = on || ch.id == rt.modal; on {
+				rt.accessElement(t, ch, -1, false, &focused)
+			}
+		}
+	default:
 		rt.accessElement(t, root, -1, false, &focused)
 	}
 	if rt.windowFocused && rt.focused != 0 {

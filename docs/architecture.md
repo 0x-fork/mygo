@@ -1107,6 +1107,17 @@ either.
   container. `Table` is a header of columns over a list, whose rows are as
   high as their tallest cell, and which takes the focus and the keys for
   the list.
+- **Overlays** (`ui/scope.go`) scope the keyboard. Committing a frame
+  notes the dialog each focusable element is in (`DialogBase`'s backdrop,
+  `flagModal`; a popover is in its anchor's), the dialog on top
+  (`engine.modal`), and moves a popover's elements after its anchor in the
+  focus order. Tab cycles the dialog on top, the focus moves into it while
+  it is outside, the window's shortcuts built outside it do not fire, and
+  the accessibility tree is the dialog and what is above it. Overlays
+  register Escape as overlay shortcuts, which the keys the focus and the
+  elements around it leave reach, the last registered (the overlay on top)
+  first. An overlay notes the focus as it opens (`openers`), which pruning
+  gives back once it is gone with the focus that was in it.
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
   menu key marks the element, from the states of the last frame, and the
   next frame runs its `ContextMenu` function to collect a `platform.Menu`;

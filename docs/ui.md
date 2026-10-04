@@ -725,6 +725,16 @@ ui.Modal(c, &app.renaming, func() {
 })
 ```
 
+A dialog keeps the keyboard: it takes the focus as it opens, on its first
+element that takes it unless one in it asked for it (`AutoFocus`), Tab
+goes round its elements, and the window's shortcuts built outside it
+wait, as what is behind it is inert, which screen readers do not see
+either. A popover's elements follow its anchor as Tab moves. Escape closes
+the overlay on top, a select's popup before the dialog it is in, unless
+the focused element takes it, as a terminal does; and an overlay that
+closes with the focus in it gives the focus back to the element that had
+it as it opened, its button say.
+
 `c.Toast("Saved")` shows a message near the bottom of the window for a few
 seconds, as the outcome of what the user just did; screen readers see it
 as a status. `ui.Overlay` builds elements above everything else, placed

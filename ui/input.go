@@ -415,8 +415,8 @@ func (rt *engine) claimed(k keyEvent) bool { return rt.claimedBy(k, true) }
 func (rt *engine) claimedBy(k keyEvent, window bool) bool {
 	var chain []uint64
 	for _, r := range rt.regs {
-		if r.mods != k.mods || r.key != k.key {
-			continue
+		if r.mods != k.mods || r.key != k.key || r.overlay {
+			continue // an overlay takes what the focus leaves
 		}
 		if r.id == 0 {
 			if window {
@@ -479,12 +479,22 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 
 // moveFocus focuses the next (or previous) element that takes the focus.
 func (rt *engine) moveFocus(back bool) {
-	n := len(rt.focusOrder)
+	// The dialog on top keeps the focus among its elements.
+	order := rt.focusOrder
+	if m := rt.modal; m != 0 {
+		order = nil
+		for i, sc := range rt.focusScopes {
+			if sc.modal == m {
+				order = append(order, rt.focusOrder[i])
+			}
+		}
+	}
+	n := len(order)
 	if n == 0 {
 		return
 	}
 	i := -1
-	for j, id := range rt.focusOrder {
+	for j, id := range order {
 		if id == rt.focused {
 			i = j
 			break
@@ -500,7 +510,7 @@ func (rt *engine) moveFocus(back bool) {
 	default:
 		i = (i + 1) % n
 	}
-	rt.focused = rt.focusOrder[i]
+	rt.focused = order[i]
 	rt.focusVisible = true
 	rt.blinkStart = time.Now()
 	if s := rt.states[rt.focused]; s != nil && s.editor != nil {
@@ -511,7 +521,7 @@ func (rt *engine) moveFocus(back bool) {
 
 // routeKeys delivers the keys pressed since the last frame to the
 // innermost element around the focus that handles them, else to the
-// window's shortcuts.
+// overlay on top that does, else to the window's shortcuts.
 func (rt *engine) routeKeys() {
 	if len(rt.keys) == 0 {
 		return
@@ -521,13 +531,18 @@ func (rt *engine) routeKeys() {
 		target, found := uint64(0), false
 		for _, id := range chain {
 			for _, r := range rt.regs {
-				if r.id == id && r.mods == k.mods && r.key == k.key {
+				if r.id == id && !r.overlay && r.mods == k.mods && r.key == k.key {
 					target, found = id, true
 					break
 				}
 			}
 			if found {
 				break
+			}
+		}
+		for i := len(rt.regs) - 1; i >= 0 && !found; i-- {
+			if r := rt.regs[i]; r.overlay && r.mods == k.mods && r.key == k.key {
+				target, found = r.id, true
 			}
 		}
 		if !found {
@@ -539,7 +554,7 @@ func (rt *engine) routeKeys() {
 			}
 		}
 		if found {
-			rt.delivered = append(rt.delivered, shortcutReg{target, k.mods, k.key})
+			rt.delivered = append(rt.delivered, shortcutReg{id: target, mods: k.mods, key: k.key})
 		}
 	}
 	rt.keys = rt.keys[:0]
@@ -548,7 +563,7 @@ func (rt *engine) routeKeys() {
 // shortcut registers that element id (0 for the window) handles mods+key
 // and reports whether such a key was delivered to it.
 func (rt *engine) shortcut(id uint64, mods Modifiers, key Key) bool {
-	rt.nextRegs = append(rt.nextRegs, shortcutReg{id, mods, key})
+	rt.nextRegs = append(rt.nextRegs, shortcutReg{id: id, mods: mods, key: key})
 	for i, d := range rt.delivered {
 		if d.id == id && d.mods == mods && d.key == key {
 			rt.delivered = append(rt.delivered[:i], rt.delivered[i+1:]...)

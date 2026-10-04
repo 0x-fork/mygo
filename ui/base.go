@@ -361,11 +361,14 @@ func PopoverBase(c *Context, anchor *Element, open *bool, fn func(panel *Element
 	Overlay(c, func() {
 		back := Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0)
 		back.flags |= flagClickable
-		if back.Clicked() || c.Shortcut(0, KeyEscape) {
+		back.popover = anchor
+		c.rt.openOverlay(back)
+		if back.Clicked() || c.rt.overlayShortcut(back.id, 0, KeyEscape) {
 			*open = false
 		}
 		panel = Box(c).Absolute().Left(b.X).Top(b.Y + b.H).Role(RolePopup)
 		panel.flags |= flagClickable
+		panel.popover = anchor
 		panel.Children(func() { fn(panel) })
 		keepInWindow(panel, b.X, b.Y+b.H, b.Y)
 	})
@@ -384,8 +387,9 @@ func DialogBase(c *Context, open *bool, fn func(backdrop, panel *Element)) *Elem
 	var panel *Element
 	Overlay(c, func() {
 		back := Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center()
-		back.flags |= flagClickable
-		if back.Clicked() || c.Shortcut(0, KeyEscape) {
+		back.flags |= flagClickable | flagModal
+		c.rt.openOverlay(back)
+		if back.Clicked() || c.rt.overlayShortcut(back.id, 0, KeyEscape) {
 			*open = false
 		}
 		back.Children(func() {

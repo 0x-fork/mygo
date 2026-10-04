@@ -54,12 +54,19 @@ type engine struct {
 	// builds the elements that stay.
 	pass int
 
-	// What the last frame laid out, for input until the next one.
-	hits       []hit
-	focusOrder []uint64
-	regs       []shortcutReg
-	nextRegs   []shortcutReg
-	delivered  []shortcutReg
+	// What the last frame laid out, for input until the next one: the
+	// focus order, with the scope of each element, and the dialog on top.
+	hits        []hit
+	focusOrder  []uint64
+	focusScopes []focusScope
+	modal       uint64
+	commitScope focusScope
+	// openers are the elements that had the focus as overlays opened, by
+	// overlay.
+	openers   map[uint64]uint64
+	regs      []shortcutReg
+	nextRegs  []shortcutReg
+	delivered []shortcutReg
 
 	pointerX, pointerY float32
 	pointerIn          bool
@@ -148,6 +155,8 @@ type shortcutReg struct {
 	id   uint64
 	mods Modifiers
 	key  Key
+	// overlay marks the registration of an overlay (overlayShortcut).
+	overlay bool
 }
 
 type keyEvent struct {
@@ -278,6 +287,7 @@ func (rt *engine) prune() {
 			delete(rt.states, id)
 		}
 	}
+	rt.restoreFocus()
 }
 
 // requestFrame asks the host for a frame, unless one is being built.
@@ -323,10 +333,12 @@ func (rt *engine) close() {
 // boxes, the hit list in paint order, the focus order.
 func (rt *engine) commit(root *Element) {
 	rt.hits = rt.hits[:0]
-	rt.focusOrder = rt.focusOrder[:0]
+	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
+	rt.modal, rt.commitScope = 0, focusScope{}
 	rt.labels = rt.labels[:0]
 	full := Rect{0, 0, root.w, root.h}
 	rt.commitElement(root, full, false)
+	rt.arrangeFocus()
 }
 
 func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
@@ -334,6 +346,8 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	if e.kind == kindText && e.first != nil && !inline {
 		placeInline(e, e, 0)
 	}
+	saved := rt.enterScope(e)
+	defer func() { rt.commitScope = saved }()
 	s := e.st
 	s.x, s.y, s.w, s.h = e.x, e.y, e.w, e.h
 	if e.parent != nil {
@@ -386,6 +400,7 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	}
 	if e.flags&flagFocusable != 0 && !e.IsDisabled() && !invisible {
 		rt.focusOrder = append(rt.focusOrder, e.id)
+		rt.focusScopes = append(rt.focusScopes, rt.commitScope)
 	}
 	if e.flags&(flagClipX|flagClipY|flagScrollX|flagScrollY) != 0 {
 		r, _ := e.clipRect()

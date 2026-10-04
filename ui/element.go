@@ -103,6 +103,8 @@ const (
 	// flagChoosable marks the rows of a list that chooses them, which
 	// assistive technology focusing chooses.
 	flagChoosable
+	// flagModal marks the backdrop of a dialog, which scopes the focus.
+	flagModal
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY
@@ -279,6 +281,8 @@ type Element struct {
 	// listRow is set on the elements holding its rows, rowIndex their row.
 	// rowsOf is the list whose rows the element holds for assistive
 	// technology, and takes the keys for: the list, or its Table.
+	// popover is the anchor of the panel of a popover.
+	popover  *Element
 	list     *listFrame
 	listRow  bool
 	rowIndex int

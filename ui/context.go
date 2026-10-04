@@ -205,6 +205,9 @@ func (c *Context) OpenURL(url string) { c.rt.host.openURL(url) }
 // check box, switch or radio button Space, so that Enter can press a
 // dialog's default button.
 func (c *Context) Shortcut(mods Modifiers, key Key) bool {
+	if !c.insideModal() {
+		return false // behind a dialog
+	}
 	return c.rt.shortcut(0, mods, key)
 }
 
@@ -277,6 +280,8 @@ type state struct {
 	input     func(InputEvent) bool
 	caret     Rect
 	takesText bool
+	// scope is the dialog the element was in, 0 for none.
+	scope uint64
 }
 
 type shortcut struct {
