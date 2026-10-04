@@ -119,6 +119,11 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	center := send(class("NSNotificationCenter"), "defaultCenter")
 	send(center, "addObserver:selector:name:object:", uintptr(b.delegate), uintptr(sel("screensChanged:")),
 		uintptr(nsString("NSApplicationDidChangeScreenParametersNotification")), 0)
+	// The accent color, and the display settings of accessibility.
+	send(center, "addObserver:selector:name:object:", uintptr(b.delegate), uintptr(sel("preferencesChanged:")),
+		uintptr(nsString("NSSystemColorsDidChangeNotification")), 0)
+	send(send(workspace(), "notificationCenter"), "addObserver:selector:name:object:", uintptr(b.delegate), uintptr(sel("preferencesChanged:")),
+		uintptr(nsString("NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification")), 0)
 	return nil
 }
 
@@ -324,6 +329,9 @@ func registerAppDelegate() {
 		}),
 		method("screensChanged:", func(self id, _ objc.SEL, n id) {
 			theBackend.h.DisplaysChanged()
+		}),
+		method("preferencesChanged:", func(self id, _ objc.SEL, n id) {
+			theBackend.h.ThemeChanged()
 		}),
 	})
 }

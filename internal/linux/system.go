@@ -55,6 +55,8 @@ func initSystemCallbacks() {
 	connect(settings, "notify::gtk-font-name", cbThemeChanged, 0) // Theme.UIFont
 	connect(settings, "notify::gtk-decoration-layout", cbDecorationLayout, 0)
 	connect(settings, "notify::gtk-application-prefer-dark-theme", cbThemeChanged, 0)
+	connect(settings, "notify::gtk-enable-animations", cbThemeChanged, 0) // Theme.Preferences
+	watchPortalSettings()
 	if d := gdkDisplayGetDefault(); d != 0 {
 		connect(d, "monitor-added", cbMonitorsChanged, 0)
 		connect(d, "monitor-removed", cbMonitorsChanged, 0)
@@ -337,6 +339,51 @@ func portalColorScheme() (uint32, bool) {
 		return 0, false
 	}
 	return gVariantGetUint32(inner), true
+}
+
+// Preferences reads GTK's animations setting, and the accent, contrast
+// and text size the desktop portal gives, as GNOME's and KDE's do.
+func (t theme) Preferences() platform.Preferences {
+	var p platform.Preferences
+	settings := gtkSettingsGetDefault()
+	animations := int32(1)
+	gObjectGetPtr(settings, cs("gtk-enable-animations"), unsafe.Pointer(&animations), 0)
+	p.ReduceMotion = animations == 0
+	var name ptr
+	gObjectGetPtr(settings, cs("gtk-theme-name"), unsafe.Pointer(&name), 0)
+	p.HighContrast = strings.Contains(strings.ToLower(takeStr(name)), "highcontrast")
+	all, ok := portalSettings(appearanceSettings, gnomeInterfaceSettings)
+	if !ok {
+		return p
+	}
+	defer gVariantUnref(all)
+	// The accent: red, green and blue between 0 and 1, others for none.
+	if v := portalSetting(all, appearanceSettings, "accent-color", "(ddd)"); v != 0 {
+		var rgb [3]float64
+		in := true
+		for i := range rgb {
+			c := gVariantGetChildValue(v, uintptr(i))
+			rgb[i] = gVariantGetDouble(c)
+			gVariantUnref(c)
+			in = in && rgb[i] >= 0 && rgb[i] <= 1
+		}
+		gVariantUnref(v)
+		if in {
+			b := func(f float64) uint8 { return uint8(f*255 + 0.5) }
+			p.Accent = platform.Color{R: b(rgb[0]), G: b(rgb[1]), B: b(rgb[2]), A: 255}
+		}
+	}
+	if v := portalSetting(all, appearanceSettings, "contrast", "u"); v != 0 {
+		p.HighContrast = p.HighContrast || gVariantGetUint32(v) == 1
+		gVariantUnref(v)
+	}
+	if v := portalSetting(all, gnomeInterfaceSettings, "text-scaling-factor", "d"); v != 0 {
+		if s := gVariantGetDouble(v); s >= 0.5 && s <= 5 {
+			p.TextScale = s
+		}
+		gVariantUnref(v)
+	}
+	return p
 }
 
 func (t theme) IsDark() bool {

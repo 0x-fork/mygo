@@ -18,8 +18,11 @@ type Conn struct {
 	// TitleBarDoubleClicked does what a double click on a title bar does.
 	StartDrag             func()
 	TitleBarDoubleClicked func()
-	// IsDark reports the system's dark appearance.
-	IsDark func() bool
+	// IsDark reports the system's dark appearance, and Preferences the
+	// settings of the desktop that controls follow, which ThemeChanged
+	// tells changes of as well.
+	IsDark      func() bool
+	Preferences func() platform.Preferences
 	// UIFont returns the family of the desktop's interface font where the
 	// system's text stack does not know it (Linux), else "".
 	UIFont func() string

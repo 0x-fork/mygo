@@ -620,6 +620,26 @@ type Theme interface {
 	// FontRendering returns how the desktop's settings say to rasterize
 	// text where the system's text stack does not know them, as on Linux.
 	FontRendering() FontRendering
+	// Preferences returns the settings of the desktop that the system's
+	// controls follow. A change calls Handler.ThemeChanged.
+	Preferences() Preferences
+}
+
+// Preferences are settings of the desktop that the system's own controls
+// follow, and native UI with them.
+type Preferences struct {
+	// Accent is the accent color the user chose; A is 0 where the desktop
+	// has none.
+	Accent Color
+	// ReduceMotion asks for less motion: macOS's Reduce Motion, Windows's
+	// animation effects and GNOME's animations turned off.
+	ReduceMotion bool
+	// HighContrast asks for more contrast: macOS's Increase Contrast,
+	// Windows's contrast themes, the desktop portal's higher contrast.
+	HighContrast bool
+	// TextScale is how many times larger than usual text should be, as
+	// Windows's and GNOME's text size settings say; 0 or 1 for usual.
+	TextScale float64
 }
 
 // FontRendering is how the desktop's settings say to rasterize text, as

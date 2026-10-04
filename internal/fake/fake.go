@@ -34,6 +34,7 @@ type Backend struct {
 	hotkeys   map[int]string
 	clipboard string
 	theme     string
+	prefs     platform.Preferences
 	// Watching reports whether power events were asked for, Awake counts the
 	// KeepAwake calls not released yet.
 	Watching bool
@@ -617,6 +618,21 @@ func (t theme) SetSource(s string) {
 	t.b.theme = s
 	t.b.mu.Unlock()
 	t.b.h.ThemeChanged()
+}
+
+func (t theme) Preferences() platform.Preferences {
+	t.b.mu.Lock()
+	defer t.b.mu.Unlock()
+	return t.b.prefs
+}
+
+// SetPreferences changes the desktop's preferences, as the user does in
+// the system's settings.
+func (b *Backend) SetPreferences(p platform.Preferences) {
+	b.mu.Lock()
+	b.prefs = p
+	b.mu.Unlock()
+	b.h.ThemeChanged()
 }
 
 type tray struct{}

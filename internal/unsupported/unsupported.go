@@ -114,6 +114,8 @@ func (theme) UIFont() string   { return "" }
 
 func (theme) FontRendering() platform.FontRendering { return platform.FontRendering{} }
 
+func (theme) Preferences() platform.Preferences { return platform.Preferences{} }
+
 type power struct{}
 
 func (power) Watch()                        {}

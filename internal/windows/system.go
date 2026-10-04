@@ -415,6 +415,65 @@ func (t theme) SetSource(source string) {
 	t.b.applyTheme()
 }
 
+const (
+	spiGetHighContrast        = 0x0042
+	spiSetHighContrast        = 0x0043
+	spiGetClientAreaAnimation = 0x1042
+	spiSetClientAreaAnimation = 0x1043
+	hcfHighContrastOn         = 0x1
+	accessibilityKey          = `Software\Microsoft\Accessibility`
+	dwmKey                    = `Software\Microsoft\Windows\DWM`
+	textScaleFactor           = "TextScaleFactor"
+	settingImmersiveColorSet  = "ImmersiveColorSet"
+	settingWindowMetrics      = "WindowMetrics"
+)
+
+// highContrast is HIGHCONTRASTW.
+type highContrast struct {
+	size, flags   uint32
+	defaultScheme uintptr
+}
+
+// Preferences reads the accent of the title bars and the Start menu, the
+// settings of animation effects and contrast themes, and the size of
+// text of Accessibility.
+func (t theme) Preferences() platform.Preferences {
+	var p platform.Preferences
+	if v, ok := regDWORD(hkeyCurrentUser, dwmKey, "AccentColor"); ok { // 0xAABBGGRR
+		p.Accent = platform.Color{R: uint8(v), G: uint8(v >> 8), B: uint8(v >> 16), A: 255}
+	}
+	var animate int32
+	if r, _, _ := procSystemParametersInfoW.Call(spiGetClientAreaAnimation, 0, uintptr(unsafe.Pointer(&animate)), 0); r != 0 {
+		p.ReduceMotion = animate == 0
+	}
+	hc := highContrast{size: uint32(unsafe.Sizeof(highContrast{}))}
+	if r, _, _ := procSystemParametersInfoW.Call(spiGetHighContrast, uintptr(hc.size), uintptr(unsafe.Pointer(&hc)), 0); r != 0 {
+		p.HighContrast = hc.flags&hcfHighContrastOn != 0
+	}
+	if v, ok := regDWORD(hkeyCurrentUser, accessibilityKey, textScaleFactor); ok && v >= 100 && v <= 500 {
+		p.TextScale = float64(v) / 100
+	}
+	return p
+}
+
+// preferencesChanged reports whether a WM_SETTINGCHANGE is about the
+// preferences: the colors, animation effects, contrast themes or the size
+// of text.
+func preferencesChanged(wp, lp uintptr) bool {
+	switch wp {
+	case spiSetClientAreaAnimation, spiSetHighContrast:
+		return true
+	}
+	if lp == 0 {
+		return false
+	}
+	switch wstr(lp) {
+	case settingImmersiveColorSet, settingWindowMetrics, textScaleFactor:
+		return true
+	}
+	return false
+}
+
 func (b *Backend) isDark() bool {
 	switch b.themeSource {
 	case "dark":

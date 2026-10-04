@@ -440,18 +440,31 @@ element's look follows the state in the view itself, as
 state can style another, as a group's hover does in CSS.
 
 Widgets take their colors and metrics from the theme, `c.Theme()`: the light
-or the dark theme, following the system's appearance as it changes. Use its
+or the dark theme, following the system's appearance as it changes, and the
+settings of the desktop that the system's own controls follow. Use its
 colors in your own elements so they follow too. To change it, set a copy:
 
 ```go
-t := *ui.LightTheme()
-if c.Theme().Dark {
-	t = *ui.DarkTheme()
-}
+t := *c.Theme() // the default, which follows the system
 t.Accent, t.Radius = ui.Hex("#7c3aed"), 8
 t.Spacing = 3 // compact
 c.SetTheme(&t)
 ```
+
+`c.Preferences()` returns those settings, which the default theme follows
+and a frame follows the changes of:
+
+- **`Accent`.** The accent color the user chose (macOS, Windows, and
+  desktops whose portal gives one, as GNOME 47 and KDE do), which colors
+  primary buttons, the choice and the focus ring, with text on it that
+  stands out.
+- **`HighContrast`.** macOS's Increase Contrast, Windows's contrast themes,
+  the portal's higher contrast: borders and secondary text are darker
+  (lighter in the dark), and the focus ring opaque.
+- **`TextScale`.** Windows's and GNOME's text size: `FontSize` is that many
+  times larger.
+- **`ReduceMotion`.** macOS's Reduce Motion, Windows's animation effects and
+  GNOME's animations turned off: `Animate` goes to its target at once.
 
 `Spacing` is the unit of the room widgets leave: their paddings and gaps,
 and the sizes of check boxes, switches, sliders and the rows of tables and
@@ -846,6 +859,11 @@ To animate in other ways, compute from `c.Now()` and call
 `c.AnimationFrame()` in every frame that moves: MyGo draws the next frame
 when the display can show it, and draws nothing while nothing changes.
 
+When the desktop asks for less motion (`c.Preferences().ReduceMotion`),
+`Animate` and `AnimateWith` go to their target at once. `Loop` goes on, as
+the system's spinners do: it shows that something is going on. Motion you
+compute yourself should read the preference too.
+
 ## Images and icons
 
 `ui.NewBitmap` makes a bitmap of an `image.Image`, and `ui.DecodeBitmap` of
@@ -976,7 +994,8 @@ func TestCounter(t *testing.T) {
 }
 ```
 
-`tt.RightClick` opens a context menu, which `tt.Menu` lists and
+`tt.SetPreferences` changes the desktop's preferences, as `tt.SetDark` its
+appearance. `tt.RightClick` opens a context menu, which `tt.Menu` lists and
 `tt.ChooseMenuItem("Move to", "Archive")` chooses from. `tt.TypeKey` presses
 a key with the text it types, `tt.SetFocused` takes the keyboard from the
 window and gives it back, `tt.Compose` shows the composition of an input

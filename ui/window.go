@@ -351,6 +351,13 @@ func (h *windowHost) titleBarDoubleClicked() {
 
 func (h *windowHost) isDark() bool { return h.conn.IsDark != nil && h.conn.IsDark() }
 
+func (h *windowHost) preferences() platform.Preferences {
+	if h.conn.Preferences == nil {
+		return platform.Preferences{}
+	}
+	return h.conn.Preferences()
+}
+
 func (h *windowHost) titleBar() TitleBar {
 	if h.conn.TitleBar == nil {
 		return TitleBar{}

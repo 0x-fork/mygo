@@ -154,6 +154,7 @@ var (
 	gVariantGetUint32              func(v ptr) uint32
 	gVariantGetUint64              func(v ptr) uint64
 	gVariantGetBoolean             func(v ptr) bool
+	gVariantGetDouble              func(v ptr) float64
 	gVariantGetString              func(v ptr, length *uintptr) ptr
 	gVariantUnref                  func(v ptr)
 	gVariantGetVariant             func(v ptr) ptr
@@ -542,6 +543,7 @@ func load() error {
 	mustBind(g, &gVariantGetUint32, "g_variant_get_uint32")
 	mustBind(g, &gVariantGetUint64, "g_variant_get_uint64")
 	mustBind(g, &gVariantGetBoolean, "g_variant_get_boolean")
+	mustBind(g, &gVariantGetDouble, "g_variant_get_double")
 	mustBind(g, &gVariantGetString, "g_variant_get_string")
 	mustBind(g, &gVariantUnref, "g_variant_unref")
 	mustBind(g, &gVariantGetVariant, "g_variant_get_variant")

@@ -19,6 +19,7 @@ type headless struct {
 	// for invalidate.
 	requested atomic.Bool
 	dark      bool
+	prefs     platform.Preferences
 	clipboard string
 	cursor    Cursor
 	ime       platform.TextInputState
@@ -43,6 +44,7 @@ func (h *headless) writeClipboard(s string)                    { h.clipboard = s
 func (h *headless) startDrag()                                 {}
 func (h *headless) titleBarDoubleClicked()                     {}
 func (h *headless) isDark() bool                               { return h.dark }
+func (h *headless) preferences() platform.Preferences          { return h.prefs }
 func (h *headless) titleBar() TitleBar                         { return h.bar }
 func (h *headless) invalidate()                                { h.requested.Store(true) }
 func (h *headless) openURL(u string)                           { h.opened = append(h.opened, u) }
@@ -117,6 +119,15 @@ func (t *Tester) SetTitleBar(bar TitleBar) {
 // SetDark switches between the light and the dark appearance.
 func (t *Tester) SetDark(dark bool) {
 	t.h.dark = dark
+	t.rt.themeChanged()
+	t.settle()
+}
+
+// SetPreferences changes the desktop's settings that controls follow, as
+// the user does in the system's settings.
+func (t *Tester) SetPreferences(p Preferences) {
+	t.h.prefs = platform.Preferences{Accent: platform.Color(p.Accent), ReduceMotion: p.ReduceMotion,
+		HighContrast: p.HighContrast, TextScale: float64(p.TextScale)}
 	t.rt.themeChanged()
 	t.settle()
 }

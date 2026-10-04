@@ -24,6 +24,7 @@ type host interface {
 	startDrag()
 	titleBarDoubleClicked()
 	isDark() bool
+	preferences() platform.Preferences
 	titleBar() TitleBar
 	// invalidate asks for a frame from any goroutine.
 	invalidate()
@@ -94,12 +95,15 @@ type engine struct {
 	}
 	// dropOver is the element files are dragged over; access is true once
 	// assistive technology asked for the content.
-	dropOver     uint64
-	access       bool
-	blinkStart   time.Time
-	inFrame      bool
-	dark         bool
-	darkKnown    bool
+	dropOver   uint64
+	access     bool
+	blinkStart time.Time
+	inFrame    bool
+	dark       bool
+	darkKnown  bool
+	// prefs are the desktop's preferences, read once until they change.
+	prefs        Preferences
+	prefsKnown   bool
 	collect      bool
 	labels       []labelNode
 	tooltipFrame uint64
@@ -161,15 +165,18 @@ func (rt *engine) defaultTheme() *Theme {
 	if !rt.darkKnown {
 		rt.dark, rt.darkKnown = rt.host.isDark(), true
 	}
+	t := LightTheme()
 	if rt.dark {
-		return DarkTheme()
+		t = DarkTheme()
 	}
-	return LightTheme()
+	t.follow(rt.preferences())
+	return t
 }
 
-// themeChanged follows a change of the system appearance.
+// themeChanged follows a change of the system appearance, or of the
+// desktop's preferences.
 func (rt *engine) themeChanged() {
-	rt.darkKnown = false
+	rt.darkKnown, rt.prefsKnown = false, false
 	rt.host.requestFrame()
 }
 

@@ -315,8 +315,11 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 		b.powerMessage(m, wp)
 		return 1, false // TRUE for power broadcasts, and default handling
 	case wmSettingChange:
-		if lp != 0 && wstr(lp) == "ImmersiveColorSet" {
+		switch {
+		case lp != 0 && wstr(lp) == settingImmersiveColorSet:
 			b.applyTheme()
+			b.h.ThemeChanged()
+		case preferencesChanged(wp, lp):
 			b.h.ThemeChanged()
 		}
 		return 0, false

@@ -198,6 +198,33 @@ func (theme) UIFont() string { return "" }
 
 func (theme) FontRendering() platform.FontRendering { return platform.FontRendering{} }
 
+// Preferences reads the accent color and the display settings of
+// accessibility.
+func (t theme) Preferences() platform.Preferences {
+	var p platform.Preferences
+	withPool(func() {
+		ws := workspace()
+		p.ReduceMotion = sendBool(ws, "accessibilityDisplayShouldReduceMotion")
+		p.HighContrast = sendBool(ws, "accessibilityDisplayShouldIncreaseContrast")
+		// The accent, as the app's appearance draws it.
+		var c id
+		appearance := class("NSAppearance")
+		prev := send(appearance, "currentAppearance")
+		send(appearance, "setCurrentAppearance:", uintptr(send(t.b.app, "effectiveAppearance")))
+		if accent := send(class("NSColor"), "controlAccentColor"); accent != 0 {
+			c = send(accent, "colorUsingColorSpace:", uintptr(send(class("NSColorSpace"), "sRGBColorSpace")))
+		}
+		send(appearance, "setCurrentAppearance:", uintptr(prev))
+		if c != 0 {
+			var r, g, b, a float64
+			send(c, "getRed:green:blue:alpha:", uintptr(unsafe.Pointer(&r)), uintptr(unsafe.Pointer(&g)), uintptr(unsafe.Pointer(&b)), uintptr(unsafe.Pointer(&a)))
+			byteOf := func(v float64) uint8 { return uint8(max(0, min(v, 1))*255 + 0.5) }
+			p.Accent = platform.Color{R: byteOf(r), G: byteOf(g), B: byteOf(b), A: 255}
+		}
+	})
+	return p
+}
+
 func (t theme) IsDark() bool {
 	var dark bool
 	withPool(func() {

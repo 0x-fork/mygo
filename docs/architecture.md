@@ -1061,6 +1061,17 @@ either.
   it. `ui.Shape` lays out text without the cache of layouts, for widgets
   that keep their glyphs, and `Painter.Glyphs` draws them where they
   placed them.
+- **Preferences.** `platform.Theme.Preferences` reads the settings of the
+  desktop that controls follow: on macOS, `controlAccentColor` and
+  `NSWorkspace`'s accessibility display options, with their notifications;
+  on Windows, DWM's `AccentColor`, `SPI_GETCLIENTAREAANIMATION`,
+  `SPI_GETHIGHCONTRAST` and Accessibility's `TextScaleFactor`, with
+  `WM_SETTINGCHANGE`; on Linux, GTK's `gtk-enable-animations` and the
+  settings portal's accent, contrast and GNOME's text scaling factor
+  (`ReadAll`, `SettingChanged`). A change goes through
+  `Handler.ThemeChanged`, as the appearance's does; package `ui` reads them
+  once until the next, the default theme follows them (`Theme.follow`), and
+  `Animate` follows reduced motion.
 - **Lists** (`ui/list.go`) build only the rows in view and keep their
   place by a row, the anchor, and how far its top is above where the
   content starts, not by an offset into their content: rows are measured,

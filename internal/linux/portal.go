@@ -44,7 +44,66 @@ func portalSignal(conn, sender, path, iface, signal, params, data ptr) {
 		gVariantUnref(results)
 	case "Activated":
 		theBackend.shortcutActivated(params)
+	case "SettingChanged":
+		// A preference, or the color scheme, changed.
+		ns := gVariantGetChildValue(params, 0)
+		name := goStr(gVariantGetString(ns, nil))
+		gVariantUnref(ns)
+		if name == appearanceSettings || name == gnomeInterfaceSettings {
+			theBackend.h.ThemeChanged()
+		}
 	}
+}
+
+// The namespaces of the settings portal that preferences come from.
+const (
+	appearanceSettings     = "org.freedesktop.appearance"
+	gnomeInterfaceSettings = "org.gnome.desktop.interface"
+)
+
+// watchPortalSettings follows the changes of the settings the desktop
+// portal gives.
+func watchPortalSettings() {
+	if conn, err := bus(); err == nil {
+		gDBusConnectionSignalSubscribe(conn, cs(portalName), cs("org.freedesktop.portal.Settings"), cs("SettingChanged"), cs(portalPath), nil, 0, cbPortalSignal, 0, 0)
+	}
+}
+
+// portalSettings reads the settings of namespaces from the desktop portal,
+// as a{sa{sv}}, which the caller unrefs.
+func portalSettings(namespaces ...string) (ptr, bool) {
+	names := make([]ptr, len(namespaces))
+	for i, n := range namespaces {
+		names[i] = gVariantNewString(cs(n))
+	}
+	typ := gVariantTypeNew(cs("s"))
+	arr := gVariantNewArray(typ, unsafe.Pointer(&names[0]), uintptr(len(names)))
+	res, err := portalCall(portalPath, "org.freedesktop.portal.Settings", "ReadAll", tuple(arr), "(a{sa{sv}})")
+	if err != nil {
+		return 0, false
+	}
+	all := gVariantGetChildValue(res, 0)
+	gVariantUnref(res)
+	return all, true
+}
+
+// portalSetting returns the value of key in namespace of the settings
+// portalSettings read, if it is of type typ, which the caller unrefs.
+func portalSetting(all ptr, namespace, key, typ string) ptr {
+	ns := gVariantLookupValue(all, cs(namespace), gVariantTypeNew(cs("a{sv}")))
+	if ns == 0 {
+		return 0
+	}
+	defer gVariantUnref(ns)
+	v := gVariantLookupValue(ns, cs(key), 0)
+	if v == 0 {
+		return 0
+	}
+	if goStr(gVariantGetTypeString(v)) != typ {
+		gVariantUnref(v)
+		return 0
+	}
+	return v
 }
 
 // portalCall calls a method of the portal, after registering the app with

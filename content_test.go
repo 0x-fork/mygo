@@ -203,6 +203,22 @@ func TestContentTextInputTurnsOnIME(t *testing.T) {
 	}
 }
 
+func TestContentFollowsPreferences(t *testing.T) {
+	var prefs ui.Preferences
+	var accent ui.Color
+	_, _, s := contentWindow(t, func(c *ui.Context) {
+		prefs, accent = c.Preferences(), c.Theme().Accent
+	})
+	t.Cleanup(func() { onMain(func() { fb.SetPreferences(platform.Preferences{}) }) })
+	onMain(func() {
+		fb.SetPreferences(platform.Preferences{Accent: platform.Color{R: 255, G: 128, A: 255}, ReduceMotion: true, TextScale: 1.25})
+		s.Frame()
+	})
+	if !prefs.ReduceMotion || prefs.TextScale != 1.25 || accent != ui.RGB(255, 128, 0) {
+		t.Errorf("the content sees %+v, accent %v", prefs, accent)
+	}
+}
+
 func TestContentMenuRoles(t *testing.T) {
 	name := "Ada"
 	view := func(c *ui.Context) {

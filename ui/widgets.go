@@ -52,7 +52,8 @@ func Divider(c *Context) *Element {
 
 // Animate returns a value that moves to target over d, easing out, and
 // keeps frames coming while it moves; key tells apart the animations of
-// the element. The value starts at the first target.
+// the element. The value starts at the first target. When the desktop asks
+// for less motion (Preferences.ReduceMotion), it goes to target at once.
 func (e *Element) Animate(key any, target float32, d time.Duration) float32 {
 	return e.AnimateWith(key, target, d, EaseOut)
 }
@@ -69,6 +70,10 @@ func (e *Element) AnimateWith(key any, target float32, d time.Duration, ease Eas
 	if a == nil {
 		st.anims[key] = &anim{from: target, to: target, value: target}
 		return target
+	}
+	if a.to != target && e.c.rt.preferences().ReduceMotion {
+		// Without the motion.
+		a.from, a.to, a.value = target, target, target
 	}
 	if a.to != target {
 		a.from, a.to, a.start, a.dur = a.value, target, now, d
