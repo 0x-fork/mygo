@@ -21,7 +21,8 @@ type Renderer struct {
 	Image Image
 	mem   *pixels
 
-	r      renderer
+	// rs draw the bands of large damage (draw).
+	rs     []renderer
 	valid  bool
 	clear  scene.Color
 	ops    []scene.Op
@@ -69,7 +70,7 @@ func (r *Renderer) Render(s *scene.Scene) []image.Rectangle {
 		r.damage = append(r.damage[:0], image.Rect(0, 0, s.Width, s.Height))
 	}
 	for _, d := range r.damage {
-		r.r.render(&r.Image, s, d)
+		draw(&r.rs, &r.Image, s, d, r.next)
 	}
 	r.remember(s)
 	return r.damage

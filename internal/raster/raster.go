@@ -7,6 +7,9 @@ package raster
 import (
 	"image"
 	"math"
+	"runtime"
+	"sync"
+	"sync/atomic"
 
 	"github.com/egoist/mygo/internal/scene"
 )
@@ -67,12 +70,55 @@ type renderer struct {
 
 // Render draws s into dst, which must be s.Width×s.Height.
 func Render(dst *Image, s *scene.Scene) {
-	var r renderer
-	r.render(dst, s, image.Rect(0, 0, dst.W, dst.H))
+	var r Renderer
+	draw(&r.rs, dst, s, image.Rect(0, 0, dst.W, dst.H), r.opBounds(s, nil))
 }
 
-// render draws the pixels of s within area.
-func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle) {
+// A large area is drawn on several cores at once, in bands of bandRows
+// rows that each takes in turn, as rows differ in how much they draw:
+// each pixel is what drawing the area whole gives, as no pixel depends on
+// another. An area of fewer than workArea pixels a core is not worth
+// waking cores for, and maxWorkers is about where memory bandwidth and
+// the lower clock of all cores stop paying for more.
+const (
+	bandRows   = 64
+	workArea   = 128 << 10
+	maxWorkers = 8
+)
+
+// draw draws the pixels of s within area into dst, with the renderers of
+// rs, made as needed, leaving out the operations whose bounds (opBounds)
+// miss the band drawn.
+func draw(rs *[]renderer, dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) {
+	area = area.Intersect(image.Rect(0, 0, dst.W, dst.H))
+	bands := (area.Dy() + bandRows - 1) / bandRows
+	n := max(min(runtime.GOMAXPROCS(0), area.Dx()*area.Dy()/workArea, bands, maxWorkers), 1)
+	for len(*rs) < n {
+		*rs = append(*rs, renderer{})
+	}
+	if n == 1 {
+		(*rs)[0].render(dst, s, area, bounds)
+		return
+	}
+	var next atomic.Int32
+	var wg sync.WaitGroup
+	for i := range n {
+		r := &(*rs)[i]
+		wg.Go(func() {
+			for b := int(next.Add(1)) - 1; b < bands; b = int(next.Add(1)) - 1 {
+				band := area
+				band.Min.Y = area.Min.Y + b*bandRows
+				band.Max.Y = min(band.Min.Y+bandRows, area.Max.Y)
+				r.render(dst, s, band, bounds)
+			}
+		})
+	}
+	wg.Wait()
+}
+
+// render draws the pixels of s within area, but for the operations whose
+// bounds miss it.
+func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) {
 	r.dst, r.s, r.clips = dst, s, r.clips[:0]
 	r.area = area.Intersect(image.Rect(0, 0, dst.W, dst.H))
 	if r.area.Empty() {
@@ -82,6 +128,9 @@ func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle) {
 	r.updateBounds()
 	for i := range s.Ops {
 		op := &s.Ops[i]
+		if op.Kind != scene.OpPushClip && op.Kind != scene.OpPopClip && !bounds[i].Overlaps(r.area) {
+			continue
+		}
 		switch op.Kind {
 		case scene.OpFill:
 			r.fill(op)

@@ -1002,9 +1002,11 @@ either.
   `gdk_monitor_get_refresh_rate`, the display mode's frequency from
   `EnumDisplaySettingsW`); asks for a frame (`RequestFrame`: a
   paused `CADisplayLink`, before macOS 14 an `NSTimer` at the display's
-  rate, `gtk_widget_queue_draw`, `InvalidateRect`); presents
+  rate, `gtk_widget_queue_draw` or a tick callback of GTK's frame clock,
+  `InvalidateRect`); presents
   pixels drawn on the CPU (`PresentPixels`: a CGImage as the layer's
-  contents, cairo in the `draw` signal, `SetDIBitsToDevice` in `WM_PAINT`);
+  contents, cairo in the `draw` signal, `SetDIBitsToDevice` in `WM_PAINT`;
+  on Linux `PresentDamage` too, with what changed);
   sets the cursor; and turns the input method on and off at the caret
   (NSTextInputClient, GtkIMContext, IMM32), with the text around it, up to
   512 runes on each side (`SetTextInput`). Everything else comes through
@@ -1644,10 +1646,30 @@ either.
   `internal/raster` draws the same scene with the same formulas on the CPU,
   solid spans inside shapes and only the edges of shadows computed, and
   redraws only what differs from the last scene (`raster.Renderer`): it is
-  the renderer of tests, of `MYGO_GPU=0` and of Linux without a GPU, and
-  the one a window falls back to when its GPU renderer fails. Frames that
-  are not the surface's (a capture before the first frame) are kept, not
-  drawn: OpenGL's context is current only in the surface's.
+  the renderer of tests, of `MYGO_GPU=0` and of Linux until a window needs
+  the GPU, and the one a window falls back to when its GPU renderer fails.
+  Frames that are not the surface's (a capture before the first frame) are
+  kept, not drawn: OpenGL's context is current only in the surface's. An
+  area drawn goes through the operations whose bounds (those the damage is
+  found from) it meets; a large one is drawn on up to eight cores, in
+  bands of 64 rows that each takes in turn, as rows differ in how much
+  they draw, each pixel as drawing the area whole gives it. A whole frame
+  of `BenchmarkFrame`'s view at 1844×2044 pixels, built and drawn, takes
+  0.7 ms rather than 3.2 on a Ryzen 7 8745HS: memory bandwidth and the
+  lower clock of all cores keep it from scaling further.
+
+  On Linux, `RequestFrame` of a surface drawing in memory adds a tick
+  callback to the area, which GTK's frame clock runs in its update phase,
+  before painting: the frame is drawn there, and `PresentDamage` keeps its
+  pixels and asks GTK to repaint what changed (`gtk_widget_queue_draw_area`),
+  which the `draw` signal paints from them in the same frame. GTK keeps
+  the rest of its buffer, copying it from the last one into a new buffer
+  when the compositor still holds the last, and tells the compositor
+  only that changed: a digit of the counter copies 24 KB of pixels instead
+  of 15 MB for half of a 4K display, in 0.01 ms instead of 1. A draw GTK
+  asks for by itself, as a resize does, draws a frame in the `draw`
+  signal, and repaints in the next frame what it changed outside GTK's
+  clip.
 
   Where the GPU renderer presents frames drawn in memory (Metal's), the
   window host draws on the CPU the frames that change little, measuring

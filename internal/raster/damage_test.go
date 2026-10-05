@@ -3,6 +3,7 @@ package raster
 import (
 	"bytes"
 	"fmt"
+	"image"
 	"math/rand/v2"
 	"testing"
 
@@ -212,4 +213,44 @@ func TestChanges(t *testing.T) {
 	if area != n {
 		t.Errorf("Render drew %d pixels, Changes said %d", area, n)
 	}
+}
+
+// TestBandsDrawAsOne checks that a large area drawn in bands on several
+// cores, leaving out the operations each band misses, has the pixels of
+// the area drawn at once with every operation.
+func TestBandsDrawAsOne(t *testing.T) {
+	m := newSceneMaker(3)
+	for i := range 6 {
+		s := scaled(m.scene(), 8)
+		got := NewImage(s.Width, s.Height)
+		Render(got, s)
+		all := make([]image.Rectangle, len(s.Ops))
+		for j := range all {
+			all[j] = image.Rect(0, 0, s.Width, s.Height)
+		}
+		want := NewImage(s.Width, s.Height)
+		var r renderer
+		r.render(want, s, image.Rect(0, 0, s.Width, s.Height), all)
+		if !bytes.Equal(got.Pix, want.Pix) {
+			t.Errorf("scene %d: drawn in bands, its pixels differ", i)
+		}
+	}
+}
+
+// scaled returns s k times as large, its glyphs as large as they were.
+func scaled(s *scene.Scene, k float32) *scene.Scene {
+	s.Width, s.Height = s.Width*int(k), s.Height*int(k)
+	for i := range s.Ops {
+		op := &s.Ops[i]
+		op.Rect = scene.Rect{X: op.Rect.X * k, Y: op.Rect.Y * k, W: op.Rect.W * k, H: op.Rect.H * k}
+		op.Blur *= k
+		for j := range op.Radii {
+			op.Radii[j] *= k
+		}
+	}
+	for i := range s.Glyphs {
+		s.Glyphs[i].X *= k
+		s.Glyphs[i].Y *= k
+	}
+	return s
 }

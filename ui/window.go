@@ -239,9 +239,13 @@ func (h *windowHost) present(s *scene.Scene) {
 		return
 	}
 	h.path = "drawn in memory"
-	h.soft.Render(s)
+	damage := h.soft.Render(s)
 	m := &h.soft.Image
-	h.conn.Surface.PresentPixels(m.Pix, m.Stride, m.W, m.H)
+	if d, ok := h.conn.Surface.(platform.DamageSurface); ok {
+		d.PresentDamage(m.Pix, m.Stride, m.W, m.H, damage)
+	} else {
+		h.conn.Surface.PresentPixels(m.Pix, m.Stride, m.W, m.H)
+	}
 	h.noteCPU(now, time.Since(now))
 }
 

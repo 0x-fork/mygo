@@ -1,5 +1,7 @@
 package platform
 
+import "image"
+
 // Surface is the drawing area of a window created with
 // WindowOptions.Surface, which shows content MyGo draws itself (package
 // ui) instead of a webview. Its methods run on the main thread.
@@ -41,6 +43,15 @@ type LazyGPUSurface interface {
 	// next frame on, which it asks for, where the GPU can draw, and
 	// reports whether it will. It is not called while a frame is drawn.
 	UseGPU() bool
+}
+
+// DamageSurface is a Surface that shows a frame drawn in memory by what
+// changed since the last one: Linux's, whose toolkit then repaints, and
+// the compositor takes, only that.
+type DamageSurface interface {
+	// PresentDamage is PresentPixels for a frame that differs from the
+	// last one presented only within damage, in device pixels.
+	PresentDamage(pix []byte, stride, width, height int, damage []image.Rectangle)
 }
 
 // IdleSurface is a Surface that can give back memory once frames stop.

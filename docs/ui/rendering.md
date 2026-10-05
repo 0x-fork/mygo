@@ -19,12 +19,13 @@ scrolling or animating much of a large window on a fast display, and only
 then loads OpenGL: Mesa, the driver, takes some 50 MB, which stay, about
 as much as the rest of a small app. Where OpenGL would not run on a GPU,
 as in virtual machines or in WSL (where `GALLIUM_DRIVER=d3d12` gives Mesa
-the GPU), Linux always draws on the CPU: a few milliseconds for a whole
-large window on a high-density display, and less than a tenth of one for
-what typically changes, such as a button under the pointer, since it
-redraws only that. Set `MYGO_GPU=0` to use the CPU renderer everywhere,
-for instance to compare, and on Linux `MYGO_GPU=1` to draw with OpenGL from
-the first frame, even where it runs on the CPU.
+the GPU), Linux always draws on the CPU: about a millisecond for a whole
+large window on a high-density display, on several cores, and less than a
+tenth of one for what typically changes, such as a button under the
+pointer, since it redraws, and has the compositor take, only that. Set
+`MYGO_GPU=0` to use the CPU renderer everywhere, for instance to compare,
+and on Linux `MYGO_GPU=1` to draw with OpenGL from the first frame, even
+where it runs on the CPU.
 
 Set `MYGO_FRAME_STATS=1` to log each frame that takes longer than 8 ms, or
 `MYGO_FRAME_STATS=4` for another threshold in milliseconds (`all` logs
