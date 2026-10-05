@@ -595,12 +595,16 @@ func registerSurfaceClass() {
 			if s == nil {
 				return
 			}
-			if s.framePass == caPass {
+			if s.framePass == caPass && send(self, "inLiveResize") == 0 {
 				// AppKit displays the view again before Core Animation
 				// commits the frame drawn in this pass, as while the
 				// trackpad scrolls: the frame would wait a second for a
 				// drawable, the layer's two being taken until the commit.
 				// The next refresh draws it: as one just drew, not at once.
+				// A window that resizes, as zooming animates it, displays
+				// the view for each of its sizes within one pass of the
+				// run loop, committing each: those frames draw at once, or
+				// the layer would stretch the last one to the new sizes.
 				s.lastFrame = time.Now()
 				s.RequestFrame()
 				return
