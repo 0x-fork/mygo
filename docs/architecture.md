@@ -2127,7 +2127,12 @@ on macOS, the proportional set size on Linux, the private working set on
 Windows. On macOS a bare executable's WebKit processes belong to the
 process responsible for it (the terminal, or the runner), so idlemem
 counts those that started with the app and share its responsible
-process.
+process. GitHub's runners are virtual machines with a 1024×768
+display at scale 1: there, counter-native's footprint is 22 MB on macOS,
+where an M5 MacBook with a Retina and a 4K display gives 37 MB, AppKit's
+own allocations taking half (`footprint -p <pid>` breaks it down); on
+Windows its private working set is 14 MB, of a working set of 39 MB with
+the pages it shares, and 62 MB committed. Compare a series with itself.
 `--out` writes the results as JSON, with the commit and the runner's CPU.
 The benchmarks of `internal/e2e` time the real backend: a page calling Go
 (`PageCall`, `PageCallItems`), streaming (`PageChannel`), receiving events

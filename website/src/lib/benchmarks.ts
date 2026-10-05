@@ -78,7 +78,7 @@ export const groups: Group[] = [
   {
     pkg: "memory",
     title: "Idle memory",
-    text: "The same builds, measured six seconds after they start: the physical footprint on macOS, as Activity Monitor shows it, the proportional set size on Linux, and the private working set on Windows, as Task Manager shows it.",
+    text: "The same builds, six seconds after they start, on GitHub's runners: virtual machines with a 1024×768 display at scale 1, where the system's frameworks take about half what they take on a Retina Mac, so apps take less than on yours. The physical footprint on macOS, as Activity Monitor shows it; the proportional set size on Linux, which counts a share of the libraries the app shares with other processes; the private working set on Windows, as Task Manager shows it, which leaves out pages shared with other processes and memory committed but not in use.",
     unit: "B",
     unitText: "bytes",
   },
