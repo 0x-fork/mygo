@@ -1,8 +1,18 @@
 import { Link, createFileRoute } from "@tanstack/react-router"
-import { ArrowDownIcon, ArrowUpIcon } from "lucide-react"
+import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, TableOfContentsIcon } from "lucide-react"
 import * as React from "react"
 
 import { TrendChart } from "@/components/benchmarks/trend-chart"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   anchorOf,
   appDocs,
@@ -94,6 +104,8 @@ function Benchmarks() {
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${search}${window.location.hash}`)
   }
 
+  const sections = load.state === "ready" ? sectionsOf(load.data, view) : []
+
   return (
     <main className="flex-1">
       <section className="border-b px-4 pt-16 pb-12 sm:px-10 md:pt-20">
@@ -124,7 +136,7 @@ function Benchmarks() {
 
       {/* Sticky where the controls fit on a line, under the header's border:
           the line above them is the section's. */}
-      <div className="z-30 flex flex-wrap items-center gap-x-8 gap-y-3 border-b bg-background/85 px-4 py-3 backdrop-blur-xl sm:px-10 lg:sticky lg:top-14">
+      <div className="z-30 flex flex-wrap items-center gap-x-7 gap-y-3 border-b bg-background/85 px-4 py-3 backdrop-blur-xl sm:px-10 lg:sticky lg:top-14">
         <Segmented label="Platform" options={platforms} value={view.os} onChange={(os) => update({ os })} />
         <Segmented label="Metric" options={metrics} value={view.metric} onChange={(metric) => update({ metric })} />
         <Segmented
@@ -133,6 +145,7 @@ function Benchmarks() {
           value={view.range}
           onChange={(range) => update({ range })}
         />
+        <JumpMenu sections={sections} />
       </div>
 
       {load.state === "loading" && <Message>Loading the results…</Message>}
@@ -154,18 +167,108 @@ function Benchmarks() {
           .
         </Message>
       )}
-      {load.state === "ready" && <Results data={load.data} docs={docs} view={view} onMetric={(metric) => update({ metric })} />}
+      {load.state === "ready" && (
+        <Results data={load.data} sections={sections} docs={docs} view={view} onMetric={(metric) => update({ metric })} />
+      )}
     </main>
+  )
+}
+
+/** A group of benchmarks the page shows, with each one's values in the unit it shows. */
+interface Section {
+  group: Group
+  unit: string
+  rows: { name: string; values: (number | null)[] }[]
+}
+
+/** The groups with results on the platform in the metric of the view, and, after the groups the page knows, any other package's. */
+function sectionsOf(data: BenchmarkData, view: View): Section[] {
+  const series = data.series[view.os]
+  if (!series) return []
+  const unit = metrics.find((m) => m.id === view.metric)!.unit
+  const known = new Set(groups.map((g) => g.pkg))
+  const shown: Group[] = [...groups, ...Object.keys(series).filter((pkg) => !known.has(pkg)).map((pkg) => ({ pkg, title: pkg, text: "" }))]
+  return shown.flatMap((group) => {
+    const u = group.unit ?? unit
+    const rows = Object.entries(series[group.pkg] ?? {})
+      .filter(([, units]) => units[u]?.some((v) => v != null))
+      .map(([name, units]) => ({ name, values: units[u]! }))
+    return rows.length ? [{ group, unit: u, rows }] : []
+  })
+}
+
+/**
+ * Scrolls to a benchmark's chart, or its row where its group shows a table,
+ * focuses it, and flashes it. At once: the flash would be over before a
+ * smooth scroll across the page got there.
+ */
+function jumpTo(pkg: string, name: string) {
+  const id = anchorOf(pkg, name)
+  const el = document.getElementById(id) ?? document.getElementById(`${id}-row`)
+  if (!el) return
+  el.scrollIntoView({ block: "start" })
+  el.focus({ preventScroll: true })
+  const gopher = getComputedStyle(el).getPropertyValue("--gopher").trim()
+  el.animate([{ backgroundColor: `color-mix(in oklch, ${gopher} 14%, transparent)` }, { backgroundColor: "transparent" }], {
+    duration: 1600,
+    easing: "ease-out",
+  })
+}
+
+/** A menu of every benchmark shown, by group, with its last value, which scrolls to the one chosen. */
+function JumpMenu({ sections }: { sections: Section[] }) {
+  // Chosen in the menu, scrolled to once it has closed and unlocked the
+  // page's scrolling, and focused in place of the button.
+  const chosen = React.useRef<[string, string] | null>(null)
+  return (
+    <DropdownMenu
+      onOpenChangeComplete={(open) => {
+        if (open || !chosen.current) return
+        jumpTo(...chosen.current)
+        chosen.current = null
+      }}
+    >
+      <DropdownMenuTrigger disabled={!sections.length} render={<Button variant="outline" className="ml-auto" />}>
+        <TableOfContentsIcon />
+        Jump to
+        <ChevronDownIcon className="text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="max-h-[min(var(--available-height),32rem)] w-80"
+        finalFocus={() => !chosen.current}
+      >
+        {sections.map((section, i) => (
+          <React.Fragment key={section.group.pkg}>
+            {i > 0 && <DropdownMenuSeparator />}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>{section.group.title}</DropdownMenuLabel>
+              {section.rows.map(({ name, values }) => {
+                const stats = seriesStats(values, section.unit)
+                return (
+                  <DropdownMenuItem key={name} onClick={() => (chosen.current = [section.group.pkg, name])}>
+                    <span className="truncate font-mono text-[13px]">{name}</span>
+                    {stats && <span className="ml-auto pl-4 text-xs text-muted-foreground tabular-nums">{formatValue(stats.latest, section.unit)}</span>}
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuGroup>
+          </React.Fragment>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
 function Results({
   data,
+  sections,
   docs,
   view,
   onMetric,
 }: {
   data: BenchmarkData
+  sections: Section[]
   docs: Record<string, string>
   view: View
   onMetric: (metric: Metric) => void
@@ -178,9 +281,6 @@ function Results({
   const from = Math.max(0, data.commits.length - view.range)
   const commits = data.commits.slice(from)
   const windowRunners = runners.slice(from)
-  const unit = metrics.find((m) => m.id === view.metric)!.unit
-  const known = new Set(groups.map((g) => g.pkg))
-  const shown: Group[] = [...groups, ...Object.keys(series).filter((pkg) => !known.has(pkg)).map((pkg) => ({ pkg, title: pkg, text: "" }))]
 
   let last = runners.length - 1
   while (last >= 0 && !runners[last]) last--
@@ -201,7 +301,8 @@ function Results({
 
   const jump = (pkg: string, name: string, metric?: Metric) => {
     if (metric) onMetric(metric)
-    requestAnimationFrame(() => document.getElementById(anchorOf(pkg, name))?.scrollIntoView({ block: "start" }))
+    // Once the page shows the metric.
+    requestAnimationFrame(() => jumpTo(pkg, name))
   }
 
   return (
@@ -244,53 +345,51 @@ function Results({
         </section>
       )}
 
-      {shown.map((group) => {
-        const benchmarks = series[group.pkg]
-        const u = group.unit ?? unit
-        const rows = Object.entries(benchmarks ?? {}).filter(([, units]) => units[u]?.some((v) => v != null))
-        if (!rows.length) return null
-        return (
-          <GroupSection key={group.pkg} group={group} unit={u}>
-            {(table) =>
-              table ? (
-                <ResultsTable pkg={group.pkg} rows={rows.map(([name, units]) => [name, units[u]!])} unit={u} />
-              ) : (
-                <div className="-mr-px -mb-px grid border-t sm:grid-cols-2 lg:grid-cols-3">
-                  {rows.map(([name, units]) => {
-                    const values = units[u]!
-                    const stats = seriesStats(values, u)
-                    const doc = docs[`${group.pkg}/${name.split("/")[0]}`] ?? appDocs[`${group.pkg}/${name}`]
-                    const label = `${displayName(group.pkg, name)}: ${stats ? formatValue(stats.latest, u) : "no results"}`
-                    return (
-                      <article key={name} id={anchorOf(group.pkg, name)} className="flex min-w-0 scroll-mt-16 flex-col lg:scroll-mt-32 gap-4 border-r border-b px-4 py-5 sm:px-6">
-                        <header className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <h3 className="truncate font-mono text-[13px] font-medium" title={name}>
-                              {name}
-                            </h3>
-                            {doc && (
-                              <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground" title={doc}>
-                                {doc}
-                              </p>
-                            )}
-                          </div>
-                          {stats && (
-                            <div className="shrink-0 text-right">
-                              <div className="text-lg leading-6 font-semibold tracking-tight">{formatValue(stats.latest, u)}</div>
-                              <Change stats={stats} className="text-xs" />
-                            </div>
+      {sections.map(({ group, unit: u, rows }) => (
+        <GroupSection key={group.pkg} group={group} unit={u}>
+          {(table) =>
+            table ? (
+              <ResultsTable pkg={group.pkg} rows={rows} unit={u} />
+            ) : (
+              <div className="-mr-px -mb-px grid border-t sm:grid-cols-2 lg:grid-cols-3">
+                {rows.map(({ name, values }) => {
+                  const stats = seriesStats(values, u)
+                  const doc = docs[`${group.pkg}/${name.split("/")[0]}`] ?? appDocs[`${group.pkg}/${name}`]
+                  const label = `${displayName(group.pkg, name)}: ${stats ? formatValue(stats.latest, u) : "no results"}`
+                  return (
+                    <article
+                      key={name}
+                      id={anchorOf(group.pkg, name)}
+                      tabIndex={-1}
+                      className="flex min-w-0 flex-col gap-4 border-r border-b px-4 py-5 outline-none sm:px-6 lg:scroll-mt-4"
+                    >
+                      <header className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <h3 className="truncate font-mono text-[13px] font-medium" title={name}>
+                            {name}
+                          </h3>
+                          {doc && (
+                            <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground" title={doc}>
+                              {doc}
+                            </p>
                           )}
-                        </header>
-                        <TrendChart values={values.slice(from)} commits={commits} runners={windowRunners} unit={u} label={label} />
-                      </article>
-                    )
-                  })}
-                </div>
-              )
-            }
-          </GroupSection>
-        )
-      })}
+                        </div>
+                        {stats && (
+                          <div className="shrink-0 text-right">
+                            <div className="text-lg leading-6 font-semibold tracking-tight">{formatValue(stats.latest, u)}</div>
+                            <Change stats={stats} className="text-xs" />
+                          </div>
+                        )}
+                      </header>
+                      <TrendChart values={values.slice(from)} commits={commits} runners={windowRunners} unit={u} label={label} />
+                    </article>
+                  )
+                })}
+              </div>
+            )
+          }
+        </GroupSection>
+      ))}
     </>
   )
 }
@@ -328,7 +427,7 @@ function GroupSection({ group, unit, children }: { group: Group; unit: string; c
 }
 
 /** The table view of a group: each benchmark's last value against the five before. */
-function ResultsTable({ pkg, rows, unit }: { pkg: string; rows: [string, (number | null)[]][]; unit: string }) {
+function ResultsTable({ pkg, rows, unit }: { pkg: string; rows: Section["rows"]; unit: string }) {
   const th = "border-b px-4 py-2.5 font-mono text-[11px] font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase sm:px-6"
   const td = "border-b px-4 py-2.5 whitespace-nowrap tabular-nums sm:px-6"
   return (
@@ -344,10 +443,10 @@ function ResultsTable({ pkg, rows, unit }: { pkg: string; rows: [string, (number
           </tr>
         </thead>
         <tbody>
-          {rows.map(([name, values]) => {
+          {rows.map(({ name, values }) => {
             const stats = seriesStats(values, unit)
             return (
-              <tr key={name} id={`${anchorOf(pkg, name)}-row`}>
+              <tr key={name} id={`${anchorOf(pkg, name)}-row`} tabIndex={-1} className="outline-none lg:scroll-mt-4">
                 <td className={cn(td, "font-mono text-[13px]")}>{name}</td>
                 <td className={cn(td, "text-right font-medium")}>{stats ? formatValue(stats.latest, unit) : "—"}</td>
                 <td className={cn(td, "text-right text-muted-foreground")}>{stats?.baseline !== undefined ? formatValue(stats.baseline, unit) : "—"}</td>
