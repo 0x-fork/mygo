@@ -71,17 +71,144 @@ float sdRoundRect(float2 p, float4 rect, float4 radii) {
 
 float coverage(float d) { return saturate(0.5f - d); }
 
+// Continuous corners are Core Animation's, as internal/raster/corner.go
+// explains: a corner of radius r whose curve leaves the edges e from it,
+// blended toward a quarter circle by cx along its horizontal edge and cy
+// along its vertical one, its curve's box ending at eff as clamped.
+constant float contExtent = 1.528665f;
+
+struct ContCorner {
+	float r, e, eff, cx, cy;
+};
+
+// contCorner returns the corner of radius r of a rectangle w×h sharing
+// its horizontal edge with a corner of radius rh, its vertical one with
+// one of radius rv.
+ContCorner contCorner(float r, float rh, float rv, float w, float h) {
+	ContCorner c;
+	c.r = r;
+	c.e = contExtent * r;
+	c.cx = saturate((contExtent - w / max(r + rh, 1e-6f)) / (contExtent - 1.0f));
+	c.cy = saturate((contExtent - h / max(r + rv, 1e-6f)) / (contExtent - 1.0f));
+	c.eff = c.e + (r - c.e) * max(c.cx, c.cy);
+	return c;
+}
+
+// contDist returns the corner's value at the point u inside its vertical
+// edge and v inside its horizontal one: about the signed distance to its
+// edge near it.
+float contDist(ContCorner c, float u, float v) {
+	float2 a = max(0.0f, 1.0f - float2(u, v) / c.e);
+	float l = length(a);
+	float hi = max(a.x, a.y);
+	float rho = hi > 0.0f ? min(min(a.x, a.y) / hi, 1.0f) : 0.0f;
+	float p = (((-0.926054f * rho + 3.15601f) * rho - 3.64122f) * rho + 1.26803f) * rho + 0.268531f;
+	float f1 = l + 1.0f - 1.0f / (1.0f - rho * rho * min(l, 1.0f) * p);
+	float f2 = length(max(0.0f, a * contExtent - (contExtent - 1.0f))) * 0.654166f + 0.345834f;
+	float s = a.y > a.x ? 1.0f : -1.0f;
+	float w = saturate(0.5f - s + s * rho);
+	float fx = f1 + (f2 - f1) * c.cx, fy = f1 + (f2 - f1) * c.cy;
+	return min(max(c.eff - u, c.eff - v), 0.0f) + c.e * (fx + (fy - fx) * w - 1.0f);
+}
+
+// contInset returns how far inside its vertical edge the corner's edge is
+// v inside its horizontal one, which lies between the quarter circles of
+// radius r and e, by regula falsi (Illinois).
+float contInset(ContCorner c, float v) {
+	if (v >= c.e || c.r <= 0.0f) {
+		return 0.0f;
+	}
+	float lo = v < c.r ? c.r - sqrt(v * (2.0f * c.r - v)) : 0.0f;
+	float hi = c.e - sqrt(v * (2.0f * c.e - v));
+	float dlo = contDist(c, lo, v), dhi = contDist(c, hi, v);
+	if (dlo <= 0.0f) {
+		return lo;
+	}
+	if (dhi >= 0.0f) {
+		return hi;
+	}
+	int side = 0;
+	for (int n = 0; n < 5; n++) {
+		float m = (lo * dhi - hi * dlo) / (dhi - dlo);
+		float dm = contDist(c, m, v);
+		if (dm > 0.0f) {
+			lo = m; dlo = dm;
+			if (side == 1) {
+				dhi *= 0.5f;
+			}
+			side = 1;
+		} else {
+			hi = m; dhi = dm;
+			if (side == -1) {
+				dlo *= 0.5f;
+			}
+			side = -1;
+		}
+	}
+	return (lo * dhi - hi * dlo) / (dhi - dlo);
+}
+
+// areaCoverage returns the area of the pixel at p inside the rectangle,
+// near square corners: exact for lines thinner than a pixel too.
+float areaCoverage(float2 p, float4 rect) {
+	float2 c = saturate(min(rect.xy + rect.zw, p + 0.5f) - max(rect.xy, p - 0.5f));
+	return c.x * c.y;
+}
+
+// contValue returns the value of a rectangle with continuous corners c at
+// p, the largest of its corners' and its signed distance, and whether a
+// corner's curve reaches p.
+float contValue(float2 p, float4 rect, thread const ContCorner *c, thread bool &curved) {
+	float4 d = float4(p - rect.xy, rect.xy + rect.zw - p); // left, top, right, bottom
+	float4 u = d.xzzx, v = d.yyww;
+	float value = max(max(-d.x, -d.y), max(-d.z, -d.w));
+	curved = false;
+	for (int i = 0; i < 4; i++) {
+		if (c[i].r > 0.0f && u[i] < c[i].e && v[i] < c[i].e) {
+			value = max(value, contDist(c[i], u[i], v[i]));
+			curved = true;
+		}
+	}
+	return value;
+}
+
+// contCoverage is rectCoverage with continuous corners of radii r: away
+// from their curves, the area of the pixel inside the rectangle; near
+// them, the value over the sum of its derivatives, as Core Animation
+// antialiases.
+float contCoverage(float2 p, float4 rect, float4 r) {
+	ContCorner c[4] = {
+		contCorner(r.x, r.y, r.w, rect.z, rect.w), contCorner(r.y, r.x, r.z, rect.z, rect.w),
+		contCorner(r.z, r.w, r.y, rect.z, rect.w), contCorner(r.w, r.z, r.x, rect.z, rect.w),
+	};
+	bool curved, ignored;
+	float d = contValue(p, rect, c, curved);
+	if (!curved) {
+		return areaCoverage(p, rect);
+	}
+	if (abs(d) > 2.0f) {
+		return d < 0.0f ? 1.0f : 0.0f;
+	}
+	const float h = 1.0f / 16.0f;
+	float dx = contValue(p + float2(h, 0.0f), rect, c, ignored);
+	float dy = contValue(p + float2(0.0f, h), rect, c, ignored);
+	return saturate(0.5f - d * h / max(abs(dx - d) + abs(dy - d), 1e-6f));
+}
+
 // rectCoverage returns how much of the pixel at p a rounded rectangle
 // covers: by the distance to its edge near rounded corners, and exactly,
-// the area of the pixel inside it, near square ones.
+// the area of the pixel inside it, near square ones. Negative radii are
+// continuous corners.
 float rectCoverage(float2 p, float4 rect, float4 radii) {
+	if (any(radii < 0.0f)) {
+		return contCoverage(p, rect, -radii);
+	}
 	float2 q = p - rect.xy - rect.zw * 0.5f;
 	float r = q.x < 0.0f ? (q.y < 0.0f ? radii.x : radii.w) : (q.y < 0.0f ? radii.y : radii.z);
 	if (r > 0.0f) {
 		return coverage(sdRoundRect(p, rect, radii));
 	}
-	float2 c = saturate(min(rect.xy + rect.zw, p + 0.5f) - max(rect.xy, p - 0.5f));
-	return c.x * c.y;
+	return areaCoverage(p, rect);
 }
 
 float4 premul(float4 c) { return float4(c.rgb * c.a, c.a); }
@@ -119,15 +246,25 @@ float gaussian(float x, float sigma) {
 }
 
 // The blurred rounded box of Evan Wallace: exact along x, four samples
-// along y.
-float shadowX(float x, float y, float sigma, float corner, float2 h) {
-	float delta = min(h.y - corner - abs(y), 0.0f);
-	float curved = h.x - corner + sqrt(max(0.0f, corner * corner - delta * delta));
+// along y; cc is its continuous corner, if any.
+float shadowX(float x, float y, float sigma, float corner, float2 h, bool continuous, ContCorner cc) {
+	float curved;
+	if (continuous) {
+		float v = h.y - abs(y);
+		curved = v < cc.e ? h.x - contInset(cc, v) : h.x;
+	} else {
+		float delta = min(h.y - corner - abs(y), 0.0f);
+		curved = h.x - corner + sqrt(max(0.0f, corner * corner - delta * delta));
+	}
 	float2 integral = 0.5f + 0.5f * erf2((x + float2(-curved, curved)) * (sqrt(0.5f) / sigma));
 	return integral.y - integral.x;
 }
 
-float boxShadow(float2 p, float4 rect, float sigma, float corner) {
+float boxShadow(float2 p, float4 rect, float sigma, float4 radii) {
+	float4 r = abs(radii);
+	float corner = max(max(r.x, r.y), max(r.z, r.w));
+	bool continuous = any(radii < 0.0f) && corner > 0.0f;
+	ContCorner cc = contCorner(corner, corner, corner, rect.z, rect.w);
 	float2 h = rect.zw * 0.5f;
 	p -= rect.xy + h;
 	float low = p.y - h.y;
@@ -137,8 +274,8 @@ float boxShadow(float2 p, float4 rect, float sigma, float corner) {
 	float dy = (to - from) / 4.0f;
 	float y = from + dy * 0.5f;
 	float v = 0.0f;
-	for (int k = 0; k < 4; k++) {
-		v += shadowX(p.x, p.y - y, sigma, corner, h) * gaussian(y, sigma) * dy;
+	for (int n = 0; n < 4; n++) {
+		v += shadowX(p.x, p.y - y, sigma, corner, h, continuous, cc) * gaussian(y, sigma) * dy;
 		y += dy;
 	}
 	return v;
@@ -260,8 +397,7 @@ fragment PSOut ps(VSOut v [[stage_in]],
 		}
 	} else if (kind < 1.5f) {
 		float sigma = i.params.z;
-		float corner = max(max(i.radii.x, i.radii.y), max(i.radii.z, i.radii.w));
-		float s = sigma > 0.0f ? boxShadow(v.p, i.rect, sigma, corner) : rectCoverage(v.p, i.rect, i.radii);
+		float s = sigma > 0.0f ? boxShadow(v.p, i.rect, sigma, i.radii) : rectCoverage(v.p, i.rect, i.radii);
 		if (i.uv.z > 0.0f && i.uv.w > 0.0f) {
 			s *= 1.0f - rectCoverage(v.p, i.uv, i.inner); // outside the box casting it
 		}

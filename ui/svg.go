@@ -257,7 +257,7 @@ func (p *Painter) drawSVG(s *SVG, box Rect, fit Fit, radius [4]float32, current 
 		current = Color{}
 	}
 	img := p.rt.picture(pictureKey{s: s, w: w, h: h, color: current, stretch: fit == FillBox})
-	op := scene.Op{Kind: scene.OpImage, Rect: d, Radii: p.radii(radius), Image: img, Src: scene.Rect{W: float32(w), H: float32(h)}, Opacity: p.opacity, Grayscale: gray}
+	op := scene.Op{Kind: scene.OpImage, Rect: d, Radii: p.radii(radius), Continuous: continuousCorners, Image: img, Src: scene.Rect{W: float32(w), H: float32(h)}, Opacity: p.opacity, Grayscale: gray}
 	if fit == Cover || fit == NaturalSize {
 		// Only what falls in the box shows.
 		b := p.snap(box).Intersect(d)

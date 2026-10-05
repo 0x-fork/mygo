@@ -76,6 +76,13 @@ type Op struct {
 	// Radii are the corner radii: top-left, top-right, bottom-right and
 	// bottom-left.
 	Radii [4]float32
+	// Continuous curves the rounded corners of Rect, and of Cast, the way
+	// Apple draws them (Core Animation's continuous corner curve, SwiftUI's
+	// rounded rectangles): the curve starts further from the corner and
+	// bends gradually, instead of as a quarter circle. Corners that are
+	// round in both directions, as a circle's, stay circular. Only the
+	// renderers of macOS draw them, the CPU's and Metal's.
+	Continuous bool
 
 	Color Color
 	// Paint, unless PaintSolid, fills with Color and Color2 as Gradient
@@ -130,15 +137,17 @@ func HasBorder(w [4]float32) bool { return w[0] > 0 || w[1] > 0 || w[2] > 0 || w
 
 // InnerRadii returns the radii of the inner edge of a border of widths w
 // (top, right, bottom, left) inside a rounded rectangle r with radii,
-// which FitRadii already fitted: each corner's less the wider of its two
-// sides, fitted to the inner rectangle.
+// which FitRadii or Corners already fitted: each corner's less the wider
+// of its two sides, fitted to the inner rectangle, negative as radii are
+// for continuous corners.
 func InnerRadii(r Rect, radii, w [4]float32) (Rect, [4]float32) {
 	inner := Rect{X: r.X + w[3], Y: r.Y + w[0], W: r.W - w[1] - w[3], H: r.H - w[0] - w[2]}
+	continuous := radii[0] < 0 || radii[1] < 0 || radii[2] < 0 || radii[3] < 0
 	var out [4]float32
 	for i, side := range [4][2]int{{0, 3}, {0, 1}, {2, 1}, {2, 3}} {
-		out[i] = max(radii[i]-max(w[side[0]], w[side[1]]), 0)
+		out[i] = max(abs(radii[i])-max(w[side[0]], w[side[1]]), 0)
 	}
-	return inner, FitRadii(inner, out)
+	return inner, Corners(inner, out, continuous)
 }
 
 // Glyph is a glyph mask or color glyph copied from an atlas into a frame.
@@ -308,4 +317,23 @@ func FitRadii(r Rect, radii [4]float32) [4]float32 {
 		radii[i] = max(radii[i]*f, 0)
 	}
 	return radii
+}
+
+// Corners returns radii as renderers take them: fitted to r (FitRadii),
+// and negative for continuous corners.
+func Corners(r Rect, radii [4]float32, continuous bool) [4]float32 {
+	radii = FitRadii(r, radii)
+	if continuous {
+		for i := range radii {
+			radii[i] = -radii[i]
+		}
+	}
+	return radii
+}
+
+func abs(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

@@ -26,6 +26,12 @@ func TestDrawsAsTheCPURenderer(t *testing.T) {
 		}
 		gputest.Compare(t, "metal", pix, s.Width*4, s)
 	}
+	s = gputest.ContinuousScene()
+	pix, err := r.renderOffscreen(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gputest.Compare(t, "metal-continuous", pix, s.Width*4, s)
 }
 
 // TestShaderLibrary checks that the library compiled ahead of time comes

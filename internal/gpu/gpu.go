@@ -35,7 +35,9 @@ func SourceSum(src string) string {
 // it: eleven float4s.
 type Instance struct {
 	// Rect is x, y, width, height; Radii the corners' radii (top-left,
-	// top-right, bottom-right, bottom-left), or a glyph's gamma ratios
+	// top-right, bottom-right, bottom-left), negative for continuous
+	// corners (scene.Corners), which only Metal's shader draws, or a
+	// glyph's gamma ratios
 	// (scene.TextParams); Inner those of a border's inner edge, or of the
 	// box casting a shadow, or a glyph's contrast and thin boost in Inner[0]
 	// and Inner[1].
@@ -108,7 +110,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 			bounds := top.bounds.Intersect(op.Rect)
 			// The innermost clip shapes its edges in the shader, the
 			// others cut with the scissor rectangle.
-			c := clip{rect: op.Rect, radii: scene.FitRadii(op.Rect, op.Radii), bounds: bounds}
+			c := clip{rect: op.Rect, radii: scene.Corners(op.Rect, op.Radii, op.Continuous), bounds: bounds}
 			if bounds.W > 0 && bounds.H > 0 {
 				c.scissor = Scissor{int32(math.Floor(float64(bounds.X))), int32(math.Floor(float64(bounds.Y))),
 					int32(math.Ceil(float64(bounds.X + bounds.W))), int32(math.Ceil(float64(bounds.Y + bounds.H)))}
@@ -126,7 +128,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 			if op.BorderColor.A == 0 {
 				bw = [4]float32{}
 			}
-			radii := scene.FitRadii(op.Rect, op.Radii)
+			radii := scene.Corners(op.Rect, op.Radii, op.Continuous)
 			var inner [4]float32
 			if scene.HasBorder(bw) {
 				_, inner = scene.InnerRadii(op.Rect, radii, bw)
@@ -150,11 +152,11 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 				sigma = 0
 			}
 			in := Instance{
-				Rect: rect(op.Rect), Radii: scene.FitRadii(op.Rect, op.Radii),
+				Rect: rect(op.Rect), Radii: scene.Corners(op.Rect, op.Radii, op.Continuous),
 				Color: straight(op.Color), Params: [4]float32{1, 0, sigma, opacity(op.Opacity)},
 			}
 			if !op.Cast.Empty() {
-				in.UV, in.Inner = rect(op.Cast), scene.FitRadii(op.Cast, op.CastRadii)
+				in.UV, in.Inner = rect(op.Cast), scene.Corners(op.Cast, op.CastRadii, op.Continuous)
 			}
 			b.add(in, 0)
 		case scene.OpGlyphs:
@@ -205,7 +207,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 			}
 			b.add(Instance{
 				Rect:   rect(op.Rect),
-				Radii:  scene.FitRadii(op.Rect, op.Radii),
+				Radii:  scene.Corners(op.Rect, op.Radii, op.Continuous),
 				UV:     [4]float32{op.Src.X / iw, op.Src.Y / ih, (op.Src.X + op.Src.W) / iw, (op.Src.Y + op.Src.H) / ih},
 				Params: [4]float32{4, gray, 0, opacity(op.Opacity)},
 			}, tex)

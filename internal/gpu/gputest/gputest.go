@@ -220,3 +220,47 @@ func absInt(v int) int {
 	}
 	return v
 }
+
+// ContinuousScene returns a 320×70 scene with continuous corners, which
+// only the renderers of macOS draw (scene.Op.Continuous): a card with a
+// border and its shadow, a pill, a circle, which stays one, sides too short
+// for their corners' curves, a corner reaching past the middle of its
+// sides, a clip and an image, and a shadow without blur, cut by the box
+// casting it.
+func ContinuousScene() *scene.Scene {
+	s := &scene.Scene{Width: 320, Height: 70, Clear: scene.Color{R: 236, G: 238, B: 242, A: 255}}
+	pix := make([]byte, 8*8*4)
+	for y := range 8 {
+		for x := range 8 {
+			i := (y*8 + x) * 4
+			pix[i], pix[i+1], pix[i+2], pix[i+3] = byte(x*32), byte(y*32), 160, 255
+		}
+	}
+	img := scene.NewImageRGBA(8, 8, pix)
+	red := scene.Color{R: 220, G: 40, B: 40, A: 255}
+	blue := scene.Color{R: 37, G: 99, B: 235, A: 255}
+	ink := scene.Color{R: 20, G: 24, B: 32, A: 255}
+	yellow := scene.Color{R: 250, G: 204, B: 21, A: 255}
+	r4 := func(r float32) [4]float32 { return [4]float32{r, r, r, r} }
+	add := func(op scene.Op) {
+		op.Continuous = true
+		s.Ops = append(s.Ops, op)
+	}
+	card := scene.Rect{X: 10, Y: 8, W: 70, H: 44}
+	add(scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 10, Y: 12, W: 70, H: 44}, Radii: r4(14), Color: scene.Color{A: 110}, Blur: 10,
+		Cast: card, CastRadii: r4(14)})
+	add(scene.Op{Kind: scene.OpFill, Rect: card, Radii: r4(14), Color: scene.Color{R: 255, G: 255, B: 255, A: 255},
+		Border: scene.Uniform(2), BorderColor: blue})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 88.5, Y: 10.25, W: 70, H: 22}, Radii: r4(999), Color: red, Color2: blue,
+		Paint: scene.PaintLinear, Gradient: [4]float32{88, 10, 158, 32}})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 88, Y: 38, W: 24, H: 24}, Radii: r4(12), Color: ink})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 118, Y: 38, W: 40, H: 24}, Radii: r4(10), Color: blue, Border: scene.Uniform(1), BorderColor: ink})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 166.5, Y: 8.25, W: 40, H: 54}, Radii: [4]float32{26, 6, 0, 0}, Color: red})
+	add(scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 214, Y: 6, W: 50, H: 58}, Radii: r4(16)})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 204, Y: 0, W: 70, H: 70}, Color: yellow})
+	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 222, Y: 14, W: 34, H: 34}, Radii: r4(9), Image: img, Src: scene.Rect{W: 8, H: 8}})
+	add(scene.Op{Kind: scene.OpPopClip})
+	card = scene.Rect{X: 272.5, Y: 10.25, W: 40, H: 40}
+	add(scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 275.5, Y: 14.25, W: 40, H: 40}, Radii: r4(12), Color: ink, Cast: card, CastRadii: r4(12)})
+	return s
+}

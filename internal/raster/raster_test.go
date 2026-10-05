@@ -159,11 +159,11 @@ func TestShadowShowsOutsideItsCast(t *testing.T) {
 			return m
 		}
 		plain, cut := render(scene.Rect{}), render(c.cast)
-		radii := fitRadii(c.cast, r4(c.radius))
+		cast := newShape(c.cast, scene.FitRadii(c.cast, r4(c.radius)))
 		worst := 0.0
 		for y := range 160 {
 			for x := range 240 {
-				out := 1 - float64(coverage(c.cast, radii, float32(x)+0.5, float32(y)+0.5))
+				out := 1 - float64(coverage(&cast, float32(x)+0.5, float32(y)+0.5))
 				want := 255 - (255-float64(pixel(plain, x, y)[0]))*out
 				worst = math.Max(worst, math.Abs(float64(pixel(cut, x, y)[0])-want))
 			}

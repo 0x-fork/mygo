@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math"
+	"runtime"
 	"time"
 
 	"github.com/egoist/mygo/internal/scene"
@@ -20,6 +21,11 @@ type Painter struct {
 	// subpixel glyphs need.
 	opaque bool
 }
+
+// continuousCorners curves rounded corners as Apple does, on macOS, where
+// AppKit's and SwiftUI's controls have them (scene.Op.Continuous): circular
+// elsewhere, as Windows and GTK draw them.
+const continuousCorners = runtime.GOOS == "darwin"
 
 func (rt *engine) paint(root *Element, w, h, scale float32) {
 	s := &rt.scene
@@ -241,7 +247,7 @@ func (p *Painter) borders(w [4]float32) [4]float32 {
 
 // fill paints a rounded rectangle with a solid border of bw DIPs.
 func (p *Painter) fill(r Rect, radius [4]float32, bg Color, bw float32, bc Color) {
-	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii(radius), Color: bg.scene(), BorderColor: bc.scene(), Opacity: p.opacity}
+	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii(radius), Continuous: continuousCorners, Color: bg.scene(), BorderColor: bc.scene(), Opacity: p.opacity}
 	if bw > 0 {
 		op.Border = p.borders([4]float32{bw, bw, bw, bw})
 	}
@@ -264,7 +270,7 @@ func (p *Painter) background(e *Element, box Rect, withBorder bool) {
 	if !visible && !border {
 		return
 	}
-	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(box), Radii: p.radii(e.radius), Color: e.bg.scene(), Opacity: p.opacity}
+	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(box), Radii: p.radii(e.radius), Continuous: continuousCorners, Color: e.bg.scene(), Opacity: p.opacity}
 	if border {
 		op.Border, op.BorderColor, op.Dashed = p.borders(e.border), e.borderC.scene(), e.borderStyle == BorderDashed
 	}
@@ -283,7 +289,7 @@ func (p *Painter) background(e *Element, box Rect, withBorder bool) {
 
 // border paints e's border alone.
 func (p *Painter) border(e *Element, box Rect) {
-	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: p.snap(box), Radii: p.radii(e.radius), Opacity: p.opacity,
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: p.snap(box), Radii: p.radii(e.radius), Continuous: continuousCorners, Opacity: p.opacity,
 		Border: p.borders(e.border), BorderColor: e.borderC.scene(), Dashed: e.borderStyle == BorderDashed})
 }
 
@@ -416,7 +422,7 @@ func (p *Painter) debug(e *Element) {
 
 func (p *Painter) pushClip(r Rect, radius [4]float32) {
 	p.clip = intersect(p.clip, r)
-	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpPushClip, Rect: p.snap(r), Radii: p.radii(radius)})
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpPushClip, Rect: p.snap(r), Radii: p.radii(radius), Continuous: continuousCorners})
 }
 
 func (p *Painter) popClip() {
@@ -645,7 +651,7 @@ func (p *Painter) drawBitmap(img *Bitmap, box Rect, fit Fit, radius [4]float32, 
 	shown := img.smaller(min(frac.W*iw/(dst.W*p.scale), frac.H*ih/(dst.H*p.scale)))
 	sw, sh := float32(shown.W), float32(shown.H)
 	src := scene.Rect{X: frac.X * sw, Y: frac.Y * sh, W: frac.W * sw, H: frac.H * sh}
-	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpImage, Rect: p.snap(dst), Radii: p.radii(radius), Image: shown, Src: src, Opacity: p.opacity, Grayscale: gray})
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpImage, Rect: p.snap(dst), Radii: p.radii(radius), Continuous: continuousCorners, Image: shown, Src: src, Opacity: p.opacity, Grayscale: gray})
 }
 
 // scrollbars draws the thumbs of a scroll container whose content
@@ -755,7 +761,7 @@ func (p *Painter) Fill(r Rect, c Color, radius float32) {
 
 // FillGradient paints a rounded rectangle with a gradient.
 func (p *Painter) FillGradient(r Rect, g LinearGradient, radius float32) {
-	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}), Opacity: p.opacity}
+	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}), Continuous: continuousCorners, Opacity: p.opacity}
 	p.gradient(&op, g)
 	p.s.Ops = append(p.s.Ops, op)
 }
@@ -769,7 +775,7 @@ func (p *Painter) Stroke(r Rect, c Color, radius, width float32) {
 // StrokeDashed paints the outline of a rounded rectangle in dashes, as a
 // dashed border.
 func (p *Painter) StrokeDashed(r Rect, c Color, radius, width float32) {
-	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}),
+	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}), Continuous: continuousCorners,
 		Border: p.borders([4]float32{width, width, width, width}), BorderColor: c.scene(), Dashed: true, Opacity: p.opacity}
 	p.s.Ops = append(p.s.Ops, op)
 }
@@ -792,7 +798,7 @@ func (p *Painter) shadow(box Rect, rad [4]float32, sh shadow) {
 			grown[i] = max(grown[i]+sh.spread, 0)
 		}
 	}
-	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpShadow, Rect: p.snap(r), Radii: p.radii(grown), Color: sh.color.scene(),
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpShadow, Rect: p.snap(r), Radii: p.radii(grown), Continuous: continuousCorners, Color: sh.color.scene(),
 		Blur: sh.blur * p.scale, Cast: p.snap(box), CastRadii: p.radii(rad), Opacity: p.opacity})
 }
 

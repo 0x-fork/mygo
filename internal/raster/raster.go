@@ -8,6 +8,7 @@ import (
 	"image"
 	"math"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -52,10 +53,15 @@ func (m *Image) RGBA() []byte {
 }
 
 type clip struct {
-	r     scene.Rect
-	radii [4]float32
+	shape
 	round bool
+	// spans is where in spanBuf the clip, with continuous corners, keeps
+	// the spans clipSolid found for the rows of the area, lo and hi a row
+	// (noSpan until found), or -1.
+	spans int
 }
+
+const noSpan = math.MinInt32
 
 type renderer struct {
 	dst   *Image
@@ -67,6 +73,8 @@ type renderer struct {
 	x0, y0, x1, y1 int
 	// profile is scratch space for shadows.
 	profile []float32
+	// spanBuf holds the clips' spans (clip.spans).
+	spanBuf []int32
 }
 
 // Render draws s into dst, which must be s.Width×s.Height.
@@ -126,7 +134,7 @@ func draw(rs *[]renderer, dst *Image, s *scene.Scene, area image.Rectangle, boun
 // render draws the pixels of s within area, but for the operations whose
 // bounds miss it.
 func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) {
-	r.dst, r.s, r.clips = dst, s, r.clips[:0]
+	r.dst, r.s, r.clips, r.spanBuf = dst, s, r.clips[:0], r.spanBuf[:0]
 	r.area = area.Intersect(image.Rect(0, 0, dst.W, dst.H))
 	if r.area.Empty() {
 		return
@@ -148,10 +156,25 @@ func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, boun
 		case scene.OpImage:
 			r.image(op)
 		case scene.OpPushClip:
-			r.clips = append(r.clips, clip{r: op.Rect, radii: fitRadii(op.Rect, op.Radii), round: hasRadii(op.Radii)})
+			radii := scene.Corners(op.Rect, op.Radii, op.Continuous)
+			c := clip{shape: newShape(op.Rect, radii), round: hasRadii(radii), spans: -1}
+			if c.continuous {
+				// Continuous corners take long to find the spans of, which
+				// every operation within the clip needs.
+				c.spans = len(r.spanBuf)
+				n := 2 * r.area.Dy()
+				r.spanBuf = slices.Grow(r.spanBuf, n)[:c.spans+n]
+				for i := c.spans; i < len(r.spanBuf); i++ {
+					r.spanBuf[i] = noSpan
+				}
+			}
+			r.clips = append(r.clips, c)
 			r.updateBounds()
 		case scene.OpPopClip:
 			if len(r.clips) > 0 {
+				if c := r.clips[len(r.clips)-1]; c.spans >= 0 {
+					r.spanBuf = r.spanBuf[:c.spans]
+				}
 				r.clips = r.clips[:len(r.clips)-1]
 				r.updateBounds()
 			}
@@ -199,7 +222,7 @@ func (r *renderer) clipCoverage(x, y int) float32 {
 		c := &r.clips[i]
 		px, py := float32(x)+0.5, float32(y)+0.5
 		if c.round {
-			cov *= coverage(c.r, c.radii, px, py)
+			cov *= coverage(&c.shape, px, py)
 		} else {
 			// Partial pixels at fractional clip edges.
 			cov *= clamp01(min(px-c.r.X, c.r.X+c.r.W-px)+0.5) * clamp01(min(py-c.r.Y, c.r.Y+c.r.H-py)+0.5)
@@ -217,21 +240,61 @@ func (r *renderer) clipSolid(y int) (lo, hi int) {
 	lo, hi = r.x0, r.x1
 	for i := range r.clips {
 		c := &r.clips[i]
-		l, h := solidSpan(c.r, c.radii, float32(y), float32(y+1))
+		var l, h int
+		if k := c.spans + 2*(y-r.area.Min.Y); c.spans >= 0 && y >= r.area.Min.Y && y < r.area.Max.Y {
+			if r.spanBuf[k] == noSpan {
+				l, h = solidSpan(&c.shape, float32(y), float32(y+1))
+				r.spanBuf[k], r.spanBuf[k+1] = int32(l), int32(h)
+			} else {
+				l, h = int(r.spanBuf[k]), int(r.spanBuf[k+1])
+			}
+		} else {
+			l, h = solidSpan(&c.shape, float32(y), float32(y+1))
+		}
 		lo, hi = max(lo, l), min(hi, h)
 	}
 	return lo, hi
 }
 
 func hasRadii(radii [4]float32) bool {
-	return radii[0] > 0 || radii[1] > 0 || radii[2] > 0 || radii[3] > 0
+	return radii[0] != 0 || radii[1] != 0 || radii[2] != 0 || radii[3] != 0
 }
 
-func fitRadii(rc scene.Rect, radii [4]float32) [4]float32 { return scene.FitRadii(rc, radii) }
+// shape is a rounded rectangle, with radii as scene.Corners gives them, as
+// the renderer draws it, with its continuous corners, which every pixel
+// near an edge needs, worked out once.
+type shape struct {
+	r scene.Rect
+	// radii are positive, continuous or not.
+	radii      [4]float32
+	continuous bool
+	corners    [4]contCorner
+}
+
+func newShape(rc scene.Rect, radii [4]float32) shape {
+	s := shape{r: rc, radii: radii}
+	if radii[0] >= 0 && radii[1] >= 0 && radii[2] >= 0 && radii[3] >= 0 {
+		return s
+	}
+	s.continuous = true
+	for i := range s.radii {
+		s.radii[i] = abs(radii[i])
+	}
+	for i, rad := range s.radii {
+		// The corners sharing its horizontal and its vertical edge.
+		h, v := [4]int{1, 0, 3, 2}[i], [4]int{3, 2, 1, 0}[i]
+		s.corners[i] = newContCorner(rad, s.radii[h], s.radii[v], rc.W, rc.H)
+	}
+	return s
+}
 
 // coverage returns how much of the pixel centered at (px, py) the rounded
 // rectangle covers, from the signed distance to its edge.
-func coverage(rc scene.Rect, radii [4]float32, px, py float32) float32 {
+func coverage(s *shape, px, py float32) float32 {
+	if s.continuous {
+		return contCoverage(s, px, py)
+	}
+	rc, radii := s.r, &s.radii
 	hx, hy := rc.W/2, rc.H/2
 	qx, qy := px-rc.X-hx, py-rc.Y-hy
 	var rad float32
@@ -246,11 +309,7 @@ func coverage(rc scene.Rect, radii [4]float32, px, py float32) float32 {
 		rad = radii[3]
 	}
 	if rad <= 0 {
-		// A square corner: the area of the pixel inside the box, exact
-		// for lines thinner than a pixel too.
-		cx := min(rc.X+rc.W, px+0.5) - max(rc.X, px-0.5)
-		cy := min(rc.Y+rc.H, py+0.5) - max(rc.Y, py-0.5)
-		return clamp01(cx) * clamp01(cy)
+		return areaCoverage(rc, px, py)
 	}
 	ax, ay := abs(qx)-hx+rad, abs(qy)-hy+rad
 	var d float32
@@ -262,33 +321,85 @@ func coverage(rc scene.Rect, radii [4]float32, px, py float32) float32 {
 	return clamp01(0.5 - d)
 }
 
+// areaCoverage returns the area of the pixel centered at (px, py) inside
+// the rectangle, near square corners: exact for lines thinner than a pixel
+// too.
+func areaCoverage(rc scene.Rect, px, py float32) float32 {
+	cx := min(rc.X+rc.W, px+0.5) - max(rc.X, px-0.5)
+	cy := min(rc.Y+rc.H, py+0.5) - max(rc.Y, py-0.5)
+	return clamp01(cx) * clamp01(cy)
+}
+
+// contCoverage is coverage with continuous corners: away from their
+// curves, the area of the pixel inside the rectangle; near them, the
+// shape's value over the sum of its derivatives, as Core Animation
+// antialiases (corner.go).
+func contCoverage(s *shape, px, py float32) float32 {
+	d, curved := s.contDist(px, py)
+	if !curved {
+		return areaCoverage(s.r, px, py)
+	}
+	if abs(d) > 2 {
+		// Wholly in or out, however steep the value is.
+		if d < 0 {
+			return 1
+		}
+		return 0
+	}
+	const h = 1.0 / 16
+	dx, _ := s.contDist(px+h, py)
+	dy, _ := s.contDist(px, py+h)
+	return clamp01(0.5 - d*h/max(abs(dx-d)+abs(dy-d), 1e-6))
+}
+
+// contDist returns the value of a shape with continuous corners at (px,
+// py), the largest of its corners' and the rectangle's signed distance,
+// and whether a corner's curve reaches it.
+func (s *shape) contDist(px, py float32) (float32, bool) {
+	rc := s.r
+	left, right := px-rc.X, rc.X+rc.W-px
+	top, bottom := py-rc.Y, rc.Y+rc.H-py
+	d := max(-left, -right, -top, -bottom)
+	curved := false
+	for i, uv := range [4][2]float32{{left, top}, {right, top}, {right, bottom}, {left, bottom}} {
+		c := &s.corners[i]
+		if c.r <= 0 || uv[0] >= c.e || uv[1] >= c.e {
+			continue
+		}
+		d, curved = max(d, c.dist(uv[0], uv[1])), true
+	}
+	return d, curved
+}
+
+// inset returns how far corner i of the rounded rectangle narrows a row v
+// pixels from its horizontal edge, at the least.
+func inset(s *shape, i int, v float32) float32 {
+	if s.continuous {
+		_, bound := s.corners[i].inset(v)
+		return bound
+	}
+	rad := s.radii[i]
+	switch {
+	case rad <= 0 || v >= rad:
+		return 0
+	case v <= 0:
+		return rad
+	}
+	dy := rad - v
+	return rad - float32(math.Sqrt(float64(rad*rad-dy*dy)))
+}
+
 // solidSpan returns the pixels of the row between y0 and y1 that the
 // rounded rectangle covers entirely; lo >= hi when there are none.
-func solidSpan(rc scene.Rect, radii [4]float32, y0, y1 float32) (lo, hi int) {
+func solidSpan(s *shape, y0, y1 float32) (lo, hi int) {
+	rc := s.r
 	if y0 < rc.Y || y1 > rc.Y+rc.H {
 		return 0, 0
 	}
-	left, right := rc.X, rc.X+rc.W
-	// The corners narrow the row where it is within their height.
-	edge := func(rad float32, cy float32, worstY float32) float32 {
-		dy := abs(cy - worstY)
-		if dy >= rad {
-			return rad
-		}
-		return rad - float32(math.Sqrt(float64(rad*rad-dy*dy)))
-	}
-	if rad := radii[0]; rad > 0 && y0 < rc.Y+rad {
-		left = max(left, rc.X+edge(rad, rc.Y+rad, y0))
-	}
-	if rad := radii[3]; rad > 0 && y1 > rc.Y+rc.H-rad {
-		left = max(left, rc.X+edge(rad, rc.Y+rc.H-rad, y1))
-	}
-	if rad := radii[1]; rad > 0 && y0 < rc.Y+rad {
-		right = min(right, rc.X+rc.W-edge(rad, rc.Y+rad, y0))
-	}
-	if rad := radii[2]; rad > 0 && y1 > rc.Y+rc.H-rad {
-		right = min(right, rc.X+rc.W-edge(rad, rc.Y+rc.H-rad, y1))
-	}
+	// The corners narrow the row the most at its edge nearer to theirs.
+	top, bottom := y0-rc.Y, rc.Y+rc.H-y1
+	left := rc.X + max(inset(s, 0, top), inset(s, 3, bottom))
+	right := rc.X + rc.W - max(inset(s, 1, top), inset(s, 2, bottom))
 	return int(math.Ceil(float64(left))), int(math.Floor(float64(right)))
 }
 
@@ -539,8 +650,8 @@ func (r *renderer) fill(op *scene.Op) {
 	if opacity == 0 {
 		opacity = 1
 	}
-	outer := op.Rect
-	radii := fitRadii(outer, op.Radii)
+	radii := scene.Corners(op.Rect, op.Radii, op.Continuous)
+	outer := newShape(op.Rect, radii)
 	pt := newPainter(op, opacity)
 	border := op.BorderColor.Premul(opacity)
 	bw := op.Border
@@ -549,22 +660,21 @@ func (r *renderer) fill(op *scene.Op) {
 	}
 	hasBorder := scene.HasBorder(bw)
 	inner := outer
-	var innerRadii [4]float32
 	if hasBorder {
-		inner, innerRadii = scene.InnerRadii(outer, radii, bw)
+		inner = newShape(scene.InnerRadii(op.Rect, radii, bw))
 	}
 	hasFill, solid := pt.visible(), pt.solid()
-	x0, y0, x1, y1 := r.pixelBounds(outer)
+	x0, y0, x1, y1 := r.pixelBounds(op.Rect)
 	for y := y0; y < y1; y++ {
 		row := r.dst.Pix[y*r.dst.Stride:]
 		py := float32(y) + 0.5
 		cl, ch := r.clipSolid(y)
-		ol, oh := solidSpan(outer, radii, float32(y), float32(y+1))
+		ol, oh := solidSpan(&outer, float32(y), float32(y+1))
 		il, ih := ol, oh
 		if hasBorder {
 			il, ih = 0, 0
-			if !inner.Empty() {
-				il, ih = solidSpan(inner, innerRadii, float32(y), float32(y+1))
+			if !inner.r.Empty() {
+				il, ih = solidSpan(&inner, float32(y), float32(y+1))
 			}
 		}
 		// The middle run, inside the clips, the shape and its border, is
@@ -592,7 +702,7 @@ func (r *renderer) fill(op *scene.Op) {
 			}
 			oc := float32(1)
 			if x < ol || x >= oh {
-				oc = coverage(outer, radii, px, py)
+				oc = coverage(&outer, px, py)
 				if oc == 0 {
 					continue
 				}
@@ -603,12 +713,12 @@ func (r *renderer) fill(op *scene.Op) {
 			}
 			if hasBorder {
 				ic := float32(0)
-				if !inner.Empty() {
-					ic = coverage(inner, innerRadii, px, py)
+				if !inner.r.Empty() {
+					ic = coverage(&inner, px, py)
 				}
 				bc := oc - ic
 				if bc > 0 && op.Dashed {
-					bc *= dash(outer, bw, px, py)
+					bc *= dash(op.Rect, bw, px, py)
 				}
 				if bc > 0 {
 					blend(p, border, bc*clipCov)
@@ -635,12 +745,13 @@ func (r *renderer) shadow(op *scene.Op) {
 		opacity = 1
 	}
 	c := op.Color.Premul(opacity)
-	radii := fitRadii(op.Rect, op.Radii)
-	castRadii := fitRadii(op.Cast, op.CastRadii)
+	radii := scene.Corners(op.Rect, op.Radii, op.Continuous)
+	shadowBox := newShape(op.Rect, radii)
+	caster := newShape(op.Cast, scene.Corners(op.Cast, op.CastRadii, op.Continuous))
 	// outside returns how much of pixel (x, y) the box casting the shadow
 	// leaves to it.
 	outside := func(x, y int) float32 {
-		return 1 - coverage(op.Cast, castRadii, float32(x)+0.5, float32(y)+0.5)
+		return 1 - coverage(&caster, float32(x)+0.5, float32(y)+0.5)
 	}
 	if sigma < 0.5 {
 		// The box itself, outside the box casting it.
@@ -648,7 +759,7 @@ func (r *renderer) shadow(op *scene.Op) {
 		for y := y0; y < y1; y++ {
 			row := r.dst.Pix[y*r.dst.Stride:]
 			for x := x0; x < x1; x++ {
-				v := coverage(op.Rect, radii, float32(x)+0.5, float32(y)+0.5) * outside(x, y)
+				v := coverage(&shadowBox, float32(x)+0.5, float32(y)+0.5) * outside(x, y)
 				if v > 0 {
 					blend(row[4*x:4*x+4], c, v*r.clipCoverage(x, y))
 				}
@@ -656,7 +767,13 @@ func (r *renderer) shadow(op *scene.Op) {
 		}
 		return
 	}
-	corner := max(radii[0], radii[1], radii[2], radii[3])
+	corner := max(abs(radii[0]), abs(radii[1]), abs(radii[2]), abs(radii[3]))
+	// Continuous corners narrow the box over the end of their curves.
+	continuous := op.Continuous && corner > 0
+	var cc contCorner
+	if continuous {
+		cc = newContCorner(corner, corner, corner, op.Rect.W, op.Rect.H)
+	}
 	ext := 3 * sigma
 	box := scene.Rect{X: op.Rect.X - ext, Y: op.Rect.Y - ext, W: op.Rect.W + 2*ext, H: op.Rect.H + 2*ext}
 	x0, y0, x1, y1 := r.pixelBounds(box)
@@ -700,7 +817,13 @@ func (r *renderer) shadow(op *scene.Op) {
 			weight[i] = gaussian(yy, sigma) * step
 			sum += weight[i]
 			half[i] = hx
-			if delta := min(hy-corner-abs(py-yy), 0); delta < 0 {
+			if v := hy - abs(py-yy); continuous {
+				if v < cc.e {
+					at, _ := cc.inset(v)
+					half[i] = hx - at
+					narrowest = min(narrowest, half[i])
+				}
+			} else if delta := min(hy-corner-abs(py-yy), 0); delta < 0 {
 				half[i] = hx - corner + float32(math.Sqrt(float64(max(0, corner*corner-delta*delta))))
 				narrowest = min(narrowest, half[i])
 			}
@@ -719,7 +842,7 @@ func (r *renderer) shadow(op *scene.Op) {
 		var kl, kh, sl, sh int
 		if cast && y >= ky0 && y < ky1 {
 			kl, kh = kx0, kx1
-			sl, sh = solidSpan(op.Cast, castRadii, float32(y), float32(y+1))
+			sl, sh = solidSpan(&caster, float32(y), float32(y+1))
 		}
 		if kl < kh {
 			blendSpan(row, ml, min(mh, kl), c, sum)
@@ -871,7 +994,8 @@ func (r *renderer) image(op *scene.Op) {
 	if opacity == 0 {
 		opacity = 1
 	}
-	radii := fitRadii(op.Rect, op.Radii)
+	radii := scene.Corners(op.Rect, op.Radii, op.Continuous)
+	box := newShape(op.Rect, radii)
 	round := hasRadii(radii)
 	sx, sy := op.Src.W/op.Rect.W, op.Src.H/op.Rect.H
 	x0, y0, x1, y1 := r.pixelBounds(op.Rect)
@@ -879,12 +1003,12 @@ func (r *renderer) image(op *scene.Op) {
 		row := r.dst.Pix[y*r.dst.Stride:]
 		py := float32(y) + 0.5
 		cl, ch := r.clipSolid(y)
-		ol, oh := solidSpan(op.Rect, radii, float32(y), float32(y+1))
+		ol, oh := solidSpan(&box, float32(y), float32(y+1))
 		for x := x0; x < x1; x++ {
 			px := float32(x) + 0.5
 			cov := opacity
 			if x < ol || x >= oh || !round {
-				cov *= coverage(op.Rect, radii, px, py)
+				cov *= coverage(&box, px, py)
 			}
 			if x < cl || x >= ch {
 				cov *= r.clipCoverage(x, y)
