@@ -1,11 +1,11 @@
 // Sets or checks the version MyGo is released with, which the Go module
 // (mygo.Version), the CLI and the npm packages share:
 //
-//   bun scripts/version.ts 0.2.0            # set it everywhere
+//   bun scripts/version.ts 0.2.0            # set it everywhere, bun.lock too
 //   bun scripts/version.ts --check v0.2.0   # check that everything has it
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { platformDir, writeManifests } from "../packages/cli/build.ts";
+import { platformDir, platformName, writeManifests } from "../packages/cli/build.ts";
 import { platforms } from "../packages/cli/index.js";
 
 const root = join(import.meta.dir, "..");
@@ -27,6 +27,35 @@ const packages = [
   ...platforms.map((p) => platformDir(p).slice(root.length + 1)),
 ];
 
+/**
+ * Matches the version that mygo-cli's optionalDependencies give a platform
+ * package in bun.lock, the only entry of its name with a string value.
+ */
+function lockedPlatform(platform: string): RegExp {
+  return new RegExp(`("${platformName(platform)}": )"([^"]*)"`);
+}
+
+/**
+ * Updates bun.lock to the versions of the packages. bun install keeps the
+ * versions of mygo-cli's optionalDependencies, which are workspaces, so
+ * they are set here.
+ */
+async function updateLockfile(v: string): Promise<void> {
+  const install = Bun.spawnSync([process.execPath, "install", "--lockfile-only"], {
+    cwd: root,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  if (!install.success) throw new Error("bun install --lockfile-only failed");
+  const file = join(root, "bun.lock");
+  let lock = await readFile(file, "utf8");
+  for (const p of platforms) {
+    if (!lockedPlatform(p).test(lock)) throw new Error(`bun.lock has no version of ${platformName(p)}`);
+    lock = lock.replace(lockedPlatform(p), `$1"${v}"`);
+  }
+  await writeFile(file, lock);
+}
+
 async function versions(): Promise<Map<string, string>> {
   const found = new Map<string, string>();
   for (const { path, pattern } of goFiles) {
@@ -42,6 +71,10 @@ async function versions(): Promise<Map<string, string>> {
       const runtime = pkg[deps]?.["mygo-runtime"];
       if (runtime) found.set(`${dir}/package.json: ${deps} mygo-runtime`, runtime.replace(/^\^/, ""));
     }
+  }
+  const lock = await readFile(join(root, "bun.lock"), "utf8");
+  for (const p of platforms) {
+    found.set(`bun.lock: ${platformName(p)}`, lock.match(lockedPlatform(p))?.[2] ?? "(none)");
   }
   return found;
 }
@@ -70,6 +103,7 @@ if (import.meta.main) {
       await writeFile(file, JSON.stringify(pkg, null, 2) + "\n");
     }
     await writeManifests(v);
+    await updateLockfile(v);
     console.log(`set the version to ${v}: commit, then push the tag v${v} to release`);
   } else {
     console.error("usage: bun scripts/version.ts <version> | --check <tag>");

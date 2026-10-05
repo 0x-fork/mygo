@@ -1925,7 +1925,7 @@ and Debian 12 (portal 1.16, Plasma 5.27); Ubuntu 24.04 (portal 1.18, Plasma
 The Go module, the CLI and the npm packages share one version:
 
 ```sh
-bun scripts/version.ts 0.2.0   # mygo.Version, the CLI and every package.json
+bun scripts/version.ts 0.2.0   # mygo.Version, the CLI, every package.json and bun.lock
 git commit -am "Release 0.2.0" && git tag v0.2.0 && git push origin main v0.2.0
 ```
 
