@@ -85,6 +85,23 @@ type engine struct {
 	nextRegs  []shortcutReg
 	delivered []shortcutReg
 
+	// trans are the transitions of the elements given one, by ID
+	// (transition.go): exitsBuilt tells that the last frame built elements
+	// with an Exit, whose arena the next frame keeps to copy those that
+	// go, laidW and laidH are the size the last frame was laid out at, and
+	// byID maps a frame's elements, for the copies going.
+	trans        map[uint64]*transition
+	exitsBuilt   bool
+	laidW, laidH float32
+	byID         map[uint64]*Element
+	// insp is the inspector (inspector.go); dupKeys are the duplicate keys
+	// reported, and warnings what the inspector lists.
+	insp     inspector
+	dupKeys  map[uint64]bool
+	warnings []string
+	// clock is the time of frames for tests, time.Now when nil.
+	clock func() time.Time
+
 	pointerX, pointerY float32
 	pointerIn          bool
 	hover              []uint64
@@ -247,7 +264,13 @@ func (rt *engine) runFrame() {
 	rt.frame++
 	rt.stats.begin(rt)
 	now := time.Now()
+	if rt.clock != nil {
+		now = rt.clock()
+	}
 	w, h, scale := rt.host.size()
+	// The content takes the room the inspector leaves.
+	appW := rt.insp.contentWidth(w)
+	rt.insp.lap(-1)
 	rt.c.titleBar = rt.host.titleBar()
 	rt.text.BeginFrame()
 	rt.animating = false
@@ -258,6 +281,12 @@ func (rt *engine) runFrame() {
 		rt.dragScroll()
 	}
 
+	if rt.exitsBuilt {
+		// The last frame's elements stay as they are while this one builds,
+		// for copies of those that go with an exit transition.
+		rt.c.chunks, rt.c.spare = rt.c.spare, rt.c.chunks
+	}
+
 	// An event handled while building (a click, an edit) may change what
 	// was built before it: build again, so the frame shows the outcome.
 	for pass := 0; pass < 3; pass++ {
@@ -265,11 +294,14 @@ func (rt *engine) runFrame() {
 		rt.consumed = false
 		rt.nextRegs = rt.nextRegs[:0]
 		clear(rt.kept)
-		rt.c.reset(now, w, h)
+		rt.c.reset(now, appW, h)
 		rt.view(&rt.c)
 		rt.buildToasts(&rt.c)
 		if ov := rt.c.overlay; ov != nil {
 			rt.c.root.add(ov)
+		}
+		if rt.insp.open {
+			rt.buildInspector(&rt.c, appW, w, h)
 		}
 		rt.resolveMenu()
 		rt.endPass()
@@ -281,10 +313,15 @@ func (rt *engine) runFrame() {
 		rt.stats.passes = rt.pass + 1
 	}
 	rt.stats.lap(phaseBuild)
+	rt.insp.lap(0)
 	root := rt.c.root
-	layoutTree(root, w, h)
-	rt.commit(root)
+	layoutTree(root, appW, h)
+	rt.commit(root, w, h)
 	rt.stats.lap(phaseLayout)
+	rt.insp.lap(1)
+	if rt.insp.open {
+		rt.insp.snapshot(rt, root)
+	}
 	rt.paint(root, w, h, scale)
 	for try := 0; try < 2 && rt.text.Full(); try++ {
 		// The glyph atlas filled up and left some out: make room, keeping
@@ -293,6 +330,7 @@ func (rt *engine) runFrame() {
 		rt.paint(root, w, h, scale)
 	}
 	rt.stats.lap(phasePaint)
+	rt.insp.lap(2)
 	rt.host.present(&rt.scene)
 	rt.stats.lap(phasePresent)
 	rt.prune()
@@ -443,7 +481,7 @@ func (rt *engine) close() {
 
 // commit records the laid out frame in the elements' states: their
 // boxes, the hit list in paint order, the focus order.
-func (rt *engine) commit(root *Element) {
+func (rt *engine) commit(root *Element, w, h float32) {
 	rt.hits = rt.hits[:0]
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
 	rt.modal, rt.commitScope, rt.commitPage = 0, focusScope{}, 0
@@ -452,7 +490,8 @@ func (rt *engine) commit(root *Element) {
 	}
 	clear(rt.groups)
 	rt.labels = rt.labels[:0]
-	full := Rect{0, 0, root.w, root.h}
+	// The window, which the inspector shares with the root.
+	full := Rect{0, 0, w, h}
 	rt.commitElement(root, full, false)
 	rt.arrangeFocus()
 	rt.noteGroups()

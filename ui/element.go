@@ -125,6 +125,9 @@ const (
 	// flagFocusTarget marks an element the focus goes to but Tab does not
 	// stop at, as a Router's page.
 	flagFocusTarget
+	// flagDividers marks an element drawing lines between its children,
+	// listed in Context.dividers.
+	flagDividers
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY
@@ -365,6 +368,13 @@ type Element struct {
 	nmeasure   int
 	leaf       [2]float32 // the max-content and min-content widths of text
 	leafOK     bool
+	// leaving marks a copy of an element gone, which its exit transition
+	// animates (1 if it was in its parent's flow, 2 if absolute), and
+	// ghosts an element holding such copies. attach is where Attach puts
+	// the element, 0 for nowhere.
+	leaving uint8
+	ghosts  bool
+	attach  attachment
 }
 
 type measure struct {
@@ -456,7 +466,9 @@ func (e *Element) Children(fn func()) *Element {
 // creating the element. Widgets that handle their input as they are
 // created (Checkbox, Radio, Switch, Slider, Select, Link, List, TextInput
 // and TextArea) cannot take a key, and Key panics: give it to an element
-// around them instead, as Row(c).Key(k).Children(...) does.
+// around them instead, as Row(c).Key(k).Children(...) does. Siblings need
+// keys of their own: two elements with one key share one state, which
+// MyGo logs, and tests panic for.
 func (e *Element) Key(k any) *Element {
 	if e.widget != "" {
 		panic("ui: Key on a " + e.widget + ", which handles its input as it is created: give the key to an element around it")
@@ -638,6 +650,46 @@ func (e *Element) RightPercent(p float32) *Element  { e.inset[1] = percent(p); r
 func (e *Element) BottomPercent(p float32) *Element { e.inset[2] = percent(p); return e }
 func (e *Element) LeftPercent(p float32) *Element   { e.inset[3] = percent(p); return e }
 
+// Anchor is a point of a box: a corner, the middle of a side, or the
+// center.
+type Anchor uint8
+
+// Anchors, from left to right and top to bottom.
+const (
+	AnchorTopLeft Anchor = iota
+	AnchorTop
+	AnchorTopRight
+	AnchorLeft
+	AnchorCenter
+	AnchorRight
+	AnchorBottomLeft
+	AnchorBottom
+	AnchorBottomRight
+)
+
+// fractions returns where the anchor is across a box and down it, from 0
+// to 1.
+func (a Anchor) fractions() (fx, fy float32) { return float32(a%3) / 2, float32(a/3) / 2 }
+
+// attachment is where Attach puts an element: 1 + at*9 + self, 0 for
+// nowhere.
+type attachment uint8
+
+func (a attachment) anchors() (at, self Anchor) { return Anchor((a - 1) / 9), Anchor((a - 1) % 9) }
+
+// Attach takes the element out of its parent's layout, as Absolute does,
+// and puts its point self on the point at of the parent's padding box:
+// Attach(ui.AnchorTopRight, ui.AnchorCenter) centers a badge on the top
+// right corner of its parent, and Attach(ui.AnchorBottomRight,
+// ui.AnchorBottomRight) puts a button in the bottom right corner. Top,
+// Right, Bottom and Left then move it from there; the element keeps its
+// own size.
+func (e *Element) Attach(at, self Anchor) *Element {
+	e.flags |= flagAbsolute
+	e.attach = attachment(1 + min(at, AnchorBottomRight)*9 + min(self, AnchorBottomRight))
+	return e
+}
+
 // AspectRatio makes the height the width divided by r.
 func (e *Element) AspectRatio(r float32) *Element { e.aspect = r; return e }
 
@@ -709,6 +761,27 @@ func (e *Element) BorderColor(c Color) *Element { e.borderC = c; return e }
 
 // BorderStyle sets whether the border is solid, as by default, or dashed.
 func (e *Element) BorderStyle(s BorderStyle) *Element { e.borderStyle = s; return e }
+
+// Dividers draws a line width DIPs thick in color c between each two
+// children of a row, a column or a List (between their rows), across the
+// element, inside its border: in the middle of the room between them,
+// which the lines do not take, so give the element a Gap at least as
+// wide. A row that wraps draws them between the children of each line;
+// grids draw none.
+func (e *Element) Dividers(width float32, c Color) *Element {
+	if width > 0 && c.A > 0 {
+		e.flags |= flagDividers
+		e.c.dividers = append(e.c.dividers, dividers{e, width, c})
+	}
+	return e
+}
+
+// dividers are the lines an element draws between its children.
+type dividers struct {
+	e     *Element
+	width float32
+	color Color
+}
 
 // Radius rounds the corners: one radius for all, or top-left, top-right,
 // bottom-right and bottom-left.

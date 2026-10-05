@@ -33,7 +33,8 @@ type PageOptions struct {
 	// about: pages, and loopback dev servers during development. "*"
 	// trusts every origin.
 	TrustedOrigins []string
-	// DevTools controls the web inspector.
+	// DevTools controls the web inspector, and for a window showing
+	// Content, the inspector of its native UI.
 	DevTools DevTools
 	// ZoomFactor of the page (default 1).
 	ZoomFactor float64

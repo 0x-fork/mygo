@@ -18,9 +18,12 @@ func SplitVertical(c *Context, size *float32, first, second func()) *Element {
 func split(c *Context, size *float32, first, second func(), vertical bool) *Element {
 	t := c.theme
 	minPane, grip := t.Space(10), t.Space(1.5)
-	e := Row(c).AlignItems(Stretch)
+	// One element or the other: creating one adds it to the parent.
+	var e *Element
 	if vertical {
 		e = Column(c).AlignItems(Stretch)
+	} else {
+		e = Row(c).AlignItems(Stretch)
 	}
 	e.widget = "Split"
 	e.Children(func() {
@@ -28,9 +31,11 @@ func split(c *Context, size *float32, first, second func(), vertical bool) *Elem
 		// and it. The handle the pointer drags spans a few DIPs over either
 		// pane, above them: it is placed in this box, which has no padding,
 		// whatever the split's.
-		in := Row(c).Grow(1).MinWidth(0).AlignItems(Stretch)
+		var in *Element
 		if vertical {
 			in = Column(c).Grow(1).MinHeight(0).AlignItems(Stretch)
+		} else {
+			in = Row(c).Grow(1).MinWidth(0).AlignItems(Stretch)
 		}
 		// The room to share, as the last frame laid it out.
 		total := in.st.w

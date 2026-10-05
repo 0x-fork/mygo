@@ -172,9 +172,12 @@ type Window struct {
 	// native UI.
 	pg *Page
 	// content is WindowOptions.Content; conn connects it to the native
-	// surface (main thread only).
+	// surface (main thread only). devTools tells that PageOptions.DevTools
+	// turned the developer tools on: the web inspector, or the inspector
+	// of the Content.
 	content      Content
 	conn         *surface.Conn
+	devTools     bool
 	invalidating atomic.Bool
 	// secret starts every message of the bridge in this window's pages.
 	// Only the bridge knows it, so messages posted from elsewhere (an
@@ -352,6 +355,7 @@ func newWindow(opts WindowOptions, bg *background, native uintptr) *Window {
 		w.background = nil
 	}
 	popts.Native = native
+	w.devTools = popts.DevTools
 	if w.stateKey != "" {
 		restoreWindowState(w.stateKey, popts)
 	}

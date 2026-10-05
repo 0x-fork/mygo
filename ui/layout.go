@@ -85,11 +85,7 @@ func layoutTree(root *Element, w, h float32) {
 		// Rows built as their lists laid out handled their input as the
 		// view's elements do, and the next frame shows what that changed;
 		// what they put above the window is laid out with it.
-		rt.late = false
-		rt.forgetInput()
-		if rt.consumed {
-			rt.animating = true
-		}
+		rt.lateInput()
 		if ov := root.c.overlay; ov != nil {
 			if ov.parent == nil {
 				root.add(ov)
@@ -97,7 +93,24 @@ func layoutTree(root *Element, w, h float32) {
 			layoutAbsolute(root)
 		}
 	}
+	rt.animateLayout(root, w, h)
+	if rt.late {
+		// Lists resized by their transitions built rows as they laid out
+		// anew.
+		rt.lateInput()
+	}
 	place(root, 0, 0)
+}
+
+// lateInput forgets the input of the rows built as their lists laid out,
+// which they handled as the view's elements do: the next frame shows what
+// that changed.
+func (rt *engine) lateInput() {
+	rt.late = false
+	rt.forgetInput()
+	if rt.consumed {
+		rt.animating = true
+	}
 }
 
 // place turns the boxes, laid out relative to their parents, into window
@@ -132,7 +145,8 @@ func place(e *Element, x, y float32) {
 		cy -= float32(s.scrollY - e.scrollBase)
 	}
 	for ch := e.first; ch != nil; ch = ch.next {
-		if ch.flags&flagAbsolute != 0 {
+		// A copy of an element leaving the flow stays where the flow was.
+		if ch.flags&flagAbsolute != 0 && ch.leaving != 1 {
 			place(ch, e.x, e.y)
 		} else {
 			place(ch, cx, cy)
@@ -888,7 +902,12 @@ func justifyOffsets(j Align, free float32, n int) (start, between float32) {
 func layoutAbsolute(e *Element) {
 	pw, ph := e.w-e.border[1]-e.border[3], e.h-e.border[0]-e.border[2]
 	for c := e.first; c != nil; c = c.next {
-		if c.flags&flagAbsolute == 0 {
+		if c.flags&flagAbsolute == 0 || c.leaving != 0 {
+			// Copies of elements leaving are placed by their transitions.
+			continue
+		}
+		if c.attach != 0 {
+			attach(c, e, pw, ph)
 			continue
 		}
 		top, tok := c.inset[0].resolve(ph)
@@ -942,4 +961,28 @@ func layoutAbsolute(e *Element) {
 		c.x, c.y = e.border[3]+x, e.border[0]+y
 		layoutBox(c, w, h)
 	}
+}
+
+// attach places c, attached to a point of the padding box of its parent e,
+// pw×ph (Attach).
+func attach(c, e *Element, pw, ph float32) {
+	var w float32
+	if v, ok := c.width.resolve(pw); ok {
+		w = c.clampW(v, pw)
+	} else {
+		w = fitWidth(c, pw, pw)
+	}
+	var h float32
+	if v, ok := c.height.resolve(ph); ok {
+		h = c.clampH(v, ph)
+	} else {
+		h = heightAt(c, w, ph)
+	}
+	at, self := c.attach.anchors()
+	ax, ay := at.fractions()
+	sx, sy := self.fractions()
+	dx, dy := c.relative(pw, ph)
+	c.x = e.border[3] + ax*pw - sx*w + dx
+	c.y = e.border[0] + ay*ph - sy*h + dy
+	layoutBox(c, w, h)
 }

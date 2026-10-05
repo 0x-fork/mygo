@@ -47,6 +47,14 @@ type Context struct {
 	router  *Router
 	routers int
 	inert   bool
+	// spare are the chunks of the frame before, which the engine keeps
+	// while elements of that frame may leave with an exit transition, to
+	// copy them (engine.exitsBuilt).
+	spare [][]Element
+	// transitions are the elements given a Transition, in the order asked,
+	// and dividers those drawing lines between their children.
+	transitions []transitionUse
+	dividers    []dividers
 }
 
 const chunkSize = 256
@@ -75,6 +83,8 @@ func (c *Context) reset(now time.Time, w, h float32) {
 	c.theme = c.rt.defaultTheme()
 	c.tree = nil
 	c.reveal = c.reveal[:0]
+	c.transitions = c.transitions[:0]
+	c.dividers = c.dividers[:0]
 	c.router, c.routers, c.inert = nil, 0, false
 	root := c.alloc()
 	root.c = c
@@ -125,6 +135,9 @@ func (c *Context) newElement(k kind) *Element {
 	e.id = mix(p.id, uint64(p.nchild)+uint64(k)<<56)
 	p.add(e)
 	e.st = c.rt.stateFor(e.id)
+	if c.rt.insp.open && e.id == c.rt.insp.selected {
+		c.rt.insp.noteSource()
+	}
 	return e
 }
 
@@ -135,8 +148,20 @@ func (c *Context) rekey(e *Element, k any) {
 	if e.parent != nil {
 		parent = e.parent.id
 	}
-	e.id = keyedID(parent, k)
-	e.st = c.rt.stateFor(e.id)
+	id := keyedID(parent, k)
+	rt := c.rt
+	st, built := rt.lookState(id)
+	if built && id != e.id {
+		// Another element of the pass has the key under the same parent.
+		rt.duplicateKey(id, k)
+	}
+	e.id, e.st = id, st
+	if rt.insp.open {
+		rt.insp.noteKey(id, k)
+		if id == rt.insp.selected {
+			rt.insp.noteSource()
+		}
+	}
 }
 
 // keyedID returns the ID of the child of parent keyed by k.
@@ -358,6 +383,9 @@ type state struct {
 	scope uint64
 	// page is the Router's page the element was in, 0 for none.
 	page uint64
+	// trec is what the element's Transition keeps, by the engine's
+	// transitions, when it has one.
+	trec *transition
 }
 
 type shortcut struct {
@@ -366,7 +394,14 @@ type shortcut struct {
 }
 
 func (rt *engine) stateFor(id uint64) *state {
-	s := rt.states[id]
+	s, _ := rt.lookState(id)
+	return s
+}
+
+// lookState returns the state of the element id as stateFor does, and
+// whether the pass built an element with that ID already.
+func (rt *engine) lookState(id uint64) (s *state, built bool) {
+	s = rt.states[id]
 	if s == nil {
 		if n := len(rt.free); n > 0 {
 			// A state pruned, which nothing refers to any more.
@@ -376,11 +411,13 @@ func (rt *engine) stateFor(id uint64) *state {
 			s = &state{id: id, born: rt.frame}
 		}
 		rt.states[id] = s
+	} else {
+		built = s.seen == rt.frame && s.pass == rt.pass
 	}
 	s.seen, s.pass = rt.frame, rt.pass
 	// What the element drags and takes, as this pass asks.
 	s.dragValue, s.dragFn, s.accepts = nil, nil, nil
-	return s
+	return s, built
 }
 
 // textSystem is the shared text system.

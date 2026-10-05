@@ -52,7 +52,8 @@ shortcut, which `Label` and `Accelerator` override:
 
 - editing: `RoleUndo`, `RoleRedo`, `RoleCut`, `RoleCopy`, `RolePaste`,
   `RoleDelete`, `RoleSelectAll`, and on macOS `RolePasteAndMatchStyle`;
-- the page: `RoleReload`, `RoleForceReload`, `RoleToggleDevTools`,
+- the page: `RoleReload`, `RoleForceReload`, `RoleToggleDevTools` (in a
+  window of native UI, its [inspector](ui/inspector.md)),
   `RoleResetZoom`, `RoleZoomIn`, `RoleZoomOut`;
 - the window: `RoleToggleFullScreen`, `RoleMinimize`, `RoleZoom`,
   `RoleClose`;

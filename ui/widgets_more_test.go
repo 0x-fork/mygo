@@ -98,6 +98,30 @@ func TestSplit(t *testing.T) {
 	}
 }
 
+func TestSplitVertical(t *testing.T) {
+	size := float32(60)
+	tt := NewTester(func(c *Context) {
+		SplitVertical(c, &size, func() { Text(c, "top") }, func() { Text(c, "bottom") }).Fill()
+	}, 300, 200)
+	// The second pane starts below the divider and fits in the window.
+	if r, _ := tt.Find("bottom"); r.Y < 60+1-0.5 || r.Y > 60+1+0.5 {
+		t.Fatalf("the second pane starts at %v", r.Y)
+	}
+	n := 0
+	for e := tt.rt.c.root.first; e != nil; e = e.next {
+		n++
+	}
+	if n != 1 {
+		t.Errorf("the split built %d elements in the root", n)
+	}
+	tt.Press(100, 61)
+	tt.Move(100, 101)
+	tt.Release(100, 101)
+	if size != 100 {
+		t.Errorf("dragged 40 DIPs down, the first pane is %v high", size)
+	}
+}
+
 func TestNumberInput(t *testing.T) {
 	v := 5.0
 	tt := NewTester(func(c *Context) {

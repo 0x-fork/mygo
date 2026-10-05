@@ -86,12 +86,16 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
   elements, roles, descriptions and announcements.
 - [Drawing and animation](drawing.md): painting on elements, shaping text,
   and values that ease to their targets.
+- [Transitions](transitions.md): elements that move, resize and recolor
+  smoothly as the layout changes, and come and go.
 - [Custom widgets](custom-widgets.md): the widgets without a look that every
   widget is built on, and widgets of your own.
 - [Windows with native UI](windows.md): window options, title bars drawn by
   the view, and vibrancy.
 - [Testing](testing.md): running a view without a window, as fast as a unit
   test.
+- [Inspector](inspector.md): the elements of a window, their boxes and
+  styles, and the time frames take, beside the content.
 - [Rendering](rendering.md): how MyGo draws, on the GPU or the CPU.
 
 ## Actions

@@ -1082,6 +1082,48 @@ either.
   `MYGO_FRAME_STATS` set, frames slower than its threshold log how long
   each part took, which path drew them, what the process allocated and
   whether the collector ran (`ui/framestats.go`).
+- **Transitions** (`ui/transition.go`) animate elements FLIP-style, after
+  the layout of each frame and before `place` turns boxes into window
+  coordinates: an element given a `Transition` keeps, by its ID, where the
+  layout put it relative to its parent, its size, and what it shows, and
+  goes from what it showed to a new place or size over the transition
+  (parents first, as one resizing lays out its content anew at each size,
+  which then moves itself). Moving with a parent or a scroll offset is no
+  change; resizing the window and reduced motion animate nothing. Colors
+  move as elements paint, after their `styleFn`. An element appears with
+  its `Enter` only in a parent the frame before had. One no longer built,
+  whose parent still is, goes with its `Exit` as an inert copy, laid out
+  and painted under its siblings without taking room: frames that built
+  elements with an `Exit` leave their arena to the next frame, which
+  builds in the other (`Context.spare`), so that the next one copies those
+  gone (`ghostOf`), with states of their own and nothing referring to the
+  app's state. Siblings are not laid out around a size moving; they move
+  with their own transitions, in step when they share it.
+- **The inspector** (`ui/inspector.go`, `inspector_details.go`,
+  `inspector_panel.go`, `inspector_overlay.go`), as Chrome's developer
+  tools. A window whose DevTools are on (`surface.Conn.DevTools`, from
+  `PageOptions.DevTools`) opens it for the Toggle Developer Tools role
+  (`Conn.ToggleDevTools`), F12, or Alt+Cmd+I (Ctrl+Shift+I), and picks
+  for Shift+Cmd+C (Ctrl+Shift+C). It is a panel built with the view's
+  elements as the last child of the root, keyed, which is narrower by
+  the panel's width (the view sees a narrower window); hits and paint
+  cover the whole window. Its theme is a copy of the default one in
+  Chrome's colors, light or dark, whose accent colors the tree's chosen
+  row. After each frame is laid out, it notes the tree of elements, the
+  keys given them while it is open (`rekey`), and the details of the one
+  chosen (`describe`: its styles as CSS rules, own and inherited, its box
+  model, computed values and properties), and asks for another frame when
+  a hash of them changed, which the panel then shows; frames whose
+  elements stay the same draw no more, and the times of frames, which
+  the Performance tab draws, ask for none. The tree is a `List` of the
+  opening and closing tags of the nodes shown. Picking takes the pointer
+  over the content before the elements do. Painting highlights the
+  element hovered, or chosen while the tree has the focus, over the
+  content, with a tooltip. The source of the element chosen is the first
+  frame outside package ui on the stack as it is created or keyed
+  (`callSite`), only for that one. Two elements keyed alike under one
+  parent share one state: `rekey` reports it (`duplicateKey`), logged
+  once and listed as an issue, and in test binaries it panics.
 - **Input taken as it comes.** An element with `HandleInput` gets its
   input on the main thread as the backend reports it, before the frame
   (`ui/handler.go`): keys (with their releases, which ui otherwise

@@ -228,7 +228,7 @@ mygo.NewWindow(mygo.WindowOptions{
 |---|---|
 | `PreloadScript` | JavaScript run before every page's own scripts |
 | `TrustedOrigins` | other origins whose pages may call Go, see [who may call](bindings.md#who-may-call) |
-| `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled` |
+| `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled`; for a window of native UI, its [inspector](ui/inspector.md) |
 | `ZoomFactor`, `UserAgent` | the page's zoom (1 is 100%) and user agent |
 
 Page events, on `win.Page()`:

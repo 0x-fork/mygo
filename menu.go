@@ -462,9 +462,17 @@ func performRole(role MenuRole, win *Window) {
 		return
 	}
 	n := win.native
-	// A window showing native UI has no page to reload, inspect or zoom.
+	// A window showing native UI has no page to reload or zoom; it has
+	// its own inspector.
 	switch role {
-	case RoleReload, RoleForceReload, RoleToggleDevTools, RoleResetZoom, RoleZoomIn, RoleZoomOut:
+	case RoleToggleDevTools:
+		if c := win.conn; c != nil {
+			if c.ToggleDevTools != nil {
+				c.ToggleDevTools()
+			}
+			return
+		}
+	case RoleReload, RoleForceReload, RoleResetZoom, RoleZoomIn, RoleZoomOut:
 		if win.content != nil {
 			return
 		}

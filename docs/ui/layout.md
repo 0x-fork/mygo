@@ -20,7 +20,10 @@ ui.Row(c).Gap(8).Padding(12).Children(func() {
   `column-reverse`.
 - `ui.Spacer` takes the free space of its row or column, pushing its
   siblings apart, and `ui.Divider` draws a thin line across its row or
-  column.
+  column. `Dividers(width, color)` draws a line between each two children
+  of a row, a column or a [list](list.md), in the middle of the gap
+  between them, which it does not widen: give the element a `Gap` at
+  least as wide.
 - `ui.Grid` lays its children out in columns and rows: see
   [Grid](grid.md). Containers that scroll are [scroll views](scroll.md),
   and [lists](list.md) build only the rows in view.
@@ -72,6 +75,23 @@ ui.Box(c).Size(40, 40).Children(func() {
 })
 ```
 
+`Attach(at, self)` takes an element out of the flow too, and puts a point
+of it (`self`) on a point of its parent's box (`at`): a corner, the middle
+of a side or the center, as `ui.AnchorTopRight` or `ui.AnchorCenter`. The
+element keeps its own size, and `Top`, `Right`, `Bottom` and `Left` move
+it from there:
+
+```go
+ui.Box(c).Children(func() {
+	ui.Avatar(c, "Ada Lovelace", nil)
+	// Centered on the avatar's top right corner, whatever its size.
+	ui.Badge(c, "3").Attach(ui.AnchorTopRight, ui.AnchorCenter)
+})
+ui.Box(c).Fill().Children(func() {
+	ui.PrimaryButton(c, "New").Attach(ui.AnchorBottomRight, ui.AnchorBottomRight).Right(16).Bottom(16)
+})
+```
+
 ## Clipping and visibility
 
 - `Clip` cuts its children to its rounded box, inside its border, which it
@@ -80,4 +100,7 @@ ui.Box(c).Size(40, 40).Children(func() {
 - `Invisible` hides an element and its children, which keep their room
   but draw nothing and take neither the pointer nor the focus.
 - `Debug` outlines an element and everything inside it, with their padding
-  and margins, to see why the layout is what it is.
+  and margins, to see why the layout is what it is. The
+  [inspector](inspector.md) shows the boxes of every element, and why.
+- Elements move, resize and recolor smoothly with a
+  [transition](transitions.md).

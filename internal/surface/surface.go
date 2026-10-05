@@ -34,6 +34,9 @@ type Conn struct {
 	TitleBar func() platform.TitleBar
 	// OpenURL opens a link in the default browser.
 	OpenURL func(url string)
+	// DevTools tells that the window's developer tools are on
+	// (PageOptions.DevTools): the content then opens its inspector.
+	DevTools bool
 	// Invalidate asks for a frame; it is safe from any goroutine.
 	Invalidate func()
 	// PopupMenu shows m as a context menu at (x, y) in the surface, in
@@ -51,6 +54,9 @@ type Conn struct {
 	TitleBarChanged func()
 	// Capture renders the content as it is now into premultiplied RGBA.
 	Capture func() (width, height int, rgba []byte)
+	// ToggleDevTools opens or closes the content's inspector, for the
+	// Toggle Developer Tools menu item, when DevTools is set.
+	ToggleDevTools func()
 	// Detach is called once the window is closed.
 	Detach func()
 }

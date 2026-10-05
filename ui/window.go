@@ -50,6 +50,12 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 	conn.TitleBarChanged = rt.requestFrame
 	conn.Capture = h.capture
 	conn.Detach = h.detach
+	rt.insp.enabled = conn.DevTools
+	conn.ToggleDevTools = func() {
+		if rt.insp.enabled {
+			rt.toggleInspector()
+		}
+	}
 	h.uiFont()
 	// Load the fonts while the window shows up.
 	go text.Shared().Preload()

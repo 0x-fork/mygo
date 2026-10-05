@@ -35,6 +35,9 @@ func (rt *engine) paint(root *Element, w, h, scale float32) {
 	rt.painter = Painter{rt: rt, s: s, scale: scale, opacity: 1, clip: Rect{0, 0, w, h}, opaque: opaque}
 	p := &rt.painter
 	p.element(root)
+	if rt.insp.open {
+		rt.insp.paintHighlight(rt, p, h)
+	}
 	rt.paintDrag(p, w, h)
 }
 
@@ -61,6 +64,9 @@ func (p *Painter) visible(r Rect, margin float32) bool {
 func (p *Painter) element(e *Element) {
 	if e.styleFn != nil {
 		e.styleFn(e)
+	}
+	if r := e.st.trec; r != nil && r.built == p.rt.frame && r.elem == e {
+		p.rt.animateColors(e, r)
 	}
 	if e.flags&flagInvisible != 0 {
 		return
@@ -130,13 +136,24 @@ func (p *Painter) element(e *Element) {
 		p.pushClip(inner, rad)
 	}
 	if !clips || p.clip.W > 0 && p.clip.H > 0 {
+		if e.ghosts {
+			// Elements leaving go under their siblings.
+			for c := e.first; c != nil; c = c.next {
+				if c.leaving != 0 {
+					p.element(c)
+				}
+			}
+		}
 		for c := e.first; c != nil; c = c.next {
 			if c.flags&flagAbsolute == 0 {
 				p.element(c)
 			}
 		}
+		if e.flags&flagDividers != 0 && !e.grid {
+			p.dividers(e)
+		}
 		for c := e.first; c != nil; c = c.next {
-			if c.flags&flagAbsolute != 0 {
+			if c.flags&flagAbsolute != 0 && c.leaving == 0 {
 				p.element(c)
 			}
 		}
@@ -269,6 +286,81 @@ func (p *Painter) gradient(op *scene.Op, g LinearGradient) {
 		ex, ey = sx+dx*0.5, sy+dy*0.5
 	}
 	op.Gradient = [4]float32{sx, sy, ex, ey}
+}
+
+// dividers draws the lines between the children of e (Dividers), in the
+// middle of the room between each two: after each row of a List but its
+// last, else between children next to each other in the tree, on the same
+// line.
+func (p *Painter) dividers(e *Element) {
+	var d dividers
+	for _, d = range e.c.dividers {
+		if d.e == e {
+			break
+		}
+	}
+	if d.e != e {
+		return
+	}
+	row := e.row
+	if e.list != nil {
+		row = false
+	}
+	// Across the element inside its border, or as far as children reach
+	// beyond it, as the rows of a table scrolling sideways.
+	lo, hi := e.y+e.border[0], e.y+e.h-e.border[2]
+	if !row {
+		lo, hi = e.x+e.border[3], e.x+e.w-e.border[1]
+	}
+	var prev *Element
+	for c := e.first; c != nil; c = c.next {
+		if c.flags&flagAbsolute != 0 || c.collapsed {
+			continue
+		}
+		if f := e.list; f != nil {
+			// A List places its rows in any order: a line goes below each.
+			if c.listRow && c.rowIndex < f.n-1 {
+				p.divider(row, c.y+c.h+max(e.gapY, 0)/2, min(lo, c.x), max(hi, c.x+c.w), d.width, d.color)
+			}
+			continue
+		}
+		if a := prev; a != nil {
+			// Main-axis start and end of a and c, and their cross extents.
+			as, ae, cs, ce := a.y, a.y+a.h, c.y, c.y+c.h
+			ax0, ax1, cx0, cx1 := a.x, a.x+a.w, c.x, c.x+c.w
+			if row {
+				as, ae, cs, ce = a.x, a.x+a.w, c.x, c.x+c.w
+				ax0, ax1, cx0, cx1 = a.y, a.y+a.h, c.y, c.y+c.h
+			}
+			// On the same line of a row or a column that wraps.
+			if !e.wrap || ax0 < cx1 && cx0 < ax1 {
+				mid := (ae + cs) / 2
+				if cs < as {
+					mid = (ce + as) / 2 // a reversed row or column
+				}
+				p.divider(row, mid, min(lo, ax0, cx0), max(hi, ax1, cx1), d.width, d.color)
+			}
+		}
+		prev = c
+	}
+}
+
+// divider draws a line width DIPs thick centered on at, from lo to hi
+// across: vertical in a row, horizontal in a column, whole pixels thick.
+func (p *Painter) divider(row bool, at, lo, hi, width float32, c Color) {
+	s := p.scale
+	t := max(round(width*s), 1)
+	a := round(at*s - t/2)
+	r := scene.Rect{X: round(lo * s), Y: a, W: round(hi*s) - round(lo*s), H: t}
+	box := Rect{lo, a / s, hi - lo, t / s}
+	if row {
+		r = scene.Rect{X: a, Y: round(lo * s), W: t, H: round(hi*s) - round(lo*s)}
+		box = Rect{a / s, lo, t / s, hi - lo}
+	}
+	if !p.visible(box, 0) {
+		return
+	}
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: r, Color: c.scene(), Opacity: p.opacity})
 }
 
 // debug outlines an element and the elements inside it: their margins in
