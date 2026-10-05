@@ -11,7 +11,9 @@ framework safely. Read it before changing anything under `internal/`.
   physical footprint on macOS (mostly AppKit/WebKit), ~62 MB with the
   processes WKWebView runs for its page, GPU and network, and idles at 0%
   CPU. A window of native UI starts no webview process: idle, a small one
-  takes 44 MB on macOS, and the counter example 52 MB on Linux. Nothing
+  takes 44 MB on macOS, and the counter example 65 to 67 MB on Linux, tiled
+  to half of a 4K display at scale 2, 15 MB of it the window's buffer,
+  without loading Mesa (122 to 155 MB with it). Nothing
   polls: all work is driven by native events or explicit wake-ups.
 - **No cgo.** Everything builds with `CGO_ENABLED=0`, so any platform can be
   cross-compiled from any machine. Native APIs are called at run time through
@@ -990,7 +992,8 @@ either.
 
 - **The surface.** With `platform.WindowOptions.Surface`, a backend creates
   a view MyGo draws in place of the webview: a layer-backed NSView on
-  macOS, a GtkGLArea on Linux (a GtkDrawingArea where OpenGL would not run
+  macOS, a GtkGLArea on Linux, without an OpenGL context until the content
+  asks for the GPU (a GtkDrawingArea where OpenGL would not run
   on a GPU), a child window of class `MyGoSurface` on Windows.
   `platform.Surface` gives its native handles (for a swap chain, a layer,
   or the GtkGLArea while its `render` signal draws a frame, with its
@@ -1611,17 +1614,27 @@ either.
     else OpenGL ES 3.0, as GPUs with OpenGL ES alone have, and so does
     the probe below (`glContext`).
 
-  Linux draws with OpenGL only where it runs on a GPU: the backend makes
-  one context, on a window that never shows, when the first surface is
-  created, and reads its renderer. A software renderer such as Mesa's
-  llvmpipe (in virtual machines, in WSL without `GALLIUM_DRIVER=d3d12`)
-  redraws every pixel of every frame on the CPU, ten times the CPU
-  renderer's work on an animated page; and once a window has a GL context
-  GTK composites it with OpenGL, so the choice is made before any surface
-  has one; `MYGO_GPU=1` skips it and draws with OpenGL wherever GDK makes a
-  context, as the GUI tests of CI do on llvmpipe. The context loads Mesa
-  for good, about 20 MB, so the devices answer first where they can: no
-  probe without NVIDIA's devices or a render node of a DRM driver with 3D
+  Linux draws with OpenGL only where it runs on a GPU, and only once a
+  window needs it. A GL context loads Mesa for good: some 50 MB of
+  libraries (LLVM, which distributions' Mesa links, takes 19 MB as it
+  loads), its threads and heap, as much as the rest of a small app. So a
+  surface's GtkGLArea makes no context until the content asks for the GPU
+  (`platform.LazyGPUSurface`): its `create-context` handler stops the
+  signal, as GTK's own handler would make one, and the area paints frames
+  drawn in memory with cairo, in a window GTK paints without OpenGL.
+  `UseGPU` realizes the area anew, which makes the context, moving the
+  input method's focus with it, and lowers the area's new input window
+  under a hidden title bar's controls, which mapping it raised it over.
+  Before that, the backend makes one context,
+  on a window that never shows, and reads its renderer. A software
+  renderer such as Mesa's llvmpipe (in virtual machines, in WSL without
+  `GALLIUM_DRIVER=d3d12`) redraws every pixel of every frame on the CPU,
+  ten times the CPU renderer's work on an animated page; and once a window
+  has a GL context GTK composites it with OpenGL, so the choice is made
+  before any surface has one; `MYGO_GPU=1` skips it and draws with OpenGL
+  wherever GDK makes a context, from the first frame, as the GUI tests of
+  CI do on llvmpipe. The devices answer first where they can: no GtkGLArea
+  without NVIDIA's devices or a render node of a DRM driver with 3D
   (simpledrm, bochs, VirtualBox's or Hyper-V's only show what the CPU
   drew), nor on WSL's device without `GALLIUM_DRIVER=d3d12`. A GtkGLArea shows only
   what OpenGL draws into it: when its GL renderer fails all the same, the
@@ -1648,6 +1661,29 @@ either.
   gallery, which updates once a second, takes 0.2 to 0.4% of a core and
   67 to 77 MB on macOS this way, against 0.4 to 0.5% and 110 to 116 MB on
   the GPU alone.
+
+  On a surface that gives the GPU on demand (Linux's), the host measures
+  how long drawing and presenting each frame in memory takes, over bursts
+  of frames each begun within 50 ms of the last one's end (`cpuLoad`),
+  however long they take. Once that is more than a quarter of a burst
+  lasting 250 ms or more, as scrolling or animating much of a large window
+  may on a slow CPU or a fast display, it asks for the GPU when the window
+  has been idle for 250 ms, so that loading the driver delays no frame, or
+  at once, after the frame, when the burst goes on for a second or its
+  frames take longer than a refresh of the display (`noteCPU`). The next
+  frame makes the GPU renderer; a surface without one to give is not asked
+  again. A whole frame of a window 1834×2044 pixels takes 3.4 ms on a
+  Ryzen 7 8745HS, so it stays in memory there at 60 Hz.
+
+  Two seconds after the last frame (`frameIdle`), the host frees the frame
+  drawn in memory, as large as the window, which the next frame draws whole,
+  and tells the surface it is idle (`platform.IdleSurface`): Linux's calls
+  glibc's `malloc_trim`. GTK paints a window it composites with OpenGL into
+  an image as large as what it repaints, the whole window for a whole
+  frame, and glibc, raising its
+  threshold for giving large blocks back as they are freed, kept one or two
+  of them, 15 to 30 MB for half of a 4K display. These timers run on the
+  main thread through `surface.Conn.Post`.
 
   A GPU renderer that fails (a driver reset, a GPU unplugged, sleep) is
   released and another made in the same frame (`ui/window.go`): the GPU
@@ -1886,7 +1922,7 @@ profile).
 | runtime | `bun run test` | the injected runtime, `mygo-runtime` and the plugins' packages (against a fake Go side on the real runtime, `plugins/fake-go.ts`) |
 | plugins | `go test ./plugins/...` | the fetch plugin against `httptest` servers, the WebSocket client against a test server (ordering, fragments, pings, closing handshakes); the terminal's binding of libghostty-vt (layouts, rendering, encoders, selections), its pseudo-terminals, and its view through `Tester` with real shells: typing, keys as programs ask, input methods, mouse reports, selecting and copying, pasting, scrollback, exits (the library is downloaded, or named by `MYGO_GHOSTTY_VT`; `-short` skips them) |
 | native UI | `go test ./ui ./internal/text ./internal/scene ./internal/raster ./internal/svg ./internal/gpu/...` | the GPU renderers against the CPU renderer (Direct3D on Windows, Metal on macOS, OpenGL on Linux); views through `Tester`: input, focus, editing, lists, overlays, frames that fill the glyph atlas; text layout and caret geometry; atlas zones and repacking; the CPU renderer against its formulas; SVG parsing and drawing, with `FuzzParse`; `go test -run '^$' -bench . ./ui` times a frame |
-| GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, channels, protocol, Eval, geometry, capture, menus, window.open, native UI (frames, clicks, input methods replacing typed text, file drops, assistive technology reading and acting; on macOS typing, skipped while an input method is selected, and composing; on Linux with `MYGO_GPU=1`, what OpenGL drew in the GtkGLArea); on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
+| GUI | `MYGO_E2E=1 go test ./internal/e2e` | the real backend: IPC, channels, protocol, Eval, geometry, capture, menus, window.open, native UI (frames, clicks, input methods replacing typed text, file drops, assistive technology reading and acting; on macOS typing, skipped while an input method is selected, and composing; on Linux with `MYGO_GPU=1`, what OpenGL drew in the GtkGLArea, from the first frame and once a window drawing in memory asks for the GPU); on Windows too (a GitHub Actions `windows-latest` runner has WebView2) |
 
 The XDG variables let the URL scheme test check that GLib opens the scheme
 with the handler it registered; without them it writes to temporary

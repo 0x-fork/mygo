@@ -88,6 +88,16 @@ type windowHost struct {
 	framing bool
 	// path is how the last frame was drawn, for MYGO_FRAME_STATS.
 	path string
+	// load measures the frames drawn in memory on a surface that gives
+	// the GPU on demand (platform.LazyGPUSurface); wantGPU tells that they
+	// cost enough to ask for it, and askedGPU that the host did.
+	load              cpuLoad
+	wantGPU, askedGPU bool
+	// idleTimer runs idle once frames stop, at idleAt when idleArmed.
+	idleTimer *time.Timer
+	idleAt    time.Time
+	idleArmed bool
+	detached  bool
 }
 
 func (h *windowHost) framePath() string { return h.path }
@@ -129,6 +139,57 @@ const (
 	cpuMaxPixels = 8 << 20
 )
 
+// A surface that gives the GPU on demand (Linux's, as OpenGL loads Mesa
+// for good: some 50 MB) draws in memory until drawing on the CPU costs too
+// much: more than gpuLoad of the time of a burst of frames lasting gpuBurst
+// or more, as scrolling or animating much of a large window may. The host
+// then asks for the GPU once the window has been idle for gpuIdle, so that
+// loading the driver delays no frame, or at once when the burst goes on
+// for gpuBurstLong, or when the CPU takes longer than a refresh of the
+// display to draw its frames, which are late anyway.
+const (
+	gpuLoad      = 0.25
+	gpuBurst     = 250 * time.Millisecond
+	gpuBurstLong = time.Second
+	gpuIdle      = 250 * time.Millisecond
+)
+
+// frameIdle is how long after the last frame the host frees the frame
+// drawn in memory, as large as the window, and the surface gives back what
+// its frames took (platform.IdleSurface). The next frame draws whole.
+const frameIdle = 2 * time.Second
+
+// cpuLoad measures how much of a burst of frames the CPU spent drawing
+// them in memory.
+type cpuLoad struct {
+	// start is when the burst's first frame began drawing, end when its
+	// last one was done; busy is how long drawing its frames took.
+	start, end time.Time
+	busy       time.Duration
+	frames     int
+}
+
+// add notes a frame begun at now that the CPU took d to draw, and returns
+// how long its burst has lasted and whether drawing took more than gpuLoad
+// of it, once it lasted gpuBurst. A frame begun soon after the last was
+// done is in its burst, however long they take.
+func (l *cpuLoad) add(now time.Time, d time.Duration) (lasted time.Duration, heavy bool) {
+	if now.Sub(l.end) >= burstGap {
+		l.start, l.busy, l.frames = now, 0, 0
+	}
+	l.end = now.Add(d)
+	l.busy += d
+	l.frames++
+	lasted = l.end.Sub(l.start)
+	return lasted, lasted >= gpuBurst && float64(l.busy) > gpuLoad*float64(lasted)
+}
+
+// slow reports whether the burst's frames took longer than interval each
+// to draw, on average.
+func (l *cpuLoad) slow(interval time.Duration) bool {
+	return l.busy > time.Duration(l.frames)*interval
+}
+
 func (h *windowHost) refreshRate() float32 { return float32(h.conn.Surface.RefreshRate()) }
 
 func (h *windowHost) size() (float32, float32, float32) {
@@ -163,6 +224,7 @@ func (h *windowHost) present(s *scene.Scene) {
 	now := time.Now()
 	burst := now.Sub(h.lastFrame) < burstGap
 	h.lastFrame = now
+	h.armIdle(frameIdle)
 	if h.drawOnCPU(s, burst) {
 		h.gpuSinceCPU = time.Time{}
 		h.path = "drawn on the CPU"
@@ -180,6 +242,88 @@ func (h *windowHost) present(s *scene.Scene) {
 	h.soft.Render(s)
 	m := &h.soft.Image
 	h.conn.Surface.PresentPixels(m.Pix, m.Stride, m.W, m.H)
+	h.noteCPU(now, time.Since(now))
+}
+
+// noteCPU notes that the CPU took d to draw and present a frame begun at
+// now in memory and, on a surface that gives the GPU on demand, asks for
+// it once that costs too much (see gpuLoad).
+func (h *windowHost) noteCPU(now time.Time, d time.Duration) {
+	if _, ok := h.conn.Surface.(platform.LazyGPUSurface); !ok || h.askedGPU || h.conn.Post == nil {
+		return
+	}
+	lasted, heavy := h.load.add(now, d)
+	interval := time.Second / 60
+	if hz := h.refreshRate(); hz > 0 {
+		interval = time.Duration(float32(time.Second) / hz)
+	}
+	switch {
+	case !heavy:
+	case lasted >= gpuBurstLong || h.load.slow(interval):
+		// The surface cannot change while it draws a frame.
+		h.askedGPU = true
+		h.conn.Post(h.useGPU)
+	case !h.wantGPU:
+		h.wantGPU = true
+		h.armIdle(gpuIdle)
+	}
+}
+
+// useGPU asks the surface for the GPU, which it gives from the next frame
+// on, or has none to give: either way the host asks no more.
+func (h *windowHost) useGPU() {
+	h.wantGPU, h.askedGPU = false, true
+	g, ok := h.conn.Surface.(platform.LazyGPUSurface)
+	if h.detached || !ok || !g.UseGPU() {
+		return
+	}
+	// The next frame makes the GPU renderer, which draws it whole.
+	h.gpuTried = false
+	h.soft.Release()
+}
+
+// armIdle has idle run d from now, unless it runs sooner already.
+func (h *windowHost) armIdle(d time.Duration) {
+	if h.conn.Post == nil {
+		return
+	}
+	at := time.Now().Add(d)
+	if h.idleArmed && !h.idleAt.After(at) {
+		return
+	}
+	h.idleAt, h.idleArmed = at, true
+	if h.idleTimer == nil {
+		h.idleTimer = time.AfterFunc(d, func() { h.conn.Post(h.idle) })
+	} else {
+		h.idleTimer.Reset(d)
+	}
+}
+
+// idle runs on the main thread after frames stop: it asks for the GPU
+// that the last burst wanted once the window is idle for gpuIdle, then
+// frees the frame drawn in memory, and has the surface give back memory,
+// once it is for frameIdle. A frame since rearms it for the rest.
+func (h *windowHost) idle() {
+	h.idleArmed = false
+	if h.detached {
+		return
+	}
+	since := time.Since(h.lastFrame)
+	if h.wantGPU {
+		if since < gpuIdle {
+			h.armIdle(gpuIdle - since)
+			return
+		}
+		h.useGPU()
+	}
+	if since < frameIdle {
+		h.armIdle(frameIdle - since)
+		return
+	}
+	h.soft.Release()
+	if s, ok := h.conn.Surface.(platform.IdleSurface); ok {
+		s.Idle()
+	}
 }
 
 // drawOnCPU draws s on the CPU and has the GPU renderer present it, when
@@ -311,6 +455,10 @@ func (h *windowHost) capture() (int, int, []byte) {
 }
 
 func (h *windowHost) detach() {
+	h.detached = true
+	if h.idleTimer != nil {
+		h.idleTimer.Stop()
+	}
 	h.rt.close()
 	h.soft.Release()
 	if h.gpu != nil {

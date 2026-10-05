@@ -55,6 +55,13 @@ func (w *Window) attachContent() {
 		OpenURL:    func(url string) { go Shell.OpenExternal(url) },
 		DevTools:   w.devTools,
 		Invalidate: w.Invalidate,
+		Post: func(fn func()) {
+			postMain(func() {
+				if w.native != nil {
+					fn()
+				}
+			})
+		},
 		PopupMenu: func(m *platform.Menu, x, y float64, chosen func(int)) {
 			pos := &platform.Point{X: int(math.Round(x)), Y: int(math.Round(y))}
 			menu := NewMenu(contentMenu(m, chosen))

@@ -7,7 +7,7 @@ import "github.com/egoist/mygo/internal/platform"
 
 // Conn is a window's side of the connection. Package mygo fills it before
 // calling Content.AttachContent; the content sets the hooks it handles.
-// Everything runs on the main thread, except Invalidate.
+// Everything runs on the main thread, except Invalidate and Post.
 type Conn struct {
 	Surface platform.Surface
 	// Window is the *mygo.Window.
@@ -39,6 +39,9 @@ type Conn struct {
 	DevTools bool
 	// Invalidate asks for a frame; it is safe from any goroutine.
 	Invalidate func()
+	// Post runs fn on the main thread soon, unless the window has closed;
+	// it is safe from any goroutine.
+	Post func(fn func())
 	// PopupMenu shows m as a context menu at (x, y) in the surface, in
 	// DIPs, once the event being handled returns. chosen receives the ID of
 	// the item chosen, if one is.

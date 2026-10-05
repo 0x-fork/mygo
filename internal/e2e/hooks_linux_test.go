@@ -225,6 +225,27 @@ func glSurface(w *mygo.Window) (how string, pix []byte, width, height int, suppo
 	return how, pix, width, height, true
 }
 
+// lazyGPU makes the windows of native UI created from now on draw in
+// memory until they ask for the GPU, with MYGO_GPU=1 too.
+func lazyGPU(on bool) bool {
+	mygo.RunOnMain(func() { linux.TestLazyGL(on) })
+	return true
+}
+
+// surfaceInputLowest reports whether the input window of a window's
+// GtkGLArea is below the windows of its hidden title bar's controls.
+func surfaceInputLowest(w *mygo.Window) (ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestSurfaceInputLowest(w.NativeHandle()) })
+	return ok
+}
+
+// useGPU asks a window of native UI for the GPU, as its content does once
+// drawing in memory costs too much.
+func useGPU(w *mygo.Window) (ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestUseGPU(w.NativeHandle()) })
+	return ok
+}
+
 // rightClick clicks (x, y) in a window showing native UI with the
 // secondary button, through XTEST.
 func rightClick(w *mygo.Window, x, y float64) (ok bool) {

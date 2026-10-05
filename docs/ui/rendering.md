@@ -14,14 +14,17 @@ than the GPU takes to start, and spare the memory Metal's driver holds for
 a couple of seconds after each frame it draws. Scrolling, resizing and
 animations of much of the window use the GPU.
 
-Where OpenGL would not run on a GPU, as in virtual machines or in WSL
-(where `GALLIUM_DRIVER=d3d12` gives Mesa the GPU), Linux draws the same
-pixels on the CPU: a few milliseconds for a whole large window on a
-high-density display, and less than a tenth of one for what typically
-changes, such as a button under the pointer, since it redraws only that.
-Set `MYGO_GPU=0` to use the CPU renderer everywhere, for instance to
-compare, and on Linux `MYGO_GPU=1` to draw with OpenGL even where it runs on
-the CPU.
+On Linux, a window draws on the CPU until that costs too much, as when
+scrolling or animating much of a large window on a fast display, and only
+then loads OpenGL: Mesa, the driver, takes some 50 MB, which stay, about
+as much as the rest of a small app. Where OpenGL would not run on a GPU,
+as in virtual machines or in WSL (where `GALLIUM_DRIVER=d3d12` gives Mesa
+the GPU), Linux always draws on the CPU: a few milliseconds for a whole
+large window on a high-density display, and less than a tenth of one for
+what typically changes, such as a button under the pointer, since it
+redraws only that. Set `MYGO_GPU=0` to use the CPU renderer everywhere,
+for instance to compare, and on Linux `MYGO_GPU=1` to draw with OpenGL from
+the first frame, even where it runs on the CPU.
 
 Set `MYGO_FRAME_STATS=1` to log each frame that takes longer than 8 ms, or
 `MYGO_FRAME_STATS=4` for another threshold in milliseconds (`all` logs
@@ -42,4 +45,5 @@ small counts read low. While the variable is unset, frames measure
 nothing.
 
 MyGo draws a frame only when something changes: input, `Invalidate`,
-`After`, or an animation that moves. An idle window draws nothing.
+`After`, or an animation that moves. An idle window draws nothing, and two
+seconds after its last frame it frees the frame it drew on the CPU.

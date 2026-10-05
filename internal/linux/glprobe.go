@@ -19,11 +19,30 @@ import (
 // in memory, which redraws what changed; and once a window has a GL
 // context, GTK composites the window with OpenGL, so the choice is made
 // before: with a context GDK makes for a window that never shows, as the
-// surfaces' would be.
+// surfaces' would be. Making it loads the driver for good, so the probe
+// waits until a surface asks for the GPU (UseGPU).
 
 var glProbe struct {
-	once sync.Once
-	gpu  bool
+	device, probe  sync.Once
+	hasDevice, gpu bool
+}
+
+// hasGPUDevice reports whether the system has a device OpenGL could draw
+// on (gpuDevice), saying once when it has none.
+func hasGPUDevice() bool {
+	glProbe.device.Do(func() {
+		if glProbe.hasDevice = gpuDevice(); glProbe.hasDevice {
+			return
+		}
+		// Without a GPU device, GL draws on the CPU: the probe, whose
+		// driver stays loaded, would cost memory to say so.
+		if _, err := os.Stat("/dev/dxg"); err == nil {
+			log.Print("mygo: native UI draws without the GPU: Mesa draws on the CPU in WSL, unless GALLIUM_DRIVER=d3d12")
+		} else {
+			log.Print("mygo: native UI draws without the GPU: there is none")
+		}
+	})
+	return glProbe.hasDevice
 }
 
 // gdkWindowAttr is GdkWindowAttr, for gdk_window_new.
@@ -42,21 +61,14 @@ type gdkWindowAttr struct {
 
 // gpuGL reports whether GDK's OpenGL contexts draw on a GPU.
 func gpuGL() bool {
-	glProbe.once.Do(func() {
+	glProbe.probe.Do(func() {
 		// MYGO_GPU=1 draws with OpenGL wherever GDK makes a context, on
 		// the CPU too: tests of the GL surface run so without a GPU.
 		if os.Getenv("MYGO_GPU") == "1" {
 			glProbe.gpu = true
 			return
 		}
-		// Without a GPU device, GL draws on the CPU: the probe, whose
-		// driver stays loaded, would cost memory to say so.
-		if !gpuDevice() {
-			if _, err := os.Stat("/dev/dxg"); err == nil {
-				log.Print("mygo: native UI draws without the GPU: Mesa draws on the CPU in WSL, unless GALLIUM_DRIVER=d3d12")
-			} else {
-				log.Print("mygo: native UI draws without the GPU: there is none")
-			}
+		if !hasGPUDevice() {
 			return
 		}
 		renderer, err := probeGL()

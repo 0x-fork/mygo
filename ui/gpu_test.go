@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"image"
+	"sync"
 	"testing"
 	"time"
 
@@ -242,4 +243,179 @@ func TestSmallChangesDrawOnCPU(t *testing.T) {
 	pause()
 	frame()
 	check("the next frame after a pause", 5, 3)
+}
+
+func TestCPULoad(t *testing.T) {
+	var l cpuLoad
+	t0 := time.Now()
+	frame := func(at, took time.Duration) (time.Duration, bool) { return l.add(t0.Add(at), took) }
+	const refresh = 16 * time.Millisecond
+	// Frames of 2 ms at 60 Hz take an eighth of the time.
+	for i := range 60 {
+		if _, heavy := frame(time.Duration(i)*refresh, 2*time.Millisecond); heavy {
+			t.Fatalf("frames of 2 ms are heavy at the %dth", i)
+		}
+	}
+	// After a pause, frames of 6 ms are a burst of their own, heavy once
+	// it lasted gpuBurst, and not slow.
+	var first time.Duration
+	for i := 0; first == 0 && i < 60; i++ {
+		if lasted, heavy := frame(2*time.Second+time.Duration(i)*refresh, 6*time.Millisecond); heavy {
+			first = lasted
+		}
+	}
+	if first < gpuBurst || first > gpuBurst+refresh {
+		t.Errorf("frames of 6 ms were heavy after %v", first)
+	}
+	if l.slow(refresh) {
+		t.Error("frames of 6 ms are slow at 60 Hz")
+	}
+	// Frames slower than the display, each soon after the last, are one
+	// burst, however far apart they begin.
+	var lasted time.Duration
+	var heavy bool
+	for i := range 4 {
+		lasted, heavy = frame(4*time.Second+time.Duration(i)*85*time.Millisecond, 80*time.Millisecond)
+	}
+	if !heavy || lasted < 300*time.Millisecond || !l.slow(refresh) {
+		t.Errorf("frames of 80 ms: lasted %v, heavy %v, slow %v", lasted, heavy, l.slow(refresh))
+	}
+}
+
+// lazySurface is a test surface that gives the GPU on demand, as Linux's
+// does, when it has one.
+type lazySurface struct {
+	testSurface
+	hasGPU, given bool
+	asked, idled  int
+}
+
+func (s *lazySurface) Native() platform.SurfaceNative {
+	if s.given {
+		return platform.SurfaceNative{HWND: 1}
+	}
+	return platform.SurfaceNative{Widget: 1}
+}
+
+func (s *lazySurface) UseGPU() bool {
+	s.asked++
+	s.given = s.hasGPU
+	return s.given
+}
+
+func (s *lazySurface) Idle() { s.idled++ }
+
+// lazyHost returns a window host on a lazySurface, a function drawing a
+// frame, and one running what the host posted to the main thread.
+func lazyHost(t *testing.T, hasGPU bool) (*windowHost, *lazySurface, func(), func()) {
+	t.Setenv("MYGO_GPU", "")
+	newGPU = func(n platform.SurfaceNative) (gpuRenderer, error) {
+		if n.HWND == 0 {
+			return nil, nil
+		}
+		return &testGPU{}, nil
+	}
+	t.Cleanup(func() { newGPU = newGPURenderer })
+	s := &lazySurface{hasGPU: hasGPU}
+	var mu sync.Mutex
+	var posted []func()
+	h := &windowHost{conn: &surface.Conn{Surface: s, Post: func(fn func()) {
+		mu.Lock()
+		posted = append(posted, fn)
+		mu.Unlock()
+	}}}
+	h.rt = newRuntime(func(c *Context) { Text(c, "Hello") }, h)
+	t.Cleanup(func() { h.idleTimer.Stop() })
+	run := func() {
+		mu.Lock()
+		fns := posted
+		posted = nil
+		mu.Unlock()
+		for _, fn := range fns {
+			fn()
+		}
+	}
+	return h, s, func() { h.event(platform.SurfaceEvent{Kind: platform.SurfaceFrame}) }, run
+}
+
+// burst notes frames drawn in memory at 60 Hz for lasting, each taking
+// took, as the frames of a lazy surface's host would.
+func burst(h *windowHost, start time.Time, lasted, took time.Duration) {
+	for at := time.Duration(0); at < lasted; at += 16 * time.Millisecond {
+		h.noteCPU(start.Add(at), took)
+	}
+}
+
+func TestLazyGPUWhenIdle(t *testing.T) {
+	h, s, frame, run := lazyHost(t, true)
+	frame()
+	if s.pixels != 1 || s.asked != 0 || h.gpu != nil || h.soft.Image.Pix == nil {
+		t.Fatalf("first frame: %d in memory, asked %d times", s.pixels, s.asked)
+	}
+	// Idle, the host frees its frame and lets the surface give memory back.
+	h.lastFrame = time.Now().Add(-frameIdle)
+	h.idle()
+	if h.soft.Image.Pix != nil || s.idled != 1 || s.asked != 0 {
+		t.Fatalf("idle: frame kept %v, %d idles, asked %d times", h.soft.Image.Pix != nil, s.idled, s.asked)
+	}
+	// Light frames ask for nothing; heavy ones for the GPU, once idle.
+	burst(h, time.Now(), time.Second, 2*time.Millisecond)
+	burst(h, time.Now().Add(2*time.Second), 400*time.Millisecond, 8*time.Millisecond)
+	run()
+	if !h.wantGPU || s.asked != 0 {
+		t.Fatalf("after a heavy burst: wanted %v, asked %d times", h.wantGPU, s.asked)
+	}
+	h.lastFrame = time.Now().Add(-gpuIdle / 2)
+	h.idle()
+	if s.asked != 0 {
+		t.Fatal("asked for the GPU before the window was idle")
+	}
+	h.lastFrame = time.Now().Add(-gpuIdle)
+	h.idle()
+	if s.asked != 1 || h.wantGPU {
+		t.Fatalf("idle after a heavy burst: asked %d times", s.asked)
+	}
+	frame()
+	if h.gpu == nil || h.path != "drawn on the GPU" || s.pixels != 1 {
+		t.Errorf("the frame after: %q, %d in memory", h.path, s.pixels)
+	}
+}
+
+func TestLazyGPUAtOnce(t *testing.T) {
+	// A burst going on asks at once.
+	h, s, frame, run := lazyHost(t, true)
+	frame()
+	burst(h, time.Now(), gpuBurstLong+100*time.Millisecond, 6*time.Millisecond)
+	run()
+	if s.asked != 1 {
+		t.Errorf("a long heavy burst asked %d times", s.asked)
+	}
+	// So do frames the CPU draws slower than the display shows them.
+	h, s, frame, run = lazyHost(t, true)
+	frame()
+	start := time.Now()
+	for at := time.Duration(0); at < 300*time.Millisecond; at += 40 * time.Millisecond {
+		h.noteCPU(start.Add(at), 30*time.Millisecond)
+	}
+	run()
+	if s.asked != 1 {
+		t.Errorf("slow frames asked %d times", s.asked)
+	}
+	frame()
+	if h.gpu == nil {
+		t.Errorf("the frame after: %q", h.path)
+	}
+}
+
+func TestLazyGPUNone(t *testing.T) {
+	h, s, frame, run := lazyHost(t, false)
+	frame()
+	burst(h, time.Now(), gpuBurstLong+100*time.Millisecond, 8*time.Millisecond)
+	run()
+	burst(h, time.Now().Add(2*time.Second), gpuBurstLong+100*time.Millisecond, 8*time.Millisecond)
+	run()
+	frame()
+	if s.asked != 1 || h.gpu != nil || s.pixels != 2 {
+		t.Errorf("without a GPU: asked %d times, %d frames in memory", s.asked, s.pixels)
+	}
 }

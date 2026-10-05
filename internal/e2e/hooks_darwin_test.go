@@ -168,8 +168,12 @@ func accessPerform(w *mygo.Window, label, action, value string) (ok bool) {
 	return ok
 }
 
-// Only Linux draws native UI in a GtkGLArea.
+// Only Linux draws native UI in a GtkGLArea, nor waits to load the GPU's
+// driver.
 func glSurface(*mygo.Window) (string, []byte, int, int, bool) { return "", nil, 0, 0, false }
+func lazyGPU(bool) bool                                       { return false }
+func useGPU(*mygo.Window) bool                                { return false }
+func surfaceInputLowest(*mygo.Window) bool                    { return true }
 
 // Context menus are not automated on macOS: one shown waits for the user.
 func rightClick(*mygo.Window, float64, float64) bool { return false }

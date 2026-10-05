@@ -32,6 +32,24 @@ type Surface interface {
 	UpdateAccessibility(tree *AccessTree)
 }
 
+// LazyGPUSurface is a Surface that draws in memory until its content asks
+// for the GPU, because a GPU renderer would take much memory for good:
+// Linux's, whose OpenGL driver, Mesa's some 50 MB, stays loaded once a
+// context made it load.
+type LazyGPUSurface interface {
+	// UseGPU makes Native give the objects of a GPU renderer from the
+	// next frame on, which it asks for, where the GPU can draw, and
+	// reports whether it will. It is not called while a frame is drawn.
+	UseGPU() bool
+}
+
+// IdleSurface is a Surface that can give back memory once frames stop.
+type IdleSurface interface {
+	// Idle tells that no frame came for a while: the surface may give
+	// back memory that drawing frames took and freed.
+	Idle()
+}
+
 // TextInputState is the state of the text input that has the keyboard,
 // for input methods.
 type TextInputState struct {

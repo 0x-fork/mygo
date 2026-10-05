@@ -94,8 +94,12 @@ const roleListItem = "list item"
 func clickAndType(*mygo.Window, float64, float64, string) bool { return false }
 func compose(*mygo.Window, string, int, bool) bool             { return false }
 
-// Only Linux draws native UI in a GtkGLArea.
+// Only Linux draws native UI in a GtkGLArea, nor waits to load the GPU's
+// driver.
 func glSurface(*mygo.Window) (string, []byte, int, int, bool) { return "", nil, 0, 0, false }
+func lazyGPU(bool) bool                                       { return false }
+func useGPU(*mygo.Window) bool                                { return false }
+func surfaceInputLowest(*mygo.Window) bool                    { return true }
 
 func rightClick(*mygo.Window, float64, float64) bool { return false }
 func popupMenus() ([][]string, bool)                 { return nil, false }
