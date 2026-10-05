@@ -113,7 +113,7 @@ func TestMain(m *testing.M) {
 		beforeRun(mygo.ThemeSource(s))
 		return
 	}
-	mygo.Bind(Greeter{}, probe, streams)
+	mygo.Bind(Greeter{}, probe, streams, Bench{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -129,6 +129,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(w, "echo:%s", b)
 	})
 	usePlugins(mux)
+	useBench(mux)
 	if err := mygo.Protocol.Handle("app", mux); err != nil {
 		panic(err)
 	}
@@ -366,7 +367,7 @@ func TestEarlyWindow(t *testing.T) {
 // commits, expr runs in the previous one, such as the empty document a new
 // window starts with, which is complete already: wait for something of the
 // page itself.
-func waitFor(t *testing.T, w *mygo.Window, expr string) {
+func waitFor(t testing.TB, w *mygo.Window, expr string) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {

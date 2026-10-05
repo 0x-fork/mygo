@@ -89,12 +89,26 @@ func benchItems(n int) []benchItem {
 	return items
 }
 
-func BenchmarkCallNoop(b *testing.B)    { benchmarkCall(b, "Noop", []any{}) }
-func BenchmarkChannel1K(b *testing.B)   { benchmarkCall(b, "Count", []any{1000, 1}) }
+// BenchmarkCallNoop calls a method that takes and returns nothing.
+func BenchmarkCallNoop(b *testing.B) { benchmarkCall(b, "Noop", []any{}) }
+
+// BenchmarkChannel1K calls a method that streams a thousand values through
+// a channel.
+func BenchmarkChannel1K(b *testing.B) { benchmarkCall(b, "Count", []any{1000, 1}) }
+
+// BenchmarkCallEcho1KB calls a method that returns the kilobyte string it
+// gets.
 func BenchmarkCallEcho1KB(b *testing.B) { benchmarkCall(b, "Echo", []any{strings.Repeat("x", 1<<10)}) }
+
+// BenchmarkCallEcho1MB calls a method that returns the megabyte string it
+// gets.
 func BenchmarkCallEcho1MB(b *testing.B) { benchmarkCall(b, "Echo", []any{strings.Repeat("x", 1<<20)}) }
+
+// BenchmarkCallItems1K calls a method that returns the thousand structs it
+// gets.
 func BenchmarkCallItems1K(b *testing.B) { benchmarkCall(b, "Items", []any{benchItems(1000)}) }
 
+// BenchmarkEmit emits an event to a window's page.
 func BenchmarkEmit(b *testing.B) {
 	flushed := make(chan struct{}, 1)
 	w, _ := benchWindow(b, func(string) { flushed <- struct{}{} })
@@ -113,6 +127,7 @@ func (discardResponder) Write([]byte)             {}
 func (r discardResponder) Finish()                { r.finished <- struct{}{} }
 func (r discardResponder) Fail(error)             { r.finished <- struct{}{} }
 
+// BenchmarkScheme8MB serves 8 MB from a custom scheme's handler.
 func BenchmarkScheme8MB(b *testing.B) {
 	const size = 8 << 20
 	chunk := make([]byte, 32<<10)

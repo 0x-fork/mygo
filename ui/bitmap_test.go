@@ -157,6 +157,8 @@ func TestDecodeBitmapOfWebPAndBMP(t *testing.T) {
 	}
 }
 
+// BenchmarkHalvePhoto halves a photo of 4000×3000 pixels, a step of
+// drawing an image smaller than it is.
 func BenchmarkHalvePhoto(b *testing.B) {
 	img := NewBitmap(image.NewRGBA(image.Rect(0, 0, 4000, 3000))).img
 	b.ResetTimer()

@@ -15,6 +15,9 @@ export function SiteFooter() {
         <Link to="/docs" className="hover:text-foreground">
           Docs
         </Link>
+        <Link to="/benchmarks" className="hover:text-foreground">
+          Benchmarks
+        </Link>
         <a href={`${site.repo}/releases`} className="hover:text-foreground">
           Releases
         </a>

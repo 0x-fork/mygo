@@ -80,7 +80,7 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── tsgen/          TypeScript client generator
 │   ├── accelerator/    parses "CmdOrCtrl+Shift+K"
 │   ├── update/         update manifests, signatures, archives and delta updates
-│   └── e2e/            GUI tests against the real backend (MYGO_E2E=1)
+│   └── e2e/            GUI tests and benchmarks against the real backend (MYGO_E2E=1)
 ├── packages/           Bun workspace (with the examples' frontends):
 │   ├── bridge/         the runtime injected into pages (→ internal/bridge/bridge.js)
 │   ├── runtime/        mygo-runtime, the npm package apps and generated clients import
@@ -2006,6 +2006,50 @@ D-Bus activates get `DISPLAY`, set `XDG_CURRENT_DESKTOP=KDE`, start
 the test binary's app ID. It passes on Debian 13 (portal 1.20, Plasma 6.3)
 and Debian 12 (portal 1.16, Plasma 5.27); Ubuntu 24.04 (portal 1.18, Plasma
 5.27) binds no shortcuts for any app.
+
+### Benchmarks
+
+`.github/workflows/bench.yml` measures every push to main on GitHub's
+macOS, Linux and Windows runners, and the website shows the results at
+[/benchmarks](https://mygo.egoist.dev/benchmarks). `scripts/bench.ts`
+runs them:
+
+```sh
+bun scripts/bench.ts run                 # every package's Go benchmarks, and app sizes
+bun scripts/bench.ts run --e2e           # internal/e2e's too, in a desktop session
+bun scripts/bench.ts run ./ui --count 3  # one package, fewer runs
+```
+
+It finds the packages with benchmarks and runs them one at a time
+(`-p 1`), each benchmark six times for half a second (`-count 6
+-benchtime 500ms`), and keeps the median of each metric: `ns/op`,
+`B/op`, `allocs/op` and those a benchmark reports; `MB/s` follows from
+`ns/op`. It also builds `examples/hello` and `examples/counter-native` as
+`mygo build` builds a release, without resources, and records their size.
+`--out` writes the results as JSON, with the commit and the runner's CPU.
+The benchmarks of `internal/e2e` time the real backend: a page calling Go
+(`PageCall`, `PageCallItems`), streaming (`PageChannel`), receiving events
+(`PageEvent`), fetching from the app's scheme (`PageFetch1MB`), and
+windows opening until their DOM is ready or their native UI has built a
+frame (`WindowOpen`, `ContentWindowOpen`).
+
+The workflow's last job merges the results into the `benchmarks` branch
+(`bun scripts/bench.ts merge`): `history/<yyyy-mm-dd>.json` keeps every
+commit measured that day, a line each, and `latest.json` the last 300
+commits by series, which the page fetches from raw.githubusercontent.com
+when it opens, so results show without a deploy. Its commits say
+`[skip ci]`, which Cloudflare's builds of the website honor too, and a
+push that races another run's merges again onto it. Started by hand with a
+`ref`, the workflow measures that commit with the current script, to fill
+in history.
+
+The page compares each series' last value with the median of the five
+before, and calls a change significant past five median absolute
+deviations of the twenty before (at least 5% for time, 1% for memory and
+allocations, 0.2% for sizes): shared runners drift by a few percent, and a
+vertical line marks a commit measured on another CPU than the one before.
+Benchmarks are described on the page by their doc comments, which the
+site reads when it is built: start them with the benchmark's name.
 
 ## Releasing
 

@@ -488,6 +488,7 @@ func gear(teeth int) string {
 
 var gearIcon = gear(8)
 
+// BenchmarkParse parses an icon of a gear drawn with arcs.
 func BenchmarkParse(b *testing.B) {
 	for b.Loop() {
 		if _, err := Parse([]byte(gearIcon)); err != nil {
@@ -496,6 +497,8 @@ func BenchmarkParse(b *testing.B) {
 	}
 }
 
+// BenchmarkDrawIcon draws icons of a check and of the gear at 16 to 256
+// pixels.
 func BenchmarkDrawIcon(b *testing.B) {
 	for _, bc := range []struct {
 		name string

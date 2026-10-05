@@ -28,6 +28,9 @@ export function SiteHeader() {
         <a href={`${site.repo}/tree/main/examples`} className={navLink}>
           Examples
         </a>
+        <Link to="/benchmarks" className={navLink}>
+          Benchmarks
+        </Link>
       </nav>
       <div className="ml-auto flex items-center gap-1">
         <Search />

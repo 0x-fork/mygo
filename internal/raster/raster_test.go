@@ -98,6 +98,8 @@ func TestRenderText(t *testing.T) {
 	}
 }
 
+// BenchmarkRenderFullFrame renders a frame of 1600×1000 pixels with twenty
+// tall rounded boxes on the CPU.
 func BenchmarkRenderFullFrame(b *testing.B) {
 	s := &scene.Scene{Width: 1600, Height: 1000, Clear: scene.Color{R: 250, G: 250, B: 250, A: 255}}
 	for i := 0; i < 20; i++ {

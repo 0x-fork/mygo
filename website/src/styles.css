@@ -18,6 +18,8 @@
   --color-bang-4: var(--bang-4);
   --color-bang-5: var(--bang-5);
   --color-code: var(--code);
+  --color-better: var(--better);
+  --color-worse: var(--worse);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -57,6 +59,10 @@
   --bang-4: oklch(0.67 0.111 88);
   --bang-5: oklch(0.59 0.078 284);
   --code: oklch(0.985 0 0);
+  /* A benchmark that got faster or leaner, or slower or heavier: text
+     colors, always next to an arrow. */
+  --better: oklch(0.52 0.14 150);
+  --worse: oklch(0.55 0.2 27);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -87,6 +93,8 @@
   --bang-4: oklch(0.91 0.111 88);
   --bang-5: oklch(0.59 0.078 284);
   --code: oklch(0.165 0 0);
+  --better: oklch(0.78 0.15 150);
+  --worse: oklch(0.72 0.17 25);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.175 0 0);
