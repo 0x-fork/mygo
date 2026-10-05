@@ -62,8 +62,9 @@ export interface Group {
   pkg: string
   title: string
   text: string
-  /** The unit its charts show whatever the metric chosen, for results that are not Go benchmarks'. */
+  /** The unit its charts show whatever the metric chosen, for results that are not Go benchmarks', and what it is. */
   unit?: string
+  unitText?: string
 }
 
 export const groups: Group[] = [
@@ -72,6 +73,14 @@ export const groups: Group[] = [
     title: "App size",
     text: "Release builds of two examples, compiled as mygo build compiles them, without their icons.",
     unit: "bytes",
+    unitText: "bytes",
+  },
+  {
+    pkg: "memory",
+    title: "Idle memory",
+    text: "The same builds, measured six seconds after they start: the physical footprint on macOS, as Activity Monitor shows it, the proportional set size on Linux, and the private working set on Windows, as Task Manager shows it.",
+    unit: "B",
+    unitText: "bytes",
   },
   {
     pkg: "internal/e2e",
@@ -90,10 +99,19 @@ export const groups: Group[] = [
   { pkg: "plugins/terminal", title: "Terminal", text: "The terminal plugin taking a program's output, and drawing its view." },
 ]
 
-/** What the sizes measure, which are not Go benchmarks with comments. */
+/** What the sizes and memory measure, which are not Go benchmarks with comments. */
 export const appDocs: Record<string, string> = {
   "size/hello": "examples/hello: a window with a web page calling a Go method.",
   "size/counter-native": "examples/counter-native: a window of native UI.",
+  "memory/hello": "examples/hello with the processes of its webview: WebKit's on macOS and Linux, WebView2's on Windows.",
+  "memory/hello/app": "examples/hello's own process, without its webview's.",
+  "memory/counter-native": "examples/counter-native: native UI, which runs no other process.",
+}
+
+/** What a unit measures, as the summary names it. */
+export function unitLabel(unit: string) {
+  const metric = metrics.find((m) => m.unit === unit)
+  return metric ? metric.label.toLowerCase() : unit === "bytes" ? "size" : unit === "B" ? "idle" : unit
 }
 
 /** The smallest change of a series that stands out, whatever its noise. */
@@ -101,9 +119,13 @@ function minChange(unit: string) {
   return unit === "ns/op" ? 0.05 : unit === "bytes" ? 0.002 : 0.01
 }
 
-/** The smallest difference that stands out: a byte or an allocation now and then is a rounding of Go's averages. */
+/**
+ * The smallest difference that stands out: a byte or an allocation now
+ * and then is a rounding of Go's averages, and a process's memory moves by
+ * pages.
+ */
 function minDelta(unit: string) {
-  return unit === "B/op" ? 16 : unit === "allocs/op" ? 1 : 0
+  return unit === "B/op" ? 16 : unit === "allocs/op" ? 1 : unit === "B" ? 64 << 10 : 0
 }
 
 /**
@@ -279,6 +301,7 @@ export function formatValue(v: number, unit: string) {
       return `${sig(v)} ns`
     case "B/op":
     case "bytes":
+    case "B":
       if (v >= 1e9) return `${sig(v / 1e9)} GB`
       if (v >= 1e6) return `${sig(v / 1e6)} MB`
       if (v >= 1e3) return `${sig(v / 1e3)} kB`

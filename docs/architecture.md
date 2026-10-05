@@ -80,6 +80,7 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── tsgen/          TypeScript client generator
 │   ├── accelerator/    parses "CmdOrCtrl+Shift+K"
 │   ├── update/         update manifests, signatures, archives and delta updates
+│   ├── idlemem/        measures apps' memory once idle, for the benchmarks
 │   └── e2e/            GUI tests and benchmarks against the real backend (MYGO_E2E=1)
 ├── packages/           Bun workspace (with the examples' frontends):
 │   ├── bridge/         the runtime injected into pages (→ internal/bridge/bridge.js)
@@ -2117,7 +2118,16 @@ It finds the packages with benchmarks and runs them one at a time
 -benchtime 500ms`), and keeps the median of each metric: `ns/op`,
 `B/op`, `allocs/op` and those a benchmark reports; `MB/s` follows from
 `ns/op`. It also builds `examples/hello` and `examples/counter-native` as
-`mygo build` builds a release, without resources, and records their size.
+`mygo build` builds a release, without resources, and records their size,
+and with `--e2e` their memory six seconds after they start
+(`go run ./internal/idlemem app...`, as many times as `--count`): an
+app's process with the processes it runs, and `hello`'s own as
+`hello/app`. Memory is what each platform shows: the physical footprint
+on macOS, the proportional set size on Linux, the private working set on
+Windows. On macOS a bare executable's WebKit processes belong to the
+process responsible for it (the terminal, or the runner), so idlemem
+counts those that started with the app and share its responsible
+process.
 `--out` writes the results as JSON, with the commit and the runner's CPU.
 The benchmarks of `internal/e2e` time the real backend: a page calling Go
 (`PageCall`, `PageCallItems`), streaming (`PageChannel`), receiving events

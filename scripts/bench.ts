@@ -7,8 +7,9 @@
 //
 // run measures the checkout it runs in: the Go benchmarks of every package
 // that has some (or of the packages given), those of internal/e2e with
-// --e2e, which need a desktop session, and the size of release builds of
-// two examples. Packages run one at a time, each benchmark --count times,
+// --e2e, which need a desktop session, the size of release builds of two
+// examples, and with --e2e their memory once idle (internal/idlemem).
+// Packages run one at a time, each benchmark --count times, as each app,
 // and the median of each metric is kept.
 //
 // merge adds results to a checkout of the benchmarks branch:
@@ -25,7 +26,7 @@ const module = "github.com/egoist/mygo";
 /** Values by unit, such as "ns/op", "B/op", "allocs/op" or "bytes". */
 export type Metrics = Record<string, number>;
 
-/** Metrics by package ("." for the root, "size" for app sizes), then benchmark. */
+/** Metrics by package ("." for the root, "size" and "memory" for apps'), then benchmark. */
 export type Results = Record<string, Record<string, Metrics>>;
 
 /** The machine a run measured on. */
@@ -69,6 +70,9 @@ export const latestCommits = 300;
 /** The examples whose release builds are measured. */
 const apps = ["hello", "counter-native"];
 
+/** The apps with a webview, whose own process's memory counts apart from its processes' too. */
+const webviewApps = new Set(["hello"]);
+
 async function run(args: string[]): Promise<void> {
   let e2e = false;
   let count = 6;
@@ -93,7 +97,9 @@ async function run(args: string[]): Promise<void> {
     e2e ? { MYGO_E2E: "1" } : {},
   );
   const { cpu, results } = parse(test.output);
-  results.size = await appSizes(goos!);
+  const measured = await measureApps(goos!, e2e, count);
+  results.size = measured.size;
+  if (measured.memory) results.memory = measured.memory;
 
   const result: Run = {
     sha: sha!,
@@ -109,10 +115,8 @@ async function run(args: string[]): Promise<void> {
   if (out) await writeFile(out, JSON.stringify(result, null, 2) + "\n");
   print(results);
   // What did run is kept, and the failure shows.
-  if (test.code !== 0) {
-    console.error(`go test exited with ${test.code}`);
-    process.exit(1);
-  }
+  if (test.code !== 0) console.error(`go test exited with ${test.code}`);
+  if (test.code !== 0 || measured.failed) process.exit(1);
 }
 
 /** Returns the directories of the packages that have benchmarks. */
@@ -212,22 +216,46 @@ function round(v: number): number {
   return Number(v.toPrecision(4));
 }
 
-/** Builds the examples as mygo build does for a release, and returns their sizes. */
-async function appSizes(goos: string): Promise<Record<string, Metrics>> {
+/**
+ * Builds the examples as mygo build does for a release, and returns their
+ * sizes and, with e2e, their memory once idle, in "B": an app with its
+ * processes, and a webview app's own process as "<app>/app". A failure
+ * to measure memory leaves it out.
+ */
+async function measureApps(
+  goos: string,
+  e2e: boolean,
+  count: number,
+): Promise<{ size: Record<string, Metrics>; memory?: Record<string, Metrics>; failed?: boolean }> {
   const dir = await mkdtemp(join(tmpdir(), "mygo-bench-"));
-  const sizes: Record<string, Metrics> = {};
+  const size: Record<string, Metrics> = {};
   try {
+    const bins: string[] = [];
     for (const app of apps) {
       if (!existsSync(join("examples", app))) continue;
       const bin = join(dir, goos === "windows" ? app + ".exe" : app);
       const ldflags = "-s -w -X github.com/egoist/mygo.production=1" + (goos === "windows" ? " -H=windowsgui" : "");
       output(["go", "build", "-trimpath", "-tags", "mygo_noinspector", "-ldflags", ldflags, "-o", bin, "./examples/" + app]);
-      sizes[app] = { bytes: (await stat(bin)).size };
+      size[app] = { bytes: (await stat(bin)).size };
+      bins.push(bin);
     }
+    if (!e2e || !existsSync(join("internal", "idlemem"))) return { size };
+    console.log(`go run ./internal/idlemem -count ${count}`);
+    const proc = Bun.spawnSync(["go", "run", "./internal/idlemem", "-count", String(count), ...bins], { stderr: "inherit" });
+    if (proc.exitCode !== 0) {
+      console.error(`idlemem exited with ${proc.exitCode}`);
+      return { size, failed: true };
+    }
+    const memory: Record<string, Metrics> = {};
+    const idle: Record<string, { app: number; total: number }> = JSON.parse(proc.stdout.toString());
+    for (const [app, m] of Object.entries(idle)) {
+      memory[app] = { B: round(m.total) };
+      if (webviewApps.has(app)) memory[`${app}/app`] = { B: round(m.app) };
+    }
+    return { size, memory };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  return sizes;
 }
 
 function output(cmd: string[]): string {
@@ -240,7 +268,8 @@ function print(results: Results): void {
   const rows = [["benchmark", "time/op", "B/op", "allocs/op"]];
   for (const [pkg, benchmarks] of Object.entries(results)) {
     for (const [name, m] of Object.entries(benchmarks)) {
-      const time = m["ns/op"] !== undefined ? formatNs(m["ns/op"]) : m.bytes !== undefined ? `${(m.bytes / 1e6).toFixed(2)} MB` : "";
+      const bytes = m.bytes ?? m.B;
+      const time = m["ns/op"] !== undefined ? formatNs(m["ns/op"]) : bytes !== undefined ? `${(bytes / 1e6).toFixed(2)} MB` : "";
       rows.push([`${pkg}/${name}`, time, String(m["B/op"] ?? ""), String(m["allocs/op"] ?? "")]);
     }
   }

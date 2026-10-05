@@ -55,6 +55,7 @@ go generate ./internal/gpu/metal           # recompile the Metal shader (on macO
 go generate ./plugins/glass                # recompile the glass plugin's shaders (on macOS, and on Windows)
 bun run --cwd website dev                  # the website, with docs/ at /docs (see website/README.md)
 bun scripts/bench.ts run [--e2e]           # benchmarks and app sizes, medians of 6 runs (CI: bench.yml, /benchmarks)
+go run ./internal/idlemem app...           # apps' memory once idle, with their webviews' processes
 ```
 
 Linux GUI tests cross-compile and run in a container with WebKitGTK and Xvfb;

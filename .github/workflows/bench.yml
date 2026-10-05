@@ -3,7 +3,8 @@ name: Benchmarks
 # Every push to main is measured on macOS, Linux and Windows, and the
 # results go to the benchmarks branch, which the website's /benchmarks page
 # reads. Started by hand, the workflow measures the commit of its ref input
-# instead, as to fill in history, with this commit's scripts/bench.ts.
+# instead, as to fill in history, with this commit's scripts/bench.ts and
+# internal/idlemem.
 on:
   push:
     branches: [main]
@@ -42,11 +43,14 @@ jobs:
         if: inputs.ref
         env:
           REF: ${{ inputs.ref }}
+        # The tools are this commit's: the script, and idlemem.
         run: |
           cp scripts/bench.ts "$RUNNER_TEMP/bench.ts"
+          cp -R internal/idlemem "$RUNNER_TEMP/idlemem"
           git fetch --depth 1 origin "$REF"
           git checkout --detach FETCH_HEAD
           mkdir -p scripts && cp "$RUNNER_TEMP/bench.ts" scripts/bench.ts
+          rm -rf internal/idlemem && cp -R "$RUNNER_TEMP/idlemem" internal/idlemem
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod

@@ -29,6 +29,7 @@ import {
   findSteps,
   lastValue,
   trendOf,
+  unitLabel,
   workflowUrl,
   type BenchmarkData,
   type Group,
@@ -43,7 +44,7 @@ import { site } from "@/lib/site"
 import { cn } from "@/lib/utils"
 
 const title = "Benchmarks · MyGo"
-const description = "MyGo's benchmarks on macOS, Linux and Windows, measured on every push to main: IPC through the webview, windows opening, native UI frames, text layout and app size."
+const description = "MyGo's benchmarks on macOS, Linux and Windows, measured on every push to main: IPC through the webview, windows opening, native UI frames, text layout, app size and idle memory."
 
 export const Route = createFileRoute("/benchmarks")({
   loader: () => getBenchmarkDocs(),
@@ -369,7 +370,7 @@ function Results({
                             >
                               <Change change={m.step.change} significant />
                               <span className="font-mono text-[13px]">{displayName(m.pkg, m.name)}</span>
-                              <span className="text-muted-foreground">{m.metric?.label.toLowerCase() ?? m.unit}</span>
+                              <span className="text-muted-foreground">{unitLabel(m.unit)}</span>
                             </button>
                           </li>
                         ))}
@@ -471,7 +472,7 @@ function GroupSection({ group, unit, children }: { group: Group; unit: string; c
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
             {group.text}
             {group.text && " "}
-            <span className="whitespace-nowrap">In {metrics.find((m) => m.unit === unit)?.text ?? unit}.</span>
+            <span className="whitespace-nowrap">In {group.unitText ?? metrics.find((m) => m.unit === unit)?.text ?? unit}.</span>
           </p>
         </div>
         <Segmented
