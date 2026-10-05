@@ -58,6 +58,10 @@ func (h *headless) titleBar() TitleBar                         { return h.bar }
 func (h *headless) invalidate()                                { h.requested.Store(true) }
 func (h *headless) openURL(u string)                           { h.opened = append(h.opened, u) }
 
+// post asks for a frame rather than run fn: the Tester builds each frame
+// anew.
+func (h *headless) post(func()) { h.requested.Store(true) }
+
 // keepAccess keeps the tree for assistive technology, and its
 // announcements.
 func (h *headless) keepAccess(t *platform.AccessTree) {

@@ -16,12 +16,14 @@ func Spinner(c *Context) *Element {
 	e := Box(c).Size(size, size).Shrink(0).Role(RoleProgress)
 	e.widget = "Spinner"
 	e.hasRange, e.accRange = true, [3]float64{0, 1, -1}
-	c.AnimationFrame()
-	now := c.now
 	e.Draw(func(p *Painter, r Rect) {
-		const spokes = 12
-		// A spoke a twelfth of a turn on every twelfth of 0.9 s.
-		lead := int(now.UnixMilli()%900) * spokes / 900
+		// A spoke a twelfth of a turn on every twelfth of 0.9 s: it is
+		// painted again for the next, while it shows, without building the
+		// view.
+		const spokes, turn = 12, 900
+		ms := int(p.Now().UnixMilli() % turn)
+		lead := ms * spokes / turn
+		p.After(time.Duration((lead+1)*turn/spokes-ms) * time.Millisecond)
 		cx, cy := r.X+r.W/2, r.Y+r.H/2
 		in, out, w := r.W*0.22, r.W*0.46, r.W*0.09
 		for i := range spokes {

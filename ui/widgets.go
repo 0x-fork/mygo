@@ -449,10 +449,6 @@ func Progress(c *Context, value float64) *Element {
 	rad := t.Space(0.75)
 	e := Box(c).Height(t.Space(1.5)).Radius(rad).Background(t.Border).Clip()
 	e.role, e.hasRange, e.accRange = RoleProgress, true, [3]float64{0, 1, value}
-	now := c.now
-	if value < 0 {
-		c.AnimationFrame()
-	}
 	e.Draw(func(p *Painter, r Rect) {
 		if value >= 0 {
 			w := r.W * float32(math.Min(value, 1))
@@ -463,7 +459,10 @@ func Progress(c *Context, value float64) *Element {
 			p.Fill(Rect{x, r.Y, w, r.H}, t.Accent, rad)
 			return
 		}
-		phase := float32(now.UnixMilli()%1400) / 1400
+		// It moves while it shows, painted again without building the
+		// view.
+		p.AnimationFrame()
+		phase := float32(p.Now().UnixMilli()%1400) / 1400
 		w := r.W * 0.3
 		x := r.X - w + (r.W+w)*phase
 		if e.reverse {

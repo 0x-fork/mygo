@@ -15,6 +15,10 @@ ui.Row(c).Gap(8).Children(func() {
 turning when the desktop asks for less motion, as the system's spinners do:
 it shows that something is going on.
 
+It turns only while it is in view, and costs only its painting: its spokes
+move twelve times a turn, and each time the window paints the last frame
+again without running the view.
+
 ## Accessibility
 
 Assistive technology sees a progress indicator of unknown length, named by

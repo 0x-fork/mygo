@@ -239,7 +239,9 @@ func (c *Context) Root() *Element { return c.root }
 func (c *Context) Invalidate() { c.rt.host.invalidate() }
 
 // AnimationFrame asks for another frame as soon as the display can show
-// it, for something moving. Call it in every frame while it moves.
+// it, for something moving. Call it in every frame while it moves. A
+// drawing that moves while the layout stays asks with
+// Painter.AnimationFrame instead, whose frames do not build the view.
 func (c *Context) AnimationFrame() { c.rt.animating = true }
 
 // After asks for another frame after d, for something that changes with

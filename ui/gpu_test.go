@@ -245,6 +245,70 @@ func TestSmallChangesDrawOnCPU(t *testing.T) {
 	check("the next frame after a pause", 5, 3)
 }
 
+// TestBackToCPUInABurst checks that frames changing little draw on the
+// CPU again while frames still follow each other, after the GPU drew one
+// changing much, and that a frame like the one shown presents nothing.
+func TestBackToCPUInABurst(t *testing.T) {
+	g := &pixelGPU{}
+	h, _, frame := gpuHost(t, func() (gpuRenderer, error) { return g, nil })
+	x, back := float32(10), RGB(200, 200, 200)
+	h.rt = newRuntime(func(c *Context) {
+		Box(c).Fill().Background(back).Children(func() {
+			Box(c).Size(10, 10).Background(RGB(0, 0, 255)).Absolute().Left(x).Top(10)
+		})
+	}, h)
+	check := func(what string, pixels, frames int) {
+		t.Helper()
+		if g.pixels != pixels || g.frames != frames {
+			t.Fatalf("%s: %d frames drawn on the CPU, %d on the GPU", what, g.pixels, g.frames)
+		}
+	}
+	frame()
+	x = 20
+	frame()
+	check("two small changes", 2, 0)
+	// The same frame again shows already.
+	frame()
+	check("the same frame", 2, 0)
+	if h.path != "unchanged" {
+		t.Errorf("the same frame was %s", h.path)
+	}
+	// Much of the window changes, as a page slides in, then only the
+	// square moves, frame after frame.
+	back = RGB(100, 100, 100)
+	frame()
+	check("a large change in a burst", 2, 1)
+	x = 30
+	frame()
+	check("a small change after it", 3, 1)
+	if len(g.damage) != 1 || g.damage[0] != image.Rect(0, 0, 200, 100) {
+		t.Errorf("catching up on the large change changed %v", g.damage)
+	}
+	x = 40
+	frame()
+	check("the next small change", 4, 1)
+	if len(g.damage) == 0 || g.damage[0].Dx() > 40 || g.damage[0].Dy() > 20 {
+		t.Errorf("moving the square changed %v", g.damage)
+	}
+	// A small change after frames the GPU drew alone for a second, which
+	// freed the CPU's frame, draws all of it.
+	back = RGB(50, 50, 50)
+	frame()
+	h.gpuSinceCPU = time.Now().Add(-2 * time.Second)
+	back = RGB(60, 60, 60)
+	frame()
+	check("large changes", 4, 3)
+	if h.soft.Image.Pix != nil {
+		t.Fatal("the CPU's frame stays while the GPU draws alone")
+	}
+	x = 50
+	frame()
+	check("a small change after them", 5, 3)
+	if len(g.damage) != 1 || g.damage[0] != image.Rect(0, 0, 200, 100) {
+		t.Errorf("drawing the frame freed changed %v", g.damage)
+	}
+}
+
 func TestCPULoad(t *testing.T) {
 	var l cpuLoad
 	t0 := time.Now()

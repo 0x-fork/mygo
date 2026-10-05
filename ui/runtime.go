@@ -31,6 +31,8 @@ type host interface {
 	titleBar() TitleBar
 	// invalidate asks for a frame from any goroutine.
 	invalidate()
+	// post runs fn on the main thread soon; it is safe from any goroutine.
+	post(fn func())
 	openURL(string)
 	// popupMenu shows a context menu at (x, y) after the event being
 	// handled; chosen receives the ID of the item chosen.
@@ -125,8 +127,23 @@ type engine struct {
 	// mods are the modifiers of the last pointer event.
 	mods Modifiers
 
-	consumed  bool
-	animating bool
+	consumed bool
+	// animating is set as a frame builds when something moves, for another
+	// frame built anew; repainting as it paints when only drawings move
+	// (Painter.AnimationFrame), for a frame painting its elements again,
+	// and repaintAt to when drawings change next (Painter.After). redraw
+	// tells that the next frame may paint again, as nothing else asked for
+	// one since; painted is the size and scale of the window, and gen the
+	// text system's Generation, as the last frame was built. repaintTimer
+	// asks for that frame at repaintDue.
+	animating    bool
+	repainting   bool
+	repaintAt    time.Time
+	redraw       bool
+	painted      [3]float32
+	gen          uint64
+	repaintTimer *time.Timer
+	repaintDue   time.Time
 	// late is set when lists built elements while laying out.
 	late bool
 	// revealIDs are the elements to scroll into view once the frame is
@@ -256,6 +273,7 @@ func (rt *engine) defaultTheme() *Theme {
 // desktop's preferences.
 func (rt *engine) themeChanged() {
 	rt.darkKnown, rt.prefsKnown = false, false
+	rt.redraw = false
 	rt.host.requestFrame()
 }
 
@@ -269,17 +287,16 @@ func (rt *engine) runFrame() {
 
 	rt.frame++
 	rt.stats.begin(rt)
-	now := time.Now()
-	if rt.clock != nil {
-		now = rt.clock()
-	}
+	now := rt.now()
 	w, h, scale := rt.host.size()
 	// The content takes the room the inspector leaves.
 	appW := rt.insp.contentWidth(w)
 	rt.insp.lap(-1)
 	rt.c.titleBar = rt.host.titleBar()
 	rt.text.BeginFrame()
-	rt.animating = false
+	rt.gen = rt.text.Generation()
+	rt.painted = [3]float32{w, h, scale}
+	rt.animating, rt.repainting, rt.repaintAt = false, false, time.Time{}
 	rt.routeKeys()
 	if rt.drag != nil {
 		// The source's element is this frame's, if it builds one.
@@ -353,11 +370,92 @@ func (rt *engine) runFrame() {
 		h.announced = append(h.announced, rt.announcements...)
 	}
 	rt.announcements = rt.announcements[:0]
-	if rt.animating {
-		rt.host.requestFrame()
-	}
+	rt.next()
 	rt.armTimer()
 	rt.showMenu()
+	rt.stats.end(rt)
+}
+
+// now returns the time, which tests set (clock).
+func (rt *engine) now() time.Time {
+	if rt.clock != nil {
+		return rt.clock()
+	}
+	return time.Now()
+}
+
+// next asks for the frame that what moves needs: one built anew while the
+// view animates, one painting the elements again while only drawings move,
+// as soon as the display can show it or when they change next.
+func (rt *engine) next() {
+	rt.redraw, rt.repaintDue = false, time.Time{}
+	switch {
+	case rt.animating:
+		rt.host.requestFrame()
+	case rt.repainting:
+		rt.redraw = true
+		rt.host.requestFrame()
+	case !rt.repaintAt.IsZero():
+		rt.redraw, rt.repaintDue = true, rt.repaintAt
+		d := max(rt.repaintAt.Sub(rt.now()), time.Millisecond)
+		if rt.repaintTimer == nil {
+			rt.repaintTimer = time.AfterFunc(d, func() { rt.host.post(rt.repaintNow) })
+		} else {
+			rt.repaintTimer.Reset(d)
+		}
+		return
+	}
+	if rt.repaintTimer != nil {
+		rt.repaintTimer.Stop()
+	}
+}
+
+// repaintNow asks for the frame painting drawings again that Painter.After
+// asked for, unless another frame came since.
+func (rt *engine) repaintNow() {
+	if rt.redraw && !rt.repaintDue.IsZero() && !rt.now().Before(rt.repaintDue.Add(-time.Millisecond)) {
+		rt.repaintDue = time.Time{}
+		rt.host.requestFrame()
+	}
+}
+
+// surfaceFrame draws the frame the surface asked for: the last frame's
+// elements painted again when only drawings moved since, else a frame
+// built anew.
+func (rt *engine) surfaceFrame() {
+	if w, h, scale := rt.host.size(); rt.redraw && !rt.inFrame && rt.c.root != nil &&
+		rt.painted == [3]float32{w, h, scale} && rt.text.Generation() == rt.gen {
+		rt.repaintFrame(w, h, scale)
+		return
+	}
+	rt.runFrame()
+}
+
+// repaintFrame paints the elements of the last frame again, at the time of
+// this one, for drawings that move with it (Painter.AnimationFrame) while
+// nothing else changed: the view is neither built nor laid out, so what
+// moves costs only its painting. Its timers stay as the last frame built
+// armed them.
+func (rt *engine) repaintFrame(w, h, scale float32) {
+	rt.inFrame = true
+	defer func() { rt.inFrame = false }()
+	rt.stats.begin(rt)
+	start := time.Now()
+	rt.c.now = rt.now()
+	rt.text.BeginFrame()
+	rt.repainting, rt.repaintAt = false, time.Time{}
+	root := rt.c.root
+	rt.paint(root, w, h, scale)
+	for try := 0; try < 2 && rt.text.Full(); try++ {
+		rt.text.MakeRoom()
+		rt.paint(root, w, h, scale)
+	}
+	rt.stats.lap(phasePaint)
+	rt.insp.repainted(time.Since(start))
+	rt.host.present(&rt.scene)
+	rt.stats.lap(phasePresent)
+	rt.text.EndFrame()
+	rt.next()
 	rt.stats.end(rt)
 }
 
@@ -444,11 +542,20 @@ func (rt *engine) keptAlive(s *state) bool {
 	return false
 }
 
-// requestFrame asks the host for a frame, unless one is being built.
+// requestFrame asks the host for a frame built anew, unless one is being
+// built.
 func (rt *engine) requestFrame() {
 	if rt.inFrame {
 		return
 	}
+	rt.redraw = false
+	rt.host.requestFrame()
+}
+
+// changed asks the host for a frame built anew after the app changed what
+// the view shows, from outside the view (surface.Conn.Changed).
+func (rt *engine) changed() {
+	rt.redraw = false
 	rt.host.requestFrame()
 }
 
@@ -482,6 +589,9 @@ func (rt *engine) armTimer() {
 func (rt *engine) close() {
 	if rt.timer != nil {
 		rt.timer.Stop()
+	}
+	if rt.repaintTimer != nil {
+		rt.repaintTimer.Stop()
 	}
 }
 

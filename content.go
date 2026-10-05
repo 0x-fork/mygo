@@ -131,9 +131,7 @@ func (w *Window) Invalidate() {
 	}
 	postMain(func() {
 		w.invalidating.Store(false)
-		if w.conn != nil && w.native != nil {
-			w.conn.Surface.RequestFrame()
-		}
+		w.contentChanged()
 	})
 }
 
@@ -150,10 +148,20 @@ func (w *Window) Invalidate() {
 func (w *Window) Update(fn func()) {
 	postMain(func() {
 		fn()
-		if w.conn != nil && w.native != nil {
-			w.conn.Surface.RequestFrame()
-		}
+		w.contentChanged()
 	})
+}
+
+// contentChanged asks the Content for a frame built anew, on the main
+// thread, after the app changed its state.
+func (w *Window) contentChanged() {
+	switch {
+	case w.conn == nil || w.native == nil:
+	case w.conn.Changed != nil:
+		w.conn.Changed()
+	default:
+		w.conn.Surface.RequestFrame()
+	}
 }
 
 // captureContent renders the Content into a PNG image.

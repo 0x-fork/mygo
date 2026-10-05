@@ -275,8 +275,9 @@ type System struct {
 
 	layouts map[Params]*cached
 	frame   uint64
-	// made counts the layouts made (LayoutsMade).
-	made uint64
+	// made counts the layouts made (LayoutsMade), and gen the times the
+	// system forgot its layouts (Generation).
+	made, gen uint64
 
 	glyphs map[glyphKey]*atlasEntry
 	places map[placeKey]placement
@@ -396,6 +397,7 @@ func (s *System) SetFontRendering(antialias, hinting, subpixels string) {
 	// An engine started already takes them now, and forgets what it drew.
 	if f, ok := s.eng.(fontRenderer); ok {
 		f.setFontRendering(antialias, hinting, subpixels)
+		s.gen++
 		clear(s.fonts)
 		clear(s.layouts)
 		clear(s.marks)
@@ -419,6 +421,7 @@ func (s *System) SetUIFamily(family string) {
 	// An engine started already takes it now, and forgets what it found.
 	if u, ok := s.eng.(uiFamilySetter); ok {
 		u.setUIFamily(family)
+		s.gen++
 		clear(s.fonts)
 		clear(s.layouts)
 		clear(s.marks)
@@ -434,6 +437,7 @@ func (s *System) RegisterFont(data []byte, family string) error {
 	if err := s.engine().register(data, family); err != nil {
 		return err
 	}
+	s.gen++
 	clear(s.fonts)
 	clear(s.layouts)
 	clear(s.marks)
@@ -466,6 +470,7 @@ func (s *System) EndFrame() {
 		// with what refers to them. The atlas takes back the room of their
 		// glyphs as it makes room; the next frame lays out and draws its
 		// text anew.
+		s.gen++
 		clear(s.layouts)
 		clear(s.marks)
 		clear(s.fonts)
@@ -506,6 +511,16 @@ func (s *System) LayoutsMade() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.made
+}
+
+// Generation returns a number that changes whenever the system forgets
+// its layouts, as it lets go of its fonts (EndFrame) or takes other ones:
+// the layouts it returned before are then to be made anew, and those of
+// fonts it let go of must not be drawn.
+func (s *System) Generation() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.gen
 }
 
 // Shape lays out p.Text as Layout does, but caches nothing, for text that

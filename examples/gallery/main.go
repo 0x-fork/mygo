@@ -1183,9 +1183,10 @@ func repeat(t ui.Track, n int) []ui.Track {
 
 func (g *gallery) drawing(c *ui.Context) {
 	t := c.Theme()
-	ui.Text(c, "Element.Draw paints with rectangles, shadows, paths and text.").TextColor(t.TextMuted)
+	ui.Text(c, "Element.Draw paints with rectangles, shadows, paths and text. This drawing moves with the time of each frame, which paints it again without building the page.").TextColor(t.TextMuted)
 	ui.Box(c).Height(320).Radius(10).Background(t.Surface).Draw(func(p *ui.Painter, r ui.Rect) {
-		phase := float64(c.Now().UnixMilli()%4000) / 4000 * 2 * math.Pi
+		p.AnimationFrame()
+		phase := float64(p.Now().UnixMilli()%4000) / 4000 * 2 * math.Pi
 		// Bars.
 		for i := 0; i < 12; i++ {
 			h := float32(60 + 50*math.Sin(phase+float64(i)*0.6))
@@ -1209,7 +1210,6 @@ func (g *gallery) drawing(c *ui.Context) {
 		p.FillPath(&dot, t.Accent)
 		p.Text(r.X+24, r.Y+20, "Animated at the display's rate", 14, t.Text)
 	})
-	c.AnimationFrame()
 	card(c, "Vector images", func() {
 		ui.Text(c, "SVGs stay sharp at any size: icons in the color of the text, pictures in their own colors.").TextColor(t.TextMuted)
 		gold := ui.RGB(245, 180, 0)

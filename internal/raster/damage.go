@@ -16,14 +16,23 @@ import (
 // in the middle of the display list redraws the boxes of the operations
 // that changed, clipped as they draw. Glyphs whose pixels changed in an
 // atlas, and images whose pixels changed, count as changed.
+//
+// Scenes shown without it, as the GPU draws them, are Skipped: it compares
+// the next scene with them, and draws what they changed with the next.
 type Renderer struct {
 	// Image holds the last scene drawn, in mem.
 	Image Image
 	mem   *pixels
 
 	// rs draw the bands of large damage (draw).
-	rs     []renderer
+	rs []renderer
+	// valid tells that the last scene, of w×h pixels, is remembered to
+	// compare the next with. stale is where Image does not show it, as
+	// scenes were skipped, and redraw tells that it shows none of it.
 	valid  bool
+	w, h   int
+	stale  []image.Rectangle
+	redraw bool
 	clear  scene.Color
 	ops    []scene.Op
 	glyphs []scene.Glyph
@@ -65,15 +74,45 @@ func (m *atlasMark) set(a *scene.Atlas) {
 // Render draws s, and returns the rectangles of Image it changed. s may
 // change once Render returns.
 func (r *Renderer) Render(s *scene.Scene) []image.Rectangle {
-	if r.whole(s) {
+	if r.whole(s) || r.blank(s) {
 		r.resize(s.Width, s.Height)
 		r.damage = append(r.damage[:0], image.Rect(0, 0, s.Width, s.Height))
+	} else {
+		r.addStale()
 	}
 	for _, d := range r.damage {
 		draw(&r.rs, &r.Image, s, d, r.next)
 	}
+	r.stale, r.redraw = r.stale[:0], false
 	r.remember(s)
 	return r.damage
+}
+
+// Skip notes that s was shown without Render, as when the GPU drew it:
+// Changes compares the next scene with s, and the next Render draws what s
+// changed too. s may change once Skip returns.
+func (r *Renderer) Skip(s *scene.Scene) {
+	if r.whole(s) {
+		r.redraw = true
+	} else if !r.redraw {
+		for _, d := range r.damage {
+			r.stale = addRect(r.stale, d)
+		}
+	}
+	r.remember(s)
+}
+
+// blank reports whether Image shows nothing of the last scene that s can
+// be drawn over: it was skipped whole, or Image was released.
+func (r *Renderer) blank(s *scene.Scene) bool {
+	return r.redraw || r.Image.W != s.Width || r.Image.H != s.Height
+}
+
+// addStale adds to the damage where Image does not show the last scene.
+func (r *Renderer) addStale() {
+	for _, d := range r.stale {
+		r.damage = addRect(r.damage, d)
+	}
 }
 
 // pixels is the memory of a Renderer's image (allocPixels).
@@ -100,23 +139,42 @@ func (r *Renderer) Release() {
 	*r = Renderer{}
 }
 
-// Changes returns how many pixels Render would draw for s.
-func (r *Renderer) Changes(s *scene.Scene) int {
+// ReleaseImage frees the image, but keeps the last scene to compare the
+// next with (Changes): the next Render draws everything. Image must not be
+// used meanwhile.
+func (r *Renderer) ReleaseImage() {
+	r.mem.free()
+	r.mem, r.Image = nil, Image{}
+}
+
+// Changes returns how many pixels Render would draw for s, and how many
+// of them changed since the last scene, drawn or skipped.
+func (r *Renderer) Changes(s *scene.Scene) (draw, changed int) {
+	all := s.Width * s.Height
 	if r.whole(s) {
-		return s.Width * s.Height
+		return all, all
 	}
-	area := 0
-	for _, d := range r.damage {
-		area += d.Dx() * d.Dy()
+	changed = area(r.damage)
+	if r.blank(s) {
+		return all, changed
 	}
-	return area
+	r.addStale()
+	return area(r.damage), changed
+}
+
+func area(rects []image.Rectangle) int {
+	n := 0
+	for _, d := range rects {
+		n += d.Dx() * d.Dy()
+	}
+	return n
 }
 
 // whole sets the damage of s against the last scene, and reports whether
-// s must be drawn whole.
+// s must be drawn whole: there is none, or s changes too much of it.
 func (r *Renderer) whole(s *scene.Scene) bool {
 	r.next = r.opBounds(s, r.next[:0])
-	return !r.valid || s.Width != r.Image.W || s.Height != r.Image.H || s.Clear != r.clear || !r.diff(s)
+	return !r.valid || s.Width != r.w || s.Height != r.h || s.Clear != r.clear || !r.diff(s)
 }
 
 // Invalidate makes the next Render draw everything.
@@ -147,24 +205,20 @@ func (r *Renderer) diff(s *scene.Scene) bool {
 	if n == m {
 		for k := pre; k < n-suf; k++ {
 			if !same(k, k) {
-				r.add(r.bounds[k])
-				r.add(r.next[k])
+				r.damage = addRect(r.damage, r.bounds[k])
+				r.damage = addRect(r.damage, r.next[k])
 			}
 		}
 	} else {
 		for i := pre; i < n-suf; i++ {
-			r.add(r.bounds[i])
+			r.damage = addRect(r.damage, r.bounds[i])
 		}
 		for j := pre; j < m-suf; j++ {
-			r.add(r.next[j])
+			r.damage = addRect(r.damage, r.next[j])
 		}
 	}
-	area := 0
-	for _, d := range r.damage {
-		area += d.Dx() * d.Dy()
-	}
 	// Past half the window, drawing it whole costs about the same.
-	return area*2 < s.Width*s.Height
+	return area(r.damage)*2 < s.Width*s.Height
 }
 
 // same reports whether operation i of the last scene draws what operation
@@ -205,25 +259,26 @@ func (r *Renderer) same(i int, s *scene.Scene, j int, maskRects, colorRects []im
 	return true
 }
 
-// add adds a rectangle to the damage, merged with one it touches.
-func (r *Renderer) add(b image.Rectangle) {
+// addRect adds a rectangle to damage, merged with one it touches.
+func addRect(damage []image.Rectangle, b image.Rectangle) []image.Rectangle {
 	if b.Empty() {
-		return
+		return damage
 	}
-	for i, d := range r.damage {
+	for i, d := range damage {
 		if d.Inset(-8).Overlaps(b) {
-			r.damage[i] = d.Union(b)
-			return
+			damage[i] = d.Union(b)
+			return damage
 		}
 	}
-	r.damage = append(r.damage, b)
-	if len(r.damage) > 8 {
-		u := r.damage[0]
-		for _, d := range r.damage[1:] {
+	damage = append(damage, b)
+	if len(damage) > 8 {
+		u := damage[0]
+		for _, d := range damage[1:] {
 			u = u.Union(d)
 		}
-		r.damage = append(r.damage[:0], u)
+		damage = append(damage[:0], u)
 	}
+	return damage
 }
 
 // opBounds appends where each operation of s draws, within the clips
@@ -267,6 +322,7 @@ func outset(rc scene.Rect, d float32) image.Rectangle {
 // remember keeps what Render needs of s to compare the next scene with.
 func (r *Renderer) remember(s *scene.Scene) {
 	r.valid = true
+	r.w, r.h = s.Width, s.Height
 	r.clear = s.Clear
 	r.ops = append(r.ops[:0], s.Ops...)
 	r.glyphs = append(r.glyphs[:0], s.Glyphs...)

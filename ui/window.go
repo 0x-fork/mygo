@@ -48,6 +48,7 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 		rt.themeChanged()
 	}
 	conn.TitleBarChanged = rt.requestFrame
+	conn.Changed = rt.changed
 	conn.Capture = h.capture
 	conn.Detach = h.detach
 	rt.insp.enabled = conn.DevTools
@@ -81,6 +82,8 @@ type windowHost struct {
 	backoff  time.Duration
 	soft     raster.Renderer
 	last     *scene.Scene
+	// cpuShown tells that the frame shown is the one soft drew last.
+	cpuShown bool
 	// lastFrame is when the last frame was presented, and gpuSinceCPU
 	// when the first since the CPU drew one, if the GPU drew it.
 	lastFrame, gpuSinceCPU time.Time
@@ -131,9 +134,12 @@ type pixelPresenter interface {
 // into its drawables: a clock ticking, typing, the pointer over a button.
 // The CPU draws them in less time than the GPU takes to start, and spares
 // the memory Metal's driver holds for a couple of seconds after each frame
-// it draws. Frames changing more than a sixteenth of the window while
-// frames follow each other, as when scrolling or animating most of it,
-// draw on the GPU, as do frames redrawing more than cpuMaxPixels.
+// it draws. Frames changing more than a sixteenth of the window since the
+// last one while frames follow each other, as when scrolling or animating
+// most of it, draw on the GPU, as do frames redrawing more than
+// cpuMaxPixels. The next frame changing less draws on the CPU again, with
+// what the GPU drew meanwhile: a progress bar moving on after a page slid
+// in draws on the CPU, though frames never pause.
 const (
 	burstGap     = 50 * time.Millisecond // frames closer follow each other
 	cpuMaxPixels = 8 << 20
@@ -227,11 +233,14 @@ func (h *windowHost) present(s *scene.Scene) {
 	h.armIdle(frameIdle)
 	if h.drawOnCPU(s, burst) {
 		h.gpuSinceCPU = time.Time{}
-		h.path = "drawn on the CPU"
+		if h.path == "" {
+			h.path = "drawn on the CPU"
+		}
 		return
 	}
 	if h.render(s) {
-		h.dropCPUFrame(now)
+		h.cpuShown = false
+		h.gpuDrew(s, now)
 		h.path = "drawn on the GPU"
 		if h.degraded {
 			h.path = "drawn by the GPU renderer in software"
@@ -337,30 +346,41 @@ func (h *windowHost) drawOnCPU(s *scene.Scene, burst bool) bool {
 	if !ok {
 		return false
 	}
-	changed := h.soft.Changes(s)
-	if changed > cpuMaxPixels || burst && changed > s.Width*s.Height/16 {
+	draw, changed := h.soft.Changes(s)
+	if draw > cpuMaxPixels || burst && changed > s.Width*s.Height/16 {
 		return false
 	}
 	damage := h.soft.Render(s)
+	if len(damage) == 0 && h.cpuShown {
+		// The frame shown is the same: a drawing asking for frames that
+		// did not move, as a spinner between its steps.
+		h.path = "unchanged"
+		return true
+	}
 	m := &h.soft.Image
 	if err := p.PresentPixels(m.Pix, m.Stride, m.W, m.H, float64(s.Scale), damage); err != nil {
 		log.Printf("mygo: presenting a frame drawn in memory: %v", err)
+		h.cpuShown = false
 		return false
 	}
+	h.cpuShown = true
 	return true
 }
 
-// dropCPUFrame frees the frame the CPU drew last once the GPU has drawn
-// alone for a second, as while it animates much of the window: the CPU
-// would draw the next frame whole anyway.
-func (h *windowHost) dropCPUFrame(now time.Time) {
+// gpuDrew notes that the GPU drew s, where frames drawn on the CPU show
+// too: the CPU's frame compares the next one with s, so that a frame
+// changing little draws on the CPU again. Once the GPU has drawn alone for
+// a second, as while it animates much of the window, the CPU's frame frees
+// its pixels, which the CPU then draws whole.
+func (h *windowHost) gpuDrew(s *scene.Scene, now time.Time) {
 	if _, ok := h.gpu.(pixelPresenter); !ok {
 		return
 	}
+	h.soft.Skip(s)
 	if h.gpuSinceCPU.IsZero() {
 		h.gpuSinceCPU = now
 	} else if now.Sub(h.gpuSinceCPU) > time.Second && h.soft.Image.Pix != nil {
-		h.soft.Release()
+		h.soft.ReleaseImage()
 	}
 }
 
@@ -396,6 +416,7 @@ func (h *windowHost) render(s *scene.Scene) bool {
 // again from time to time.
 func (h *windowHost) makeGPU() {
 	retry := h.gpuTried
+	h.cpuShown = false
 	h.gpuTried, h.retryAt = true, time.Time{}
 	n := h.conn.Surface.Native()
 	if os.Getenv("MYGO_GPU") == "0" || n == (platform.SurfaceNative{}) {
@@ -472,6 +493,14 @@ func (h *windowHost) detach() {
 }
 
 func (h *windowHost) requestFrame() { h.conn.Surface.RequestFrame() }
+
+func (h *windowHost) post(fn func()) {
+	if h.conn.Post != nil {
+		h.conn.Post(fn)
+	} else {
+		h.conn.Invalidate()
+	}
+}
 
 // uiFont gives system-ui the desktop's interface font, and text the
 // desktop's settings for rasterizing it, where the text system does not

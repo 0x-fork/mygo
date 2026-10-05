@@ -11,6 +11,10 @@ ui.Progress(c, -1).Label("Connecting")
 `Reverse` fills it from the right, for interfaces laid out from right to
 left. It stretches across its column; give it a `Width` in a row.
 
+A bar of unknown length moves only while it is in view, and costs only its
+painting: the window paints the last frame again at the display's rate,
+without running the view.
+
 For a spinning indicator that takes less room, use a
 [spinner](spinner.md); for a level that is no progress, as a disk's use, a
 [meter](meter.md).

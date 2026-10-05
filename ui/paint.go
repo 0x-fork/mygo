@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math"
+	"time"
 
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/text"
@@ -39,6 +40,30 @@ func (rt *engine) paint(root *Element, w, h, scale float32) {
 		rt.insp.paintHighlight(rt, p, h)
 	}
 	rt.paintDrag(p, w, h)
+}
+
+// Now returns the time of the frame being painted, which drawings that
+// move compute from.
+func (p *Painter) Now() time.Time { return p.rt.c.now }
+
+// AnimationFrame asks for the element to be painted again as soon as the
+// display can show it, for a drawing that moves with Now while the layout
+// stays, as a spinner's: unless something else changed meanwhile, the next
+// frame paints the elements of this one again without building the view.
+// Call it in every frame while the drawing moves; an element out of view
+// is not painted, so it asks for none.
+func (p *Painter) AnimationFrame() { p.rt.repainting = true }
+
+// After asks for the element to be painted again after d, for a drawing
+// that changes then, as a spinner's next step: unless something else
+// changed meanwhile, that frame paints the elements of this one again
+// without building the view. An element out of view is not painted, so
+// it asks for none.
+func (p *Painter) After(d time.Duration) {
+	at := p.rt.c.now.Add(d)
+	if p.rt.repaintAt.IsZero() || at.Before(p.rt.repaintAt) {
+		p.rt.repaintAt = at
+	}
 }
 
 // snap converts a rectangle to device pixels, rounding its edges to whole

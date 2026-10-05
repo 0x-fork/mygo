@@ -11,6 +11,10 @@ import (
 // event handles a surface event on the main thread. It reports whether
 // an element takes files dragged over or dropped at the event's position.
 func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
+	if ev.Kind != platform.SurfaceFrame {
+		// Whatever the event changes, the next frame builds anew.
+		rt.redraw = false
+	}
 	x, y := float32(ev.X), float32(ev.Y)
 	if rt.insp.pointer(rt, ev, x, y) {
 		return true
@@ -21,7 +25,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	}
 	switch ev.Kind {
 	case platform.SurfaceFrame:
-		rt.runFrame()
+		rt.surfaceFrame()
 	case platform.SurfaceResize:
 		rt.requestFrame()
 	case platform.PointerMove:

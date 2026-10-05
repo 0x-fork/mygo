@@ -17,8 +17,8 @@ func TestSpinner(t *testing.T) {
 	if n := node(t, tt.h.access, platform.RoleProgress, "Loading"); n.Now >= n.Min {
 		t.Errorf("the spinner is not of unknown length: %+v", n)
 	}
-	if !tt.rt.animating {
-		t.Error("the spinner does not keep frames coming")
+	if !tt.rt.redraw || tt.rt.repaintDue.IsZero() {
+		t.Error("the spinner is not painted again for its next spoke")
 	}
 }
 

@@ -2,7 +2,11 @@
 
 package ui
 
-import "github.com/egoist/mygo/internal/platform"
+import (
+	"time"
+
+	"github.com/egoist/mygo/internal/platform"
+)
 
 // Production builds (mygo build, unless MYGO_INSPECTOR=1 or --debug) leave
 // the inspector out, as their developer tools are off: this stands in for
@@ -14,6 +18,7 @@ type inspector struct {
 
 func (in *inspector) contentWidth(w float32) float32                                { return w }
 func (in *inspector) lap(int)                                                       {}
+func (in *inspector) repainted(time.Duration)                                       {}
 func (in *inspector) noteSource()                                                   {}
 func (in *inspector) noteKey(uint64, any)                                           {}
 func (in *inspector) pointer(*engine, platform.SurfaceEvent, float32, float32) bool { return false }

@@ -39,6 +39,10 @@ type Conn struct {
 	DevTools bool
 	// Invalidate asks for a frame; it is safe from any goroutine.
 	Invalidate func()
+	// Changed asks for a frame built anew after the app changed the state
+	// the content shows (Window.Update, Window.Invalidate); the content
+	// sets it, else the window asks the surface for a frame.
+	Changed func()
 	// Post runs fn on the main thread soon, unless the window has closed;
 	// it is safe from any goroutine.
 	Post func(fn func())

@@ -93,6 +93,25 @@ To animate in other ways, compute from `c.Now()` and call
 `c.AnimationFrame()` in every frame that moves: MyGo draws the next frame
 when the display can show it, and draws nothing while nothing changes.
 
+A drawing that moves while the layout stays, as a spinner or a chart
+scrolling by, animates from its `Draw` instead: compute it from `p.Now()`
+and call `p.AnimationFrame()` while it moves, or `p.After(d)` when it
+changes in steps. Unless something else changed, those frames paint the
+elements of the last frame again without running the view, so they cost
+only the painting; and an element out of view is not painted, so it asks
+for none:
+
+```go
+ui.Box(c).Height(4).Draw(func(p *ui.Painter, r ui.Rect) {
+	p.AnimationFrame()
+	x := r.X + (r.W-20)*float32(p.Now().UnixMilli()%1000)/1000
+	p.Fill(ui.Rect{X: x, Y: r.Y, W: 20, H: r.H}, c.Theme().Accent, 2)
+})
+```
+
+Such a `Draw` sees the state as the view last ran: what it reads that
+changes otherwise is the view's to build anew, after `Window.Update`.
+
 When the desktop asks for less motion (`c.Preferences().ReduceMotion`),
 `Animate` and `AnimateWith` go to their target at once. `Loop` goes on, as
 the system's spinners do: it shows that something is going on. Motion you

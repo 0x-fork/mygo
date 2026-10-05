@@ -145,7 +145,10 @@ func (f *frameStats) end(rt *engine) {
 		path = p.framePath()
 	}
 	passes := ""
-	if f.passes > 1 {
+	switch {
+	case f.passes == 0:
+		passes = " (painted again)" // engine.repaintFrame
+	case f.passes > 1:
 		passes = fmt.Sprintf(" (%d passes)", f.passes)
 	}
 	gc := "no GC"

@@ -272,7 +272,7 @@ func (r *Router) changed() {
 		if rt.inFrame {
 			rt.consumed = true
 		} else {
-			rt.host.requestFrame()
+			rt.requestFrame()
 		}
 	}
 }

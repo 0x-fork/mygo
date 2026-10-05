@@ -1080,7 +1080,8 @@ either.
   opening URLs, context menus), so `ui` imports neither
   `mygo` nor a backend, and an app without native UI links none of it.
   `Window.Update` and `Invalidate` coalesce redraws asked from any goroutine
-  into one frame on the main thread. Page methods return `errNoPage` or do
+  into one frame on the main thread, which `Conn.Changed` asks the content
+  for, so that it builds anew. Page methods return `errNoPage` or do
   nothing.
 - **Frames.** The engine (`ui/runtime.go`) calls the view to build a frame,
   again (up to three times) when a handler changed the state while it built,
@@ -1098,6 +1099,19 @@ either.
   frame that moved one builds another for what read the old one. Frames
   happen only when asked: input, `Invalidate`, `After`, or `AnimationFrame`
   while something moves.
+  A frame asked for only by drawings that move (`Painter.AnimationFrame`,
+  `Painter.After`, as spinners and progress bars of unknown length do)
+  paints the elements of the last frame again at its own time
+  (`repaintFrame`), without building or laying out; elements out of view
+  are not painted, so they ask for none. Such a frame is asked for with
+  `redraw` set, which anything else asking for a frame clears: every event
+  of the surface, `requestFrame`, `Conn.Changed` (`Window.Update`,
+  `Invalidate`, and `After`'s timer through them) and a change of the
+  appearance. A frame of another size, or after the text system forgot
+  its layouts (`text.System.Generation`, as it lets go of fonts the
+  elements' layouts hold), builds anew all the same. The timers the last
+  frame built armed stay; `Painter.After` has a timer of its own, which
+  posts to the main thread.
   A frame allocates next to nothing once the view builds what it built
   before: elements come from the context's arena, the default theme is
   copied for each pass, the states that pruning frees go to new elements
@@ -1673,13 +1687,19 @@ either.
 
   Where the GPU renderer presents frames drawn in memory (Metal's), the
   window host draws on the CPU the frames that change little, measuring
-  first what `raster.Renderer` would redraw (`Changes`): a frame after a
-  pause of 50 ms or more, unless it redraws more than 8 million pixels,
-  and in a burst of frames one that redraws at most a sixteenth of the
-  window: clocks, typing, the pointer over a button, a progress bar.
-  Scrolling, resizing and animations of much of the window draw on the
-  GPU, and the next frame after a pause catches up on the CPU. Once the
-  GPU has drawn alone for a second, the host frees the CPU's frame. The
+  first what `raster.Renderer` would redraw and what changed since the
+  frame before (`Changes`): a frame after a pause of 50 ms or more, unless
+  it redraws more than 8 million pixels, and in a burst of frames one that
+  changes at most a sixteenth of the window: clocks, typing, the pointer
+  over a button, a progress bar. Scrolling, resizing and animations of
+  much of the window draw on the GPU, whose scenes the CPU's renderer
+  notes (`Skip`) to compare the next with, and redraws where its frame no
+  longer shows them: the first frame changing little draws on the CPU
+  again, catching up, so that a progress bar moving on after a page slid
+  in draws on the CPU though its frames never pause. Once the GPU has
+  drawn alone for a second, the host frees the pixels of the CPU's frame,
+  which keeps the scene to compare with (`ReleaseImage`) and draws whole
+  next. A frame the CPU draws that changes nothing presents nothing. The
   gallery, which updates once a second, takes 0.2 to 0.4% of a core and
   67 to 77 MB on macOS this way, against 0.4 to 0.5% and 110 to 116 MB on
   the GPU alone.
