@@ -78,6 +78,13 @@ type Options struct {
 	// OptionAsAlt makes Option on macOS the Alt key of programs (Meta),
 	// rather than the key that types accented letters and symbols.
 	OptionAsAlt bool
+	// Transparent leaves the terminal's background undrawn, so that what
+	// is under the view shows through, as the window's material or an
+	// element's translucent background, as Ghostty's background-opacity
+	// does: cells with a background color of their own still draw it.
+	// Give the theme the background the view shows on, which the text
+	// under a block cursor takes.
+	Transparent bool
 
 	// OnTitle, OnExit, OnBell and OnNotify run on a goroutine of the
 	// terminal when a program sets the title, when the program (or Conn)
@@ -493,6 +500,28 @@ func (t *Terminal) Text() string {
 		return ""
 	}
 	return t.term.Text()
+}
+
+// Resize sets the size of the screen in cells, for a terminal no view
+// shows, as one a server keeps for a session while no window does: a view
+// sets the size of the terminal it shows.
+func (t *Terminal) Resize(cols, rows int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.resize(gridSize{max(cols, 1), max(rows, 1), t.size.cellW, t.size.cellH})
+}
+
+// Snapshot returns what the terminal shows as escape sequences: its
+// scrollback and screen with their styles, the cursor and the modes
+// programs set. Fed to a new terminal of the same size, it shows the same,
+// as a terminal attaching again to a session a server keeps.
+func (t *Terminal) Snapshot() []byte {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.term == nil {
+		return nil
+	}
+	return t.term.VT()
 }
 
 // Send sends data to the program as if typed.

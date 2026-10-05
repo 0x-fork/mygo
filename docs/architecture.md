@@ -1801,7 +1801,17 @@ either.
   in draws on the CPU though its frames never pause. Once the GPU has
   drawn alone for a second, the host frees the pixels of the CPU's frame,
   which keeps the scene to compare with (`ReleaseImage`) and draws whole
-  next. A frame the CPU draws that changes nothing presents nothing. The
+  next. Frames that change little may still cost the CPU much, as an
+  animation repainting translucent layers over gradients and shadows at
+  the display's rate: the host measures the CPU's frames of each burst as
+  it does those of a lazy surface below (`cpuLoad`, `noteCPUFrame`), and
+  once they take more than a quarter of a burst lasting 250 ms or more,
+  the rest of the burst draws on the GPU, which Metal does in a millisecond
+  or two of the CPU's time; a pause of 50 ms after the last frame was done
+  starts a burst on the CPU again. A dot pulsing at 60 Hz in the headers of
+  a terminal's translucent panes took 4.0 to 4.5 CPU seconds over 10 s on
+  the CPU, and 1.5 to 1.8 this way. A frame the CPU draws that changes
+  nothing presents nothing. The
   gallery, which updates once a second, takes 0.2 to 0.4% of a core and
   67 to 77 MB on macOS this way, against 0.4 to 0.5% and 110 to 116 MB on
   the GPU alone.

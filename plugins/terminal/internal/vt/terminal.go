@@ -449,6 +449,38 @@ func (t *Terminal) Text() string {
 	return s
 }
 
+// formatVT is GHOSTTY_FORMATTER_FORMAT_VT: text with escape sequences.
+const formatVT = 1
+
+// VT returns the terminal's state as escape sequences, which restore it in
+// a terminal of the same size: the scrollback and the screen with their
+// styles and hyperlinks, then the modes, the scrolling region, the tab
+// stops, the working directory, the keyboard's flags and the cursor. The
+// palette is left out, as the terminal it restores in has colors of its
+// own.
+func (t *Terminal) VT() []byte {
+	opts := formatterOptions{size: unsafe.Sizeof(formatterOptions{}), emit: formatVT}
+	x := &opts.extra
+	x.size = unsafe.Sizeof(opts.extra)
+	x.modes, x.scrollingRegion, x.tabstops, x.pwd, x.keyboard = true, true, true, true, true
+	x.screen.size = unsafe.Sizeof(opts.extra.screen)
+	x.screen.cursor, x.screen.style, x.screen.hyperlink, x.screen.protection, x.screen.kittyKeyboard, x.screen.charsets = true, true, true, true, true, true
+	var f uintptr
+	if formatterTerminalNew(0, &f, t.h, opts) != 0 {
+		return nil
+	}
+	defer call(fnFormatterFree, f)
+	var p, n uintptr
+	if !ok(call(fnFormatterFormatAlloc, f, 0, uintptr(unsafe.Pointer(&p)), uintptr(unsafe.Pointer(&n)))) {
+		return nil
+	}
+	b := []byte(goString(p, n))
+	if p != 0 {
+		call(fnFree, 0, p, n)
+	}
+	return b
+}
+
 // Compress compresses some of the scrollback, as when the terminal is
 // idle, and reports whether more is left to compress.
 func (t *Terminal) Compress() bool {

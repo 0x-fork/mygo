@@ -309,6 +309,61 @@ func TestBackToCPUInABurst(t *testing.T) {
 	}
 }
 
+// TestHeavyCPUBurstsDrawOnGPU checks that frames changing little draw on
+// the GPU once the CPU's frames of their burst cost too much, as an
+// animation over translucent layers may, and on the CPU after a pause.
+func TestHeavyCPUBurstsDrawOnGPU(t *testing.T) {
+	g := &pixelGPU{}
+	h, _, frame := gpuHost(t, func() (gpuRenderer, error) { return g, nil })
+	x := float32(10)
+	h.rt = newRuntime(func(c *Context) {
+		Box(c).Fill().Background(RGB(200, 200, 200)).Children(func() {
+			Box(c).Size(10, 10).Background(RGB(0, 0, 255)).Absolute().Left(x).Top(10)
+		})
+	}, h)
+	check := func(what string, pixels, frames int) {
+		t.Helper()
+		if g.pixels != pixels || g.frames != frames {
+			t.Fatalf("%s: %d frames drawn on the CPU, %d on the GPU", what, g.pixels, g.frames)
+		}
+	}
+	move := func() {
+		x++
+		frame()
+	}
+	frame()
+	move()
+	check("small changes", 2, 0)
+	// The CPU's frames of the burst so far took 8 ms each, at 60 Hz.
+	start := time.Now().Add(-300 * time.Millisecond)
+	h.cpuBurst = cpuLoad{}
+	for at := time.Duration(0); at < 300*time.Millisecond; at += 16 * time.Millisecond {
+		h.noteCPUFrame(start.Add(at), 8*time.Millisecond, 8*time.Millisecond)
+	}
+	if !h.cpuHeavy {
+		t.Fatal("frames of 8 ms at 60 Hz are not heavy")
+	}
+	move()
+	move()
+	check("small changes in a heavy burst", 2, 2)
+	// After a pause, the CPU draws again, catching up on where the square
+	// went while the GPU drew.
+	h.lastFrame = time.Now().Add(-time.Second)
+	h.frameEnd = h.lastFrame
+	move()
+	check("a small change after a pause", 3, 2)
+	if len(g.damage) == 0 || g.damage[0].Dx() > 40 || !g.damage[0].Overlaps(image.Rect(12, 10, 23, 20)) {
+		t.Errorf("catching up changed %v", g.damage)
+	}
+	// Light frames do not tip a burst over.
+	for range 30 {
+		move()
+	}
+	if h.cpuHeavy || g.frames != 2 {
+		t.Errorf("light frames: heavy %v, %d frames on the GPU", h.cpuHeavy, g.frames)
+	}
+}
+
 func TestCPULoad(t *testing.T) {
 	var l cpuLoad
 	t0 := time.Now()

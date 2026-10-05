@@ -95,7 +95,9 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	t.mu.Lock()
 	if t.term == nil {
 		t.mu.Unlock()
-		p.Fill(r, bg, 0)
+		if !t.opts.Transparent {
+			p.Fill(r, bg, 0)
+		}
 		return
 	}
 	t.resize(gridSize{v.cols, v.rows, v.cellW, v.cellH})
@@ -393,7 +395,9 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 	ox := (float32(math.Round(float64(r.X*s))) + float32(v.ox)) / s
 	oy := (float32(math.Round(float64(r.Y*s))) + float32(v.oy)) / s
 	base := float32(v.baseline) / s
-	p.Fill(r, color(v.colors.Background), 0)
+	if !v.t.opts.Transparent {
+		p.Fill(r, color(v.colors.Background), 0)
+	}
 	selection := v.theme.Selection
 	if selection.A == 0 {
 		selection = color(v.colors.Foreground).Alpha(0.3)

@@ -127,6 +127,10 @@ term, err := terminal.New(terminal.Options{
 - `Cursor` and `NoBlink` set the cursor, which programs may change.
 - `Scrollback` is about how many bytes of output to keep above the
   screen: 10 MB by default, none when negative.
+- `Transparent` leaves the background undrawn, as Ghostty's
+  `background-opacity`, so that what is under the view shows through: the
+  window's material, or an element's translucent background. Cells with a
+  background color of their own still draw it.
 - `OptionAsAlt` makes Option on macOS the Alt key of programs (Meta),
   instead of the key typing accented letters.
 - `OnTitle`, `OnExit`, `OnBell` and `OnNotify` run on a goroutine of the
@@ -229,6 +233,11 @@ The terminal's methods are safe from any goroutine:
 - `Title`, `Dir` (the directory the shell reported), `Size` (in cells) and
   `Text` (the screen and its scrollback) read the terminal.
 - `SetFont` and `SetTheme` change the font and the colors.
+- `Resize` sets the size of a terminal no view shows, and `Snapshot`
+  returns what a terminal shows as escape sequences: its scrollback and
+  screen with their styles, the cursor and the modes programs set. Fed to
+  a new terminal of the same size, it shows the same, as when a server
+  keeps a session's screen for the windows that attach to it.
 - `Close` hangs up the program, which gets SIGHUP, and frees the terminal.
 
 ## Without a program

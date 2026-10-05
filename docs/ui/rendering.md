@@ -12,7 +12,12 @@ pointer over a button, are drawn on the CPU, which redraws only what
 changed, and go to the screen without waking the GPU: they take less time
 than the GPU takes to start, and spare the memory Metal's driver holds for
 a couple of seconds after each frame it draws. Scrolling, resizing and
-animations of much of the window use the GPU.
+animations of much of the window use the GPU, as do animations that change
+little but cost the CPU much to redraw, such as a dot pulsing over
+translucent layers, gradients and shadows at the display's rate: once
+drawing a burst of frames on the CPU takes more than a quarter of its
+time, the rest of the burst draws on the GPU, and the frame after a pause
+on the CPU again.
 
 On Linux, a window draws on the CPU until that costs too much, as when
 scrolling or animating much of a large window on a fast display, and only

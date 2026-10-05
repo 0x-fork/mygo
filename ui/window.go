@@ -84,9 +84,10 @@ type windowHost struct {
 	last     *scene.Scene
 	// cpuShown tells that the frame shown is the one soft drew last.
 	cpuShown bool
-	// lastFrame is when the last frame was presented, and gpuSinceCPU
-	// when the first since the CPU drew one, if the GPU drew it.
-	lastFrame, gpuSinceCPU time.Time
+	// lastFrame is when the last frame was presented, frameEnd when it
+	// was done, and gpuSinceCPU when the first since the CPU drew one, if
+	// the GPU drew it.
+	lastFrame, frameEnd, gpuSinceCPU time.Time
 	// framing tells that the surface asked for the frame being drawn.
 	framing bool
 	// path is how the last frame was drawn, for MYGO_FRAME_STATS.
@@ -96,6 +97,11 @@ type windowHost struct {
 	// cost enough to ask for it, and askedGPU that the host did.
 	load              cpuLoad
 	wantGPU, askedGPU bool
+	// cpuBurst measures the frames the CPU draws for a pixelPresenter, and
+	// cpuHeavy tells that those of the burst going on cost too much: the
+	// rest of it draws on the GPU (see gpuLoad).
+	cpuBurst cpuLoad
+	cpuHeavy bool
 	// idleTimer runs idle once frames stop, at idleAt when idleArmed.
 	idleTimer *time.Timer
 	idleAt    time.Time
@@ -139,7 +145,13 @@ type pixelPresenter interface {
 // most of it, draw on the GPU, as do frames redrawing more than
 // cpuMaxPixels. The next frame changing less draws on the CPU again, with
 // what the GPU drew meanwhile: a progress bar moving on after a page slid
-// in draws on the CPU, though frames never pause.
+// in draws on the CPU, though frames never pause. Frames changing little
+// may still cost much to draw, as an animation repainting translucent
+// layers over gradients and shadows at the display's rate: once the CPU's
+// frames of a burst cost too much, as a surface that gives the GPU on
+// demand measures them (gpuLoad), the rest of the burst draws on the GPU,
+// which Metal does in a millisecond or two of the CPU's time, and the
+// frame after a pause on the CPU again.
 const (
 	burstGap     = 50 * time.Millisecond // frames closer follow each other
 	cpuMaxPixels = 8 << 20
@@ -238,7 +250,13 @@ func (h *windowHost) present(s *scene.Scene) {
 	}
 	now := time.Now()
 	burst := now.Sub(h.lastFrame) < burstGap
+	if now.Sub(h.frameEnd) >= burstGap {
+		// A pause, after the last frame was done however long it took:
+		// the CPU's frames start a burst of their own.
+		h.cpuHeavy, h.cpuBurst = false, cpuLoad{}
+	}
 	h.lastFrame = now
+	defer func() { h.frameEnd = time.Now() }()
 	h.armIdle(frameIdle)
 	if h.drawOnCPU(s, burst) {
 		h.gpuSinceCPU = time.Time{}
@@ -353,17 +371,25 @@ func (h *windowHost) idle() {
 }
 
 // drawOnCPU draws s on the CPU and has the GPU renderer present it, when
-// it changes little (see pixelPresenter), and reports whether it did.
+// it changes little (see pixelPresenter) and the CPU's frames of the burst
+// cost little, and reports whether it did.
 func (h *windowHost) drawOnCPU(s *scene.Scene, burst bool) bool {
 	p, ok := h.gpu.(pixelPresenter)
-	if !ok {
+	if !ok || h.cpuHeavy {
 		return false
 	}
 	draw, changed := h.soft.Changes(s)
 	if draw > cpuMaxPixels || burst && changed > s.Width*s.Height/16 {
 		return false
 	}
+	drawing := time.Now()
 	damage := h.soft.Render(s)
+	// What other cores took to draw with this one.
+	others := max(h.soft.CPU()-time.Since(drawing), 0)
+	defer func() {
+		took := time.Since(drawing)
+		h.noteCPUFrame(drawing, took, took+others)
+	}()
 	if len(damage) == 0 && h.cpuShown {
 		// The frame shown is the same: a drawing asking for frames that
 		// did not move, as a spinner between its steps.
@@ -378,6 +404,16 @@ func (h *windowHost) drawOnCPU(s *scene.Scene, burst bool) bool {
 	}
 	h.cpuShown = true
 	return true
+}
+
+// noteCPUFrame notes that drawing and presenting a frame begun at now on
+// the CPU, for the GPU renderer to present, took d, and cpu of CPU time,
+// and draws the rest of the burst on the GPU once its frames cost too
+// much (see gpuLoad).
+func (h *windowHost) noteCPUFrame(now time.Time, d, cpu time.Duration) {
+	if _, heavy := h.cpuBurst.add(now, d, cpu); heavy {
+		h.cpuHeavy = true
+	}
 }
 
 // gpuDrew notes that the GPU drew s, where frames drawn on the CPU show

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/plugins/terminal/internal/vt"
 	"github.com/egoist/mygo/ui"
 	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/gomonobold"
@@ -199,6 +200,51 @@ func TestScrollback(t *testing.T) {
 	tt.Type("x")
 	if got := offset(); got != bottom {
 		t.Errorf("after typing, offset = %d, want %d", got, bottom)
+	}
+}
+
+// A snapshot of a terminal no view shows restores what it shows in
+// another, as a server keeping sessions sends it to a window attaching.
+func TestSnapshot(t *testing.T) {
+	loadLib(t)
+	newTerm := func() *Terminal {
+		term, err := New(Options{Conn: newPipe()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { term.Close() })
+		term.Resize(40, 6)
+		return term
+	}
+	a := newTerm()
+	for i := range 10 {
+		a.Feed([]byte("line " + itoa(i) + " \x1b[31mred\x1b[0m \x1b[1;4mbold\x1b[0m\r\n"))
+	}
+	a.Feed([]byte("prompt % \x1b[?2004h"))
+	snap := a.Snapshot()
+	b := newTerm()
+	b.Feed(snap)
+	// The cursor and the modes come too: what follows lands alike.
+	a.Feed([]byte("x"))
+	b.Feed([]byte("x"))
+	if a.Text() != b.Text() {
+		t.Errorf("restored text\n%q, want\n%q", b.Text(), a.Text())
+	}
+	b.mu.Lock()
+	paste := b.term.Mode(vt.ModeBracketedPaste)
+	b.mu.Unlock()
+	if !paste {
+		t.Error("bracketed paste was not restored")
+	}
+	// A full-screen program's screen, at a new size.
+	a.Feed([]byte("\x1b[?1049h\x1b[H\x1b[2Jfull screen\x1b[3;5Hhere"))
+	a.Resize(30, 5)
+	c := newTerm()
+	c.Resize(30, 5)
+	c.Feed(a.Snapshot())
+	c.Feed([]byte("!"))
+	if got := c.Text(); !strings.Contains(got, "full screen") || !strings.Contains(got, "here!") {
+		t.Errorf("restored alternate screen %q", got)
 	}
 }
 
