@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -38,7 +39,8 @@ type secondInstanceMessage struct {
 //		return
 //	}
 //
-// The lock is identified by the application name and released on quit.
+// The lock is identified by the application name and, in a packaged app,
+// its identifier, and released on quit.
 func (a *Application) RequestSingleInstanceLock() bool {
 	if os.Getenv("MYGO_GENERATE") != "" {
 		return true // Run will only write the TypeScript client.
@@ -48,7 +50,7 @@ func (a *Application) RequestSingleInstanceLock() bool {
 	if singleInstance.locked {
 		return true
 	}
-	path := singleInstanceSocket(a.Name())
+	path := singleInstanceSocket(singleInstanceKey(a.Name()))
 	wd, _ := os.Getwd()
 	msg, _ := json.Marshal(secondInstanceMessage{Args: os.Args[1:], WorkingDir: wd})
 	for attempt := 0; attempt < 5; attempt++ {
@@ -61,6 +63,10 @@ func (a *Application) RequestSingleInstanceLock() bool {
 			}
 			_, _ = io.Copy(io.Discard, conn) // wait until it was read
 			conn.Close()
+			if launchedByDev() {
+				// mygo dev would only see the app exit.
+				log.Printf("mygo: %s is already running: handed the command line over to it (RequestSingleInstanceLock)", a.Name())
+			}
 			return false
 		}
 		// Nobody answers: remove a stale socket left by a crash and take
@@ -134,6 +140,16 @@ func releaseSingleInstanceLock() {
 		}
 		singleInstance.listener, singleInstance.socket, singleInstance.locked = nil, nil, false
 	}
+}
+
+// singleInstanceKey identifies the lock of the app named name. The
+// identifier keeps the development app of mygo dev ("<identifier>.dev")
+// apart from the installed app when both call SetName with the same name.
+func singleInstanceKey(name string) string {
+	if info, ok := packageInfo(); ok && info.Identifier != "" {
+		return info.Identifier + "\n" + name
+	}
+	return name
 }
 
 // singleInstanceSocket returns a short per-user socket path; Unix socket

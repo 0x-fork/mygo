@@ -86,10 +86,10 @@ running one. Frontend changes are the dev server's to handle. Quitting the app, 
 Ctrl+C, ends mygo dev, and `App.Relaunch` restarts the app.
 
 The development app is named `<name> Dev`, with the identifier
-`<identifier>.dev`, so that its data and preferences stay apart from the
-installed app's. On macOS it is a real app bundle, in `.mygo/dev`; on
-Windows its executable carries the icon, manifest and version information
-that `mygo build` embeds.
+`<identifier>.dev`, so that its data, preferences and single instance lock
+stay apart from the installed app's. On macOS it is a real app bundle, in
+`.mygo/dev`; on Windows its executable carries the icon, manifest and
+version information that `mygo build` embeds.
 
 | Flag | |
 |---|---|

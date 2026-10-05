@@ -34,9 +34,11 @@ var fb *fake.Backend
 func TestMain(m *testing.M) {
 	if os.Getenv("MYGO_TEST_SECOND_INSTANCE") == "1" {
 		// Helper process for TestSingleInstance.
+		packageIdentifier = os.Getenv("MYGO_TEST_IDENTIFIER")
 		App.SetName("MyGoTest")
 		if App.RequestSingleInstanceLock() {
 			fmt.Println("locked")
+			releaseSingleInstanceLock()
 		} else {
 			fmt.Println("forwarded")
 		}
@@ -1607,6 +1609,24 @@ func TestEncodeReply(t *testing.T) {
 	b = encodeReply(8, "k", make(chan int), nil).appendTo(nil)
 	if !strings.Contains(string(b), `"ok":false`) {
 		t.Errorf("unencodable result should be an error: %s", b)
+	}
+}
+
+// TestSingleInstanceIdentifier checks that an app with another identifier
+// but the same name, as the development app of mygo dev that calls SetName,
+// does not hand over to the running one.
+func TestSingleInstanceIdentifier(t *testing.T) {
+	if !App.RequestSingleInstanceLock() {
+		t.Fatal("first instance did not get the lock")
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), "MYGO_TEST_SECOND_INSTANCE=1", "MYGO_TEST_IDENTIFIER=com.example.mygotest.dev")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(out)) != "locked" {
+		t.Fatalf("an app with another identifier printed %q", out)
 	}
 }
 
