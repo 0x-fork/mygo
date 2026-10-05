@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo/internal/scene"
 )
@@ -88,8 +89,10 @@ const (
 
 // draw draws the pixels of s within area into dst, with the renderers of
 // rs, made as needed, leaving out the operations whose bounds (opBounds)
-// miss the band drawn.
-func draw(rs *[]renderer, dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) {
+// miss the band drawn. It returns how long the cores took, together: on
+// several cores, a multiple of how long drawing lasted.
+func draw(rs *[]renderer, dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) time.Duration {
+	start := time.Now()
 	area = area.Intersect(image.Rect(0, 0, dst.W, dst.H))
 	bands := (area.Dy() + bandRows - 1) / bandRows
 	n := max(min(runtime.GOMAXPROCS(0), area.Dx()*area.Dy()/workArea, bands, maxWorkers), 1)
@@ -98,22 +101,26 @@ func draw(rs *[]renderer, dst *Image, s *scene.Scene, area image.Rectangle, boun
 	}
 	if n == 1 {
 		(*rs)[0].render(dst, s, area, bounds)
-		return
+		return time.Since(start)
 	}
 	var next atomic.Int32
+	var busy atomic.Int64
 	var wg sync.WaitGroup
 	for i := range n {
 		r := &(*rs)[i]
 		wg.Go(func() {
+			began := time.Now()
 			for b := int(next.Add(1)) - 1; b < bands; b = int(next.Add(1)) - 1 {
 				band := area
 				band.Min.Y = area.Min.Y + b*bandRows
 				band.Max.Y = min(band.Min.Y+bandRows, area.Max.Y)
 				r.render(dst, s, band, bounds)
 			}
+			busy.Add(int64(time.Since(began)))
 		})
 	}
 	wg.Wait()
+	return time.Duration(busy.Load())
 }
 
 // render draws the pixels of s within area, but for the operations whose

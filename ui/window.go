@@ -147,8 +147,9 @@ const (
 
 // A surface that gives the GPU on demand (Linux's, as OpenGL loads Mesa
 // for good: some 50 MB) draws in memory until drawing on the CPU costs too
-// much: more than gpuLoad of the time of a burst of frames lasting gpuBurst
-// or more, as scrolling or animating much of a large window may. The host
+// much: CPU time of more than gpuLoad of the time of a burst of frames
+// lasting gpuBurst or more, as scrolling or animating much of a large
+// window may, whose frames draw on several cores at once. The host
 // then asks for the GPU once the window has been idle for gpuIdle, so that
 // loading the driver delays no frame, or at once when the burst goes on
 // for gpuBurstLong, or when the CPU takes longer than a refresh of the
@@ -169,22 +170,25 @@ const frameIdle = 2 * time.Second
 // them in memory.
 type cpuLoad struct {
 	// start is when the burst's first frame began drawing, end when its
-	// last one was done; busy is how long drawing its frames took.
+	// last one was done; took is how long drawing its frames lasted, and
+	// busy how much CPU time it took, more on several cores.
 	start, end time.Time
-	busy       time.Duration
+	took, busy time.Duration
 	frames     int
 }
 
-// add notes a frame begun at now that the CPU took d to draw, and returns
-// how long its burst has lasted and whether drawing took more than gpuLoad
-// of it, once it lasted gpuBurst. A frame begun soon after the last was
-// done is in its burst, however long they take.
-func (l *cpuLoad) add(now time.Time, d time.Duration) (lasted time.Duration, heavy bool) {
+// add notes a frame begun at now that took d to draw, and cpu of CPU
+// time, and returns how long its burst has lasted and whether drawing took
+// CPU time of more than gpuLoad of it, once it lasted gpuBurst. A frame
+// begun soon after the last was done is in its burst, however long they
+// take.
+func (l *cpuLoad) add(now time.Time, d, cpu time.Duration) (lasted time.Duration, heavy bool) {
 	if now.Sub(l.end) >= burstGap {
-		l.start, l.busy, l.frames = now, 0, 0
+		l.start, l.took, l.busy, l.frames = now, 0, 0, 0
 	}
 	l.end = now.Add(d)
-	l.busy += d
+	l.took += d
+	l.busy += max(cpu, d)
 	l.frames++
 	lasted = l.end.Sub(l.start)
 	return lasted, lasted >= gpuBurst && float64(l.busy) > gpuLoad*float64(lasted)
@@ -193,7 +197,7 @@ func (l *cpuLoad) add(now time.Time, d time.Duration) (lasted time.Duration, hea
 // slow reports whether the burst's frames took longer than interval each
 // to draw, on average.
 func (l *cpuLoad) slow(interval time.Duration) bool {
-	return l.busy > time.Duration(l.frames)*interval
+	return l.took > time.Duration(l.frames)*interval
 }
 
 func (h *windowHost) refreshRate() float32 { return float32(h.conn.Surface.RefreshRate()) }
@@ -253,24 +257,28 @@ func (h *windowHost) present(s *scene.Scene) {
 		return
 	}
 	h.path = "drawn in memory"
+	drawing := time.Now()
 	damage := h.soft.Render(s)
+	// What other cores took to draw with this one.
+	others := max(h.soft.CPU()-time.Since(drawing), 0)
 	m := &h.soft.Image
 	if d, ok := h.conn.Surface.(platform.DamageSurface); ok {
 		d.PresentDamage(m.Pix, m.Stride, m.W, m.H, damage)
 	} else {
 		h.conn.Surface.PresentPixels(m.Pix, m.Stride, m.W, m.H)
 	}
-	h.noteCPU(now, time.Since(now))
+	took := time.Since(now)
+	h.noteCPU(now, took, took+others)
 }
 
-// noteCPU notes that the CPU took d to draw and present a frame begun at
-// now in memory and, on a surface that gives the GPU on demand, asks for
-// it once that costs too much (see gpuLoad).
-func (h *windowHost) noteCPU(now time.Time, d time.Duration) {
+// noteCPU notes that drawing and presenting a frame begun at now in memory
+// took d, and cpu of CPU time, and, on a surface that gives the GPU on
+// demand, asks for it once that costs too much (see gpuLoad).
+func (h *windowHost) noteCPU(now time.Time, d, cpu time.Duration) {
 	if _, ok := h.conn.Surface.(platform.LazyGPUSurface); !ok || h.askedGPU || h.conn.Post == nil {
 		return
 	}
-	lasted, heavy := h.load.add(now, d)
+	lasted, heavy := h.load.add(now, d, cpu)
 	interval := time.Second / 60
 	if hz := h.refreshRate(); hz > 0 {
 		interval = time.Duration(float32(time.Second) / hz)

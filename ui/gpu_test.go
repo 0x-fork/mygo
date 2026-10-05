@@ -312,7 +312,7 @@ func TestBackToCPUInABurst(t *testing.T) {
 func TestCPULoad(t *testing.T) {
 	var l cpuLoad
 	t0 := time.Now()
-	frame := func(at, took time.Duration) (time.Duration, bool) { return l.add(t0.Add(at), took) }
+	frame := func(at, took time.Duration) (time.Duration, bool) { return l.add(t0.Add(at), took, took) }
 	const refresh = 16 * time.Millisecond
 	// Frames of 2 ms at 60 Hz take an eighth of the time.
 	for i := range 60 {
@@ -343,6 +343,20 @@ func TestCPULoad(t *testing.T) {
 	}
 	if !heavy || lasted < 300*time.Millisecond || !l.slow(refresh) {
 		t.Errorf("frames of 80 ms: lasted %v, heavy %v, slow %v", lasted, heavy, l.slow(refresh))
+	}
+	// Frames of 2 ms drawn on 8 cores take as much CPU as frames of 16 ms:
+	// heavy, though not slow.
+	first = 0
+	for i := 0; first == 0 && i < 60; i++ {
+		if lasted, heavy := l.add(t0.Add(6*time.Second+time.Duration(i)*refresh), 2*time.Millisecond, 16*time.Millisecond); heavy {
+			first = lasted
+		}
+	}
+	if first < gpuBurst || first > gpuBurst+refresh {
+		t.Errorf("frames of 2 ms on 8 cores were heavy after %v", first)
+	}
+	if l.slow(refresh) {
+		t.Error("frames of 2 ms on 8 cores are slow at 60 Hz")
 	}
 }
 
@@ -403,10 +417,16 @@ func lazyHost(t *testing.T, hasGPU bool) (*windowHost, *lazySurface, func(), fun
 }
 
 // burst notes frames drawn in memory at 60 Hz for lasting, each taking
-// took, as the frames of a lazy surface's host would.
+// took on one core, as the frames of a lazy surface's host would.
 func burst(h *windowHost, start time.Time, lasted, took time.Duration) {
+	burstOn(h, start, lasted, took, took)
+}
+
+// burstOn notes frames drawn in memory at 60 Hz for lasting, each taking
+// took, and cpu of CPU time on several cores.
+func burstOn(h *windowHost, start time.Time, lasted, took, cpu time.Duration) {
 	for at := time.Duration(0); at < lasted; at += 16 * time.Millisecond {
-		h.noteCPU(start.Add(at), took)
+		h.noteCPU(start.Add(at), took, cpu)
 	}
 }
 
@@ -459,7 +479,7 @@ func TestLazyGPUAtOnce(t *testing.T) {
 	frame()
 	start := time.Now()
 	for at := time.Duration(0); at < 300*time.Millisecond; at += 40 * time.Millisecond {
-		h.noteCPU(start.Add(at), 30*time.Millisecond)
+		h.noteCPU(start.Add(at), 30*time.Millisecond, 30*time.Millisecond)
 	}
 	run()
 	if s.asked != 1 {
@@ -468,6 +488,15 @@ func TestLazyGPUAtOnce(t *testing.T) {
 	frame()
 	if h.gpu == nil {
 		t.Errorf("the frame after: %q", h.path)
+	}
+	// So does a burst of frames that last little but take several cores,
+	// as scrolling a large window does.
+	h, s, frame, run = lazyHost(t, true)
+	frame()
+	burstOn(h, time.Now(), gpuBurstLong+100*time.Millisecond, 1500*time.Microsecond, 12*time.Millisecond)
+	run()
+	if s.asked != 1 {
+		t.Errorf("a long burst of frames on several cores asked %d times", s.asked)
 	}
 }
 

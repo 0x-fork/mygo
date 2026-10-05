@@ -4,6 +4,7 @@ import (
 	"image"
 	"math"
 	"runtime"
+	"time"
 
 	"github.com/egoist/mygo/internal/scene"
 )
@@ -43,6 +44,8 @@ type Renderer struct {
 	mask, color  atlasMark
 	damage       []image.Rectangle
 	clips        []image.Rectangle
+	// cpu is how long the cores took to draw the last scene (CPU).
+	cpu time.Duration
 }
 
 // atlasMark is the state of an atlas a scene drew from.
@@ -80,13 +83,19 @@ func (r *Renderer) Render(s *scene.Scene) []image.Rectangle {
 	} else {
 		r.addStale()
 	}
+	r.cpu = 0
 	for _, d := range r.damage {
-		draw(&r.rs, &r.Image, s, d, r.next)
+		r.cpu += draw(&r.rs, &r.Image, s, d, r.next)
 	}
 	r.stale, r.redraw = r.stale[:0], false
 	r.remember(s)
 	return r.damage
 }
+
+// CPU returns how long the cores took to draw the last scene Rendered,
+// together: a large area draws on several cores at once, which takes the
+// CPU a multiple of the time drawing lasts.
+func (r *Renderer) CPU() time.Duration { return r.cpu }
 
 // Skip notes that s was shown without Render, as when the GPU drew it:
 // Changes compares the next scene with s, and the next Render draws what s
