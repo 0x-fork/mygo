@@ -26,13 +26,18 @@ import {
   metrics,
   platforms,
   ranges,
-  seriesStats,
+  findSteps,
+  lastValue,
+  trendOf,
   workflowUrl,
   type BenchmarkData,
   type Group,
   type Metric,
   type Platform,
-  type SeriesStats,
+  type Commit,
+  type Runner,
+  type Step,
+  type Trend,
 } from "@/lib/benchmarks"
 import { site } from "@/lib/site"
 import { cn } from "@/lib/utils"
@@ -113,8 +118,9 @@ function Benchmarks() {
         <h1 className="mt-5 text-3xl leading-[1.1] font-semibold tracking-[-0.035em] sm:text-4xl">Every push, measured.</h1>
         <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
           MyGo&apos;s benchmarks run on every push to main, on GitHub&apos;s macOS, Linux and Windows runners. Each point is a commit, the median of six
-          runs, and lower is better on every chart. Runners are shared virtual machines: timings drift a few percent from run to run, and jump when a
-          runner gets another CPU, which a vertical line marks.
+          runs, and lower is better on every chart. A chart marks the commits that moved its results beyond their noise, ▲ worse and ▼ better, and
+          its card compares the last value with the first ones shown. Runners are shared virtual machines that get one of several CPUs from run to
+          run: timings are compared only on the same CPU, the last commit&apos;s in the line, others in gray.
         </p>
         <p className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm">
           <a href={workflowUrl} className="font-medium underline decoration-gopher/45 underline-offset-[5px] hover:decoration-gopher">
@@ -244,11 +250,13 @@ function JumpMenu({ sections }: { sections: Section[] }) {
             <DropdownMenuGroup>
               <DropdownMenuLabel>{section.group.title}</DropdownMenuLabel>
               {section.rows.map(({ name, values }) => {
-                const stats = seriesStats(values, section.unit)
+                const latest = lastValue(values)
                 return (
                   <DropdownMenuItem key={name} onClick={() => (chosen.current = [section.group.pkg, name])}>
                     <span className="truncate font-mono text-[13px]">{name}</span>
-                    {stats && <span className="ml-auto pl-4 text-xs text-muted-foreground tabular-nums">{formatValue(stats.latest, section.unit)}</span>}
+                    {latest !== undefined && (
+                      <span className="ml-auto pl-4 text-xs text-muted-foreground tabular-nums">{formatValue(latest, section.unit)}</span>
+                    )}
                   </DropdownMenuItem>
                 )
               })}
@@ -258,6 +266,15 @@ function JumpMenu({ sections }: { sections: Section[] }) {
       </DropdownMenuContent>
     </DropdownMenu>
   )
+}
+
+/** A step of a benchmark's series in a unit, as the summary lists them. */
+interface Moved {
+  pkg: string
+  name: string
+  unit: string
+  metric?: (typeof metrics)[number]
+  step: Step
 }
 
 function Results({
@@ -287,17 +304,26 @@ function Results({
   const latest = data.commits[last]
   const runner = runners[last]
 
-  // What moved in the last commit measured, beyond each series' noise.
-  const moved: { pkg: string; name: string; metric: (typeof metrics)[number] | undefined; unit: string; stats: SeriesStats }[] = []
+  // The commits shown that moved results, newest first, with their steps,
+  // the worse first, in every unit: a step stays listed however many
+  // commits came after it.
+  const byCommit = new Map<number, Moved[]>()
   for (const [pkg, benchmarks] of Object.entries(series)) {
     for (const [name, units] of Object.entries(benchmarks)) {
-      for (const [u, values] of Object.entries(units)) {
-        const stats = seriesStats(values, u)
-        if (stats?.significant && stats.index === last) moved.push({ pkg, name, metric: metrics.find((m) => m.unit === u), unit: u, stats })
+      for (const [unit, values] of Object.entries(units)) {
+        for (const step of findSteps(values, unit, runners)) {
+          if (step.index < from) continue
+          const moved = byCommit.get(step.index) ?? []
+          moved.push({ pkg, name, unit, metric: metrics.find((m) => m.unit === unit), step })
+          byCommit.set(step.index, moved)
+        }
       }
     }
   }
-  moved.sort((a, b) => Number(b.stats.change! > 0) - Number(a.stats.change! > 0) || Math.abs(b.stats.change!) - Math.abs(a.stats.change!))
+  const moving = [...byCommit].sort(([a], [b]) => b - a)
+  for (const [, moved] of moving) {
+    moved.sort((a, b) => Number(b.step.change > 0) - Number(a.step.change > 0) || Math.abs(b.step.change) - Math.abs(a.step.change))
+  }
 
   const jump = (pkg: string, name: string, metric?: Metric) => {
     if (metric) onMetric(metric)
@@ -319,27 +345,47 @@ function Results({
               {formatDate(latest.date, true)} · {runner.cpu} · {runner.go}
             </p>
           </div>
-          <div className="border-t px-4 py-8 sm:px-10 md:border-t-0">
-            <p className="label">Moved beyond noise</p>
-            {moved.length ? (
-              <ul className="mt-3 flex flex-wrap gap-2">
-                {moved.slice(0, 8).map((m) => (
-                  <li key={`${m.pkg}/${m.name}/${m.unit}`}>
-                    <button
-                      type="button"
-                      onClick={() => jump(m.pkg, m.name, m.metric?.id)}
-                      className="inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm transition-colors hover:bg-muted"
-                    >
-                      <Change stats={m.stats} />
-                      <span className="font-mono text-[13px]">{displayName(m.pkg, m.name)}</span>
-                      <span className="text-muted-foreground">{m.metric?.label.toLowerCase() ?? m.unit}</span>
-                    </button>
-                  </li>
-                ))}
-                {moved.length > 8 && <li className="self-center text-sm text-muted-foreground">and {moved.length - 8} more</li>}
-              </ul>
+          <div className="min-w-0 border-t px-4 py-8 sm:px-10 md:border-t-0">
+            <p className="label">Moved in the last {commits.length} commits</p>
+            {moving.length ? (
+              <ol className="mt-3 space-y-5">
+                {moving.slice(0, 5).map(([index, moved]) => {
+                  const commit = data.commits[index]!
+                  return (
+                    <li key={index}>
+                      <a href={commitUrl(commit.sha)} className="group flex min-w-0 items-baseline gap-2 text-sm">
+                        <span className="font-mono text-gopher-ink">{commit.sha.slice(0, 7)}</span>
+                        <span className="truncate font-medium group-hover:underline group-hover:underline-offset-4">{commit.message}</span>
+                        <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">{formatDate(commit.date)}</span>
+                      </a>
+                      <ul className="mt-2 flex flex-wrap gap-2">
+                        {moved.slice(0, 6).map((m) => (
+                          <li key={`${m.pkg}/${m.name}/${m.unit}`}>
+                            <button
+                              type="button"
+                              onClick={() => jump(m.pkg, m.name, m.metric?.id)}
+                              title={`${formatValue(m.step.before, m.unit)} → ${formatValue(m.step.after, m.unit)}`}
+                              className="inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-sm transition-colors hover:bg-muted"
+                            >
+                              <Change change={m.step.change} significant />
+                              <span className="font-mono text-[13px]">{displayName(m.pkg, m.name)}</span>
+                              <span className="text-muted-foreground">{m.metric?.label.toLowerCase() ?? m.unit}</span>
+                            </button>
+                          </li>
+                        ))}
+                        {moved.length > 6 && <li className="self-center text-sm text-muted-foreground">and {moved.length - 6} more</li>}
+                      </ul>
+                    </li>
+                  )
+                })}
+              </ol>
             ) : (
-              <p className="mt-3 text-sm text-muted-foreground">Nothing: every result is within the noise of the commits before.</p>
+              <p className="mt-3 text-sm text-muted-foreground">Nothing moved beyond its noise.</p>
+            )}
+            {moving.length > 5 && (
+              <p className="mt-4 text-sm text-muted-foreground">
+                And {moving.length - 5} commits before, which the charts mark.
+              </p>
             )}
           </div>
         </section>
@@ -349,13 +395,13 @@ function Results({
         <GroupSection key={group.pkg} group={group} unit={u}>
           {(table) =>
             table ? (
-              <ResultsTable pkg={group.pkg} rows={rows} unit={u} />
+              <ResultsTable pkg={group.pkg} rows={rows} unit={u} commits={data.commits} runners={runners} from={from} />
             ) : (
               <div className="-mr-px -mb-px grid border-t sm:grid-cols-2 lg:grid-cols-3">
                 {rows.map(({ name, values }) => {
-                  const stats = seriesStats(values, u)
+                  const trend = trendOf(values, u, runners, from)
                   const doc = docs[`${group.pkg}/${name.split("/")[0]}`] ?? appDocs[`${group.pkg}/${name}`]
-                  const label = `${displayName(group.pkg, name)}: ${stats ? formatValue(stats.latest, u) : "no results"}`
+                  const label = `${displayName(group.pkg, name)}: ${trend ? formatValue(trend.latest, u) : "no results"}`
                   return (
                     <article
                       key={name}
@@ -374,14 +420,26 @@ function Results({
                             </p>
                           )}
                         </div>
-                        {stats && (
+                        {trend && (
                           <div className="shrink-0 text-right">
-                            <div className="text-lg leading-6 font-semibold tracking-tight">{formatValue(stats.latest, u)}</div>
-                            <Change stats={stats} className="text-xs" />
+                            <div className="text-lg leading-6 font-semibold tracking-tight">{formatValue(trend.latest, u)}</div>
+                            <Change
+                              change={trend.change}
+                              significant={trend.significant}
+                              title={rangeHint(trend, u, commits[0]?.date)}
+                              className="text-xs"
+                            />
                           </div>
                         )}
                       </header>
-                      <TrendChart values={values.slice(from)} commits={commits} runners={windowRunners} unit={u} label={label} />
+                      <TrendChart
+                        values={values.slice(from)}
+                        commits={commits}
+                        runners={windowRunners}
+                        steps={trend?.steps.map((s) => ({ ...s, index: s.index - from })) ?? []}
+                        unit={u}
+                        label={label}
+                      />
                     </article>
                   )
                 })}
@@ -392,6 +450,12 @@ function Results({
       ))}
     </>
   )
+}
+
+/** What a card's change compares. */
+function rangeHint(trend: Trend, unit: string, since?: string) {
+  const start = trend.start !== undefined ? ` (${formatValue(trend.start, unit)})` : ""
+  return `The last value against the first ones shown${start}${since ? `, since ${formatDate(since)}` : ""}; this series moves ±${(trend.noise * 100).toFixed(1)}% on its own`
 }
 
 function GroupSection({ group, unit, children }: { group: Group; unit: string; children: (table: boolean) => React.ReactNode }) {
@@ -426,8 +490,22 @@ function GroupSection({ group, unit, children }: { group: Group; unit: string; c
   )
 }
 
-/** The table view of a group: each benchmark's last value against the five before. */
-function ResultsTable({ pkg, rows, unit }: { pkg: string; rows: Section["rows"]; unit: string }) {
+/** The table view of a group: each benchmark's last value against the first shown, and the commits that moved it. */
+function ResultsTable({
+  pkg,
+  rows,
+  unit,
+  commits,
+  runners,
+  from,
+}: {
+  pkg: string
+  rows: Section["rows"]
+  unit: string
+  commits: Commit[]
+  runners: (Runner | null)[]
+  from: number
+}) {
   const th = "border-b px-4 py-2.5 font-mono text-[11px] font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase sm:px-6"
   const td = "border-b px-4 py-2.5 whitespace-nowrap tabular-nums sm:px-6"
   return (
@@ -437,21 +515,32 @@ function ResultsTable({ pkg, rows, unit }: { pkg: string; rows: Section["rows"];
           <tr>
             <th className={th}>Benchmark</th>
             <th className={cn(th, "text-right")}>Last</th>
-            <th className={cn(th, "text-right")}>Median of the 5 before</th>
+            <th className={cn(th, "text-right")}>First shown</th>
             <th className={cn(th, "text-right")}>Change</th>
-            <th className={cn(th, "text-right")}>Noise</th>
+            <th className={th}>Moved by</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(({ name, values }) => {
-            const stats = seriesStats(values, unit)
+            const trend = trendOf(values, unit, runners, from)
             return (
               <tr key={name} id={`${anchorOf(pkg, name)}-row`} tabIndex={-1} className="outline-none lg:scroll-mt-4">
                 <td className={cn(td, "font-mono text-[13px]")}>{name}</td>
-                <td className={cn(td, "text-right font-medium")}>{stats ? formatValue(stats.latest, unit) : "—"}</td>
-                <td className={cn(td, "text-right text-muted-foreground")}>{stats?.baseline !== undefined ? formatValue(stats.baseline, unit) : "—"}</td>
-                <td className={cn(td, "text-right")}>{stats ? <Change stats={stats} /> : "—"}</td>
-                <td className={cn(td, "text-right text-muted-foreground")}>{stats ? `±${(stats.noise * 100).toFixed(1)}%` : "—"}</td>
+                <td className={cn(td, "text-right font-medium")}>{trend ? formatValue(trend.latest, unit) : "—"}</td>
+                <td className={cn(td, "text-right text-muted-foreground")}>{trend?.start !== undefined ? formatValue(trend.start, unit) : "—"}</td>
+                <td className={cn(td, "text-right")}>
+                  {trend ? <Change change={trend.change} significant={trend.significant} title={rangeHint(trend, unit, commits[from]?.date)} /> : "—"}
+                </td>
+                <td className={td}>
+                  <span className="flex gap-4">
+                    {trend?.steps.map((s) => (
+                      <a key={s.index} href={commitUrl(commits[s.index]!.sha)} className="inline-flex items-center gap-1.5 hover:underline">
+                        <Change change={s.change} significant />
+                        <span className="font-mono text-[13px] text-muted-foreground">{commits[s.index]!.sha.slice(0, 7)}</span>
+                      </a>
+                    ))}
+                  </span>
+                </td>
               </tr>
             )
           })}
@@ -461,22 +550,21 @@ function ResultsTable({ pkg, rows, unit }: { pkg: string; rows: Section["rows"];
   )
 }
 
-/** The change of a series' last value: worse (up) or better (down) beyond its noise, with an arrow, or muted within it. */
-function Change({ stats, className }: { stats: SeriesStats; className?: string }) {
-  if (stats.change === undefined) return <span className={cn("text-muted-foreground", className)}>new</span>
-  const text = formatChange(stats.change)
-  const hint = `Against the median of the 5 commits before; this series moves ±${(stats.noise * 100).toFixed(1)}% on its own`
-  if (!stats.significant) {
+/** A relative change: worse (up) or better (down) beyond the noise of its series, with an arrow, or muted within it. */
+function Change({ change, significant, title, className }: { change?: number; significant: boolean; title?: string; className?: string }) {
+  if (change === undefined) return <span className={cn("text-muted-foreground", className)}>new</span>
+  const text = formatChange(change)
+  if (!significant) {
     return (
-      <span className={cn("text-muted-foreground tabular-nums", className)} title={hint}>
+      <span className={cn("text-muted-foreground tabular-nums", className)} title={title}>
         {text}
       </span>
     )
   }
-  const worse = stats.change > 0
+  const worse = change > 0
   const Icon = worse ? ArrowUpIcon : ArrowDownIcon
   return (
-    <span className={cn("inline-flex items-center gap-0.5 font-medium tabular-nums", worse ? "text-worse" : "text-better", className)} title={hint}>
+    <span className={cn("inline-flex items-center gap-0.5 font-medium tabular-nums", worse ? "text-worse" : "text-better", className)} title={title}>
       <Icon className="size-3.5" aria-hidden />
       {text}
       <span className="sr-only">{worse ? " worse" : " better"}</span>

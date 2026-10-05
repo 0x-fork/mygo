@@ -2135,11 +2135,23 @@ push that races another run's merges again onto it. Started by hand with a
 `ref`, the workflow measures that commit with the current script, to fill
 in history.
 
-The page compares each series' last value with the median of the five
-before, and, once a series has five, calls a change significant past five
-median absolute deviations of the twenty before (at least 5% for time, 1%
-for memory and allocations, 0.2% for sizes): shared runners drift by a few percent, and a
-vertical line marks a commit measured on another CPU than the one before.
+The page finds the commits that moved each series (`findSteps` in
+`website/src/lib/benchmarks.ts`): a commit whose value, and the median of
+the five from it, differ from the median of the five before by more than
+the series' noise, five median absolute deviations of the twenty before
+(their range while fewer than fifteen; at least 5% for time, 1% for
+memory and allocations, 0.2% for sizes, and 16 bytes or an allocation).
+After a step, the values before it are left behind. A series that moves
+needs ten values before a step and two commits after it; a steady one,
+as allocations mostly are, five and none. Charts mark steps with ▲ and ▼,
+the summary lists the commits shown that moved results, and a card
+compares the last value with the first ones shown, so that a regression
+stays in sight after later commits. GitHub's runners get one of several
+CPUs from run to run (Windows' EPYC 9V74 runs some benchmarks 40% faster
+than the 7763), so timings are compared only among commits measured on
+the same CPU, and their charts draw the last commit's CPU as the line and
+others in gray.
+
 Benchmarks are described on the page by their doc comments, which the
 site reads when it is built: start them with the benchmark's name.
 

@@ -101,41 +101,162 @@ function minChange(unit: string) {
   return unit === "ns/op" ? 0.05 : unit === "bytes" ? 0.002 : 0.01
 }
 
-export interface SeriesStats {
-  /** The index of the last value. */
+/** The smallest difference that stands out: a byte or an allocation now and then is a rounding of Go's averages. */
+function minDelta(unit: string) {
+  return unit === "B/op" ? 16 : unit === "allocs/op" ? 1 : 0
+}
+
+/**
+ * The relative change a series makes on its own, given values of it: five
+ * median absolute deviations, a robust spread (about one series in a
+ * thousand moves that much by chance), or their whole range while there
+ * are too few of them to tell, and at least minChange.
+ */
+function noiseOf(values: number[], unit: string) {
+  let noise = minChange(unit)
+  const m = median(values)
+  if (values.length >= 5 && m > 0) {
+    noise = Math.max(noise, (5 * median(values.map((v) => Math.abs(v - m)))) / m)
+    if (values.length < 15) noise = Math.max(noise, (Math.max(...values) - Math.min(...values)) / m)
+  }
+  return noise
+}
+
+/** after / before - 1, Infinity from zero. */
+function ratio(after: number, before: number) {
+  return before > 0 ? after / before - 1 : after === 0 ? 0 : Infinity
+}
+
+/** A commit that moved a series for good. */
+export interface Step {
+  /** The commit's index. */
   index: number
+  /** The median of the five values before it, and of the five from it. */
+  before: number
+  after: number
+  change: number
+}
+
+/**
+ * Finds the commits that moved a series: those whose value, and the
+ * median of the five from them, differ from the median of the five before
+ * by more than its noise (noiseOf the twenty before) and minDelta, in the
+ * same direction. Commits in a row that do are one step, at the biggest
+ * jump, and the values before a step are left behind: the five after it
+ * tell nothing yet, as the first five do. A series that was not steady
+ * needs ten values before a step, and two commits after it to confirm it.
+ *
+ * Timings are compared only among the commits measured on the same CPU:
+ * GitHub's runners get one of several from run to run, which moves them
+ * more than most changes.
+ */
+export function findSteps(values: (number | null)[], unit: string, runners: (Runner | null)[]): Step[] {
+  if (unit !== "ns/op") return stepsOf(values, unit)
+  const cpus = new Set(runners.flatMap((r) => (r ? [r.cpu] : [])))
+  return [...cpus].flatMap((cpu) => stepsOf(onCPU(values, runners, cpu), unit)).sort((a, b) => a.index - b.index)
+}
+
+/** The values measured on cpu, null elsewhere. */
+export function onCPU(values: (number | null)[], runners: (Runner | null)[], cpu: string | undefined) {
+  return values.map((v, i) => (runners[i]?.cpu === cpu ? v : null))
+}
+
+/** The steps of findSteps, in values of one CPU. */
+function stepsOf(values: (number | null)[], unit: string): Step[] {
+  const at = values.flatMap((v, i) => (v == null ? [] : [i]))
+  const v = (k: number) => values[at[k]!]!
+  const steps: Step[] = []
+  // level is where the values compared from began: the first, or the last step.
+  let level = 0
+  let run: { step: Step; jump: number; k: number } | undefined
+  const end = () => {
+    if (!run) return
+    steps.push(run.step)
+    level = run.k
+    run = undefined
+  }
+  for (let k = 5; k < at.length; k++) {
+    if (k - level < 5) continue
+    const i = at[k]!
+    const before = at.slice(Math.max(level, k - 20), k).map((j) => values[j]!)
+    const noise = noiseOf(before, unit)
+    const b = median(before.slice(-5))
+    const a = median(at.slice(k, k + 5).map((j) => values[j]!))
+    const change = ratio(a, b)
+    const own = ratio(v(k), b)
+    const steady = Math.max(...before) - Math.min(...before) <= minChange(unit) * b
+    const small = Math.abs(a - b) < minDelta(unit) || Math.abs(v(k) - b) < minDelta(unit)
+    // A series that moves needs ten values to tell its noise, and two
+    // commits after a step to confirm it.
+    const unconfirmed = !steady && (before.length < 10 || at.length - k < 3)
+    if (small || unconfirmed || Math.abs(change) <= noise || Math.abs(own) <= noise || Math.sign(change) !== Math.sign(own)) {
+      end()
+      continue
+    }
+    const jump = Math.abs(v(k) - v(k - 1)) / Math.max(b, Number.MIN_VALUE)
+    if (!run || jump > run.jump) run = { step: { index: i, before: b, after: a, change }, jump, k }
+  }
+  end()
+  return steps
+}
+
+/** How a series went over the commits shown, from index from on. */
+export interface Trend {
+  /** The last value, and its index. */
   latest: number
-  /** The median of the five values before the last. */
-  baseline?: number
-  /** latest / baseline - 1. */
+  index: number
+  /** The median of the first five values shown, before the last. */
+  start?: number
+  /** latest against start. */
   change?: number
   /** How much the series moves on its own, relatively: the change that stands out. */
   noise: number
   significant: boolean
+  /** The steps among the commits shown. */
+  steps: Step[]
 }
 
-/** Compares a series' last value with the ones before it, whose spread tells its noise. */
-export function seriesStats(values: (number | null)[], unit: string): SeriesStats | undefined {
+/**
+ * Compares a series' last value with the first ones shown, from index
+ * from, so that a step stays in sight however many commits came after it,
+ * and finds its steps. A timing is compared with those measured on the
+ * same CPU.
+ */
+export function trendOf(values: (number | null)[], unit: string, runners: (Runner | null)[], from: number): Trend | undefined {
   let index = values.length - 1
   while (index >= 0 && values[index] == null) index--
   if (index < 0) return undefined
   const latest = values[index]!
-  const before = values.slice(0, index).filter((v): v is number => v != null)
-  const recent = before.slice(-20)
-  let noise = minChange(unit)
-  if (recent.length >= 5) {
-    const m = median(recent)
-    // Five median absolute deviations, a robust spread: about one series
-    // in a thousand moves that much by chance.
-    if (m > 0) noise = Math.max(noise, (5 * median(recent.map((v) => Math.abs(v - m)))) / m)
-  }
-  const last = before.slice(-5)
-  if (!last.length) return { index, latest, noise, significant: false }
-  const baseline = median(last)
-  const change = baseline > 0 ? latest / baseline - 1 : latest === 0 ? 0 : undefined
-  // Without five values before, the series' noise is unknown: nothing stands out.
-  const significant = change !== undefined && recent.length >= 5 && Math.abs(change) > noise
-  return { index, latest, baseline, change, noise, significant }
+  const nonNull = (v: number | null): v is number => v != null
+  const like = unit === "ns/op" ? onCPU(values, runners, runners[index]?.cpu) : values
+  const noise = noiseOf(like.slice(0, index).filter(nonNull).slice(-20), unit)
+  const shown = like.slice(from, index).filter(nonNull)
+  const steps = findSteps(values, unit, runners).filter((s) => s.index >= from)
+  if (!shown.length) return { latest, index, noise, significant: false, steps }
+  const start = median(shown.slice(0, 5))
+  const change = ratio(latest, start)
+  // The noise of a series that moves needs ten values to tell, one that
+  // does not five.
+  const history = like.slice(0, index).filter(nonNull).slice(-20)
+  const steady = history.length > 0 && Math.max(...history) - Math.min(...history) <= minChange(unit) * median(history)
+  const known = shown.length >= 5 && history.length >= (steady ? 5 : 10)
+  const significant = known && Math.abs(change) > noise && Math.abs(latest - start) >= minDelta(unit)
+  return { latest, index, start, change, noise, significant, steps }
+}
+
+/** A CPU's name without what all of GitHub's runners' share: "AMD EPYC 7763 64-Core Processor" is "EPYC 7763". */
+export function shortCPU(cpu: string) {
+  return cpu
+    .replace(/\((R|TM)\)/gi, "")
+    .replace(/\b(AMD|Intel|CPU|Processor|\d+-Core)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+/** The last value of a series. */
+export function lastValue(values: (number | null)[]) {
+  for (let i = values.length - 1; i >= 0; i--) if (values[i] != null) return values[i]!
+  return undefined
 }
 
 export function median(values: number[]) {
@@ -170,6 +291,8 @@ export function formatValue(v: number, unit: string) {
 }
 
 export function formatChange(change: number) {
+  if (change === Infinity) return "from 0"
+  if (change >= 9) return `${(change + 1).toFixed(change >= 99 ? 0 : 1)}×`
   const pct = Math.abs(change * 100)
   const digits = pct < 10 ? 1 : 0
   return `${change < 0 ? "−" : "+"}${pct.toFixed(digits)}%`
