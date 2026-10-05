@@ -103,7 +103,7 @@ func EditableText(c *Context, value *string) *Element {
 		in.Focus()
 		// The name before its extension, as Finder selects.
 		ed := in.st.editor
-		end := len(ed.text)
+		end := ed.buf.n
 		if dot := strings.LastIndexByte(st.draft, '.'); dot > 0 {
 			end = len([]rune(st.draft[:dot]))
 		}

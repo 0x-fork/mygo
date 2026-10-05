@@ -1244,6 +1244,29 @@ either.
   follows reduced motion: while it moves, the panel is clipped to that
   share of the height its content had in the last frame, and its content
   is built until it has closed.
+- **Text areas** (`ui/textarea.go`, `ui/textbuffer.go`). An editor
+  holds its text as the string of the app's value, which it shares, and
+  where each paragraph starts in runes and in bytes (`buffer`): the frame
+  compares the value with it at once while it is the same string, and an
+  edit copies the bytes once, where converting the whole text between
+  runes and a string took milliseconds for a few megabytes. Undo keeps the
+  changes of each step (`undoStep`), not copies of the text; a text the app
+  sets makes the last step one change from the text before it, which
+  undoing takes back, so that a log the app keeps setting holds two texts
+  there, not one a frame. Grapheme boundaries come from the paragraph of
+  the caret. A text area lays its
+  text out a paragraph at a time (`area`), as the text system breaks
+  lines anyway, so that the lines are those of the text laid out whole:
+  each paragraph keeps its layout until an edit changes it or the width
+  does, those in view are laid out from the paragraph the view starts in
+  (the anchor) down, those far from view give their layouts up and keep
+  their heights, and the heights not measured are estimated by those
+  measured. Two Fenwick trees, of the heights measured and of how many are
+  not, give the top of a paragraph and the paragraph at a height in
+  O(log n) whatever the estimate. The area scrolls as a scroll container,
+  its offset the state's (`flagScrollY`, the content as high as its
+  paragraphs), kept by the anchor as heights above the view are measured;
+  an edit, a move of the caret or a press reveals the caret once.
 - **Tables** (`ui/table.go`, `ui/editable.go`). A table's rows are a
   `List`'s that scrolls both ways: the list lays its rows out at least as
   wide as the columns ask (`rowMinW`), and the header, outside the list,

@@ -57,8 +57,8 @@ func TestSelectableText(t *testing.T) {
 	tt.Key(0, KeyBackspace)
 	tt.SetClipboard("pasted")
 	tt.Key(Cmd, KeyV)
-	if !tt.HasText(sentence) || string(ed.text) != sentence {
-		t.Errorf("typing changed the text to %q", string(ed.text))
+	if !tt.HasText(sentence) || ed.buf.s != sentence {
+		t.Errorf("typing changed the text to %q", ed.buf.s)
 	}
 	if tt.Move(x, y); tt.Cursor() != CursorText {
 		t.Errorf("the pointer is %v over selectable text", tt.Cursor())

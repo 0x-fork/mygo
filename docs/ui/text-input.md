@@ -19,13 +19,18 @@ ui.TextArea(c, &app.notes).Height(160)
 
 - `Placeholder` shows a text while the input is empty.
 - `Password` hides what it holds, and keeps it from the clipboard and input
-  methods.
+  methods. Only a `TextInput` takes it: as on every platform, a text area has
+  no password mode.
 - `AutoFocus` gives it the keyboard focus as it appears, as the first field
   of a dialog.
 - `Disabled(true)` grays it out.
 
 A text area is at least a few lines high and grows with its text; given a
-height, it scrolls within it.
+height, it scrolls within it, with the wheel and a scroll bar, and keeps
+the caret in view as it moves. It lays out only the paragraphs in view and
+keeps their layouts until they change, so that it holds texts of hundreds
+of thousands of lines, as a log or a source file, and stays as quick to
+type in.
 
 ## Editing
 

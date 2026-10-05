@@ -31,16 +31,44 @@ type editEvent struct {
 	from, to int
 }
 
-type snapshot struct {
-	text          string
-	caret, anchor int
+// change is an edit of the text: the runes at at held removed, and hold
+// inserted since. A text the app set is a change of the whole text (app),
+// which typing after it does not grow.
+type change struct {
+	at                int
+	removed, inserted string
+	app               bool
 }
 
-// editor is the state of a text input: the caret, the selection, the
-// composition of an input method, undo history and what the last frame
+// undoStep is what undoing takes back: the changes of an edit, or of
+// typing in a row, and where the caret and the selection were before and
+// after them.
+type undoStep struct {
+	changes                 []change
+	caret, anchor           int
+	caretAfter, anchorAfter int
+}
+
+// before returns the text before the step's changes, from the text after
+// them.
+func (s *undoStep) before(text string) string {
+	if len(s.changes) > 0 && s.changes[0].app {
+		return s.changes[0].removed
+	}
+	for i := len(s.changes) - 1; i >= 0; i-- {
+		c := s.changes[i]
+		at := runeOffset(text, c.at)
+		text = text[:at] + c.removed + text[at+len(c.inserted):]
+	}
+	return text
+}
+
+// editor is the state of a text input: the text, the caret, the selection,
+// the composition of an input method, undo history and what the last frame
 // laid out.
 type editor struct {
-	text          []rune
+	buf           buffer
+	graphemes     graphemes
 	caret, anchor int
 	compose       string
 	composeCaret  int
@@ -53,16 +81,17 @@ type editor struct {
 	// empty, as a token field's input does to take out a token.
 	leaveEmptyBackspace bool
 	placeholder         string
-	bounds              text.Boundaries
-	boundsValid         bool
-	layout              *text.Layout
+	// layout is what the last frame laid out of a single-line input or a
+	// selectable text; area lays out a text area (textarea.go).
+	layout *text.Layout
+	area   *area
 	// display maps runes of the text to runes of the layout, which shows
 	// bullets for passwords and holds the composition.
-	scrollX, scrollY float32
+	scrollX          float32
 	originX, originY float32 // content box, relative to the element
 	desiredX         float32
 	hasDesired       bool
-	undo, redo       []snapshot
+	undo, redo       []undoStep
 	lastEdit         time.Time
 	coalesce         bool
 	dragging         bool
@@ -74,22 +103,25 @@ type editor struct {
 
 func newEditor() *editor { return &editor{} }
 
+// setText gives the editor a text the app set. Undoing the last step takes
+// it back with the step, as when the app reformats what the user typed:
+// the step becomes one change, from the text before it, so that it keeps
+// two texts however often the app sets one, as a log does.
 func (ed *editor) setText(s string) {
-	ed.text = []rune(s)
-	ed.boundsValid = false
-	ed.caret = min(ed.caret, len(ed.text))
-	ed.anchor = min(ed.anchor, len(ed.text))
-}
-
-func (ed *editor) String() string { return string(ed.text) }
-
-func (ed *editor) boundaries() *text.Boundaries {
-	if !ed.boundsValid {
-		ed.bounds.Reset(ed.text)
-		ed.boundsValid = true
+	if n := len(ed.undo); n > 0 {
+		step := &ed.undo[n-1]
+		step.changes = append(step.changes[:0], change{removed: step.before(ed.buf.s), inserted: s, app: true})
 	}
-	return &ed.bounds
+	ed.redo = ed.redo[:0]
+	ed.buf.set(s)
+	ed.caret = min(ed.caret, ed.buf.n)
+	ed.anchor = min(ed.anchor, ed.buf.n)
+	if n := len(ed.undo); n > 0 {
+		ed.undo[n-1].caretAfter, ed.undo[n-1].anchorAfter = ed.caret, ed.anchor
+	}
 }
+
+func (ed *editor) String() string { return ed.buf.s }
 
 func (ed *editor) selection() (int, int) {
 	if ed.caret < ed.anchor {
@@ -98,7 +130,7 @@ func (ed *editor) selection() (int, int) {
 	return ed.anchor, ed.caret
 }
 
-func (ed *editor) selectAll() { ed.anchor, ed.caret = 0, len(ed.text) }
+func (ed *editor) selectAll() { ed.anchor, ed.caret = 0, ed.buf.n }
 
 // wants reports whether the editor handles a key, rather than letting it
 // reach shortcuts.
@@ -117,7 +149,7 @@ func (ed *editor) wants(k keyEvent) bool {
 	switch k.key {
 	case KeyBackspace:
 		// Empty, a token field's input leaves it to take out a token.
-		return !ed.leaveEmptyBackspace || len(ed.text) > 0 || m != 0
+		return !ed.leaveEmptyBackspace || ed.buf.n > 0 || m != 0
 	case KeyLeft, KeyRight:
 		// But Alt and an arrow, which go back and forward outside of macOS,
 		// where they move by words.
@@ -148,24 +180,15 @@ func (ed *editor) wants(k keyEvent) bool {
 	return m == 0 || m == Alt && runtime.GOOS == "darwin"
 }
 
-func (ed *editor) snapshot() snapshot {
-	return snapshot{string(ed.text), ed.caret, ed.anchor}
-}
-
-func (ed *editor) restore(s snapshot) {
-	ed.setText(s.text)
-	ed.caret, ed.anchor = s.caret, s.anchor
-}
-
-// record saves the state before an edit for undo; typing in a row makes
-// one step.
+// record starts a step of undo before an edit; typing in a row makes one
+// step.
 func (ed *editor) record(typing bool) {
 	now := time.Now()
-	if typing && ed.coalesce && now.Sub(ed.lastEdit) < time.Second {
+	if typing && ed.coalesce && now.Sub(ed.lastEdit) < time.Second && len(ed.undo) > 0 {
 		ed.lastEdit = now
 		return
 	}
-	ed.undo = append(ed.undo, ed.snapshot())
+	ed.undo = append(ed.undo, undoStep{caret: ed.caret, anchor: ed.anchor})
 	if len(ed.undo) > 200 {
 		ed.undo = ed.undo[1:]
 	}
@@ -174,24 +197,78 @@ func (ed *editor) record(typing bool) {
 	ed.lastEdit = now
 }
 
+// edit replaces the runes from a to z with s, and tells the area.
+func (ed *editor) edit(a, z int, s string) {
+	first, old, after := ed.buf.replace(a, z, s)
+	if ed.area != nil {
+		ed.area.edited(&ed.buf, first, old, after)
+	}
+}
+
+// replace replaces the runes from start to end with s, as the last step
+// of undo notes, and puts the caret after it.
 func (ed *editor) replace(start, end int, s string) {
-	ins := []rune(s)
 	if !ed.multiline {
-		ins = []rune(strings.Map(func(r rune) rune {
+		s = strings.Map(func(r rune) rune {
 			if r == '\n' || r == '\r' {
 				return ' '
 			}
 			return r
-		}, s))
+		}, s)
 	}
-	out := make([]rune, 0, len(ed.text)-(end-start)+len(ins))
-	out = append(out, ed.text[:start]...)
-	out = append(out, ins...)
-	out = append(out, ed.text[end:]...)
-	ed.text = out
-	ed.boundsValid = false
-	ed.caret = start + len(ins)
+	if n := len(ed.undo); n > 0 {
+		step := &ed.undo[n-1]
+		c := change{at: start, removed: ed.buf.slice(start, end), inserted: s}
+		// Typing grows the text the step inserted.
+		grown := false
+		if k := len(step.changes); k > 0 && c.removed == "" {
+			if last := &step.changes[k-1]; !last.app && last.at+utf8.RuneCountInString(last.inserted) == start {
+				last.inserted += s
+				grown = true
+			}
+		}
+		if !grown {
+			step.changes = append(step.changes, c)
+		}
+	}
+	ed.edit(start, end, s)
+	ed.caret = start + utf8.RuneCountInString(s)
 	ed.anchor = ed.caret
+	if n := len(ed.undo); n > 0 {
+		ed.undo[n-1].caretAfter, ed.undo[n-1].anchorAfter = ed.caret, ed.anchor
+	}
+}
+
+// takeBack undoes the last step of undo, or redoes the last undone with
+// redo.
+func (ed *editor) takeBack(redo bool) {
+	from, to := &ed.undo, &ed.redo
+	if redo {
+		from, to = to, from
+	}
+	n := len(*from)
+	if n == 0 {
+		return
+	}
+	step := (*from)[n-1]
+	*from = (*from)[:n-1]
+	if redo {
+		for _, c := range step.changes {
+			ed.edit(c.at, c.at+utf8.RuneCountInString(c.removed), c.inserted)
+		}
+		ed.caret, ed.anchor = step.caretAfter, step.anchorAfter
+	} else {
+		for i := len(step.changes) - 1; i >= 0; i-- {
+			c := step.changes[i]
+			ed.edit(c.at, c.at+utf8.RuneCountInString(c.inserted), c.removed)
+		}
+		ed.caret, ed.anchor = step.caret, step.anchor
+	}
+	*to = append(*to, step)
+	ed.coalesce = false
+	if ed.area != nil {
+		ed.area.reveal = true
+	}
 }
 
 func (ed *editor) insert(s string) {
@@ -215,19 +292,24 @@ func (ed *editor) deleteRange(a, b int) {
 }
 
 func (ed *editor) move(to int, extend bool) {
-	to = max(0, min(to, len(ed.text)))
+	to = max(0, min(to, ed.buf.n))
 	ed.caret = to
 	if !extend {
 		ed.anchor = to
 	}
 	ed.coalesce = false
+	if ed.area != nil {
+		ed.area.reveal = true
+	}
 }
 
-// lineStart and lineEnd return the edges of the visual line holding the
-// caret.
+// lineEdges returns the edges of the visual line holding rune i.
 func (ed *editor) lineEdges(i int) (int, int) {
+	if ed.area != nil {
+		return ed.area.lineEdges(ed, i)
+	}
 	if ed.layout == nil || len(ed.layout.Lines) == 0 {
-		return 0, len(ed.text)
+		return 0, ed.buf.n
 	}
 	li := ed.layout.LineAt(ed.displayIndex(i))
 	line := ed.layout.Lines[li]
@@ -253,11 +335,27 @@ func (ed *editor) textIndex(i int) int {
 			return ed.caret
 		}
 	}
-	return min(i, len(ed.text))
+	return min(i, ed.buf.n)
 }
 
 // vertical moves the caret up or down lines, keeping its x.
 func (ed *editor) vertical(lines int, extend bool) {
+	if a := ed.area; a != nil {
+		x, y, h := a.caretAt(ed, ed.caret, 0)
+		if !ed.hasDesired {
+			ed.desiredX, ed.hasDesired = x, true
+		}
+		target := y + float64(h)/2 + float64(lines)*float64(h)
+		switch {
+		case target < 0:
+			ed.move(0, extend)
+		case target > a.hs.top(len(ed.buf.paras)):
+			ed.move(ed.buf.n, extend)
+		default:
+			ed.move(a.indexAt(ed, ed.desiredX, target), extend)
+		}
+		return
+	}
 	if ed.layout == nil {
 		return
 	}
@@ -271,7 +369,7 @@ func (ed *editor) vertical(lines int, extend bool) {
 		return
 	}
 	if target > ed.layout.Height {
-		ed.move(len(ed.text), extend)
+		ed.move(ed.buf.n, extend)
 		return
 	}
 	ed.move(ed.textIndex(ed.layout.IndexAt(ed.desiredX, target)), extend)
@@ -293,7 +391,7 @@ func (ed *editor) key(c *Context, st *state, k editEvent) {
 		}
 	}
 	word := (!mac && m == Ctrl) || (mac && m == Alt)
-	b := ed.boundaries()
+	b := &ed.buf
 	a, z := ed.selection()
 	switch k.key {
 	case KeyLeft, KeyRight:
@@ -307,17 +405,17 @@ func (ed *editor) key(c *Context, st *state, k editEvent) {
 				ed.move(e, shift)
 			}
 		case word && left:
-			ed.move(b.PrevWord(ed.caret), shift)
+			ed.move(b.prevWord(ed.caret), shift)
 		case word:
-			ed.move(b.NextWord(ed.caret), shift)
+			ed.move(b.nextWord(ed.caret), shift)
 		case a != z && !shift && left:
 			ed.move(a, false)
 		case a != z && !shift:
 			ed.move(z, false)
 		case left:
-			ed.move(b.PrevGrapheme(ed.caret), shift)
+			ed.move(ed.graphemes.prev(b, ed.caret), shift)
 		default:
-			ed.move(b.NextGrapheme(ed.caret), shift)
+			ed.move(ed.graphemes.next(b, ed.caret), shift)
 		}
 		ed.hasDesired = false
 		return
@@ -326,7 +424,7 @@ func (ed *editor) key(c *Context, st *state, k editEvent) {
 			if k.key == KeyUp {
 				ed.move(0, shift)
 			} else {
-				ed.move(len(ed.text), shift)
+				ed.move(b.n, shift)
 			}
 			return
 		}
@@ -348,7 +446,7 @@ func (ed *editor) key(c *Context, st *state, k editEvent) {
 			if k.key == KeyHome {
 				ed.move(0, shift)
 			} else {
-				ed.move(len(ed.text), shift)
+				ed.move(b.n, shift)
 			}
 			return
 		}
@@ -367,10 +465,10 @@ func (ed *editor) key(c *Context, st *state, k editEvent) {
 			s, _ := ed.lineEdges(ed.caret)
 			ed.deleteRange(s, ed.caret)
 		case word:
-			ed.deleteRange(b.PrevWord(ed.caret), ed.caret)
+			ed.deleteRange(b.prevWord(ed.caret), ed.caret)
 		case ed.caret > 0:
 			ed.record(true)
-			ed.replace(b.PrevGrapheme(ed.caret), ed.caret, "")
+			ed.replace(ed.graphemes.prev(b, ed.caret), ed.caret, "")
 		}
 		ed.hasDesired = false
 		return
@@ -379,9 +477,9 @@ func (ed *editor) key(c *Context, st *state, k editEvent) {
 		case a != z:
 			ed.deleteRange(a, z)
 		case word:
-			ed.deleteRange(ed.caret, b.NextWord(ed.caret))
-		case ed.caret < len(ed.text):
-			ed.deleteRange(ed.caret, b.NextGrapheme(ed.caret))
+			ed.deleteRange(ed.caret, b.nextWord(ed.caret))
+		case ed.caret < b.n:
+			ed.deleteRange(ed.caret, ed.graphemes.next(b, ed.caret))
 		}
 		return
 	case KeyEnter:
@@ -420,20 +518,15 @@ func (ed *editor) key(c *Context, st *state, k editEvent) {
 // to the start and end of the paragraph and delete to its end, and reports
 // whether key was one of them.
 func (ed *editor) emacsKey(key Key, shift bool) bool {
-	start, end := ed.caret, ed.caret
-	for start > 0 && ed.text[start-1] != '\n' {
-		start--
-	}
-	for end < len(ed.text) && ed.text[end] != '\n' {
-		end++
-	}
+	p := ed.buf.para(ed.caret)
+	start, end := ed.buf.paras[p].rune, ed.buf.end(p)
 	switch key {
 	case KeyA:
 		ed.move(start, shift)
 	case KeyE:
 		ed.move(end, shift)
 	case KeyK:
-		if end == ed.caret && end < len(ed.text) {
+		if end == ed.caret && end < ed.buf.n {
 			end++ // at the end, join the next paragraph
 		}
 		ed.anchor = ed.caret
@@ -454,11 +547,11 @@ func (ed *editor) command(c *Context, name string) {
 	switch name {
 	case "copy":
 		if a != b && !ed.password {
-			h.writeClipboard(string(ed.text[a:b]))
+			h.writeClipboard(ed.buf.slice(a, b))
 		}
 	case "cut":
 		if a != b && !ed.password {
-			h.writeClipboard(string(ed.text[a:b]))
+			h.writeClipboard(ed.buf.slice(a, b))
 			ed.deleteRange(a, b)
 		}
 	case "paste":
@@ -470,26 +563,16 @@ func (ed *editor) command(c *Context, name string) {
 	case "delete":
 		ed.deleteRange(a, b)
 	case "undo":
-		if n := len(ed.undo); n > 0 {
-			ed.redo = append(ed.redo, ed.snapshot())
-			ed.restore(ed.undo[n-1])
-			ed.undo = ed.undo[:n-1]
-			ed.coalesce = false
-		}
+		ed.takeBack(false)
 	case "redo":
-		if n := len(ed.redo); n > 0 {
-			ed.undo = append(ed.undo, ed.snapshot())
-			ed.restore(ed.redo[n-1])
-			ed.redo = ed.redo[:n-1]
-			ed.coalesce = false
-		}
+		ed.takeBack(true)
 	}
 }
 
 // press puts the caret where the pointer went down, at (x, y) relative to
 // the element; double and triple clicks select words and lines.
 func (ed *editor) press(x, y float32, clicks, button int) {
-	if button != 0 || ed.layout == nil {
+	if button != 0 || !ed.laidOut() {
 		return
 	}
 	ed.commitCompose()
@@ -501,7 +584,7 @@ func (ed *editor) press(x, y float32, clicks, button int) {
 	case 1:
 		ed.move(i, ed.pressMods&Shift != 0)
 	case 2:
-		s, e := ed.boundaries().WordAt(i)
+		s, e := ed.buf.wordAt(i)
 		ed.anchor, ed.caret = s, e
 	default:
 		if ed.multiline {
@@ -512,15 +595,35 @@ func (ed *editor) press(x, y float32, clicks, button int) {
 		}
 	}
 	ed.dragStart = [2]int{ed.anchor, ed.caret}
+	if ed.area != nil {
+		ed.area.reveal = true
+	}
 }
 
 func (ed *editor) release() { ed.dragging = false }
 
+// laidOut reports whether a frame laid the editor's text out.
+func (ed *editor) laidOut() bool { return ed.layout != nil || ed.area != nil && ed.area.version != 0 }
+
+// firstLine returns the first line of the text, as last laid out, or nil.
+func (ed *editor) firstLine() *text.Line {
+	switch {
+	case ed.area != nil && ed.area.version != 0:
+		return ed.area.firstLine(&ed.buf)
+	case ed.layout != nil && len(ed.layout.Lines) > 0:
+		return &ed.layout.Lines[0]
+	}
+	return nil
+}
+
 func (ed *editor) hit(x, y float32) int {
+	if a := ed.area; a != nil {
+		return a.indexAt(ed, x-ed.originX, float64(y-ed.originY)+a.scroll)
+	}
 	if ed.layout == nil {
 		return 0
 	}
-	return ed.textIndex(ed.layout.IndexAt(x-ed.originX+ed.scrollX, y-ed.originY+ed.scrollY))
+	return ed.textIndex(ed.layout.IndexAt(x-ed.originX+ed.scrollX, y-ed.originY))
 }
 
 // drag extends the selection to the pointer.
@@ -528,7 +631,7 @@ func (ed *editor) drag(x, y float32) {
 	i := ed.hit(x, y)
 	switch ed.dragUnit {
 	case 2:
-		s, e := ed.boundaries().WordAt(i)
+		s, e := ed.buf.wordAt(i)
 		if i < ed.dragStart[0] {
 			ed.anchor, ed.caret = ed.dragStart[1], s
 		} else {
@@ -537,6 +640,9 @@ func (ed *editor) drag(x, y float32) {
 	case 3:
 	default:
 		ed.caret = i
+	}
+	if ed.area != nil {
+		ed.area.reveal = true
 	}
 }
 
@@ -547,6 +653,9 @@ func (ed *editor) commitCompose() {
 }
 
 func (ed *editor) lineHeight() float32 {
+	if ed.area != nil && ed.area.line.Height > 0 {
+		return ed.area.line.Height
+	}
 	if ed.layout != nil && len(ed.layout.Lines) > 0 {
 		return ed.layout.Lines[0].Height
 	}
@@ -556,11 +665,15 @@ func (ed *editor) lineHeight() float32 {
 // caretRect returns the caret's box relative to the surface, where input
 // methods show their candidates.
 func (ed *editor) caretRect(st *state) Rect {
+	if a := ed.area; a != nil && a.version != 0 {
+		x, y, h := a.caretAt(ed, ed.caret, ed.composeCaret)
+		return Rect{st.x + ed.originX + x, st.y + ed.originY + float32(y-a.scroll), 1, h}
+	}
 	if ed.layout == nil {
 		return Rect{st.x, st.y, 1, st.h}
 	}
 	x, y, h := ed.layout.Caret(ed.displayIndex(ed.caret) + ed.composeCaret)
-	return Rect{st.x + ed.originX + x - ed.scrollX, st.y + ed.originY + y - ed.scrollY, 1, h}
+	return Rect{st.x + ed.originX + x - ed.scrollX, st.y + ed.originY + y, 1, h}
 }
 
 // process applies the input queued for the editor.
@@ -568,7 +681,7 @@ func (ed *editor) process(c *Context, e *Element) {
 	st := e.st
 	for _, ev := range ed.queue {
 		if ev.replace {
-			ed.anchor, ed.caret = min(ev.from, len(ed.text)), min(ev.to, len(ed.text))
+			ed.anchor, ed.caret = min(ev.from, ed.buf.n), min(ev.to, ed.buf.n)
 		}
 		switch ev.kind {
 		case editKey:
@@ -578,6 +691,9 @@ func (ed *editor) process(c *Context, e *Element) {
 			ed.compose = ""
 			ed.insert(ev.text)
 		case editCompose:
+			if ed.area != nil {
+				ed.area.reveal = true
+			}
 			ed.compose = ev.text
 			ed.composeCaret = max(0, min(ev.caret, utf8.RuneCountInString(ev.text)))
 			if ev.text != "" {
@@ -621,16 +737,23 @@ func textInputBase(c *Context, value *string, multiline bool) *Element {
 	e.widget = "TextInput"
 	if multiline {
 		e.widget = "TextArea"
+		// It scrolls its text as a scroll container does its children.
+		e.flags |= flagScrollY
 	}
 	st := e.st
 	if st.editor == nil {
 		st.editor = newEditor()
 		st.editor.setText(*value)
-		st.editor.caret, st.editor.anchor = len(st.editor.text), len(st.editor.text)
+		st.editor.caret, st.editor.anchor = st.editor.buf.n, st.editor.buf.n
 	}
 	ed := st.editor
 	ed.multiline = multiline
-	if string(ed.text) != *value {
+	if multiline && ed.area == nil {
+		ed.area = &area{reveal: true}
+	}
+	// The input shares the string of *value: the same string is equal at
+	// once, whatever its length.
+	if ed.buf.s != *value {
 		ed.setText(*value)
 		ed.compose = ""
 	}
@@ -638,12 +761,15 @@ func textInputBase(c *Context, value *string, multiline bool) *Element {
 	// Input queued while the input had the focus applies even when the
 	// focus left before this frame, as with text typed right before Tab.
 	if focused || len(ed.queue) > 0 {
-		before := string(ed.text)
+		version := ed.buf.version
 		ed.process(c, e)
-		if after := string(ed.text); after != before {
-			*value = after
-			st.changed = true
-			c.rt.consumed = true
+		if ed.buf.version != version {
+			if ed.buf.s != *value {
+				st.changed = true
+				c.rt.consumed = true
+			}
+			// Equal or not, the value shares the text's string again.
+			*value = ed.buf.s
 		}
 	}
 	if !focused {
@@ -660,10 +786,11 @@ func (e *Element) Placeholder(s string) *Element {
 	return e
 }
 
-// Password hides what a text input holds.
+// Password hides what a text input holds. It does nothing to a text area:
+// as on every platform, only single-line fields hide their text.
 func (e *Element) Password() *Element {
-	if e.st.editor != nil {
-		e.st.editor.password = true
+	if ed := e.st.editor; ed != nil && !ed.multiline {
+		ed.password = true
 	}
 	return e
 }
@@ -698,19 +825,15 @@ func (e *Element) Selectable() *Element {
 // displayText returns what the input shows: the text with the
 // composition at the caret, bullets for a password.
 func (ed *editor) displayText() string {
-	t := ed.text
+	t := ed.buf.s
 	if ed.compose != "" {
-		c := []rune(ed.compose)
-		d := make([]rune, 0, len(t)+len(c))
-		d = append(d, t[:ed.caret]...)
-		d = append(d, c...)
-		d = append(d, t[ed.caret:]...)
-		t = d
+		at := ed.buf.byteOf(ed.caret)
+		t = t[:at] + ed.compose + t[at:]
 	}
 	if ed.password {
-		return strings.Repeat("•", len(t))
+		return strings.Repeat("•", utf8.RuneCountInString(t))
 	}
-	return string(t)
+	return t
 }
 
 func (e *Element) inputParams(width float32) text.Params {
@@ -726,64 +849,67 @@ func (e *Element) inputParams(width float32) text.Params {
 
 func (e *Element) inputHeight() float32 {
 	ed := e.st.editor
-	l := textSystem().Layout(e.inputParams(0))
-	if ed.multiline {
-		return max(l.Height, 3*l.Lines[0].Height)
+	if ed.area != nil {
+		// As high as its paragraphs unwrapped, without laying them out.
+		p := e.textParams(0)
+		p.Text = ""
+		line := textSystem().Layout(p).Lines[0].Height
+		return float32(max(len(ed.buf.paras), 3)) * line
 	}
+	l := textSystem().Layout(e.inputParams(0))
 	return l.Lines[0].Height
 }
 
 func (e *Element) layoutInput(cw, ch float32) {
 	ed := e.st.editor
+	if a := ed.area; a != nil {
+		ed.contentW = cw
+		ed.originX, ed.originY = e.contentX(), e.contentY()
+		a.layout(e, cw, ch)
+		return
+	}
 	l := textSystem().Layout(e.inputParams(cw))
 	ed.layout = l
 	ed.contentW = cw
 	ed.originX, ed.originY = e.contentX(), e.contentY()
-	if ed.multiline && len(l.Lines) > 0 && l.Height < ch {
-		// Center a single line vertically in a taller box.
-		_ = ch
-	}
-	if !ed.multiline && len(l.Lines) > 0 {
+	// A single line, centered vertically in a taller box: text areas lay
+	// out in area.
+	if len(l.Lines) > 0 {
 		ed.originY += max((ch-l.Lines[0].Height)/2, 0)
 	}
 	// Keep the caret in view.
-	x, y, h := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret)
-	if ed.multiline {
-		ed.scrollX = 0
-		if y-ed.scrollY < 0 {
-			ed.scrollY = y
-		} else if y+h-ed.scrollY > ch {
-			ed.scrollY = y + h - ch
-		}
-		ed.scrollY = max(0, min(ed.scrollY, max(l.Height-ch, 0)))
-	} else {
-		ed.scrollY = 0
-		if x-ed.scrollX < 0 {
-			ed.scrollX = x
-		} else if x-ed.scrollX > cw-1 {
-			ed.scrollX = x - cw + 1
-		}
-		ed.scrollX = max(0, min(ed.scrollX, max(l.Width-cw+1, 0)))
+	x, _, _ := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret)
+	if x-ed.scrollX < 0 {
+		ed.scrollX = x
+	} else if x-ed.scrollX > cw-1 {
+		ed.scrollX = x - cw + 1
 	}
+	ed.scrollX = max(0, min(ed.scrollX, max(l.Width-cw+1, 0)))
 }
 
 func (e *Element) paintInput(p *Painter) {
 	ed := e.st.editor
 	l := ed.layout
 	t := e.c.theme
-	if l == nil {
+	if l == nil && ed.area == nil {
 		return
 	}
 	box := e.contentBox()
 	clip := Rect{e.x + e.border[3], e.y + e.border[0], e.w - e.border[1] - e.border[3], e.h - e.border[0] - e.border[2]}
 	saved := p.clip
 	p.pushClip(clip, [4]float32{})
-	ox, oy := e.x+ed.originX-ed.scrollX, e.y+ed.originY-ed.scrollY
+	ox, oy := e.x+ed.originX-ed.scrollX, e.y+ed.originY
 	focused := e.Focused()
 	ts := e.resolvedText()
-	if len(ed.text) == 0 && ed.compose == "" && ed.placeholder != "" {
+	if ed.buf.n == 0 && ed.compose == "" && ed.placeholder != "" {
 		pl := textSystem().Layout(text.Params{Text: ed.placeholder, Style: text.Style{Family: ts.family, Size: ts.size, Weight: ts.weight, LineHeight: ts.lineHeight}, Width: box.W})
 		p.textLayout(pl, ox, oy, t.TextMuted, ts, nil)
+	}
+	if ed.area != nil {
+		ed.area.paint(e, p, e.x+ed.originX, e.y+ed.originY)
+		p.popClip()
+		p.clip = saved
+		return
 	}
 	if a, b := ed.selection(); a != b && focused {
 		for _, r := range l.Selection(ed.displayIndex(a), ed.displayIndex(b)) {

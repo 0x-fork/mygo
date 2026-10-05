@@ -335,8 +335,8 @@ func firstLine(e *Element) *text.Line {
 		}
 		return nil
 	case kindInput:
-		if ed := e.st.editor; ed != nil && ed.layout != nil && len(ed.layout.Lines) > 0 {
-			return &ed.layout.Lines[0]
+		if ed := e.st.editor; ed != nil {
+			return ed.firstLine()
 		}
 		return nil
 	}
@@ -381,8 +381,10 @@ func firstBaseline(e *Element) (float32, bool) {
 		}
 		return 0, false
 	case kindInput:
-		if ed := e.st.editor; ed != nil && ed.layout != nil && len(ed.layout.Lines) > 0 {
-			return ed.originY + ed.layout.Lines[0].Baseline - ed.scrollY, true
+		if ed := e.st.editor; ed != nil {
+			if l := ed.firstLine(); l != nil {
+				return ed.originY + l.Baseline, true
+			}
 		}
 		return 0, false
 	}

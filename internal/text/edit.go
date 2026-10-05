@@ -132,9 +132,17 @@ func (l *Layout) IndexAt(x, y float32) int {
 }
 
 // Selection returns the rectangles covering the runes from start to end.
-func (l *Layout) Selection(start, end int) []Rect {
+func (l *Layout) Selection(start, end int) []Rect { return l.SelectionOn(start, end, false) }
+
+// SelectionOn is Selection for a layout of a paragraph of a longer text,
+// whose selection goes on past the newline after the paragraph when on
+// is set: the newline shows, as between the lines of a layout.
+func (l *Layout) SelectionOn(start, end int, on bool) []Rect {
 	if start > end {
 		start, end = end, start
+	}
+	if on {
+		end = len(l.Runes) + 1 // the newline
 	}
 	var out []Rect
 	for i := range l.Lines {
@@ -149,7 +157,7 @@ func (l *Layout) Selection(start, end int) []Rect {
 			x0, x1 = min(x0, carets[k-line.Start]), max(x1, carets[k-line.Start])
 		}
 		// A selected newline shows as a little room after the line.
-		if end > line.End && i < len(l.Lines)-1 && l.Lines[i+1].Start > line.End {
+		if end > line.End && (i < len(l.Lines)-1 && l.Lines[i+1].Start > line.End || i == len(l.Lines)-1 && on) {
 			x1 += l.Params.Style.FontSize() / 3
 		}
 		if x1 > x0 {

@@ -716,8 +716,8 @@ func (rt *engine) updateTextInput() {
 		if !ed.password {
 			a, z := ed.selection()
 			base = max(0, a-imeContext)
-			end := min(len(ed.text), z+imeContext)
-			t.Text, t.Start, t.End = string(ed.text[base:end]), a-base, z-base
+			end := min(ed.buf.n, z+imeContext)
+			t.Text, t.Start, t.End = ed.buf.slice(base, end), a-base, z-base
 		}
 	}
 	if t != rt.ime.state {

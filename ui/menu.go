@@ -258,7 +258,7 @@ func (rt *engine) menuPress(chain []uint64, x, y float32) bool {
 			rt.focusVisible = false
 		}
 		rt.blinkStart = time.Now()
-		if ed := s.editor; ed.layout != nil {
+		if ed := s.editor; ed.laidOut() {
 			i := ed.hit(x-s.x, y-s.y)
 			if a, b := ed.selection(); a == b || i < a || i > b {
 				ed.commitCompose()
@@ -383,7 +383,7 @@ func (rt *engine) editMenu(s *state) {
 		copyText  = command{"Copy", "copy", selected && !ed.password}
 		paste     = command{"Paste", "paste", true}
 		del       = command{"Delete", "delete", selected}
-		selectAll = command{"Select All", "selectAll", len(ed.text) > 0}
+		selectAll = command{"Select All", "selectAll", ed.buf.n > 0}
 		separator = command{}
 		commands  []command
 	)

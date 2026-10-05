@@ -1950,6 +1950,45 @@ func TestContentWindowInputMethod(t *testing.T) {
 	eventually(t, "the accented letter", func() bool { return text() == "café" })
 }
 
+// TestContentWindowTextAreaInputMethod is TestContentWindowInputMethod in
+// the second paragraph of a text area, which lays its paragraphs out
+// apart.
+func TestContentWindowTextAreaInputMethod(t *testing.T) {
+	var frames atomic.Int32
+	notes := "first\ncafe"
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Column(c).Fill().Padding(20).Children(func() { ui.TextArea(c, &notes).Height(120) })
+	}
+	text := func() (s string) {
+		mygo.RunOnMain(func() { s = notes })
+		return s
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Input method", Width: 400, Height: 200, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	if _, _, ok := inputClient(w); !ok {
+		t.Skip("input method automation not available on this platform")
+	}
+	if !click(w, 300, 56) { // after the text of the second line
+		t.Skip("click automation not available on this platform")
+	}
+	eventually(t, "the caret after the text", func() bool {
+		sel, doc, _ := inputClient(w)
+		return sel == [2]int{10, 0} && doc == "first\ncafe"
+	})
+	composeOver(w, "e", 1, false, 9, 1)
+	doc, sel := "first\ncafe", [2]int{10, 0}
+	if runtime.GOOS != "darwin" {
+		doc, sel = "first\ncaf", [2]int{9, 0}
+	}
+	eventually(t, "the composition over the e", func() bool {
+		s, d, _ := inputClient(w)
+		return text() == "first\ncaf" && d == doc && s == sel
+	})
+	composeOver(w, "é", 1, true, -1, 0)
+	eventually(t, "the accented letter", func() bool { return text() == "first\ncafé" })
+}
+
 // TestContentWindowFileDrop drops files on native UI: on the element that
 // takes them, and elsewhere for OnFileDrop.
 func TestContentWindowFileDrop(t *testing.T) {

@@ -361,7 +361,7 @@ func Autocomplete(c *Context, value *string, suggestions []string) *Element {
 			in.st.changed = true
 		}
 		in.st.editor.setText(v)
-		in.st.editor.caret, in.st.editor.anchor = len(in.st.editor.text), len(in.st.editor.text)
+		in.st.editor.caret, in.st.editor.anchor = in.st.editor.buf.n, in.st.editor.buf.n
 	}
 	return in
 }
