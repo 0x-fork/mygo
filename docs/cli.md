@@ -109,7 +109,7 @@ Builds production apps: runs `buildCommand`, compiles the app with
 | Flag | |
 |---|---|
 | `-platform` | comma separated `GOOS/GOARCH` targets, e.g. `darwin/universal,windows/amd64,linux/amd64` (default: this machine's) |
-| `-debug` | keeps development features, such as the web inspector |
+| `-debug` | keeps development features, such as the web inspector and the [inspector of native UI](ui/inspector.md) |
 | `-o` | the output directory (default: `out` of the configuration) |
 | `-sign` | the macOS signing identity (default: `macos.signingIdentity`) |
 | `-skip-build-command` | does not run `buildCommand` |
@@ -160,6 +160,7 @@ Prints the version of the CLI.
 
 | Variable | |
 |---|---|
+| `MYGO_INSPECTOR` | `1` keeps the [inspector of native UI](ui/inspector.md) in production builds of `mygo build`, which leave it out |
 | `MYGO_UPDATER_PRIVATE_KEY` | the secret key that signs updates, for `mygo build` |
 | `MYGO_WINDOWS_CERTIFICATE_PASSWORD` | the password of `windows.certificate`, for `mygo build` |
 | `MYGO_CLI_BINARY` | a build of the CLI for the `mygo-cli` package to run |

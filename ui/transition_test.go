@@ -281,12 +281,10 @@ func TestDuplicateKeys(t *testing.T) {
 	}()
 
 	// Apps log it once, and the inspector lists it.
-	strictKeys = false
-	defer func() { strictKeys = true }()
 	var out bytes.Buffer
 	log.SetOutput(&out)
 	defer log.SetOutput(os.Stderr)
-	tt := NewTester(view, 200, 100)
+	tt := lenientTester(view, 200, 100)
 	tt.Frame()
 	tt.Frame()
 	if n := strings.Count(out.String(), `key "same"`); n != 1 {
@@ -406,4 +404,14 @@ func TestTransitionResizesAList(t *testing.T) {
 	if r, ok := tt.Find("Row 0"); !ok || r.W <= 0 {
 		t.Error("the list opening shows no rows")
 	}
+}
+
+// lenientTester is NewTester as an app's window is: duplicate keys only
+// log.
+func lenientTester(view func(c *Context), width, height int) *Tester {
+	h := &headless{w: float32(width), h: float32(height), scale: 1}
+	t := &Tester{rt: newRuntime(view, h), h: h}
+	t.rt.collect = true
+	t.settle()
+	return t
 }

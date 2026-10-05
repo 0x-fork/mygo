@@ -6,11 +6,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"testing"
 )
-
-// strictKeys makes duplicate keys panic, as in tests.
-var strictKeys = testing.Testing()
 
 // maxWarnings is how many warnings the inspector keeps, the latest.
 const maxWarnings = 50
@@ -18,14 +14,14 @@ const maxWarnings = 50
 // duplicateKey reports an element given the key of another element of
 // the pass under the same parent: they have one ID, and so share one
 // state, so that the pointer, the focus and scrolling meant for one go to
-// the other. Tests panic, so that they fail where the key was given; apps
-// log it once, and the inspector lists it.
+// the other. A Tester panics (engine.strict), so that tests fail where the
+// key was given; apps log it once, and the inspector lists it.
 func (rt *engine) duplicateKey(id uint64, k any) {
 	msg := fmt.Sprintf("ui: two elements under one parent have the key %#v, and share one state: give each a key of its own", k)
 	if at := callSite(); at != "" {
 		msg += " (" + at + ")"
 	}
-	if strictKeys {
+	if rt.strict {
 		panic(msg)
 	}
 	if rt.dupKeys == nil {

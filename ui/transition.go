@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"cmp"
 	"slices"
 	"time"
 )
@@ -242,7 +241,7 @@ func (rt *engine) animateLayout(root *Element, w, h float32) {
 	still := rt.preferences().ReduceMotion
 	// Parents first: one resizing lays out its children anew, which then
 	// move themselves.
-	slices.SortStableFunc(uses, func(a, b transitionUse) int { return cmp.Compare(a.e.depth, b.e.depth) })
+	uses = c.byDepth(uses)
 	n := 0
 	for _, u := range uses {
 		e := u.e
@@ -320,6 +319,36 @@ func (rt *engine) animateLayout(root *Element, w, h float32) {
 		r.apply(e, shown)
 	}
 	rt.animateExits(root, now, still)
+}
+
+// byDepth returns the transitions asked for in the order of their
+// elements' depth, those of one depth in the order asked: a counting sort,
+// into a slice the context reuses.
+func (c *Context) byDepth(uses []transitionUse) []transitionUse {
+	deepest := 0
+	for i := range uses {
+		deepest = max(deepest, uses[i].e.depth)
+	}
+	starts := c.depthStarts
+	if cap(starts) < deepest+2 {
+		starts = make([]int, deepest+2)
+	} else {
+		starts = starts[:deepest+2]
+		clear(starts)
+	}
+	for i := range uses {
+		starts[uses[i].e.depth+1]++
+	}
+	for d := 1; d < len(starts); d++ {
+		starts[d] += starts[d-1]
+	}
+	sorted := slices.Grow(c.sortedUses[:0], len(uses))[:len(uses)]
+	for _, u := range uses {
+		sorted[starts[u.e.depth]] = u
+		starts[u.e.depth]++
+	}
+	c.depthStarts, c.sortedUses = starts, sorted
+	return sorted
 }
 
 // apply shows e at s.

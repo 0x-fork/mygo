@@ -342,6 +342,27 @@ func TestPackageFlags(t *testing.T) {
 }
 
 // TestWindowsSignCommand signs a file whose path the shell gets quoted.
+func TestProductionTags(t *testing.T) {
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("MYGO_INSPECTOR", "")
+	tags := func(debug bool) string { return strings.Join(productionTags(debug), " ") }
+	if got := tags(false); got != "-tags mygo_noinspector" {
+		t.Errorf("a production build has %q", got)
+	}
+	if got := tags(true); got != "" {
+		t.Errorf("a debug build has %q", got)
+	}
+	// The tags of GOFLAGS stay: -tags would override them.
+	t.Setenv("GOFLAGS", "-mod=mod -tags=sqlite,fts5")
+	if got := tags(false); got != "-tags sqlite,fts5,mygo_noinspector" {
+		t.Errorf("with GOFLAGS' tags, a production build has %q", got)
+	}
+	t.Setenv("MYGO_INSPECTOR", "1")
+	if got := tags(false); got != "" {
+		t.Errorf("MYGO_INSPECTOR=1 leaves %q", got)
+	}
+}
+
 func TestWindowsSignCommand(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "My App.exe")

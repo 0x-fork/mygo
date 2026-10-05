@@ -55,6 +55,9 @@ type Context struct {
 	// and dividers those drawing lines between their children.
 	transitions []transitionUse
 	dividers    []dividers
+	// sortedUses and depthStarts are byDepth's.
+	sortedUses  []transitionUse
+	depthStarts []int
 }
 
 const chunkSize = 256

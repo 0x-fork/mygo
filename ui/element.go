@@ -468,7 +468,7 @@ func (e *Element) Children(fn func()) *Element {
 // and TextArea) cannot take a key, and Key panics: give it to an element
 // around them instead, as Row(c).Key(k).Children(...) does. Siblings need
 // keys of their own: two elements with one key share one state, which
-// MyGo logs, and tests panic for.
+// MyGo logs, and a Tester panics for.
 func (e *Element) Key(k any) *Element {
 	if e.widget != "" {
 		panic("ui: Key on a " + e.widget + ", which handles its input as it is created: give the key to an element around it")

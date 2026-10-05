@@ -1127,7 +1127,12 @@ either.
   frame outside package ui on the stack as it is created or keyed
   (`callSite`), only for that one. Two elements keyed alike under one
   parent share one state: `rekey` reports it (`duplicateKey`), logged
-  once and listed as an issue, and in test binaries it panics.
+  once and listed as an issue, and in a `Tester` it panics
+  (`engine.strict`), without package testing in apps.
+  Production builds of `mygo build` leave the inspector out with the build
+  tag `mygo_noinspector` (`inspector_off.go` stands in for it, never
+  open), added to the tags of `GOFLAGS`, unless `-debug` or
+  `MYGO_INSPECTOR=1`.
 - **Input taken as it comes.** An element with `HandleInput` gets its
   input on the main thread as the backend reports it, before the frame
   (`ui/handler.go`): keys (with their releases, which ui otherwise
@@ -1724,8 +1729,9 @@ renderer's (`gputest.Compare`).
   - Quitting the app ends `mygo dev`; a crash waits for the next change.
 - `build` generates the client, runs `buildCommand`, then compiles each
   target with `-trimpath -ldflags "-s -w -X …production=1"` (`-H=windowsgui`
-  on Windows) into a staging directory, so a failed build keeps the previous
-  artifacts. `frontendDist` is embedded without touching the project
+  on Windows) and `-tags mygo_noinspector`, which leaves the inspector of
+  native UI out (unless `MYGO_INSPECTOR=1`), into a staging directory, so a
+  failed build keeps the previous artifacts. `frontendDist` is embedded without touching the project
   (`embed.go`): `go build -overlay` adds a generated `mygo_frontend_gen.go`
   to the main package, with `//go:embed all:mygo_frontend` and a call to
   `SetFrontend`, and maps every `frontendDist` file into that virtual

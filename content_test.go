@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"image/png"
+	"log"
+	"os"
 	"strings"
 	"testing"
 
@@ -250,57 +252,16 @@ func TestContentMenuRoles(t *testing.T) {
 	}
 }
 
-func TestContentInspector(t *testing.T) {
-	var width float32
-	view := func(c *ui.Context) {
-		width, _ = c.Size()
-		ui.Text(c, "Hello")
-	}
-	// Development builds turn DevTools on: Toggle Developer Tools opens
-	// the inspector of native UI beside the content, not a web inspector.
-	w, fw, s := contentWindow(t, view)
-	onMain(func() {
-		performRole(RoleToggleDevTools, w)
-		s.Frame()
-	})
-	if width != 150 {
-		t.Errorf("beside the inspector, the content is %v wide", width)
-	}
-	if fw.IsDevToolsOpened() {
-		t.Error("the role opened a web inspector")
-	}
-	onMain(func() {
-		performRole(RoleToggleDevTools, w)
-		s.Frame()
-	})
-	if width != 300 {
-		t.Errorf("with the inspector closed, the content is %v wide", width)
-	}
-
-	off := NewWindow(WindowOptions{Width: 300, Height: 200, Content: ui.View(view), Page: PageOptions{DevTools: DevToolsDisabled}})
-	t.Cleanup(off.Destroy)
-	onMain(func() {
-		performRole(RoleToggleDevTools, off)
-		off.conn.Surface.(*fake.Surface).Frame()
-	})
-	if width != 300 {
-		t.Errorf("without DevTools, the role opened the inspector: the content is %v wide", width)
-	}
-}
-
 func TestContentDuplicateKeyTellsWhere(t *testing.T) {
 	view := func(c *ui.Context) {
 		ui.Row(c).Key(1)
 		ui.Row(c).Key(1)
 	}
-	var msg any
-	w := NewWindow(WindowOptions{Width: 300, Height: 200, Content: ui.View(view)})
-	t.Cleanup(w.Destroy)
-	onMain(func() {
-		defer func() { msg = recover() }()
-		w.conn.Surface.(*fake.Surface).Frame()
-	})
-	if s, _ := msg.(string); !strings.Contains(s, "key 1") || !strings.Contains(s, "content_test.go:") {
-		t.Errorf("a duplicate key in a test panics with %q", s)
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	defer log.SetOutput(os.Stderr)
+	_, _, _ = contentWindow(t, view)
+	if s := out.String(); !strings.Contains(s, "key 1") || !strings.Contains(s, "content_test.go:") {
+		t.Errorf("a duplicate key logs %q", s)
 	}
 }

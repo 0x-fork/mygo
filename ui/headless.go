@@ -88,11 +88,15 @@ type Tester struct {
 	h  *headless
 }
 
-// NewTester starts testing view in a window of width×height DIPs.
+// NewTester starts testing view in a window of width×height DIPs. Two
+// elements given one key under one parent make it panic where the second
+// was given, as apps only log it.
 func NewTester(view func(c *Context), width, height int) *Tester {
 	h := &headless{w: float32(width), h: float32(height), scale: 1}
 	t := &Tester{rt: newRuntime(view, h), h: h}
 	t.rt.collect = true
+	// Duplicate keys panic, so that the test fails where the key was given.
+	t.rt.strict = true
 	t.settle()
 	return t
 }

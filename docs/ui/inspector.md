@@ -20,7 +20,13 @@ mygo.NewWindow(mygo.WindowOptions{
 ```
 
 The content gives the panel the right of the window: the view gets a
-narrower window, as `c.Size()` tells. Drag the panel's left edge to resize
+narrower window, as `c.Size()` tells.
+
+Production builds of `mygo build` leave the inspector out, as their
+developer tools are off: it takes some 250 KB of a binary. `mygo build
+-debug` keeps it, as `MYGO_INSPECTOR=1 mygo build` does in a production
+build, for a window with `DevToolsEnabled` to open it there. Apps built
+with `go build` keep it unless `-tags mygo_noinspector` leaves it out. Drag the panel's left edge to resize
 it. The panel follows the appearance, light or dark.
 
 ## Elements
@@ -71,5 +77,5 @@ and the slowest. Set `MYGO_FRAME_STATS` to log slow frames as well
 **Issues** lists mistakes found while building, which the toolbar counts:
 two elements given the same `Key` under one parent, say, share one state,
 so that a click, the focus or scrolling meant for one goes to the other.
-Apps log each one once; in tests, they panic where the second key was
-given.
+Apps log each one once; a [Tester](testing.md) panics where the second
+key was given, so that the test fails there.

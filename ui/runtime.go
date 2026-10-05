@@ -102,6 +102,9 @@ type engine struct {
 	insp     inspector
 	dupKeys  map[uint64]bool
 	warnings []string
+	// strict makes mistakes found while building panic, as duplicate keys
+	// do in a Tester.
+	strict bool
 	// clock is the time of frames for tests, time.Now when nil.
 	clock func() time.Time
 

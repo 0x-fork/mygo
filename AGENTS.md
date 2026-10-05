@@ -38,6 +38,7 @@ wire protocol, TypeScript generation, and the checklist for adding features.
 ```sh
 go build ./... && GOOS=linux go build ./... && GOOS=windows go build ./...  # all must pass
 go vet ./... && GOOS=linux go vet ./... && GOOS=windows go vet ./...
+go vet -tags mygo_noinspector ./...        # production builds, without the inspector of native UI
 go test ./...                              # core (fake backend), tsgen, CLI, accelerator
 MYGO_E2E=1 go test ./internal/e2e          # real GUI tests (macOS desktop session)
 bun install && bun run test && bun run typecheck   # the workspace, from the root

@@ -153,6 +153,9 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 	}
 
 	target := goos + "-" + goarch
+	if !opts.debug && keepInspector() {
+		logf("keeping the inspector of native UI (MYGO_INSPECTOR=1)")
+	}
 	ldflags := "-s -w" + packageFlags(c) + updateFlags(c, target)
 	if !opts.debug {
 		ldflags += " -X github.com/egoist/mygo.production=1"
@@ -175,6 +178,7 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 			return err
 		}
 		flags := []string{"-trimpath", "-ldflags", ldflags}
+		flags = append(flags, productionTags(opts.debug)...)
 		if overlay != "" {
 			flags = append(flags, "-overlay", overlay)
 		}
@@ -330,6 +334,31 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		}
 	}
 	return artifacts, nil
+}
+
+// inspectorTag leaves the inspector of native UI out of a build (package
+// ui's inspector_off.go), some 250 KB of a binary: production builds have
+// their developer tools off.
+const inspectorTag = "mygo_noinspector"
+
+// keepInspector reports whether MYGO_INSPECTOR=1 keeps the inspector in
+// production builds, as to look into one with DevToolsEnabled.
+func keepInspector() bool { return os.Getenv("MYGO_INSPECTOR") == "1" }
+
+// productionTags returns the -tags of a build: those GOFLAGS sets, which a
+// -tags flag would override, and the inspector's in a production build
+// unless it keeps it.
+func productionTags(debug bool) []string {
+	if debug || keepInspector() {
+		return nil
+	}
+	var tags []string
+	for _, f := range strings.Fields(os.Getenv("GOFLAGS")) {
+		if v, ok := strings.CutPrefix(strings.TrimLeft(f, "-"), "tags="); ok && v != "" {
+			tags = append(tags, v)
+		}
+	}
+	return []string{"-tags", strings.Join(append(tags, inspectorTag), ",")}
 }
 
 // packageFlags are the -ldflags that link what mygo.json says about the app

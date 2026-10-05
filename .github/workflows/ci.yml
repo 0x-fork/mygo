@@ -50,6 +50,8 @@ jobs:
           for os in darwin linux windows; do
             GOOS=$os go build ./...
             GOOS=$os go vet ./...
+            # Production builds leave the inspector of native UI out.
+            GOOS=$os go vet -tags mygo_noinspector ./...
           done
           GOOS=freebsd go build ./...
       # The installer tests download NSIS on Windows; keeping it in the cache
@@ -62,6 +64,9 @@ jobs:
           path: ~\AppData\Local\mygo\nsis-*
           key: nsis-${{ hashFiles('cmd/mygo/nsis.go') }}
       - run: go test ./...
+      - name: Test without the inspector, as production builds
+        if: runner.os == 'Linux'
+        run: go test -tags mygo_noinspector ./ui .
       - name: Save NSIS
         if: always() && runner.os == 'Windows' && steps.nsis.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -111,6 +116,9 @@ jobs:
           path: ~\AppData\Local\mygo\nsis-*
           key: nsis-${{ hashFiles('cmd/mygo/nsis.go') }}
       - run: go test ./...
+      - name: Test without the inspector, as production builds
+        if: runner.os == 'Linux'
+        run: go test -tags mygo_noinspector ./ui .
       - name: Save NSIS
         if: always() && steps.nsis.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6

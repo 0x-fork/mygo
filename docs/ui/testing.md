@@ -21,6 +21,10 @@ Elements are found by their text, or by their `Label` for those without,
 as an icon button: `tt.Click("Close")`, `tt.Find("Volume")`,
 `tt.Focused("Name")`.
 
+Two elements given the same `Key` under one parent share one state, so
+that a click or the focus meant for one goes to the other: a tester
+panics where the second key was given, as apps only log it.
+
 ## What a tester does
 
 - **Pointer.** `tt.Click`, `tt.ClickAt`, `tt.ClickWith(ui.Shift, "Row 3")`,

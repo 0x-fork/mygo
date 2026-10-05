@@ -1,3 +1,5 @@
+//go:build !mygo_noinspector
+
 package ui
 
 import (
@@ -14,9 +16,12 @@ const pickLabel = "Select an element in the window to inspect it"
 
 // inspected returns a tester of view whose window lets the inspector open,
 // and the width the view had in its last frame.
-func inspected(view func(c *Context)) (*Tester, *float32) {
+func inspected(view func(c *Context)) (*Tester, *float32) { return inspectedAs(NewTester, view) }
+
+// inspectedAs is inspected with a tester newTester makes.
+func inspectedAs(newTester func(func(*Context), int, int) *Tester, view func(c *Context)) (*Tester, *float32) {
 	var width float32
-	tt := NewTester(func(c *Context) {
+	tt := newTester(func(c *Context) {
 		width, _ = c.Size()
 		view(c)
 	}, 1000, 600)
@@ -247,11 +252,9 @@ func TestInspectorTree(t *testing.T) {
 }
 
 func TestInspectorTabs(t *testing.T) {
-	strictKeys = false
-	defer func() { strictKeys = true }()
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(os.Stderr)
-	tt, width := inspected(func(c *Context) {
+	tt, width := inspectedAs(lenientTester, func(c *Context) {
 		Row(c).Key("twice")
 		Row(c).Key("twice")
 	})
