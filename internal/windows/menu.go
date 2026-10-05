@@ -152,14 +152,16 @@ func (w *window) installMenu(m *platform.Menu) {
 
 // menuShown reports whether the menu bar is on the window. One that hides
 // is there only while the keyboard is in it, and a window without a caption,
-// or in full screen, has no room for it.
+// in full screen or with a material behind its page has none.
 func (w *window) menuShown() bool {
 	return w.hmenu != 0 && !w.barless() && (!w.autoHideMenu || w.revealed)
 }
 
-// barless reports a window that has no room for a menu bar: Alt and F10
-// open its menus in a popup instead.
-func (w *window) barless() bool { return w.captionless() || w.fullScreen }
+// barless reports a window that has no menu bar: Alt and F10 open its menus
+// in a popup instead. A window without a caption, or in full screen, has no
+// room for it, and one without a redirection bitmap would not show what GDI
+// draws of it, though it took clicks.
+func (w *window) barless() bool { return w.captionless() || w.fullScreen || w.noRedirect }
 
 // attachMenu puts the menu bar on the window, or takes it off one whose bar
 // hides. Its shortcuts work either way: they come from the webview.

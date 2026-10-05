@@ -231,7 +231,7 @@ and, marked with `--app-region: drag`, moves the window:
 
 `Transparent: true` lets a page with a transparent background show the
 desktop through, and `Vibrancy` puts a blurred material behind it on macOS
-and Windows 11:
+and Windows 11 22H2 and later:
 
 ```go
 mygo.NewWindow(mygo.WindowOptions{

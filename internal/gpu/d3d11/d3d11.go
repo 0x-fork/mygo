@@ -19,27 +19,17 @@ import (
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/gpu"
+	"github.com/egoist/mygo/internal/gpu/d3d11/device"
 	"github.com/egoist/mygo/internal/scene"
 )
 
 var (
-	d3d11dll              = syscall.NewLazyDLL(systemDir() + `\d3d11.dll`)
-	procD3D11CreateDevice = d3d11dll.NewProc("D3D11CreateDevice")
-	procDwmFlush          = syscall.NewLazyDLL(systemDir() + `\dwmapi.dll`).NewProc("DwmFlush")
-	user32                = syscall.NewLazyDLL(systemDir() + `\user32.dll`)
-	procSetTimer          = user32.NewProc("SetTimer")
-	procKillTimer         = user32.NewProc("KillTimer")
-	procInvalidateRect    = user32.NewProc("InvalidateRect")
+	procDwmFlush       = syscall.NewLazyDLL(device.SystemDir() + `\dwmapi.dll`).NewProc("DwmFlush")
+	user32             = syscall.NewLazyDLL(device.SystemDir() + `\user32.dll`)
+	procSetTimer       = user32.NewProc("SetTimer")
+	procKillTimer      = user32.NewProc("KillTimer")
+	procInvalidateRect = user32.NewProc("InvalidateRect")
 )
-
-func systemDir() string {
-	buf := make([]uint16, 260)
-	n, _, _ := syscall.NewLazyDLL("kernel32.dll").NewProc("GetSystemDirectoryW").Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-	if n == 0 || int(n) > len(buf) {
-		return `C:\Windows\System32`
-	}
-	return syscall.UTF16ToString(buf[:n])
-}
 
 type guid struct {
 	Data1 uint32
@@ -270,26 +260,10 @@ func New(hwnd uintptr) (*Renderer, error) {
 	if hwnd == 0 {
 		return nil, errors.New("d3d11: no window")
 	}
-	if err := procD3D11CreateDevice.Find(); err != nil {
-		return nil, err
-	}
 	r := &Renderer{hwnd: hwnd, images: map[uint64]*texture{}}
-	levels := []uint32{0xb000, 0xa100, 0xa000} // 11_0, 10_1, 10_0
-	const bgraSupport = 0x20
-	var hr uintptr
-	const hardware, warp = 1, 5
-	for _, driver := range []uintptr{hardware, warp} {
-		var level uint32
-		hr, _, _ = procD3D11CreateDevice.Call(0, driver, 0, bgraSupport,
-			uintptr(unsafe.Pointer(&levels[0])), uintptr(len(levels)), 7,
-			uintptr(unsafe.Pointer(&r.device)), uintptr(unsafe.Pointer(&level)), uintptr(unsafe.Pointer(&r.ctx)))
-		if !failed(hr) {
-			r.warp = driver == warp
-			break
-		}
-	}
-	if failed(hr) {
-		return nil, fmt.Errorf("d3d11: cannot create a device: %#x", uint32(hr))
+	var err error
+	if r.device, r.ctx, r.warp, err = device.New(); err != nil {
+		return nil, err
 	}
 	if err := r.init(); err != nil {
 		r.Release()

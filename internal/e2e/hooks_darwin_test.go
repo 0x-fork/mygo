@@ -108,6 +108,12 @@ func pressTitleButton(*mygo.Window, string) bool { return false }
 
 func topNonClient(*mygo.Window) (int32, int32, bool) { return 0, 0, false }
 
+func titleButtonColor(*mygo.Window, string) (uint8, uint8, uint8, bool) { return 0, 0, 0, false }
+
+// AppKit composes the window: there is no redirection bitmap to go without.
+func composition(*mygo.Window) (bool, bool, bool) { return false, false, false }
+func loseComposition(bool) bool                   { return false }
+
 func clickAndType(w *mygo.Window, x, y float64, text string) (ok bool) {
 	mygo.RunOnMain(func() { ok = darwin.TestClickAndType(w.NativeHandle(), x, y, text) })
 	return ok

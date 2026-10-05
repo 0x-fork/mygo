@@ -499,6 +499,84 @@ func TestVibrancy(t *testing.T) {
 	}
 }
 
+// On Windows, a window with a material behind its page has no redirection
+// bitmap, which hides what GDI draws: the controls of a hidden title bar
+// show through DirectComposition, in every window again once its device
+// is gone, and the menus open in a popup, with no bar to show.
+func TestVibrancyWindowControls(t *testing.T) {
+	prev := mygo.App.Menu()
+	defer mygo.App.SetMenu(prev)
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))
+	opts := mygo.WindowOptions{X: 40, Y: 40, Width: 360, Height: 200, TitleBarStyle: mygo.TitleBarHidden,
+		Vibrancy: mygo.VibrancyMica, Transparent: true}
+	a := newWindow(t, opts)
+	opts.X = 440
+	b := newWindow(t, opts)
+	noRedirect, _, ok := composition(a)
+	if !ok {
+		t.Skip("only Windows windows have redirection bitmaps")
+	}
+	if !noRedirect {
+		t.Skip("no system backdrops before Windows 11 22H2, or no DirectComposition")
+	}
+	composed := func(when string) {
+		t.Helper()
+		for _, w := range []*mygo.Window{a, b} {
+			eventually(t, "the window controls through DirectComposition "+when, func() bool {
+				_, composed, _ := composition(w)
+				return composed
+			})
+		}
+	}
+	composed("in new windows")
+	if names, _ := titleButtons(a); fmt.Sprint(names) != "[minimize maximize close]" {
+		t.Errorf("the window controls are %q", names)
+	}
+
+	// What the user sees: the close button red under the pointer, as in a
+	// window without a material, unless the screen cannot be read.
+	red := func(w *mygo.Window) bool {
+		r, g, bl, _ := titleButtonColor(w, "close")
+		return r == 0xC4 && g == 0x2B && bl == 0x1C || r == 0xE8 && g == 0x11 && bl == 0x23
+	}
+	plain := newWindow(t, mygo.WindowOptions{X: 40, Y: 280, Width: 360, Height: 200, TitleBarStyle: mygo.TitleBarHidden})
+	readable := false
+	for deadline := time.Now().Add(3 * time.Second); !readable && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		readable = red(plain)
+	}
+	if readable {
+		eventually(t, "the close button red under the pointer, through DirectComposition", func() bool { return red(b) })
+	} else {
+		t.Log("the screen does not show the close button of a window without a material: not comparing")
+	}
+
+	if loseComposition(false) {
+		composed("after their device failed")
+	}
+	if loseComposition(true) {
+		composed("after the GPU device was removed")
+	}
+
+	w := newWindow(t, mygo.WindowOptions{X: 440, Y: 280, Width: 360, Height: 200, Vibrancy: mygo.VibrancyMica})
+	if shown, _ := menuBarShown(w); shown {
+		t.Error("a window with a material has a menu bar, which would not show")
+	}
+	w.Focus()
+	time.Sleep(200 * time.Millisecond)
+	if openMenus(w, 0) {
+		var menus [][]string
+		eventually(t, "Alt to open the menus in a popup", func() bool {
+			menus, _ = popupMenus()
+			return len(menus) > 0
+		})
+		if fmt.Sprint(menus) != "[[App]]" {
+			t.Errorf("Alt opened %q, want the menus of the bar", menus)
+		}
+		closeMenus()
+		eventually(t, "the menus to close", func() bool { menus, _ = popupMenus(); return len(menus) == 0 })
+	}
+}
+
 // The toolbar that insets the traffic lights holds no items: in full screen
 // it must hide with the menu bar instead of covering the top of the page.
 func TestFullScreenToolbar(t *testing.T) {

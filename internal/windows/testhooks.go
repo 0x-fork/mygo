@@ -3,6 +3,7 @@
 package windows
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"syscall"
@@ -171,6 +172,68 @@ func captionButtonPoint(c *captionBar, i int) uintptr {
 	bw := (r.Right - r.Left) / int32(len(c.shown))
 	x, y := r.Left+int32(i)*bw+bw/2, r.Top+(r.Bottom-r.Top)/2
 	return uintptr(uint16(x)) | uintptr(uint16(y))<<16
+}
+
+// TestCaptionColor puts the pointer over a window control of a hidden
+// title bar, "minimize", "maximize" or "close", as far as the control
+// knows, and returns the color on the screen beside its glyph once Windows
+// has composed it: what the user sees, through UpdateLayeredWindow or
+// DirectComposition. The pointer leaves after.
+func TestCaptionColor(hwnd uintptr, name string) (r, g, b uint8, ok bool) {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.caption == nil {
+		return 0, 0, 0, false
+	}
+	c := w.caption
+	for i, btn := range c.shown {
+		if [...]string{"minimize", "maximize", "close"}[btn] != name {
+			continue
+		}
+		c.setHot(i)
+		defer c.setHot(-1)
+		dwmapi.NewProc("DwmFlush").Call() // until the next frame shows what was drawn
+		var rc rect
+		procGetWindowRect.Call(c.buttons, uintptr(unsafe.Pointer(&rc)))
+		bw := (rc.Right - rc.Left) / int32(len(c.shown))
+		x, y := rc.Left+int32(i)*bw+3, rc.Top+(rc.Bottom-rc.Top)/2
+		screen, _, _ := procGetDC.Call(0)
+		defer procReleaseDC.Call(0, screen)
+		px, _, _ := gdi32.NewProc("GetPixel").Call(screen, uintptr(x), uintptr(y))
+		if px == 0xFFFFFFFF { // CLR_INVALID
+			return 0, 0, 0, false
+		}
+		return uint8(px), uint8(px >> 8), uint8(px >> 16), true
+	}
+	return 0, 0, 0, false
+}
+
+// TestComposed reports whether a window has no redirection bitmap, for the
+// material behind its page, and whether the controls of its hidden title
+// bar show through the DirectComposition device in use.
+func TestComposed(hwnd uintptr) (noRedirect, composed bool) {
+	w := theBackend.windows[hwnd]
+	if w == nil {
+		return false, false
+	}
+	c := w.caption
+	return w.noRedirect, c != nil && c.comp != nil && c.comp.dev != nil && c.comp.dev == theBackend.comp
+}
+
+// TestLoseComposition takes the DirectComposition device away, as a draw
+// that finds it invalid does, or, with removed, signals that its GPU device
+// was removed. It reports false without a device, or, with removed,
+// without the event (Windows 10 before 1607).
+func TestLoseComposition(removed bool) bool {
+	c := theBackend.comp
+	switch {
+	case c == nil, removed && c.removed == 0:
+		return false
+	case removed:
+		procSetEvent.Call(c.removed)
+	default:
+		theBackend.loseComposition(errors.New("taken away by a test"))
+	}
+	return true
 }
 
 // TestTopNonClient returns how many pixels at the top of a window are not

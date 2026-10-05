@@ -18,10 +18,12 @@ import (
 // windows sit above the webview:
 //
 //   - The buttons: a layered window whose pixels carry their alpha
-//     (UpdateLayeredWindow), so the page shows around the glyphs. It answers
-//     WM_NCHITTEST with the buttons' hit-test codes, which brings Windows
-//     11's snap layouts over the maximize button, and runs the buttons from
-//     the non-client mouse messages that follow.
+//     (UpdateLayeredWindow), so the page shows around the glyphs; in a
+//     window with a material behind its page, which has no redirection
+//     bitmap, the pixels show through DirectComposition (compositor.go)
+//     instead. It answers WM_NCHITTEST with the buttons' hit-test codes,
+//     which brings Windows 11's snap layouts over the maximize button, and
+//     runs the buttons from the non-client mouse messages that follow.
 //   - The top edge: an invisible window (WS_EX_NOREDIRECTIONBITMAP) as tall
 //     as the resize border, along the rest of the top. It answers HTTOP and
 //     hands presses to the window, which then resizes from its top edge as
@@ -87,11 +89,24 @@ type captionBar struct {
 	hot, pressed int
 	tracking     bool // TrackMouseEvent asked for WM_NCMOUSELEAVE
 	active       bool // the window is the active window
+	// comp shows the buttons in a window without a redirection bitmap,
+	// where UpdateLayeredWindow cannot (compositor.go); nil otherwise.
+	comp *compositor
 }
 
 func newCaptionBar(w *window) *captionBar {
 	c := &captionBar{w: w, hot: -1, pressed: -1}
-	c.buttons = createWindow(wsExLayered, captionClass, "", wsChild|wsClipSiblings, 0, 0, 0, 0, w.hwnd)
+	if w.noRedirect {
+		// Layered, so that it blends over the webview instead of cutting
+		// its rectangle out of it, and shown through DirectComposition.
+		c.buttons = createWindow(wsExLayered|wsExNoRedirect, captionClass, "", wsChild|wsClipSiblings, 0, 0, 0, 0, w.hwnd)
+		if c.buttons != 0 {
+			procSetLayeredWindowAttributes.Call(c.buttons, 0, 255, lwaAlpha)
+			c.comp = newCompositor(w.b, c.buttons)
+		}
+	} else {
+		c.buttons = createWindow(wsExLayered, captionClass, "", wsChild|wsClipSiblings, 0, 0, 0, 0, w.hwnd)
+	}
 	if c.buttons == 0 {
 		log.Print("mygo: cannot create the window controls of a window with a hidden title bar")
 		return nil
@@ -111,6 +126,9 @@ func newCaptionBar(w *window) *captionBar {
 // forget unregisters the bar's windows, which Windows destroys with the
 // window.
 func (c *captionBar) forget() {
+	if c.comp != nil {
+		c.comp.free()
+	}
 	delete(c.w.b.captions, c.buttons)
 	if c.edge != 0 {
 		delete(c.w.b.captions, c.edge)
@@ -391,11 +409,19 @@ func (c *captionBar) paint() {
 	}
 	screen, _, _ := procGetDC.Call(0)
 	defer procReleaseDC.Call(0, screen)
-	img := newBitmap(screen, width, height)
-	if img == nil {
-		return
+	// UpdateLayeredWindow takes the pixels in a bitmap, DirectComposition
+	// alone.
+	var img *bitmap
+	var px []uint32
+	if c.comp != nil {
+		px = c.comp.pixels(int(width) * int(height))
+	} else {
+		if img = newBitmap(screen, width, height); img == nil {
+			return
+		}
+		defer img.free()
+		px = img.px
 	}
-	defer img.free()
 	mask := newBitmap(screen, width, height)
 	if mask == nil {
 		return
@@ -422,9 +448,13 @@ func (c *captionBar) paint() {
 		for y := int32(0); y < height; y++ {
 			row := y * width
 			for x := int32(i) * bw; x < int32(i+1)*bw; x++ {
-				img.px[row+x] = over(fore, mask.px[row+x]&0xFF, back)
+				px[row+x] = over(fore, mask.px[row+x]&0xFF, back)
 			}
 		}
+	}
+	if c.comp != nil {
+		c.comp.show(px, width, height)
+		return
 	}
 	size := [2]int32{width, height}
 	var origin point

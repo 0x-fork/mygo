@@ -67,6 +67,11 @@ func pressTitleButton(*mygo.Window, string) bool { return false }
 
 func topNonClient(*mygo.Window) (int32, int32, bool) { return 0, 0, false }
 
+func titleButtonColor(*mygo.Window, string) (uint8, uint8, uint8, bool) { return 0, 0, 0, false }
+
+func composition(*mygo.Window) (bool, bool, bool) { return false, false, false }
+func loseComposition(bool) bool                   { return false }
+
 // A Control-click is a secondary click on macOS only.
 func controlClick(*mygo.Window, float64, float64) bool { return false }
 

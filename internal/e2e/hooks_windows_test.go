@@ -148,6 +148,28 @@ func topNonClient(w *mygo.Window) (px, want int32, supported bool) {
 	return px, want, true
 }
 
+// titleButtonColor puts the pointer over a window control of a hidden
+// title bar and returns the color on the screen beside its glyph.
+func titleButtonColor(w *mygo.Window, name string) (r, g, b uint8, ok bool) {
+	mygo.RunOnMain(func() { r, g, b, ok = win.TestCaptionColor(w.NativeHandle(), name) })
+	return r, g, b, ok
+}
+
+// composition reports whether a window has no redirection bitmap, for the
+// material behind its page, and whether the controls of its hidden title
+// bar show through DirectComposition.
+func composition(w *mygo.Window) (noRedirect, composed, supported bool) {
+	mygo.RunOnMain(func() { noRedirect, composed = win.TestComposed(w.NativeHandle()) })
+	return noRedirect, composed, true
+}
+
+// loseComposition takes the device of DirectComposition away, as a draw
+// that finds it invalid does, or, with removed, as a removed GPU does.
+func loseComposition(removed bool) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestLoseComposition(removed) })
+	return ok
+}
+
 // A Control-click is a secondary click on macOS only.
 func controlClick(*mygo.Window, float64, float64) bool { return false }
 

@@ -71,7 +71,7 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── vec/            the coverage rasterizer of glyphs and paths
 │   ├── raster/         the CPU renderer of scenes
 │   ├── gpu/            the instances GPU renderers draw, and gputest/ for their tests
-│   ├── gpu/d3d11/      the Direct3D 11 renderer of scenes
+│   ├── gpu/d3d11/      the Direct3D 11 renderer of scenes, and device/ for its devices
 │   ├── gpu/metal/      the Metal renderer of scenes
 │   ├── gpu/gl/         the OpenGL renderer of scenes
 │   ├── svg/            SVG parsing and drawing, for icons and images
@@ -384,6 +384,24 @@ purego gives three primitives, used everywhere:
   webview's window is created later, so the controls go back to the top of
   the z-order when it appears. A window without a caption has no room for
   its menu bar: Alt and F10 open a popup holding the bar's own submenus.
+- **Vibrancy** sets `DWMWA_SYSTEMBACKDROP_TYPE` (Windows 11 22H2) and
+  extends the frame over the client area, behind a transparent webview.
+  The material shows only in a window created without a redirection
+  bitmap (`WS_EX_NOREDIRECTIONBITMAP`, which Windows neither adds nor
+  removes later), whose opaque surface would cover it, so `SetVibrancy`
+  shows one only in windows created with `Vibrancy`. Such a window shows
+  nothing GDI draws: it has no menu bar, like a window without a caption,
+  and the buttons of its hidden title bar, layered without a bitmap too,
+  show their pixels through DirectComposition (`compositor.go`), on a
+  Direct3D 11 device the windows share (`internal/gpu/d3d11/device`,
+  which links none of the renderer). A device found invalid after a
+  failed draw, or whose GPU device signals its removed event
+  (`ID3D11Device4::RegisterDeviceRemovedEvent`, waited for by a
+  goroutine), is made again, and every window's buttons draw again;
+  buttons that could not draw retry on a timer of the application
+  window, a second later and longer after each failure in a row. Without
+  DirectComposition, a window with a hidden title bar keeps its bitmap:
+  its buttons show, and the material does not.
 - Message boxes are task dialogs (comctl32 v6, activated from shell32's
   manifest for executables without one); their structs are packed and laid
   out by hand. Notifications are notification-area balloons, which Windows
@@ -1982,9 +2000,9 @@ which npm allows only for packages that exist: the first release uses an
 | tray | NSStatusItem, click events | AppIndicator (menu only, no click events) | notification area icon, click events |
 | global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
 | notifications | UserNotifications, packaged apps only | org.freedesktop.Notifications over D-Bus | notification-area balloons (toasts) |
-| vibrancy | all materials | ignored | Windows 11 Mica, Acrylic, Tabbed |
+| vibrancy | all materials | ignored | Windows 11 22H2 Mica, Acrylic, Tabbed, in windows created with a material, which have no menu bar |
 | traffic lights, Dock | yes | ignored | ignored |
-| hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window; snap layouts; a top edge that resizes |
+| hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window, through DirectComposition over a material; snap layouts; a top edge that resizes |
 | progress bar | Dock tile content view (NSBoxes: NSProgressIndicator does not draw there), app-wide | Unity launcher API over D-Bus (`com.canonical.Unity.LauncherEntry`), app-wide | `ITaskbarList3`, per window |
 | badge count | Dock tile label | Unity launcher API count | not shown |
 | skip taskbar | ignored | skip-taskbar hint | `ITaskbarList::DeleteTab` (the window style is untouched) |

@@ -33,6 +33,7 @@ type window struct {
 	frameless              bool
 	hiddenTitleBar         bool        // a TitleBarStyle that hides the caption
 	caption                *captionBar // the controls in its place, nil if they failed
+	noRedirect             bool        // no redirection bitmap, for a material behind the page
 	fullScreen             bool
 	reframing              bool     // SetFullScreen is changing the frame
 	showMaximized          bool     // on the first show (WindowOptions.Maximized)
@@ -91,6 +92,14 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 		htmlFor: map[string]string{}, calls: map[int]func(string, error){},
 	}
 	w.hiddenTitleBar = !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset")
+	// A page with a material behind it needs a window without a redirection
+	// bitmap, whose opaque surface would cover the system backdrop. GDI
+	// draws nothing there: the controls of a hidden title bar show through
+	// DirectComposition (compositor.go), and the menus open in a popup
+	// (barless). Where DirectComposition is unavailable, the window keeps
+	// its bitmap: its controls show, and the material does not. The style
+	// is the window's for life: Windows neither adds it nor removes it later.
+	w.noRedirect = o.Vibrancy != "" && !o.Surface && systemBackdrops() && (!w.hiddenTitleBar || b.composition() != nil)
 	var owner uintptr
 	if p, ok := o.Parent.(*window); ok && p != nil && !p.closed {
 		w.parent, owner = p, p.hwnd
@@ -170,6 +179,9 @@ func (w *window) styles() (style, ex uint32) {
 	if !o.Focusable {
 		ex |= wsExNoActivate
 	}
+	if w.noRedirect {
+		ex |= wsExNoRedirect
+	}
 	return style, ex
 }
 
@@ -201,7 +213,7 @@ func (w *window) placeInitially() {
 func (w *window) outerSize(width, height int32, dpi int) (int32, int32) {
 	r := rect{0, 0, width, height}
 	menu := uintptr(0)
-	if !w.autoHideMenu && (w.hmenu != 0 || w.b.appMenu != nil) {
+	if !w.autoHideMenu && !w.noRedirect && (w.hmenu != 0 || w.b.appMenu != nil) {
 		menu = 1
 	}
 	style, ex := windowLong(w.hwnd, gwlStyle), windowLong(w.hwnd, gwlExStyle)
@@ -766,6 +778,8 @@ func (w *window) SetBackgroundColor(c platform.Color) {
 // applyWebViewBackground paints the webview before its page does:
 // transparent with a material behind it, else the background color.
 // WebView2 only supports fully opaque or fully transparent backgrounds.
+// A transparent page shows the window's background color behind it, which
+// GDI paints; in a window without a redirection bitmap, the webview does.
 func (w *window) applyWebViewBackground() {
 	ctl2 := queryInterface(w.controller, &iidICoreWebView2Controller2)
 	if ctl2 == 0 {
@@ -774,7 +788,9 @@ func (w *window) applyWebViewBackground() {
 	defer release(ctl2)
 	var c uint32 = 0xFFFFFFFF // opaque white: A, R, G, B bytes
 	switch {
-	case w.vibrancy != "" || w.opts.Transparent:
+	case w.vibrancy != "":
+		c = 0
+	case w.opts.Transparent && (w.bg == nil || !w.noRedirect):
 		c = 0
 	case w.bg != nil && w.bg.A == 0:
 		c = 0

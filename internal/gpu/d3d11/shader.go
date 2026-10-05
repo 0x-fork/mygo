@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/gpu"
+	"github.com/egoist/mygo/internal/gpu/d3d11/device"
 )
 
 //go:embed shader.hlsl
@@ -37,7 +38,7 @@ func shaderCode() (vs, ps []byte, err error) {
 
 // procD3DCompile is the shader compiler of Windows 10 and later, which gen.go
 // compiles shaders.go with too.
-var procD3DCompile = syscall.NewLazyDLL(systemDir() + `\d3dcompiler_47.dll`).NewProc("D3DCompile")
+var procD3DCompile = syscall.NewLazyDLL(device.SystemDir() + `\d3dcompiler_47.dll`).NewProc("D3DCompile")
 
 // compileShader compiles the function entry of shader.hlsl for target, as
 // gen.go does.

@@ -43,14 +43,28 @@ func systemDLL(name string) *syscall.LazyDLL { return syscall.NewLazyDLL(sysDir 
 // has reports whether an optional API exists on this version of Windows.
 func has(p *syscall.LazyProc) bool { return p.Find() == nil }
 
-// windows11 reports Windows 11 (build 22000) or later. RtlGetVersion tells
-// the version whatever the executable's manifest declares.
-var windows11 = sync.OnceValue(func() bool {
+// windowsBuild returns the build of Windows 10 or 11, the maximum on a
+// later major version. RtlGetVersion tells the version whatever the
+// executable's manifest declares.
+var windowsBuild = sync.OnceValue(func() uint32 {
 	var v osVersionInfo
 	v.Size = uint32(unsafe.Sizeof(v))
 	procRtlGetVersion.Call(uintptr(unsafe.Pointer(&v)))
-	return v.Major > 10 || v.Major == 10 && v.Build >= 22000
+	switch {
+	case v.Major > 10:
+		return ^uint32(0)
+	case v.Major < 10:
+		return 0
+	}
+	return v.Build
 })
+
+// windows11 reports Windows 11 (build 22000) or later.
+func windows11() bool { return windowsBuild() >= 22000 }
+
+// systemBackdrops reports Windows 11 22H2 (build 22621) or later, where
+// DWM draws the materials of DWMWA_SYSTEMBACKDROP_TYPE.
+func systemBackdrops() bool { return windowsBuild() >= 22621 }
 
 var (
 	// kernel32
@@ -262,6 +276,9 @@ const (
 	wmAppWake     = wmApp + 2
 	wmAppTray     = wmApp + 3
 	wmAppReady    = wmApp + 4
+	// wmAppDeviceRemoved tells the application window that the GPU device
+	// of DirectComposition was removed (compositor.go).
+	wmAppDeviceRemoved = wmApp + 5
 
 	wsOverlapped       = 0x00000000
 	wsPopup            = 0x80000000
