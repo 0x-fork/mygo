@@ -12,13 +12,17 @@ var rowMotion = ui.ElementTransition{
 }
 
 ui.Column(c).Children(func() {
+	removed := -1
 	for _, it := range app.items {
 		ui.Row(c).Key(it.ID).Padding(8).Transition(rowMotion).Children(func() {
 			ui.Text(c, it.Title).Grow(1)
 			if ui.Button(c, "Remove").Clicked() {
-				app.remove(it.ID)
+				removed = it.ID // once the loop is done (see Views)
 			}
 		})
+	}
+	if removed >= 0 {
+		app.remove(removed)
 	}
 })
 ```

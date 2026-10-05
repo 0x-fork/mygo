@@ -46,6 +46,9 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.pointerIn = false
 		if rt.pressed == nil {
 			rt.setHover(nil)
+		} else {
+			// The elements around the one pressed hover no more.
+			rt.requestFrame()
 		}
 	case platform.PointerScroll:
 		rt.pointerMove(x, y)
@@ -173,6 +176,8 @@ func (rt *engine) pointerMove(x, y float32) {
 		rt.pressed.dragY += y - rt.pointerY
 		if rt.pressed.flags&(flagTrackPointer|flagDraggable|flagEditable|flagSelectable) != 0 {
 			rt.requestFrame()
+		} else {
+			rt.pressMove(rt.pointerX, rt.pointerY, x, y)
 		}
 		rt.dragMove(x, y)
 	}
@@ -804,22 +809,44 @@ func (e *Element) RightClicked() bool {
 	return true
 }
 
-// Hovered reports whether the pointer is over the element.
+// Hovered reports whether the pointer is over the element. While the
+// pointer presses an element, the elements it was over as the press began,
+// as those around the element pressed, stay hovered as long as it is over
+// them, as in CSS, and the others hover no more: a button that shows over
+// a row stays as it is pressed, and dragging over other elements does not
+// light them up.
 func (e *Element) Hovered() bool {
 	e.flags |= flagHover
 	if e.IsDisabled() {
 		return false
 	}
 	rt := e.c.rt
-	if rt.pressed != nil && rt.pressed.id != e.id {
+	if !slices.Contains(rt.hover, e.id) {
 		return false
 	}
+	if p := rt.pressed; p != nil && p.id != e.id {
+		// The hover holds the elements under the pointer as the press
+		// began.
+		s := e.st
+		return rt.pointerIn && Rect{s.vx, s.vy, s.vw, s.vh}.Contains(rt.pointerX, rt.pointerY)
+	}
+	return true
+}
+
+// pressMove asks for a frame when the pointer, pressing an element, moves
+// in or out of an element around it that looks at its hover (Hovered).
+func (rt *engine) pressMove(x0, y0, x1, y1 float32) {
 	for _, id := range rt.hover {
-		if id == e.id {
-			return true
+		s := rt.states[id]
+		if s == nil || s == rt.pressed || s.flags&flagHover == 0 {
+			continue
+		}
+		r := Rect{s.vx, s.vy, s.vw, s.vh}
+		if r.Contains(x0, y0) != r.Contains(x1, y1) {
+			rt.requestFrame()
+			return
 		}
 	}
-	return false
 }
 
 // Pressed reports whether the element is being pressed with the pointer.

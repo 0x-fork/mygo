@@ -52,13 +52,36 @@ element was clicked since the last frame, so the code that handles a click
 sits where the button is built:
 
 ```go
-if ui.Button(c, "Delete").Clicked() {
-	app.items = slices.Delete(app.items, i, i+1)
+if ui.Button(c, "Save").Clicked() {
+	app.save()
 }
 ```
 
 When a handler changes the state while the view builds, MyGo builds the
 frame again, so it always shows the outcome.
+
+The rest of the frame builds first, though, after the handler: a change
+to what the view is building pulls it from under the code building it,
+as deleting an item from the slice a loop builds rows from, from a button
+in one of the rows. The loop goes on over the items as they were, and
+reads past the end of the slice. Note the item instead, and change the
+slice once the loop is done:
+
+```go
+deleted := -1
+for i := range app.items {
+	item := app.items[i]
+	ui.Row(c).Key(item.ID).Children(func() {
+		ui.Text(c, item.Title).Grow(1)
+		if ui.Button(c, "Delete").Clicked() {
+			deleted = i
+		}
+	})
+}
+if deleted >= 0 {
+	app.items = slices.Delete(app.items, deleted, deleted+1)
+}
+```
 
 Widgets that change a value take a pointer to it, so they need no handler:
 `ui.Checkbox(c, &app.settings.Sync, "Sync")` changes the field the moment

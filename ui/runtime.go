@@ -509,10 +509,11 @@ func (rt *engine) forgetInput() {
 // prune forgets the elements the frame did not build, but those of the
 // pages Routers keep.
 func (rt *engine) prune() {
+	unpressed := false
 	for id, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
 			if rt.pressed == s {
-				rt.pressed = nil
+				rt.pressed, unpressed = nil, true
 			}
 			if !rt.keptAlive(s) {
 				delete(rt.states, id)
@@ -524,6 +525,16 @@ func (rt *engine) prune() {
 				}
 			}
 		}
+	}
+	if unpressed {
+		// The element pressed went away, as a button showing over a row
+		// the pointer left: what the pointer is over now hovers, rather
+		// than what it was over as the press began.
+		var chain []uint64
+		if rt.pointerIn {
+			chain = rt.hitChain(rt.pointerX, rt.pointerY)
+		}
+		rt.setHover(chain)
 	}
 	rt.restoreFocus()
 	// The focus does not stay in a page kept out of sight.

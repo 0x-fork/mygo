@@ -1341,14 +1341,18 @@ func (g *gallery) motion(c *ui.Context) {
 			// between the rows come with the column.
 			ui.Column(c).Radius(8).Border(1, t.Border).Clip().Dividers(1, t.Border).
 				Transition(ui.ElementTransition{Size: true, Duration: itemMotion.Duration, Ease: itemMotion.Ease}).Children(func() {
+				removed := -1
 				for _, it := range g.items {
 					ui.Row(c).Key(it.id).Padding(8, 10).Gap(10).AlignItems(ui.Center).Background(t.Background).Transition(itemMotion).Children(func() {
 						ui.Box(c).Size(10, 10).Radius(5).Background(motionColors[it.id%len(motionColors)])
 						ui.Text(c, it.name).Grow(1)
 						if ui.Button(c, "Remove").Clicked() {
-							g.items = slices.DeleteFunc(g.items, func(o motionItem) bool { return o.id == it.id })
+							removed = it.id // once the loop over the items is done
 						}
 					})
+				}
+				if removed >= 0 {
+					g.items = slices.DeleteFunc(g.items, func(o motionItem) bool { return o.id == removed })
 				}
 			})
 			if len(g.items) == 0 {

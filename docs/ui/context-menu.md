@@ -17,16 +17,21 @@ row.ContextMenu(func(m *ui.Menu) {
 	m.Submenu("Move to", func(m *ui.Menu) {
 		for _, f := range app.folders {
 			if m.Item(f.name).Chosen() {
-				app.move(i, f)
+				moveTo, moved = f, i
 			}
 		}
 	})
 	m.Separator()
 	if m.Item("Delete").Disabled(note.locked).Chosen() {
-		app.delete(i)
+		deleted = i
 	}
 })
 ```
+
+The function runs as the element builds, in the loop building the rows:
+a choice that takes the row out of the notes, as moving or deleting it,
+notes it, for the change once the loop is done (see
+[views](views.md#events-are-questions)).
 
 ## Items
 

@@ -24,6 +24,23 @@ pointer through to what is below.
 Elements that take the pointer give it to the innermost under it: a button
 in a clickable row takes its own clicks.
 
+While the pointer presses an element, the elements it was over as the
+press began, as the row around a button, stay `Hovered` as long as it is
+over them, as in CSS, and the others hover no more: dragging over other
+elements does not light them up. A button that shows while its row is
+hovered stays as it is pressed, to take its click:
+
+```go
+row := ui.Row(c).Padding(8)
+hovered := row.Hovered()
+row.Children(func() {
+	ui.Text(c, item.Title).Grow(1)
+	if hovered && ui.Button(c, "Remove").Clicked() {
+		removed = item.ID
+	}
+})
+```
+
 ## The keyboard focus
 
 `Focusable` elements take the focus when clicked, and Tab and Shift+Tab

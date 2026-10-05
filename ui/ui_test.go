@@ -449,3 +449,79 @@ func TestRecycledStateIsFresh(t *testing.T) {
 		t.Errorf("b took a's scroll offset %v, clicks %d, or local (%d inits)", st.scrollY, st.clicks, inits)
 	}
 }
+
+// TestHoverWhilePressed checks that the elements around the one pressed
+// stay hovered while the pointer is over them: a button that shows over a
+// row is still there to take its release. Others hover no more.
+func TestHoverWhilePressed(t *testing.T) {
+	var rowHovered, otherHovered bool
+	removes, keeps := 0, 0
+	tt := NewTester(func(c *Context) {
+		Column(c).Children(func() {
+			row := Row(c).Size(200, 40)
+			rowHovered = row.Hovered()
+			row.Children(func() {
+				if Button(c, "Keep").Clicked() {
+					keeps++
+				}
+				Spacer(c)
+				if rowHovered && Button(c, "Remove").Clicked() {
+					removes++
+				}
+			})
+			other := Box(c).Size(200, 40)
+			otherHovered = other.Hovered()
+		})
+	}, 300, 200)
+	press := func(label string) (x, y float32) {
+		t.Helper()
+		r, ok := tt.Find(label)
+		if !ok {
+			t.Fatalf("no %q; texts %q", label, tt.Texts())
+		}
+		x, y = r.X+r.W/2, r.Y+r.H/2
+		tt.Press(x, y)
+		tt.Frame()
+		return x, y
+	}
+	tt.Move(150, 20)
+	tt.Frame()
+	// The button showing over the row takes its click.
+	x, y := press("Remove")
+	if !rowHovered {
+		t.Error("pressing the button unhovered the row around it")
+	}
+	tt.Release(x, y)
+	tt.Frame()
+	if removes != 1 {
+		t.Fatalf("%d clicks of the button showing over the row", removes)
+	}
+	// Pressing a button and leaving the row for another element: neither
+	// hovers until the release.
+	press("Keep")
+	tt.Move(20, 60)
+	tt.Frame()
+	if rowHovered || otherHovered {
+		t.Errorf("pressing a button, the pointer elsewhere: the row hovered %v, the element under the pointer %v", rowHovered, otherHovered)
+	}
+	tt.Release(20, 60)
+	tt.Frame()
+	if !otherHovered || keeps != 0 {
+		t.Errorf("after the release: the element under the pointer hovered %v, %d clicks", otherHovered, keeps)
+	}
+	// Pressing the button over the row and leaving the row, which hides
+	// the button: the element under the pointer hovers then.
+	tt.Move(150, 20)
+	tt.Frame()
+	x, y = press("Remove")
+	tt.Move(20, 60)
+	tt.Frame()
+	if rowHovered || !otherHovered || tt.HasText("Remove") {
+		t.Errorf("the button over the row gone: the row hovered %v, the element under the pointer %v", rowHovered, otherHovered)
+	}
+	tt.Release(20, 60)
+	tt.Frame()
+	if removes != 1 {
+		t.Errorf("%d clicks of the button, released away from it", removes)
+	}
+}
