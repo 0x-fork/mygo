@@ -9,8 +9,6 @@ import (
 	"math"
 	"runtime"
 	"slices"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/internal/scene"
@@ -160,24 +158,35 @@ func (d *drawer) drawOps(dst *Image, s *scene.Scene, area image.Rectangle, bound
 		d.rs[0].render(dst, s, area, bounds, from, to, px, b)
 		return time.Since(start)
 	}
-	var next atomic.Int32
-	var busy atomic.Int64
-	var wg sync.WaitGroup
-	for i := range n {
-		r := &d.rs[i]
-		wg.Go(func() {
-			began := time.Now()
-			for k := int(next.Add(1)) - 1; k < bands; k = int(next.Add(1)) - 1 {
-				band := area
-				band.Min.Y = area.Min.Y + k*rows
-				band.Max.Y = min(band.Min.Y+rows, area.Max.Y)
-				r.render(dst, s, band, bounds, from, to, px, b)
-			}
-			busy.Add(int64(time.Since(began)))
-		})
+	d.job = bandJob{dst, s, area, bounds, from, to, rows, px, b}
+	if d.bands.do == nil {
+		d.bands.do = d.band
 	}
-	wg.Wait()
-	return time.Duration(busy.Load())
+	busy := d.bands.run(n, bands)
+	d.job = bandJob{}
+	return busy
+}
+
+// bandJob is what the bands of drawOps draw: operations from to to of s
+// within area, in bands of rows rows.
+type bandJob struct {
+	dst      *Image
+	s        *scene.Scene
+	area     image.Rectangle
+	bounds   []image.Rectangle
+	from, to int
+	rows     int
+	px       scene.EffectPixels
+	b        *scene.BackdropImage
+}
+
+// band draws band part of d.job with the renderer of member.
+func (d *drawer) band(member, part int) {
+	j := &d.job
+	band := j.area
+	band.Min.Y = j.area.Min.Y + part*j.rows
+	band.Max.Y = min(band.Min.Y+j.rows, j.area.Max.Y)
+	d.rs[member].render(j.dst, j.s, band, j.bounds, j.from, j.to, j.px, j.b)
 }
 
 // render draws the pixels of s within area, operations from to to but

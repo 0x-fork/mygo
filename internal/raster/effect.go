@@ -2,19 +2,20 @@ package raster
 
 import (
 	"runtime"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/internal/scene"
 )
 
 // drawer is what draw keeps from scene to scene: the renderers of the
-// bands, the backdrop of an effect, and the effects' CPU twins.
+// bands and the team drawing them, the backdrop of an effect, and the
+// effects' CPU twins.
 type drawer struct {
-	rs []renderer
-	bd backdrop
-	fx map[*scene.Effect]scene.EffectPixels
+	rs    []renderer
+	bands team
+	job   bandJob
+	bd    backdrop
+	fx    map[*scene.Effect]scene.EffectPixels
 }
 
 // pixels returns what draws e on the CPU, made the first time, or nil for
@@ -41,7 +42,20 @@ type backdrop struct {
 	// tmp holds the rows blurred, before the columns are.
 	tmp     []float32
 	weights []float32
+
+	// lines does the passes of read on several cores, each line of pass
+	// over dst (line).
+	lines team
+	dst   *Image
+	pass  int
 }
+
+// The passes of backdrop.read.
+const (
+	averagePass = iota
+	rowsPass
+	columnsPass
+)
 
 // texelWork is how many texels times taps are worth waking other cores
 // for.
@@ -61,8 +75,9 @@ func (bd *backdrop) read(dst *Image, b scene.Backdrop) time.Duration {
 	if n == 0 {
 		return 0
 	}
+	bd.dst = dst
 	k := b.Down
-	busy := lines(img.H, img.W*k*k, func(j int) { bd.average(dst, j) })
+	busy := bd.run(averagePass, img.H, img.W*k*k)
 	if b.Radius == 0 {
 		return busy
 	}
@@ -71,36 +86,40 @@ func (bd *backdrop) read(dst *Image, b scene.Backdrop) time.Duration {
 		bd.weights = append(bd.weights, scene.BlurWeight(i, b.Sigma))
 	}
 	taps := 2*b.Radius + 1
-	busy += lines(img.H, img.W*taps, func(j int) { bd.blur(bd.tmp, img.Pix, 4, 4*img.W, img.W, j) })
-	return busy + lines(img.W, img.H*taps, func(i int) { bd.blur(img.Pix, bd.tmp, 4*img.W, 4, img.H, i) })
+	busy += bd.run(rowsPass, img.H, img.W*taps)
+	return busy + bd.run(columnsPass, img.W, img.H*taps)
 }
 
-// lines calls fn for lines 0 to n-1, each work texels times taps, on
+// run does lines 0 to n-1 of pass, each work texels times taps, on
 // several cores when they are worth it, and returns how long the cores
 // took, together.
-func lines(n, work int, fn func(int)) time.Duration {
+func (bd *backdrop) run(pass, n, work int) time.Duration {
 	start := time.Now()
+	bd.pass = pass
 	workers := max(min(runtime.GOMAXPROCS(0), n*work/texelWork, maxWorkers), 1)
 	if workers == 1 {
 		for i := range n {
-			fn(i)
+			bd.line(0, i)
 		}
 		return time.Since(start)
 	}
-	var next atomic.Int32
-	var busy atomic.Int64
-	var wg sync.WaitGroup
-	for range workers {
-		wg.Go(func() {
-			began := time.Now()
-			for i := int(next.Add(1)) - 1; i < n; i = int(next.Add(1)) - 1 {
-				fn(i)
-			}
-			busy.Add(int64(time.Since(began)))
-		})
+	if bd.lines.do == nil {
+		bd.lines.do = bd.line
 	}
-	wg.Wait()
-	return time.Duration(busy.Load())
+	return bd.lines.run(workers, n)
+}
+
+// line does line i of the pass.
+func (bd *backdrop) line(_, i int) {
+	img := &bd.img
+	switch bd.pass {
+	case averagePass:
+		bd.average(bd.dst, i)
+	case rowsPass:
+		bd.blur(bd.tmp, img.Pix, 4, 4*img.W, img.W, i)
+	default:
+		bd.blur(img.Pix, bd.tmp, 4*img.W, 4, img.H, i)
+	}
 }
 
 // average computes row j of the texels: the average of each square of

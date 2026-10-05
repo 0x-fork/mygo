@@ -265,7 +265,8 @@ func benchDiffScroll(b *testing.B, diff bool, lo, hi int) {
 	}
 }
 
-// TestDiffFrameAllocs reports the allocations of the diff scene's frames.
+// TestDiffFrameAllocs reports the allocations of the diff scene's frames,
+// and checks those of frames that lay nothing out.
 func TestDiffFrameAllocs(t *testing.T) {
 	if testing.Short() {
 		t.Skip("measures")
@@ -285,4 +286,10 @@ func TestDiffFrameAllocs(t *testing.T) {
 	}
 	warm := testing.AllocsPerRun(100, s.step)
 	t.Logf("allocations a frame: steady %.0f, scrolling the sidebar %.0f, with the diff %.0f, within rows laid out %.0f", steady, sidebar, both, warm)
+	// Frames that lay nothing out allocate twice on every platform, however
+	// many cores draw them: drawing on several cores once allocated for each
+	// area (raster's team).
+	if steady > 2 || warm > 2 {
+		t.Errorf("a steady frame allocates %.0f times, and one scrolling within rows laid out %.0f, not 2", steady, warm)
+	}
 }
