@@ -1,9 +1,8 @@
-# MyGo
+<p align="center">
+<img width="800" height="360" alt="MyGo!!!!!" src="https://github.com/user-attachments/assets/c3eee9bc-5f22-4032-95b6-776e8381910a" />
+</p>
 
-Desktop apps in Go, with a web frontend or a native UI.
-
-<img width="800" height="360" alt="mygo-logo-light" src="https://github.com/user-attachments/assets/c3eee9bc-5f22-4032-95b6-776e8381910a" />
-
+**Desktop apps in Go, with a web frontend or a native UI.**
 
 Each MyGo window shows one of two kinds of interface, and one app can mix
 them:
