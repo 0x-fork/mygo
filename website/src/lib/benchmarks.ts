@@ -65,6 +65,8 @@ export interface Group {
   /** The unit its charts show whatever the metric chosen, for results that are not Go benchmarks', and what it is. */
   unit?: string
   unitText?: string
+  /** What its info button tells: terms and what they are, then a note. */
+  info?: { terms: [string, string][]; note?: string }
 }
 
 export const groups: Group[] = [
@@ -78,9 +80,18 @@ export const groups: Group[] = [
   {
     pkg: "memory",
     title: "Idle memory",
-    text: "The same builds, six seconds after they start, on GitHub's runners: virtual machines with a 1024×768 display at scale 1, where the system's frameworks take about half what they take on a Retina Mac, so apps take less than on yours. The physical footprint on macOS, as Activity Monitor shows it; the proportional set size on Linux, which counts a share of the libraries the app shares with other processes; the private working set on Windows, as Task Manager shows it, which leaves out pages shared with other processes and memory committed but not in use.",
+    text: "The same builds, six seconds after they start.",
     unit: "B",
     unitText: "bytes",
+    info: {
+      terms: [
+        ["macOS", "Physical footprint, as Activity Monitor shows it."],
+        ["Linux", "Proportional set size: shared libraries count in part."],
+        ["Windows", "Private working set, as Task Manager shows it: shared pages left out."],
+        ["hello", "With its webview's processes; hello/app without."],
+      ],
+      note: "GitHub's runners show 1024×768 at scale 1, so apps take less than on a Retina Mac: counter-native 22 MB there, 37 MB on an M5 MacBook.",
+    },
   },
   {
     pkg: "internal/e2e",
@@ -103,9 +114,18 @@ export const groups: Group[] = [
 export const appDocs: Record<string, string> = {
   "size/hello": "examples/hello: a window with a web page calling a Go method.",
   "size/counter-native": "examples/counter-native: a window of native UI.",
-  "memory/hello": "examples/hello with the processes of its webview: WebKit's on macOS and Linux, WebView2's on Windows.",
-  "memory/hello/app": "examples/hello's own process, without its webview's.",
-  "memory/counter-native": "examples/counter-native: native UI, which runs no other process.",
+  "memory/hello": "examples/hello, with its webview's processes.",
+  "memory/hello/app": "examples/hello's own process.",
+  "memory/counter-native": "examples/counter-native: native UI, no other process.",
+}
+
+/** How to read the page, which its info button tells. */
+export const reading: NonNullable<Group["info"]> = {
+  terms: [
+    ["▲ ▼", "A commit that moved a result beyond its noise: worse, better."],
+    ["Card", "The last value, against the first ones shown."],
+    ["Gray", "Timings on other CPUs: runners get one of several, so timings compare only on the same one."],
+  ],
 }
 
 /** What a unit measures, as the summary names it. */

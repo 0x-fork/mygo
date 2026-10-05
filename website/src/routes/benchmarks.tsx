@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router"
-import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, TableOfContentsIcon } from "lucide-react"
+import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, InfoIcon, TableOfContentsIcon } from "lucide-react"
 import * as React from "react"
 
 import { TrendChart } from "@/components/benchmarks/trend-chart"
@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   anchorOf,
   appDocs,
@@ -28,6 +29,7 @@ import {
   ranges,
   findSteps,
   lastValue,
+  reading,
   trendOf,
   unitLabel,
   workflowUrl,
@@ -118,12 +120,22 @@ function Benchmarks() {
         <p className="label">Benchmarks</p>
         <h1 className="mt-5 text-3xl leading-[1.1] font-semibold tracking-[-0.035em] sm:text-4xl">Every push, measured.</h1>
         <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
-          MyGo&apos;s benchmarks run on every push to main, on GitHub&apos;s macOS, Linux and Windows runners. Each point is a commit, the median of six
-          runs, and lower is better on every chart. A chart marks the commits that moved its results beyond their noise, ▲ worse and ▼ better, and
-          its card compares the last value with the first ones shown. Runners are shared virtual machines that get one of several CPUs from run to
-          run: timings are compared only on the same CPU, the last commit&apos;s in the line, others in gray.
+          Every push to main runs on GitHub&apos;s macOS, Linux and Windows runners. Each point is a commit, the median of six runs: lower is better.
         </p>
-        <p className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+        <p className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+          <Info
+            label="How to read the charts"
+            info={reading}
+            trigger={
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 font-medium underline decoration-gopher/45 underline-offset-[5px] hover:decoration-gopher"
+              />
+            }
+          >
+            <InfoIcon className="size-3.5 text-muted-foreground" />
+            Reading the charts
+          </Info>
           <a href={workflowUrl} className="font-medium underline decoration-gopher/45 underline-offset-[5px] hover:decoration-gopher">
             The workflow
           </a>
@@ -466,8 +478,17 @@ function GroupSection({ group, unit, children }: { group: Group; unit: string; c
     <section aria-labelledby={id} className="border-b">
       <div className="flex flex-wrap items-end justify-between gap-4 px-4 pt-12 pb-6 sm:px-10">
         <div className="max-w-2xl">
-          <h2 id={id} className="text-xl font-semibold tracking-tight">
+          <h2 id={id} className="flex items-center gap-1.5 text-xl font-semibold tracking-tight">
             {group.title}
+            {group.info && (
+              <Info
+                label={`About ${group.title.toLowerCase()}`}
+                info={group.info}
+                trigger={<Button variant="ghost" size="icon-sm" aria-label={`About ${group.title.toLowerCase()}`} className="text-muted-foreground" />}
+              >
+                <InfoIcon />
+              </Info>
+            )}
           </h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
             {group.text}
@@ -488,6 +509,36 @@ function GroupSection({ group, unit, children }: { group: Group; unit: string; c
       </div>
       {children(table)}
     </section>
+  )
+}
+
+/** An info button, the trigger with children, and what it tells in a popover. */
+function Info({
+  label,
+  info,
+  trigger,
+  children,
+}: {
+  label: string
+  info: NonNullable<Group["info"]>
+  trigger: React.ReactElement
+  children: React.ReactNode
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger render={trigger}>{children}</PopoverTrigger>
+      <PopoverContent align="start" aria-label={label} className="w-80 text-[13px] leading-5 font-normal tracking-normal">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
+          {info.terms.map(([term, text]) => (
+            <React.Fragment key={term}>
+              <dt className="font-medium">{term}</dt>
+              <dd className="text-muted-foreground">{text}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+        {info.note && <p className="mt-3 border-t pt-3 text-muted-foreground">{info.note}</p>}
+      </PopoverContent>
+    </Popover>
   )
 }
 
