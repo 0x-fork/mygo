@@ -13,6 +13,9 @@ type Surface interface {
 	// to draw: the next display refresh, WM_PAINT or GTK draw. Requests
 	// made before it comes coalesce.
 	RequestFrame()
+	// RefreshRate returns how many times a second the display showing the
+	// surface refreshes, at most, 0 when unknown.
+	RefreshRate() float64
 	// PresentPixels shows a frame drawn in memory: premultiplied BGRA rows
 	// of stride bytes, width×height device pixels. It is called while
 	// handling a SurfaceFrame event.

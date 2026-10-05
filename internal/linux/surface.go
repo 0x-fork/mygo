@@ -267,6 +267,20 @@ func (s *surface) RequestFrame() {
 	}
 }
 
+// RefreshRate returns the refresh rate of the monitor showing the area,
+// which GDK knows in millihertz.
+func (s *surface) RefreshRate() float64 {
+	win := gtkWidgetGetWindow(s.area)
+	if s.w.closed || win == 0 {
+		return 0
+	}
+	m := gdkDisplayGetMonitorAtWin(gdkWindowGetDisplay(win), win)
+	if m == 0 {
+		return 0
+	}
+	return float64(gdkMonitorGetRefreshRate(m)) / 1000
+}
+
 func (s *surface) PresentPixels(pix []byte, stride, width, height int) {
 	if s.cr == 0 {
 		if s.rendering {

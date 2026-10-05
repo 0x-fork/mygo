@@ -109,6 +109,7 @@ var (
 	procMonitorFromWindow             = user32.NewProc("MonitorFromWindow")
 	procMonitorFromPoint              = user32.NewProc("MonitorFromPoint")
 	procGetMonitorInfoW               = user32.NewProc("GetMonitorInfoW")
+	procEnumDisplaySettingsW          = user32.NewProc("EnumDisplaySettingsW")
 	procEnumDisplayMonitors           = user32.NewProc("EnumDisplayMonitors")
 	procGetCursorPos                  = user32.NewProc("GetCursorPos")
 	procLoadCursorW                   = user32.NewProc("LoadCursorW")
@@ -452,6 +453,29 @@ type monitorInfoEx struct {
 	Flags   uint32
 	Device  [32]uint16
 }
+
+// devMode is DEVMODEW, of a display: Position holds the union of the
+// printer's fields and the display's.
+type devMode struct {
+	DeviceName                                    [32]uint16
+	SpecVersion, DriverVersion, Size, DriverExtra uint16
+	Fields                                        uint32
+	Position                                      [16]byte
+	Color, Duplex, YResolution, TTOption, Collate int16
+	FormName                                      [32]uint16
+	LogPixels                                     uint16
+	BitsPerPel, PelsWidth, PelsHeight             uint32
+	DisplayFlags, DisplayFrequency                uint32
+	ICMMethod, ICMIntent, MediaType, DitherType   uint32
+	Reserved1, Reserved2                          uint32
+	PanningWidth, PanningHeight                   uint32
+}
+
+// DEVMODEW is 220 bytes.
+var _ = [1]struct{}{}[unsafe.Sizeof(devMode{})-220]
+
+// enumCurrentSettings asks EnumDisplaySettingsW for the mode in use.
+const enumCurrentSettings = 0xFFFFFFFF
 
 type windowPos struct {
 	HWnd, InsertAfter uintptr

@@ -241,10 +241,19 @@ func (s *surface) visible() bool {
 // refresh returns the time between two refreshes of the window's display.
 func (s *surface) refresh() time.Duration {
 	fps := 60
-	if screen := send(s.w.win, "screen"); screen != 0 && respondsTo(screen, "maximumFramesPerSecond") {
-		fps = max(sendInt(screen, "maximumFramesPerSecond"), 30)
+	if r := int(s.RefreshRate()); r > 0 {
+		fps = max(r, 30)
 	}
 	return time.Second / time.Duration(fps)
+}
+
+// RefreshRate returns the most frames a second the window's screen shows,
+// as ProMotion displays vary it.
+func (s *surface) RefreshRate() float64 {
+	if screen := send(s.w.win, "screen"); screen != 0 && respondsTo(screen, "maximumFramesPerSecond") {
+		return float64(sendInt(screen, "maximumFramesPerSecond"))
+	}
+	return 0
 }
 
 func (s *surface) PresentPixels(pix []byte, stride, width, height int) {

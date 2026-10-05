@@ -14,6 +14,9 @@ import (
 // headless rendering and tests.
 type host interface {
 	size() (w, h, scale float32)
+	// refreshRate returns how many times a second the display refreshes,
+	// 0 when unknown.
+	refreshRate() float32
 	present(s *scene.Scene)
 	requestFrame()
 	setCursor(Cursor)

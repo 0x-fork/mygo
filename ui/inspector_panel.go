@@ -56,6 +56,10 @@ func (rt *engine) buildInspector(c *Context, appW, w, h float32) {
 	if in.opened == nil {
 		in.opened = map[uint64]bool{}
 	}
+	// The display's refresh rate, which the window may move to another.
+	if in.hz = rt.host.refreshRate(); in.hz <= 0 {
+		in.hz = 60
+	}
 	// The panel looks as Chrome's tools do, whatever theme the view set.
 	in.pal = inspPaletteFor(rt.dark)
 	pal := &in.pal
@@ -580,9 +584,12 @@ var (
 )
 
 // performance builds the Performance tab: how long the last frames took to
-// build, lay out and paint.
+// build, lay out and paint, against the time between two refreshes of the
+// display.
 func (in *inspector) performance(c *Context) {
 	pal := &in.pal
+	hz := in.hz
+	budget := time.Duration(float64(time.Second) / float64(hz))
 	n := min(in.frames, inspHistory)
 	var total, slowest time.Duration
 	for i := 0; i < n; i++ {
@@ -607,6 +614,7 @@ func (in *inspector) performance(c *Context) {
 			}
 			stat("Average", ms(avg)+" ms")
 			stat("Slowest", ms(slowest)+" ms")
+			stat("Display", num(hz)+" Hz")
 			stat("Elements", fmt.Sprint(in.elements))
 		})
 		Box(c).Height(150).Shrink(0).Radius(4).Border(1, pal.border).Draw(func(p *Painter, r Rect) { in.paintFrames(p, r) })
@@ -621,7 +629,7 @@ func (in *inspector) performance(c *Context) {
 					Text(c, l.name+" "+ms(l.d)+" ms").FontSize(11).FontFeatures("tnum")
 				})
 			}
-			Text(c, "— 16.7 ms, a frame at 60 Hz").FontSize(11).TextColor(pal.muted)
+			Text(c, fmt.Sprintf("— %s ms, a frame at %s Hz", ms(budget), num(hz))).FontSize(11).TextColor(pal.muted)
 		})
 		Text(c, "Frames happen only when something changes: input, an update, or motion. "+
 			"Set MYGO_FRAME_STATS to log slow frames.").FontSize(11).TextColor(pal.muted)
@@ -633,7 +641,7 @@ func (in *inspector) performance(c *Context) {
 func (in *inspector) paintFrames(p *Painter, r Rect) {
 	pal := &in.pal
 	n := min(in.frames, inspHistory)
-	budget := 16.7 * float64(time.Millisecond)
+	budget := float64(time.Second) / float64(in.hz)
 	scale := 2 * budget
 	for i := 0; i < n; i++ {
 		f := in.history[i]

@@ -17,6 +17,7 @@ type testSurface struct{ pixels int }
 func (s *testSurface) Native() platform.SurfaceNative           { return platform.SurfaceNative{HWND: 1} }
 func (s *testSurface) Size() (float64, float64, float64)        { return 200, 100, 1 }
 func (s *testSurface) RequestFrame()                            {}
+func (s *testSurface) RefreshRate() float64                     { return 60 }
 func (s *testSurface) PresentPixels([]byte, int, int, int)      { s.pixels++ }
 func (s *testSurface) SetCursor(platform.Cursor)                {}
 func (s *testSurface) SetTextInput(platform.TextInputState)     {}

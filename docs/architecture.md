@@ -976,7 +976,10 @@ either.
   on a GPU), a child window of class `MyGoSurface` on Windows.
   `platform.Surface` gives its native handles (for a swap chain, a layer,
   or the GtkGLArea while its `render` signal draws a frame, with its
-  context current), size and scale; asks for a frame (`RequestFrame`: a
+  context current), size and scale, and the refresh rate of the display
+  showing it (`RefreshRate`: the screen's `maximumFramesPerSecond`, GDK's
+  `gdk_monitor_get_refresh_rate`, the display mode's frequency from
+  `EnumDisplaySettingsW`); asks for a frame (`RequestFrame`: a
   paused `CADisplayLink`, before macOS 14 an `NSTimer` at the display's
   rate, `gtk_widget_queue_draw`, `InvalidateRect`); presents
   pixels drawn on the CPU (`PresentPixels`: a CGImage as the layer's
@@ -1115,8 +1118,9 @@ either.
   model, computed values and properties), and asks for another frame when
   a hash of them changed, which the panel then shows; frames whose
   elements stay the same draw no more, and the times of frames, which
-  the Performance tab draws, ask for none. The tree is a `List` of the
-  opening and closing tags of the nodes shown. Picking takes the pointer
+  the Performance tab draws against the display's refresh, ask for
+  none. The tree is a `List` of the opening and closing tags of the nodes
+  shown. Picking takes the pointer
   over the content before the elements do. Painting highlights the
   element hovered, or chosen while the tree has the focus, over the
   content, with a tooltip. The source of the element chosen is the first

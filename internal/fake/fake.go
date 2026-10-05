@@ -662,6 +662,7 @@ type Surface struct {
 	textInput platform.TextInputState
 	access    *platform.AccessTree
 	accessN   int
+	rate      float64
 }
 
 func (s *Surface) Native() platform.SurfaceNative { return platform.SurfaceNative{} }
@@ -670,6 +671,24 @@ func (s *Surface) Size() (float64, float64, float64) {
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
 	return float64(s.w.bounds.Width), float64(s.w.bounds.Height), s.Scale
+}
+
+// RefreshRate returns the display's refresh rate, 60 unless
+// SetRefreshRate set another.
+func (s *Surface) RefreshRate() float64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rate == 0 {
+		return 60
+	}
+	return s.rate
+}
+
+// SetRefreshRate sets the display's refresh rate.
+func (s *Surface) SetRefreshRate(hz float64) {
+	s.mu.Lock()
+	s.rate = hz
+	s.mu.Unlock()
 }
 
 func (s *Surface) RequestFrame() {

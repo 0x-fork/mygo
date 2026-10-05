@@ -266,10 +266,16 @@ func TestInspectorTabs(t *testing.T) {
 		t.Errorf("the Issues tab does not list the issue: %q", tt.Texts())
 	}
 	tt.Click("Performance")
-	for _, s := range []string{"Last frame", "Average", "Slowest", "Build", "Layout", "Paint"} {
+	for _, s := range []string{"Last frame", "Average", "Slowest", "Build", "Layout", "Paint", "60 Hz", "16.7 ms, a frame at 60 Hz"} {
 		if !tt.HasText(s) {
 			t.Errorf("the Performance tab lacks %s: %q", s, tt.Texts())
 		}
+	}
+	// The budget of a frame is the display's.
+	tt.h.hz = 120
+	tt.Frame()
+	if !tt.HasText("120 Hz") || !tt.HasText("8.3 ms, a frame at 120 Hz") {
+		t.Errorf("at 120 Hz, the Performance tab shows %q", tt.Texts())
 	}
 	if tt.rt.insp.frames == 0 {
 		t.Error("no frames noted")

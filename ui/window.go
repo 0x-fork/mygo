@@ -129,6 +129,8 @@ const (
 	cpuMaxPixels = 8 << 20
 )
 
+func (h *windowHost) refreshRate() float32 { return float32(h.conn.Surface.RefreshRate()) }
+
 func (h *windowHost) size() (float32, float32, float32) {
 	w, ht, s := h.conn.Surface.Size()
 	if s <= 0 {

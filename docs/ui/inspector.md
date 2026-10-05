@@ -63,8 +63,9 @@ Below the tree, the element chosen has three tabs:
 ## Performance and issues
 
 **Performance** shows how long the last frames took to build, lay out and
-paint, as bars against the 16.7 ms of a frame at 60 Hz, with the last, the
-average and the slowest. Set `MYGO_FRAME_STATS` to log slow frames as well
+paint, as bars against the time between two refreshes of the window's
+display (8.3 ms at 120 Hz, 16.7 ms at 60 Hz), with the last, the average
+and the slowest. Set `MYGO_FRAME_STATS` to log slow frames as well
 (see [Rendering](rendering.md)).
 
 **Issues** lists mistakes found while building, which the toolbar counts:

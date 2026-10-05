@@ -182,6 +182,21 @@ func (s *surface) Size() (float64, float64, float64) {
 
 func (s *surface) RequestFrame() { procInvalidateRectW.Call(s.hwnd, 0, 0) }
 
+// RefreshRate returns the refresh rate of the monitor showing the window,
+// in its current display mode.
+func (s *surface) RefreshRate() float64 {
+	mi := monitorInfo(s.w.monitor())
+	var dm devMode
+	dm.Size = uint16(unsafe.Sizeof(dm))
+	if ok, _, _ := procEnumDisplaySettingsW.Call(uintptr(unsafe.Pointer(&mi.Device[0])), enumCurrentSettings, uintptr(unsafe.Pointer(&dm))); ok == 0 {
+		return 0
+	}
+	if dm.DisplayFrequency <= 1 {
+		return 0 // the hardware's default rate, unknown
+	}
+	return float64(dm.DisplayFrequency)
+}
+
 func (s *surface) PresentPixels(pix []byte, stride, width, height int) {
 	if len(pix) < stride*height || width == 0 || height == 0 {
 		return

@@ -113,6 +113,8 @@ type inspector struct {
 	elements int
 	history  [inspHistory][3]time.Duration
 	frames   int
+	// hz is the refresh rate of the window's display.
+	hz float32
 	// theme is the panel's, of colors pal.
 	theme Theme
 	pal   inspPalette

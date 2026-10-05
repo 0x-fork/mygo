@@ -181,6 +181,8 @@ var (
 	gdkMonitorGetGeometry       func(m ptr, r *gdkRectangle)
 	gdkMonitorGetWorkarea       func(m ptr, r *gdkRectangle)
 	gdkMonitorGetScaleFactor    func(m ptr) int32
+	gdkMonitorGetRefreshRate    func(m ptr) int32
+	gdkDisplayGetMonitorAtWin   func(d, w ptr) ptr
 	gdkMonitorGetModel          func(m ptr) ptr
 	gdkDisplayGetDefaultSeat    func(d ptr) ptr
 	gdkSeatGetPointer           func(s ptr) ptr
@@ -590,6 +592,8 @@ func load() error {
 	mustBind(d, &gdkMonitorGetGeometry, "gdk_monitor_get_geometry")
 	mustBind(d, &gdkMonitorGetWorkarea, "gdk_monitor_get_workarea")
 	mustBind(d, &gdkMonitorGetScaleFactor, "gdk_monitor_get_scale_factor")
+	mustBind(d, &gdkMonitorGetRefreshRate, "gdk_monitor_get_refresh_rate")
+	mustBind(d, &gdkDisplayGetMonitorAtWin, "gdk_display_get_monitor_at_window")
 	mustBind(d, &gdkMonitorGetModel, "gdk_monitor_get_model")
 	mustBind(d, &gdkDisplayGetDefaultSeat, "gdk_display_get_default_seat")
 	mustBind(d, &gdkSeatGetPointer, "gdk_seat_get_pointer")
