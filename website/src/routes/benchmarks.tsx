@@ -96,7 +96,7 @@ function Benchmarks() {
 
   return (
     <main className="flex-1">
-      <section className="px-4 pt-16 pb-12 sm:px-10 md:pt-20">
+      <section className="border-b px-4 pt-16 pb-12 sm:px-10 md:pt-20">
         <p className="label">Benchmarks</p>
         <h1 className="mt-5 text-3xl leading-[1.1] font-semibold tracking-[-0.035em] sm:text-4xl">Every push, measured.</h1>
         <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
@@ -122,8 +122,9 @@ function Benchmarks() {
         </p>
       </section>
 
-      {/* Sticky where the controls fit on a line. */}
-      <div className="z-30 flex flex-wrap items-center gap-x-8 gap-y-3 border-y bg-background/85 px-4 py-3 backdrop-blur-xl sm:px-10 lg:sticky lg:top-14">
+      {/* Sticky where the controls fit on a line, under the header's border:
+          the line above them is the section's. */}
+      <div className="z-30 flex flex-wrap items-center gap-x-8 gap-y-3 border-b bg-background/85 px-4 py-3 backdrop-blur-xl sm:px-10 lg:sticky lg:top-14">
         <Segmented label="Platform" options={platforms} value={view.os} onChange={(os) => update({ os })} />
         <Segmented label="Metric" options={metrics} value={view.metric} onChange={(metric) => update({ metric })} />
         <Segmented
