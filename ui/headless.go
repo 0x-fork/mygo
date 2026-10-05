@@ -34,12 +34,15 @@ type headless struct {
 	menu   *platform.Menu
 	menuAt [2]float32
 	chosen func(id int)
-	// hz is the display's refresh rate.
-	hz float32
+	// hz is the display's refresh rate; hidden tells that nothing of the
+	// window shows.
+	hz     float32
+	hidden bool
 }
 
 func (h *headless) size() (float32, float32, float32) { return h.w, h.h, h.scale }
 func (h *headless) refreshRate() float32              { return h.hz }
+func (h *headless) occluded() bool                    { return h.hidden }
 func (h *headless) present(s *scene.Scene) {
 	h.img.Render(s)
 }

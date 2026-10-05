@@ -162,3 +162,43 @@ func TestIndicatorsRepaint(t *testing.T) {
 		t.Errorf("400 ms later, the frame built the view %v, or shows the same", built)
 	}
 }
+
+// TestHeldWhileOccluded checks that what moves draws no frames while
+// nothing of the window shows, and goes on once some of it shows again,
+// while changes of the state still build frames.
+func TestHeldWhileOccluded(t *testing.T) {
+	count := 0
+	tt := newRepaintTester(func(c *Context) {
+		Textf(c, "%d", count)
+		Progress(c, -1).Width(100)
+		Box(c).Size(10, 10).Draw(func(p *Painter, r Rect) { p.After(50 * time.Millisecond) })
+		spin := Box(c).Size(10, 10)
+		spin.Rotate(spin.Loop("spin", time.Second, Linear) * 360)
+	})
+	// The frame the view animating asked for comes, and asks for no more.
+	tt.h.hidden = true
+	if _, more := tt.frame(8 * time.Millisecond); more || !tt.rt.held || !tt.rt.repaintDue.IsZero() {
+		t.Fatalf("out of sight: asked for another %v, held %v, repaint due %v", more, tt.rt.held, tt.rt.repaintDue)
+	}
+	// The app's state changes: the frame builds it, and asks for no more.
+	count++
+	tt.rt.changed()
+	if built, more := tt.frame(8 * time.Millisecond); !built || more || !tt.HasText("1") {
+		t.Fatalf("a change out of sight: built %v, asked for another %v, shows %q", built, more, tt.Texts())
+	}
+	// Some of the window shows again: what moves goes on.
+	tt.h.hidden = false
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.SurfaceShown})
+	if tt.rt.held || !tt.h.requested.Load() {
+		t.Fatalf("shown again: held %v, asked for a frame %v", tt.rt.held, tt.h.requested.Load())
+	}
+	if built, more := tt.frame(8 * time.Millisecond); !built || !more {
+		t.Errorf("the frame after showing: built %v, asked for another %v", built, more)
+	}
+	// Shown while nothing waited, it asks for nothing.
+	tt.h.requested.Store(false)
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.SurfaceShown})
+	if tt.h.requested.Load() {
+		t.Error("shown again while nothing waited, it asked for a frame")
+	}
+}

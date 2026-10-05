@@ -232,6 +232,11 @@ func (s *surface) RequestFrame() {
 	})
 }
 
+// Occluded reports whether nothing of the window shows on screen: hidden,
+// minimized, on another space or covered by other windows, which still
+// get display link ticks.
+func (s *surface) Occluded() bool { return !s.visible() }
+
 // visible reports whether some of the window shows on screen.
 func (s *surface) visible() bool {
 	const occlusionStateVisible = 1 << 1

@@ -198,6 +198,11 @@ func (l *cpuLoad) slow(interval time.Duration) bool {
 
 func (h *windowHost) refreshRate() float32 { return float32(h.conn.Surface.RefreshRate()) }
 
+func (h *windowHost) occluded() bool {
+	s, ok := h.conn.Surface.(platform.OccludableSurface)
+	return ok && s.Occluded()
+}
+
 func (h *windowHost) size() (float32, float32, float32) {
 	w, ht, s := h.conn.Surface.Size()
 	if s <= 0 {

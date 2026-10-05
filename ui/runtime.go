@@ -17,6 +17,9 @@ type host interface {
 	// refreshRate returns how many times a second the display refreshes,
 	// 0 when unknown.
 	refreshRate() float32
+	// occluded reports whether nothing of the window shows, as when other
+	// windows cover it.
+	occluded() bool
 	present(s *scene.Scene)
 	requestFrame()
 	setCursor(Cursor)
@@ -135,11 +138,13 @@ type engine struct {
 	// tells that the next frame may paint again, as nothing else asked for
 	// one since; painted is the size and scale of the window, and gen the
 	// text system's Generation, as the last frame was built. repaintTimer
-	// asks for that frame at repaintDue.
+	// asks for that frame at repaintDue. held tells that what moves waits
+	// for the window to show.
 	animating    bool
 	repainting   bool
 	repaintAt    time.Time
 	redraw       bool
+	held         bool
 	painted      [3]float32
 	gen          uint64
 	repaintTimer *time.Timer
@@ -386,10 +391,16 @@ func (rt *engine) now() time.Time {
 
 // next asks for the frame that what moves needs: one built anew while the
 // view animates, one painting the elements again while only drawings move,
-// as soon as the display can show it or when they change next.
+// as soon as the display can show it or when they change next. While
+// nothing of the window shows, what moves waits until some of it does
+// (SurfaceShown) rather than draw frames nobody sees, as browsers pause
+// the animation frames of windows out of sight.
 func (rt *engine) next() {
-	rt.redraw, rt.repaintDue = false, time.Time{}
+	rt.redraw, rt.repaintDue, rt.held = false, time.Time{}, false
+	moving := rt.animating || rt.repainting || !rt.repaintAt.IsZero()
 	switch {
+	case moving && rt.host.occluded():
+		rt.held = true
 	case rt.animating:
 		rt.host.requestFrame()
 	case rt.repainting:

@@ -1112,6 +1112,15 @@ either.
   elements' layouts hold), builds anew all the same. The timers the last
   frame built armed stay; `Painter.After` has a timer of its own, which
   posts to the main thread.
+  While nothing of the window shows (`platform.OccludableSurface`: a macOS
+  window hidden, minimized or covered by other windows, whose display link
+  still ticks, at the display's rate for half a minute, then at about 40
+  Hz), what moves asks for no frame (`held`), as browsers pause the
+  animation frames of windows out of sight; changes of the state still
+  build frames, so that assistive technology and captures follow them.
+  `SurfaceShown`, sent as some of the window shows again
+  (`windowDidChangeOcclusionState:`), has a held animation go on from
+  where the time puts it.
   A frame allocates next to nothing once the view builds what it built
   before: elements come from the context's arena, the default theme is
   copied for each pass, the states that pruning frees go to new elements

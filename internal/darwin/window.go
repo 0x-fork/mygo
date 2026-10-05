@@ -1046,6 +1046,11 @@ func registerWindowClasses() {
 					w.h.Moved()
 				}
 			}),
+			method("windowDidChangeOcclusionState:", func(self id, _ objc.SEL, n id) {
+				if w := b().windowFor(self); w != nil && w.surface != nil && w.surface.visible() {
+					w.surface.send(platform.SurfaceEvent{Kind: platform.SurfaceShown})
+				}
+			}),
 			method("windowDidMiniaturize:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {
 					w.h.Minimized()

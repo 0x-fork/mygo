@@ -54,6 +54,15 @@ type DamageSurface interface {
 	PresentDamage(pix []byte, stride, width, height int, damage []image.Rectangle)
 }
 
+// OccludableSurface is a Surface that tells when nothing of it shows, as
+// when other windows cover its window, while the system may still give it
+// frames: the content then draws nothing that moves until it shows again.
+type OccludableSurface interface {
+	// Occluded reports whether nothing of the surface shows on screen. The
+	// surface sends SurfaceShown once some of it shows again.
+	Occluded() bool
+}
+
 // IdleSurface is a Surface that can give back memory once frames stop.
 type IdleSurface interface {
 	// Idle tells that no frame came for a while: the surface may give
@@ -140,6 +149,9 @@ const (
 	// AccessAction performs Action on the element ID of the accessibility
 	// tree, with Text the value of AccessSetValue.
 	AccessAction
+	// SurfaceShown reports that some of an OccludableSurface shows again
+	// after none did.
+	SurfaceShown
 )
 
 // SurfaceEvent is input on a Surface, or a change of it.
