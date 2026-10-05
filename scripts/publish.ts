@@ -7,42 +7,63 @@
 // --provenance.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { build, dir as cliDir, platformDir } from "../packages/cli/build.ts";
+import { buildBinary, dir as cliDir, platformDir, version, writeManifests } from "../packages/cli/build.ts";
 import { platforms } from "../packages/cli/index.js";
 import { pluginPackages } from "./version.ts";
 
 const root = join(import.meta.dir, "..");
 const flags = process.argv.slice(2);
 
-await build();
-const first = [join(root, "packages", "runtime"), ...pluginPackages.map((p) => join(root, p)), ...platforms.map(platformDir)];
-for (const pkg of first) await publish(pkg);
-// npm can take minutes to serve new packages, and a package manager
-// installs mygo-cli without the platform packages it cannot fetch: bun then
-// keeps them out of later installs while its lockfile lacks them.
-if (!flags.includes("--dry-run")) {
-  for (const pkg of first) await waitUntilServed(await manifest(pkg));
+// npm serves a package minutes after accepting it (one to five for 0.2.11),
+// so each package goes out as soon as it can, alongside the others: the
+// runtime and the plugins while the binaries build, and each platform
+// package once its binary is built.
+await writeManifests(await version());
+const libraries = [join(root, "packages", "runtime"), ...pluginPackages.map((p) => join(root, p))];
+const publishing = libraries.map(publish);
+for (const platform of platforms) {
+  await buildBinary(platform);
+  publishing.push(publish(platformDir(platform)));
 }
-await publish(cliDir);
+if (!(await Promise.all(publishing)).every(Boolean)) process.exit(1);
+// A package manager installs mygo-cli without the platform packages it
+// cannot fetch: bun then keeps them out of later installs while its lockfile
+// lacks them. The projects mygo init creates depend on mygo-runtime too.
+if (!flags.includes("--dry-run")) {
+  for (const pkg of [...libraries, ...platforms.map(platformDir)]) await waitUntilServed(await manifest(pkg));
+}
+if (!(await publish(cliDir))) process.exit(1);
 
 async function manifest(pkg: string): Promise<{ name: string; version: string }> {
   return JSON.parse(await readFile(join(pkg, "package.json"), "utf8"));
 }
 
-async function publish(pkg: string): Promise<void> {
+/**
+ * Publishes a package unless npm has its version, and reports whether that
+ * went well. It prints npm's output once done, so that packages published
+ * together don't mix theirs.
+ */
+async function publish(pkg: string): Promise<boolean> {
   const { name, version } = await manifest(pkg);
-  const view = Bun.spawnSync(["npm", "view", `${name}@${version}`, "version"], { stderr: "ignore" });
-  if (view.stdout.toString().trim() === version) {
+  const view = Bun.spawn(["npm", "view", `${name}@${version}`, "version"], { stderr: "ignore" });
+  if ((await new Response(view.stdout).text()).trim() === version) {
     console.log(`${name}@${version} is already published`);
-    return;
+    return true;
   }
   const tag = version.includes("-") ? ["--tag", "next"] : [];
-  const publish = Bun.spawnSync(["npm", "publish", "--access", "public", ...tag, ...flags], {
+  const npm = Bun.spawn(["npm", "publish", "--access", "public", ...tag, ...flags], {
     cwd: pkg,
-    stdout: "inherit",
-    stderr: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  if (publish.exitCode !== 0) process.exit(publish.exitCode ?? 1);
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(npm.stdout).text(),
+    new Response(npm.stderr).text(),
+    npm.exited,
+  ]);
+  process.stdout.write(stderr + stdout);
+  if (code !== 0) console.error(`publishing ${name}@${version} failed`);
+  return code === 0;
 }
 
 /** Waits until npm serves name@version to package managers. */

@@ -80,20 +80,27 @@ export async function writeManifests(v: string): Promise<void> {
 /** Builds the binaries of platforms into their packages. */
 export async function build(targets: readonly string[] = platforms): Promise<void> {
   await writeManifests(await version());
-  for (const platform of targets) {
-    const target = goTargets[platform];
-    if (!target) throw new Error(`unknown platform ${platform}, want one of ${platforms.join(", ")}`);
-    const [goos, goarch] = target;
-    const bin = join(platformDir(platform), "bin", goos === "windows" ? "mygo.exe" : "mygo");
-    console.log(`building ${platform}`);
-    const go = Bun.spawnSync(["go", "build", "-trimpath", "-ldflags=-s -w", "-o", bin, "./cmd/mygo"], {
-      cwd: root,
-      env: { ...process.env, GOOS: goos, GOARCH: goarch, CGO_ENABLED: "0" },
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-    if (go.exitCode !== 0) throw new Error(`go build failed for ${platform}`);
-  }
+  for (const platform of targets) await buildBinary(platform);
+}
+
+/**
+ * Builds the binary of a platform into its package, whose manifest
+ * writeManifests wrote. It doesn't block the event loop, so that
+ * scripts/publish.ts publishes other packages meanwhile.
+ */
+export async function buildBinary(platform: string): Promise<void> {
+  const target = goTargets[platform];
+  if (!target) throw new Error(`unknown platform ${platform}, want one of ${platforms.join(", ")}`);
+  const [goos, goarch] = target;
+  const bin = join(platformDir(platform), "bin", goos === "windows" ? "mygo.exe" : "mygo");
+  console.log(`building ${platform}`);
+  const go = Bun.spawn(["go", "build", "-trimpath", "-ldflags=-s -w", "-o", bin, "./cmd/mygo"], {
+    cwd: root,
+    env: { ...process.env, GOOS: goos, GOARCH: goarch, CGO_ENABLED: "0" },
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  if ((await go.exited) !== 0) throw new Error(`go build failed for ${platform}`);
 }
 
 async function writeJSON(path: string, value: unknown): Promise<void> {
