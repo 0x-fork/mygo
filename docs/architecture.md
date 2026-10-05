@@ -2067,9 +2067,9 @@ push that races another run's merges again onto it. Started by hand with a
 in history.
 
 The page compares each series' last value with the median of the five
-before, and calls a change significant past five median absolute
-deviations of the twenty before (at least 5% for time, 1% for memory and
-allocations, 0.2% for sizes): shared runners drift by a few percent, and a
+before, and, once a series has five, calls a change significant past five
+median absolute deviations of the twenty before (at least 5% for time, 1%
+for memory and allocations, 0.2% for sizes): shared runners drift by a few percent, and a
 vertical line marks a commit measured on another CPU than the one before.
 Benchmarks are described on the page by their doc comments, which the
 site reads when it is built: start them with the benchmark's name.

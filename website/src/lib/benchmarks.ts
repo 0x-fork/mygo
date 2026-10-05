@@ -133,7 +133,9 @@ export function seriesStats(values: (number | null)[], unit: string): SeriesStat
   if (!last.length) return { index, latest, noise, significant: false }
   const baseline = median(last)
   const change = baseline > 0 ? latest / baseline - 1 : latest === 0 ? 0 : undefined
-  return { index, latest, baseline, change, noise, significant: change !== undefined && Math.abs(change) > noise }
+  // Without five values before, the series' noise is unknown: nothing stands out.
+  const significant = change !== undefined && recent.length >= 5 && Math.abs(change) > noise
+  return { index, latest, baseline, change, noise, significant }
 }
 
 export function median(values: number[]) {
