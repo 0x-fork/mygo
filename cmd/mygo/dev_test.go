@@ -175,6 +175,26 @@ func TestWatcher(t *testing.T) {
 	w.set(&buildInputs{sourceDirs: []string{dir}})
 	expect(true, "edit during a build")
 
+	// The directories of embedded files are watched whole, but for the
+	// Windows resources that builds write into the main package.
+	w.set(&buildInputs{sourceDirs: []string{dir}, fileDirs: []string{dir}})
+	expect(false, "embedded files")
+	syso := filepath.Join(dir, "mygo_windows_amd64.syso")
+	if err := os.WriteFile(syso, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expect(false, "resources of a build")
+	if err := os.Remove(syso); err != nil {
+		t.Fatal(err)
+	}
+	expect(false, "resources of a build removed")
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expect(true, "new embedded file")
+	w.set(&buildInputs{sourceDirs: []string{dir}})
+	expect(false, "new inputs")
+
 	// Resources are watched whole, and may not exist yet, but for the
 	// platform directories of other platforms, which development builds
 	// do not ship.

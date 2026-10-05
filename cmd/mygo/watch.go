@@ -155,7 +155,9 @@ func fingerprint(in *buildInputs) uint64 {
 		})
 	}
 	for _, dir := range in.fileDirs {
-		list(dir, func(string) bool { return true })
+		// Builds write their Windows resources into the main package,
+		// which may embed files too.
+		list(dir, func(name string) bool { return !mygoSyso(name) })
 	}
 	for _, f := range in.files {
 		if info, err := os.Stat(f); err == nil {

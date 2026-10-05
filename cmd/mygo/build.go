@@ -411,7 +411,7 @@ func ldflagsQuote(s string) string {
 func windowsResources(c *Config, pkg, arch string) (cleanup func(), err error) {
 	cleanup = func() {}
 	for _, p := range sysoFiles(pkg) {
-		if !strings.HasPrefix(filepath.Base(p), "mygo_windows_") {
+		if !mygoSyso(filepath.Base(p)) {
 			logf("using the .syso resources of the app")
 			return cleanup, nil
 		}
@@ -430,6 +430,12 @@ func windowsResources(c *Config, pkg, arch string) (cleanup func(), err error) {
 func sysoFiles(pkg string) []string {
 	files, _ := filepath.Glob(filepath.Join(pkg, "*.syso"))
 	return files
+}
+
+// mygoSyso reports whether name is a .syso file that windowsResources
+// writes.
+func mygoSyso(name string) bool {
+	return strings.HasPrefix(name, "mygo_windows_") && strings.HasSuffix(name, ".syso")
 }
 
 func sizeOf(path string) string {
