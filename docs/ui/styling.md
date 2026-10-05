@@ -21,6 +21,10 @@ ui.Column(c).Padding(18).Gap(12).Radius(10).
   (`Start`, `End`) and mixes them in Oklab, which keeps their lightness,
   instead of sRGB. `Stripes(c, width, gap, angle)` draws stripes over the
   background, as on what is unavailable.
+- **Materials.** `Material(m)` fills the box with a material a package
+  paints, in place of a background, as the [glass
+  plugin](../plugins/glass.md)'s Liquid Glass, which what is under it shows
+  through, frosted and bent along its edges.
 - **Pointer.** `Cursor` takes the shapes of the platforms: `CursorPointer`,
   `CursorText`, `CursorMove`, `CursorGrab` and `CursorGrabbing`, the
   resize cursors (both ways, toward one side as `CursorResizeE`, and of

@@ -16,6 +16,8 @@ JavaScript package whose functions call them. The app uses the Go half with
 - [Terminal](plugins/terminal.md): a terminal for native UI, a view that
   runs the shell or any program with Ghostty's terminal emulator. It is
   all Go, with a native library that the CLI puts into apps.
+- [Glass](plugins/glass.md): Liquid Glass for native UI, as macOS draws
+  it, on every platform. It is all Go, with shaders of its own.
 
 ## Using plugins
 

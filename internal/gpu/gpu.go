@@ -5,6 +5,15 @@
 // (d3d11, metal, gl) draws the same instances, the way internal/raster
 // draws scenes on the CPU.
 //
+// An effect (scene.Effect) draws with a pipeline of its own, made from
+// its shader, in a batch of its own. One reading its backdrop has its
+// batch start after a Backdrop step, which renderers take between
+// batches: they read the backdrop's area of what they drew so far,
+// average it over squares (the pass "down") into a texture, blur that
+// along rows into another and along columns back (the pass "blur"),
+// keeping 8 bits a channel, and bind it for the batch (the shaders'
+// backdrop texture), as internal/raster computes it.
+//
 // The shaders write a second color for blending, the source's alpha for
 // each channel: the alpha of the color for everything but subpixel
 // glyphs, whose subpixels cover each channel by its own. Renderers blend
@@ -15,6 +24,7 @@ package gpu
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"strings"
 	"unsafe"
@@ -29,6 +39,21 @@ import (
 func SourceSum(src string) string {
 	sum := sha256.Sum256([]byte(strings.ReplaceAll(src, "\r\n", "\n")))
 	return hex.EncodeToString(sum[:])
+}
+
+// GoBytes returns the Go declaration of a variable name holding b, as
+// code compiled ahead of time is generated.
+func GoBytes(name string, b []byte) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "var %s = []byte{", name)
+	for i, c := range b {
+		if i%16 == 0 {
+			sb.WriteString("\n\t")
+		}
+		fmt.Fprintf(&sb, "0x%02x, ", c)
+	}
+	sb.WriteString("\n}\n")
+	return sb.String()
 }
 
 // Instance is the data of one quad, in device pixels, as the shaders read
@@ -49,13 +74,18 @@ type Instance struct {
 	// normalized, a fill's border widths (top, right, bottom, left), or
 	// the box casting a shadow, which shows only outside it (none when
 	// empty).
+	//
+	// An effect has its parameters (scene.EffectOp.Params) in Inner,
+	// Color, Color2, Border and Grad, and in UV where its backdrop's area
+	// starts in the frame and its size in texels.
 	Grad, UV [4]float32
 	// Clip and ClipRadii are the innermost clip, which the shader cuts.
 	Clip, ClipRadii [4]float32
 	// Params is the kind (0 fill, 1 shadow, 2 mask glyph, 3 color glyph, 4
-	// image, 5 subpixel glyph); 1 for a dashed border or a grayscale image;
-	// the shadow's sigma (0 for none) or the paint (scene.Paint); and the
-	// opacity.
+	// image, 5 subpixel glyph, 6 effect); 1 for a dashed border or a
+	// grayscale image; the shadow's sigma (0 for none), the paint
+	// (scene.Paint) or the size of the squares an effect's backdrop
+	// averages; and the opacity.
 	Params [4]float32
 }
 
@@ -76,6 +106,12 @@ type Batch struct {
 	Scissor      Scissor
 	// Image is the renderer's texture of the batch's image, or 0.
 	Image uintptr
+	// Effect is the effect of the batch's one instance, drawn with a
+	// pipeline of its own, and Backdrop, unless 0, 1 + the index in
+	// Builder.Backdrops of its backdrop, which the renderer reads before
+	// drawing it.
+	Effect   *scene.Effect
+	Backdrop int
 }
 
 // Builder builds the instances and batches of scenes, reusing its memory
@@ -83,7 +119,47 @@ type Batch struct {
 type Builder struct {
 	Instances []Instance
 	Batches   []Batch
+	Backdrops []scene.Backdrop
 	stack     []clip
+}
+
+// Pass is what a pass computing a backdrop reads, the layout of the
+// shaders' Pass: down reads the area from Origin to Limit, frame pixels,
+// at their place less Shift in its source, and averages squares of Down
+// pixels a side; blur reads texels up to Limit, Radius of them each way
+// along Dir, weighted by a Gaussian of standard deviation Sigma.
+type Pass struct {
+	Origin, Limit, Shift, Dir [2]int32
+	Down, Radius              int32
+	Sigma, _                  float32
+}
+
+// DownPass returns the pass averaging the squares of bk's area, whose
+// frame pixel (x, y) is at (x, y) less shift in the texture it reads.
+func DownPass(bk scene.Backdrop, shift [2]int32) Pass {
+	return Pass{
+		Origin: [2]int32{int32(bk.Area.Min.X), int32(bk.Area.Min.Y)},
+		Limit:  [2]int32{int32(bk.Area.Max.X - 1), int32(bk.Area.Max.Y - 1)},
+		Shift:  shift,
+		Down:   int32(bk.Down),
+	}
+}
+
+// BlurPass returns the pass blurring bk's texels along rows (dir 1, 0)
+// or columns (0, 1).
+func BlurPass(bk scene.Backdrop, dir [2]int32) Pass {
+	w, h := bk.Size()
+	return Pass{Limit: [2]int32{int32(w - 1), int32(h - 1)}, Dir: dir, Radius: int32(bk.Radius), Sigma: bk.Sigma}
+}
+
+// BackdropSize returns how large the textures of the backdrops of the
+// last scene built must be, in texels: as the largest.
+func (b *Builder) BackdropSize() (w, h int) {
+	for _, bk := range b.Backdrops {
+		bw, bh := bk.Size()
+		w, h = max(w, bw), max(h, bh)
+	}
+	return w, h
 }
 
 type clip struct {
@@ -99,6 +175,7 @@ type clip struct {
 func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 	b.Instances = b.Instances[:0]
 	b.Batches = b.Batches[:0]
+	b.Backdrops = b.Backdrops[:0]
 	everything := scene.Rect{X: -1e6, Y: -1e6, W: 2e6, H: 2e6}
 	b.stack = append(b.stack[:0], clip{rect: everything, bounds: scene.Rect{W: float32(s.Width), H: float32(s.Height)},
 		scissor: Scissor{0, 0, int32(s.Width), int32(s.Height)}})
@@ -191,6 +268,10 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 				}
 				b.add(in, 0)
 			}
+		case scene.OpEffect:
+			if !op.Rect.Empty() && int(op.Start) < len(s.Effects) && s.Effects[op.Start].Effect != nil {
+				b.addEffect(s, op)
+			}
 		case scene.OpImage:
 			img := op.Image
 			if img == nil || op.Rect.Empty() || img.W == 0 || img.H == 0 {
@@ -216,7 +297,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 }
 
 // add appends an instance within the current clip, starting a batch when
-// the scissor rectangle or the image changes.
+// the scissor rectangle or the image changes, or after an effect's.
 func (b *Builder) add(in Instance, image uintptr) {
 	cur := &b.stack[len(b.stack)-1]
 	if cur.scissor.Empty() {
@@ -225,7 +306,8 @@ func (b *Builder) add(in Instance, image uintptr) {
 	in.Clip = rect(cur.rect)
 	in.ClipRadii = cur.radii
 	n := len(b.Batches)
-	if n == 0 || b.Batches[n-1].Scissor != cur.scissor || (image != 0 && b.Batches[n-1].Image != 0 && b.Batches[n-1].Image != image) {
+	if n == 0 || b.Batches[n-1].Scissor != cur.scissor || b.Batches[n-1].Effect != nil ||
+		(image != 0 && b.Batches[n-1].Image != 0 && b.Batches[n-1].Image != image) {
 		b.Batches = append(b.Batches, Batch{Start: len(b.Instances), Scissor: cur.scissor, Image: image})
 		n++
 	} else if image != 0 {
@@ -233,6 +315,37 @@ func (b *Builder) add(in Instance, image uintptr) {
 	}
 	b.Instances = append(b.Instances, in)
 	b.Batches[n-1].Count++
+}
+
+// addEffect appends the instance of an effect within the current clip, in
+// a batch of its own, which reads its backdrop first when it reads one.
+func (b *Builder) addEffect(s *scene.Scene, op *scene.Op) {
+	cur := &b.stack[len(b.stack)-1]
+	if cur.scissor.Empty() {
+		return
+	}
+	fx := &s.Effects[op.Start]
+	p := &fx.Params
+	in := Instance{
+		Rect: rect(op.Rect), Radii: scene.Corners(op.Rect, op.Radii, op.Continuous),
+		Inner: p[0], Color: p[1], Color2: p[2], Border: p[3], Grad: p[4],
+		Clip: rect(cur.rect), ClipRadii: cur.radii,
+		Params: [4]float32{6, 0, 1, opacity(op.Opacity)},
+	}
+	batch := Batch{Start: len(b.Instances), Count: 1, Scissor: cur.scissor, Effect: fx.Effect}
+	if fx.Effect.Backdrop {
+		bk := scene.BackdropOf(op.Rect, fx.Blur, s.Width, s.Height)
+		if bk.Area.Empty() {
+			return
+		}
+		b.Backdrops = append(b.Backdrops, bk)
+		batch.Backdrop = len(b.Backdrops)
+		tw, th := bk.Size()
+		in.UV = [4]float32{float32(bk.Area.Min.X), float32(bk.Area.Min.Y), float32(tw), float32(th)}
+		in.Params[2] = float32(bk.Down)
+	}
+	b.Batches = append(b.Batches, batch)
+	b.Instances = append(b.Instances, in)
 }
 
 func rect(r scene.Rect) [4]float32 { return [4]float32{r.X, r.Y, r.W, r.H} }

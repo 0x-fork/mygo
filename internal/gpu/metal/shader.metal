@@ -5,7 +5,8 @@
 // does. Colors are straight (not premultiplied) and blending happens in
 // sRGB space, as in browsers, with a second color for the source's alpha
 // of each channel, which subpixel glyphs need. go generate compiles it
-// into shaderlib.go.
+// into shaderlib.go. The libraries of effects (scene.Effect) take its
+// start, with EFFECT defined, before effect.metal.
 
 #include <metal_stdlib>
 using namespace metal;
@@ -46,7 +47,7 @@ vertex VSOut vs(uint vid [[vertex_id]], uint iid [[instance_id]],
 	float2 corner = float2(float(vid & 1u), float(vid >> 1u));
 	float4 r = i.rect;
 	float kind = i.params.x;
-	if (kind < 0.5f) {
+	if (kind < 0.5f || kind > 5.5f) { // fills and effects
 		r = float4(r.xy - 1.0f, r.zw + 2.0f);
 	} else if (kind < 1.5f) {
 		float e = 3.0f * i.params.z + 1.0f;
@@ -214,6 +215,10 @@ float rectCoverage(float2 p, float4 rect, float4 radii) {
 float4 premul(float4 c) { return float4(c.rgb * c.a, c.a); }
 
 float3 unpremul(float4 c) { return c.a > 0.0f ? c.rgb / c.a : float3(0.0f); }
+
+// What follows is the renderer's own; effects (effect.metal) take what is
+// above.
+#ifndef EFFECT
 
 // textCoverage corrects the coverage a of a glyph of straight color c as
 // Direct2D blends text (scene.TextCoverage): it enhances the contrast,
@@ -424,3 +429,57 @@ fragment PSOut ps(VSOut v [[stage_in]],
 	res *= clip * i.params.w;
 	return PSOut{res, res.aaaa};
 }
+
+// The passes computing the backdrop of an effect draw a quad over their
+// target, scissored to the texels they compute.
+// A pass computing the backdrop of an effect (see package gpu).
+struct Pass {
+	int2 origin; // down: the first pixel of the area read, in the frame
+	int2 limit;  // the last texel that may be read: in the frame for down
+	int2 shift;  // down: subtracted from frame pixels to read the source
+	int2 dir;    // blur: along rows (1, 0) or columns (0, 1)
+	int down;    // down: the size of the squares averaged
+	int radius;  // blur: how far it reaches each way
+	float sigma; // blur: its standard deviation, 0 for none
+	float pad;
+};
+
+struct PassVSOut {
+	float4 pos [[position]];
+};
+
+vertex PassVSOut passVS(uint vid [[vertex_id]]) {
+	float2 corner = float2(float(vid & 1u), float(vid >> 1u));
+	PassVSOut o;
+	o.pos = float4(corner * 2.0f - 1.0f, 0.0f, 1.0f);
+	return o;
+}
+
+// down averages the square of the area that texel stands for, repeating
+// the area's last pixels past its far edges.
+fragment float4 down(PassVSOut v [[stage_in]], texture2d<float> src [[texture(0)]], constant Pass &p [[buffer(0)]]) {
+	int2 o = p.origin + int2(v.pos.xy) * p.down;
+	float4 c = float4(0.0f);
+	for (int y = 0; y < p.down; y++) {
+		for (int x = 0; x < p.down; x++) {
+			c += src.read(uint2(min(o + int2(x, y), p.limit) - p.shift));
+		}
+	}
+	return c * (1.0f / float(p.down * p.down));
+}
+
+// blur blurs along a row or a column, clamping at its ends.
+fragment float4 blur(PassVSOut v [[stage_in]], texture2d<float> src [[texture(0)]], constant Pass &p [[buffer(0)]]) {
+	int2 at = int2(v.pos.xy);
+	float4 c = float4(0.0f);
+	float sum = 0.0f;
+	for (int o = -p.radius; o <= p.radius; o++) {
+		float x = float(o);
+		float w = p.sigma > 0.0f ? exp(-(x * x) / (2.0f * p.sigma * p.sigma)) : 1.0f;
+		c += src.read(uint2(clamp(at + p.dir * o, int2(0), p.limit))) * w;
+		sum += w;
+	}
+	return c / sum;
+}
+
+#endif

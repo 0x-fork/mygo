@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -84,6 +85,9 @@ type gallery struct {
 	findQuery                                  string
 	notifyMail, notifyCalendar, notifyMessages bool
 	pathAt, pathDepth                          int
+	// The Glass page's style, and where its lens is.
+	glassStyle int
+	lens       [2]float32
 	// The meeting's day and time, and the tint of its text.
 	meeting time.Time
 	tint    ui.Color
@@ -243,7 +247,7 @@ func makeMessage(id int) message {
 	return message{id: id, text: strings.Join(lines, " "), mine: r%3 == 0}
 }
 
-var pages = []string{"Overview", "Controls", "Text", "List", "Styling", "Drawing", "Overlays", "Motion"}
+var pages = []string{"Overview", "Controls", "Text", "List", "Styling", "Drawing", "Glass", "Overlays", "Motion"}
 
 // icon parses the shapes of a 24×24 stroked icon, drawn in currentColor
 // as icon sets draw them.
@@ -260,6 +264,7 @@ var (
 		"List":     icon(`<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>`),
 		"Styling":  icon(`<path d="M12 21a9 9 0 1 1 9-9c0 2.5-2 3.5-3.5 3.5H16a2 2 0 0 0-1.5 3.3c.4.5.4 2.2-2.5 2.2z"/><circle cx="7.5" cy="11" r="1"/><circle cx="11" cy="7" r="1"/><circle cx="16" cy="8.5" r="1"/>`),
 		"Drawing":  icon(`<path d="M15 5l4 4M4 20l1-4.5L16.5 4a2.1 2.1 0 0 1 3 3L8 18.5z"/>`),
+		"Glass":    icon(`<rect x="3" y="6" width="18" height="12" rx="6"/><path d="M7 10.5a3 3 0 0 1 2.5-1.5"/>`),
 		"Overlays": icon(`<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 13 9 5 9-5"/>`),
 		"Motion":   icon(`<path d="M3 12h4M5 7h6M5 17h6"/><circle cx="16" cy="12" r="5"/>`),
 	}
@@ -327,6 +332,8 @@ func (g *gallery) view(c *ui.Context) {
 						g.styling(c)
 					case "Drawing":
 						g.drawing(c)
+					case "Glass":
+						g.glassPage(c)
 					case "Overlays":
 						g.overlays(c)
 					case "Motion":
@@ -1231,6 +1238,60 @@ func (g *gallery) drawing(c *ui.Context) {
 	})
 }
 
+// glass shows Liquid Glass: a toolbar floating over content that scrolls
+// under it, a card, a tinted button, and a lens to drag around.
+func (g *gallery) glassPage(c *ui.Context) {
+	t := c.Theme()
+	ui.Text(c, "The glass plugin's Liquid Glass, a material, as macOS draws it: what is under it shows through, frosted and bent along its edges. Scroll under the toolbar, and drag the lens.").TextColor(t.TextMuted)
+	ui.Segmented(c, &g.glassStyle, "Regular", "Clear").Label("Glass").AlignSelf(ui.Start)
+	style := glass.Regular
+	if g.glassStyle == 1 {
+		style = glass.Clear
+	}
+	tiles := []ui.Color{ui.Hex("#ef4444"), ui.Hex("#f59e0b"), ui.Hex("#10b981"), ui.Hex("#06b6d4"), ui.Hex("#6366f1"), ui.Hex("#ec4899")}
+	area := ui.Box(c).Height(420).Radius(12).Clip().Border(1, t.Border)
+	area.Children(func() {
+		// What shows through: photos and text, scrolling under the glass,
+		// from under the toolbar.
+		ui.Scroll(c).Fill().Padding(36, 16, 16).Gap(12).Children(func() {
+			for i := range 12 {
+				ui.Row(c).Gap(14).Children(func() {
+					a, b := tiles[i%len(tiles)], tiles[(i+2)%len(tiles)]
+					ui.Box(c).Size(180, 96).Radius(12).Gradient(a, b, 135)
+					ui.Column(c).Grow(1).Gap(4).Children(func() {
+						ui.Text(c, fmt.Sprintf("Photo %d", i+1)).Bold()
+						ui.Text(c, "Glass bends the light along its rim, and frosts what is under its middle.").TextColor(t.TextMuted)
+					})
+				})
+			}
+		})
+		// A toolbar of buttons floating on glass.
+		ui.Row(c).Absolute().Top(12).Left(12).Right(12).Padding(6, 8).Gap(6).AlignItems(ui.Center).Radius(26).Material(glass.Glass{Style: style}).Children(func() {
+			for _, ic := range []*ui.SVG{chevronIcon, starIcon, checkIcon} {
+				b := ui.Box(c).Size(40, 40).Radius(20).Center().Material(glass.Glass{Style: style, Interactive: true}).Children(func() {
+					ui.Icon(c, ic).FontSize(18)
+				})
+				if b.Clicked() {
+					c.Toast("Clicked")
+				}
+			}
+			ui.Box(c).Grow(1)
+			done := ui.Row(c).Padding(8, 16).Radius(20).Material(glass.Glass{Style: style, Tint: t.Accent, Interactive: true}).Children(func() {
+				ui.Text(c, "Done").Bold().TextColor(t.AccentText)
+			})
+			if done.Clicked() {
+				c.Toast("Done")
+			}
+		})
+		// A lens to drag over what is under it.
+		lens := ui.Box(c).Absolute().Left(g.lens[0]).Top(g.lens[1]).Size(110, 110).Radius(55).Material(glass.Glass{Style: style, Interactive: true})
+		if dx, dy, ok := lens.Dragged(); ok {
+			g.lens[0] = max(0, g.lens[0]+dx)
+			g.lens[1] = max(0, g.lens[1]+dy)
+		}
+	})
+}
+
 // motionItem is an item of the Motion page's list.
 type motionItem struct {
 	id   int
@@ -1405,7 +1466,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{router: ui.NewRouter("/overview"), items: []motionItem{{1, "Item 1"}, {2, "Item 2"}, {3, "Item 3"}}, nextItem: 3, size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), notes: 12, notifyMail: true, pathDepth: 4}
+	g := &gallery{router: ui.NewRouter("/overview"), items: []motionItem{{1, "Item 1"}, {2, "Item 2"}, {3, "Item 3"}}, nextItem: 3, size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), lens: [2]float32{110, 190}, notes: 12, notifyMail: true, pathDepth: 4}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

@@ -25,18 +25,19 @@ type Renderer struct {
 	Image Image
 	mem   *pixels
 
-	// rs draw the bands of large damage (draw).
-	rs []renderer
+	// d draws the bands of large damage.
+	d drawer
 	// valid tells that the last scene, of w×h pixels, is remembered to
 	// compare the next with. stale is where Image does not show it, as
 	// scenes were skipped, and redraw tells that it shows none of it.
-	valid  bool
-	w, h   int
-	stale  []image.Rectangle
-	redraw bool
-	clear  scene.Color
-	ops    []scene.Op
-	glyphs []scene.Glyph
+	valid   bool
+	w, h    int
+	stale   []image.Rectangle
+	redraw  bool
+	clear   scene.Color
+	ops     []scene.Op
+	glyphs  []scene.Glyph
+	effects []scene.EffectOp
 	// bounds is where each operation of the last scene drew; versions has
 	// the versions of its images.
 	bounds, next []image.Rectangle
@@ -81,11 +82,11 @@ func (r *Renderer) Render(s *scene.Scene) []image.Rectangle {
 		r.resize(s.Width, s.Height)
 		r.damage = append(r.damage[:0], image.Rect(0, 0, s.Width, s.Height))
 	} else {
-		r.addStale()
+		r.addStale(s)
 	}
 	r.cpu = 0
 	for _, d := range r.damage {
-		r.cpu += draw(&r.rs, &r.Image, s, d, r.next)
+		r.cpu += r.d.draw(&r.Image, s, d, r.next)
 	}
 	r.stale, r.redraw = r.stale[:0], false
 	r.remember(s)
@@ -117,10 +118,14 @@ func (r *Renderer) blank(s *scene.Scene) bool {
 	return r.redraw || r.Image.W != s.Width || r.Image.H != s.Height
 }
 
-// addStale adds to the damage where Image does not show the last scene.
-func (r *Renderer) addStale() {
+// addStale adds to the damage where Image does not show the last scene,
+// with the effects of s reading their backdrops that meets.
+func (r *Renderer) addStale(s *scene.Scene) {
 	for _, d := range r.stale {
 		r.damage = addRect(r.damage, d)
+	}
+	if len(r.stale) > 0 {
+		r.addBackdrops(s)
 	}
 }
 
@@ -167,7 +172,7 @@ func (r *Renderer) Changes(s *scene.Scene) (draw, changed int) {
 	if r.blank(s) {
 		return all, changed
 	}
-	r.addStale()
+	r.addStale(s)
 	return area(r.damage), changed
 }
 
@@ -226,15 +231,64 @@ func (r *Renderer) diff(s *scene.Scene) bool {
 			r.damage = addRect(r.damage, r.next[j])
 		}
 	}
+	r.addBackdrops(s)
 	// Past half the window, drawing it whole costs about the same.
 	return area(r.damage)*2 < s.Width*s.Height
+}
+
+// addBackdrops adds to the damage the effects of s that read their
+// backdrops it meets, with those backdrops: draw reads a backdrop after
+// drawing the operations before its effect within the area drawn, which
+// must hold all of it, and then no other area may draw the effect. So the
+// damage becomes rectangles apart from each other.
+func (r *Renderer) addBackdrops(s *scene.Scene) {
+	if len(s.Effects) == 0 || len(r.damage) == 0 {
+		return
+	}
+	for changed := true; changed; {
+		changed = false
+		for i := range s.Ops {
+			op := &s.Ops[i]
+			if op.Kind != scene.OpEffect || int(op.Start) >= len(s.Effects) || r.next[i].Empty() {
+				continue
+			}
+			fx := &s.Effects[op.Start]
+			if fx.Effect == nil || !fx.Effect.Backdrop {
+				continue
+			}
+			need := scene.BackdropOf(op.Rect, fx.Blur, s.Width, s.Height).Area.Union(r.next[i])
+			for _, d := range r.damage {
+				if d.Overlaps(need) && !need.In(d) {
+					r.damage = addRect(r.damage, need)
+					changed = true
+					break
+				}
+			}
+		}
+		// Rectangles that overlap become one.
+		for i := 0; i < len(r.damage); i++ {
+			for j := i + 1; j < len(r.damage); j++ {
+				if r.damage[i].Overlaps(r.damage[j]) {
+					r.damage[i] = r.damage[i].Union(r.damage[j])
+					r.damage = append(r.damage[:j], r.damage[j+1:]...)
+					changed = true
+					j = i
+				}
+			}
+		}
+	}
 }
 
 // same reports whether operation i of the last scene draws what operation
 // j of s does.
 func (r *Renderer) same(i int, s *scene.Scene, j int, maskRects, colorRects []image.Rectangle) bool {
 	a, b := r.ops[i], s.Ops[j]
-	ga, gb := r.glyphs[a.Start:a.End], s.Glyphs[b.Start:b.End]
+	// Glyphs and effects are compared by what Start and End point at.
+	sa, sb := a.Start, b.Start
+	ga, gb := r.glyphs[:0], s.Glyphs[:0]
+	if a.Kind == scene.OpGlyphs && b.Kind == scene.OpGlyphs {
+		ga, gb = r.glyphs[a.Start:a.End], s.Glyphs[b.Start:b.End]
+	}
 	a.Start, a.End, b.Start, b.End = 0, 0, 0, 0
 	if a != b {
 		return false
@@ -262,6 +316,10 @@ func (r *Renderer) same(i int, s *scene.Scene, j int, maskRects, colorRects []im
 		}
 	case scene.OpImage:
 		if b.Image != nil && b.Image.Version() != r.versions[i] {
+			return false
+		}
+	case scene.OpEffect:
+		if int(sa) >= len(r.effects) || int(sb) >= len(s.Effects) || r.effects[sa] != s.Effects[sb] {
 			return false
 		}
 	}
@@ -299,7 +357,7 @@ func (r *Renderer) opBounds(s *scene.Scene, out []image.Rectangle) []image.Recta
 		op := &s.Ops[i]
 		var b image.Rectangle
 		switch op.Kind {
-		case scene.OpFill, scene.OpImage:
+		case scene.OpFill, scene.OpImage, scene.OpEffect:
 			b = outset(op.Rect, 1)
 		case scene.OpShadow:
 			b = outset(op.Rect, 1.5*op.Blur+1)
@@ -335,6 +393,7 @@ func (r *Renderer) remember(s *scene.Scene) {
 	r.clear = s.Clear
 	r.ops = append(r.ops[:0], s.Ops...)
 	r.glyphs = append(r.glyphs[:0], s.Glyphs...)
+	r.effects = append(r.effects[:0], s.Effects...)
 	r.bounds, r.next = r.next, r.bounds
 	r.versions = r.versions[:0]
 	for i := range s.Ops {

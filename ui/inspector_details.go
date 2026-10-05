@@ -227,6 +227,13 @@ func ownStyles(rt *engine, e *Element) []inspDecl {
 			add("background", fmt.Sprintf("linear-gradient(%sdeg, %s, %s)", num(g.Angle), colorText(g.From), colorText(g.To)))
 		case e.fill == fillStripes:
 			add("background", "stripes "+colorText(e.stripes.c))
+		case e.fill == fillMaterial:
+			// A material describes itself as a fmt.Stringer.
+			v := "material"
+			if m, ok := e.material.(fmt.Stringer); ok {
+				v = m.String()
+			}
+			add("background", v)
 		case e.bg.A > 0:
 			addColor("background-color", e.bg)
 		}

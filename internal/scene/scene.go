@@ -1,6 +1,7 @@
 // Package scene is the display list the ui package paints a frame into and
 // the renderers draw: rounded rectangles with borders and gradients, box
-// shadows, glyphs from a shared atlas, images and clips, in paint order.
+// shadows, glyphs from a shared atlas, images, effects and clips, in paint
+// order.
 // Geometry is in device pixels with the origin at the top-left corner.
 package scene
 
@@ -67,6 +68,10 @@ const (
 	OpPushClip
 	// OpPopClip restores the clip in effect before the matching OpPushClip.
 	OpPopClip
+	// OpEffect paints the rounded rectangle Rect with Radii with an effect,
+	// Scene.Effects[Start]: shaders of a package outside the renderers (see
+	// Effect), with Opacity.
+	OpEffect
 )
 
 // Op is one drawing operation. Which fields matter depends on Kind.
@@ -244,6 +249,8 @@ type Scene struct {
 	Clear  Color
 	Ops    []Op
 	Glyphs []Glyph
+	// Effects holds the effects of OpEffect operations.
+	Effects []EffectOp
 	// Text corrects the coverage of mask and subpixel glyphs.
 	Text TextParams
 	// MaskAtlas holds coverage masks (one byte per pixel), ColorAtlas
@@ -257,6 +264,7 @@ func (s *Scene) Reset(width, height int, clear Color) {
 	s.Width, s.Height, s.Clear = width, height, clear
 	s.Ops = s.Ops[:0]
 	s.Glyphs = s.Glyphs[:0]
+	s.Effects = s.Effects[:0]
 }
 
 var lastImageID atomic.Uint64

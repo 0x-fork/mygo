@@ -5,7 +5,10 @@
 // CPU renderer (internal/raster) does. Colors are straight (not premultiplied)
 // and blending happens in sRGB space, as in browsers. The renderer
 // compiles it when it starts, as GLSL 3.30 or GLSL ES 3.00, with VERTEX or
-// FRAGMENT defined.
+// FRAGMENT defined, and the passes computing the backdrops of effects with
+// PASS_VERTEX and DOWN or BLUR. The fragment shaders of effects
+// (scene.Effect) take the start of its fragment part, with EFFECT
+// defined, before effect.glsl.
 
 #ifdef VERTEX
 
@@ -41,7 +44,7 @@ void main() {
 	vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));
 	vec4 r = aRect;
 	float kind = aParams.x;
-	if (kind < 0.5) {
+	if (kind < 0.5 || kind > 5.5) { // fills and effects
 		r = vec4(r.xy - 1.0, r.zw + 2.0);
 	} else if (kind < 1.5) {
 		float e = 3.0 * aParams.z + 1.0;
@@ -65,7 +68,7 @@ void main() {
 
 #endif
 
-#ifdef FRAGMENT
+#if defined(FRAGMENT) || defined(EFFECT)
 
 in vec4 vPoint;
 flat in vec4 vRect;
@@ -119,6 +122,12 @@ float rectCoverage(vec2 p, vec4 rect, vec4 radii) {
 vec4 premul(vec4 c) { return vec4(c.rgb * c.a, c.a); }
 
 vec3 unpremul(vec4 c) { return c.a > 0.0 ? c.rgb / c.a : vec3(0.0); }
+
+#endif
+
+// What follows is the renderer's own; effects (effect.glsl) take what is
+// above.
+#ifdef FRAGMENT
 
 // textCoverage corrects the coverage a of a glyph of straight color c as
 // Direct2D blends text (scene.TextCoverage): it enhances the contrast,
@@ -325,6 +334,73 @@ void main() {
 #ifdef DUAL
 	fragAlpha = fragColor.aaaa;
 #endif
+}
+
+#endif
+
+// The passes computing the backdrop of an effect draw a quad over their
+// target, scissored to the texels they compute, and address texels by
+// their index in memory, so that the rows of their textures go down as
+// the frame's rows do.
+#ifdef PASS_VERTEX
+
+void main() {
+	vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));
+	gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#endif
+
+#ifdef DOWN
+
+// down averages the square of the area that texel stands for, repeating
+// the area's last pixels past its far edges. The area of the frame (from
+// uOrigin to uLimit) is copied to uSrc from the bottom row up: the row y
+// of the frame is uShift.y - y there, and the column x is x - uShift.x.
+uniform sampler2D uSrc;
+uniform ivec2 uOrigin;
+uniform ivec2 uLimit;
+uniform ivec2 uShift;
+uniform int uDown;
+
+out vec4 passColor;
+
+void main() {
+	ivec2 o = uOrigin + ivec2(gl_FragCoord.xy) * uDown;
+	vec4 c = vec4(0.0);
+	for (int y = 0; y < uDown; y++) {
+		for (int x = 0; x < uDown; x++) {
+			ivec2 at = min(o + ivec2(x, y), uLimit);
+			c += texelFetch(uSrc, ivec2(at.x - uShift.x, uShift.y - at.y), 0);
+		}
+	}
+	passColor = c * (1.0 / float(uDown * uDown));
+}
+
+#endif
+
+#ifdef BLUR
+
+// blur blurs along a row or a column, clamping at its ends.
+uniform sampler2D uSrc;
+uniform ivec2 uLimit;
+uniform ivec2 uDir;
+uniform int uRadius;
+uniform float uSigma;
+
+out vec4 passColor;
+
+void main() {
+	ivec2 at = ivec2(gl_FragCoord.xy);
+	vec4 c = vec4(0.0);
+	float sum = 0.0;
+	for (int o = -uRadius; o <= uRadius; o++) {
+		float x = float(o);
+		float w = uSigma > 0.0 ? exp(-(x * x) / (2.0 * uSigma * uSigma)) : 1.0;
+		c += texelFetch(uSrc, clamp(at + uDir * o, ivec2(0), uLimit), 0) * w;
+		sum += w;
+	}
+	passColor = c / sum;
 }
 
 #endif

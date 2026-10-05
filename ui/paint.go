@@ -258,6 +258,13 @@ func (p *Painter) fill(r Rect, radius [4]float32, bg Color, bw float32, bc Color
 // unless withBorder is false.
 func (p *Painter) background(e *Element, box Rect, withBorder bool) {
 	border := withBorder && scene.HasBorder(e.border) && e.borderC.A > 0
+	if e.fill == fillMaterial {
+		e.material.PaintMaterial(p, box, e.radius)
+		if border {
+			p.border(e, box)
+		}
+		return
+	}
 	var visible bool
 	switch e.fill {
 	case fillColor:

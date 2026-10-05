@@ -23,7 +23,8 @@ memory and CPU use.
   code.
 - **A Go UI toolkit** for native UI: flexbox and grid layout, widgets, text
   editing with input methods, virtualized lists, SVG icons, animations,
-  screen reader support, and views you test without a window.
+  screen reader support, and views you test without a window; Liquid Glass
+  on every platform with the glass plugin.
 - **Desktop APIs** for both: windows, menus, tray, dialogs, notifications,
   global shortcuts, deep links, file associations and more.
 - **Ready to ship**: app bundles and disk images, Windows installers, Debian

@@ -122,6 +122,8 @@ components, from buttons to tables.
   Sparkle, which checks for updates and offers to install them.
 - [Terminal](plugins/terminal.md): a terminal for native UI, which runs
   the shell or any program with Ghostty's terminal emulator.
+- [Glass](plugins/glass.md): Liquid Glass for native UI, as macOS draws
+  it, on every platform.
 
 ## Reference
 

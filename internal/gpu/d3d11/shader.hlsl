@@ -1,7 +1,10 @@
 // The one shader of the Direct3D 11 renderer: every scene op is an
 // instanced quad, and the pixel shader computes the coverage of rounded
 // rectangles, borders, gradients, stripes and shadows from signed
-// distances, as the software renderer (internal/raster) does. Colors are straight (not
+// distances, as the software renderer (internal/raster) does, with the
+// passes computing the backdrops of effects (passvs, downps and blurps).
+// The pixel shaders of effects (scene.Effect) take its start, with EFFECT
+// defined, before effect.hlsl. Colors are straight (not
 // premultiplied) and blending happens in sRGB space, as in browsers, with a
 // second color for the source's alpha of each channel, which subpixel
 // glyphs need.
@@ -48,7 +51,7 @@ VSOut vs(uint vid : SV_VertexID, Inst i) {
 	float2 corner = float2(vid & 1, vid >> 1);
 	float4 r = i.rect;
 	float kind = i.params.x;
-	if (kind < 0.5) {
+	if (kind < 0.5 || kind > 5.5) { // fills and effects
 		r = float4(r.xy - 1, r.zw + 2);
 	} else if (kind < 1.5) {
 		float e = 3 * i.params.z + 1;
@@ -111,6 +114,10 @@ float rectCoverage(float2 p, float4 rect, float4 radii) {
 float4 premul(float4 c) { return float4(c.rgb * c.a, c.a); }
 
 float3 unpremul(float4 c) { return c.a > 0 ? c.rgb / c.a : float3(0, 0, 0); }
+
+// What follows is the renderer's own; effects (effect.hlsl) take what is
+// above.
+#ifndef EFFECT
 
 // textCoverage corrects the coverage a of a glyph of straight color c as
 // Direct2D blends text (scene.TextCoverage): it enhances the contrast,
@@ -308,3 +315,52 @@ PSOut ps(VSOut i) {
 	o.alpha = o.color.aaaa;
 	return o;
 }
+
+// The passes computing the backdrop of an effect draw a quad over their
+// target, scissored to the texels they compute.
+cbuffer PassConstants : register(b1) {
+	int2 passOrigin; // down: the first pixel of the area read, in the frame
+	int2 passLimit;  // the last texel that may be read: in the frame for down
+	int2 passShift;  // down: subtracted from frame pixels to read the source
+	int2 passDir;    // blur: along rows (1, 0) or columns (0, 1)
+	int passDown;    // down: the size of the squares averaged
+	int passRadius;  // blur: how far it reaches each way
+	float passSigma; // blur: its standard deviation, 0 for none
+	float passPad;
+};
+
+Texture2D passSrc : register(t4);
+
+float4 passvs(uint vid : SV_VertexID) : SV_Position {
+	float2 corner = float2(vid & 1, vid >> 1);
+	return float4(corner * 2 - 1, 0, 1);
+}
+
+// down averages the square of the area that texel stands for, repeating
+// the area's last pixels past its far edges.
+float4 downps(float4 pos : SV_Position) : SV_Target {
+	int2 o = passOrigin + int2(pos.xy) * passDown;
+	float4 c = float4(0, 0, 0, 0);
+	for (int y = 0; y < passDown; y++) {
+		for (int x = 0; x < passDown; x++) {
+			c += passSrc.Load(int3(min(o + int2(x, y), passLimit) - passShift, 0));
+		}
+	}
+	return c * (1.0 / float(passDown * passDown));
+}
+
+// blur blurs along a row or a column, clamping at its ends.
+float4 blurps(float4 pos : SV_Position) : SV_Target {
+	int2 at = int2(pos.xy);
+	float4 c = float4(0, 0, 0, 0);
+	float sum = 0;
+	for (int o = -passRadius; o <= passRadius; o++) {
+		float x = float(o);
+		float w = passSigma > 0 ? exp(-(x * x) / (2 * passSigma * passSigma)) : 1;
+		c += passSrc.Load(int3(clamp(at + passDir * o, int2(0, 0), passLimit), 0)) * w;
+		sum += w;
+	}
+	return c / sum;
+}
+
+#endif

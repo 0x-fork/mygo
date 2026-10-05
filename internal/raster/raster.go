@@ -80,7 +80,7 @@ type renderer struct {
 // Render draws s into dst, which must be s.Width×s.Height.
 func Render(dst *Image, s *scene.Scene) {
 	var r Renderer
-	draw(&r.rs, dst, s, image.Rect(0, 0, dst.W, dst.H), r.opBounds(s, nil))
+	r.d.draw(dst, s, image.Rect(0, 0, dst.W, dst.H), r.opBounds(s, nil))
 }
 
 // A large area is drawn on several cores at once, in bands of bandRows
@@ -89,40 +89,89 @@ func Render(dst *Image, s *scene.Scene) {
 // another. An area of fewer than workArea pixels a core is not worth
 // waking cores for, and maxWorkers is about where memory bandwidth and
 // the lower clock of all cores stop paying for more.
+//
+// An effect costs much more a pixel and is often short, as a bar: the
+// operations from one are drawn in bands of effectRows rows, so that more
+// cores share it.
 const (
 	bandRows   = 64
+	effectRows = 16
 	workArea   = 128 << 10
 	maxWorkers = 8
 )
 
 // draw draws the pixels of s within area into dst, with the renderers of
-// rs, made as needed, leaving out the operations whose bounds (opBounds)
+// d.rs, made as needed, leaving out the operations whose bounds (opBounds)
 // miss the band drawn. It returns how long the cores took, together: on
 // several cores, a multiple of how long drawing lasted.
-func draw(rs *[]renderer, dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) time.Duration {
-	start := time.Now()
+//
+// Each effect is readied (EffectPixels.Begin) before its pixels, and one
+// reading its backdrop reads pixels other bands draw: the operations up to
+// each effect in the area are drawn first, then its backdrop is read
+// (d.bd), then the effect and the operations up to the next. The area
+// holds the backdrops of the effects in it (Renderer.diff).
+func (d *drawer) draw(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) time.Duration {
 	area = area.Intersect(image.Rect(0, 0, dst.W, dst.H))
-	bands := (area.Dy() + bandRows - 1) / bandRows
+	// px draws operation from, an effect over the backdrop b.
+	from, px, b := 0, scene.EffectPixels(nil), (*scene.BackdropImage)(nil)
+	var busy time.Duration
+	for i := range s.Ops {
+		op := &s.Ops[i]
+		if op.Kind != scene.OpEffect || int(op.Start) >= len(s.Effects) || !bounds[i].Overlaps(area) {
+			continue
+		}
+		fx := &s.Effects[op.Start]
+		next := d.pixels(fx.Effect)
+		if next == nil {
+			continue
+		}
+		busy += d.drawOps(dst, s, area, bounds, from, i, px, b)
+		b = nil
+		if fx.Effect.Backdrop {
+			busy += d.bd.read(dst, scene.BackdropOf(op.Rect, fx.Blur, dst.W, dst.H))
+			b = &d.bd.img
+		}
+		next.Begin(fx, op.Rect, scene.FitRadii(op.Rect, op.Radii))
+		from, px = i, next
+	}
+	return busy + d.drawOps(dst, s, area, bounds, from, len(s.Ops), px, b)
+}
+
+// drawOps draws operations from to to of s within area, as draw does,
+// over the pixels the operations before them drew, or over the scene's
+// clear color from the first; px draws operation from when it is an
+// effect, over the backdrop b. It returns how long the cores took,
+// together.
+func (d *drawer) drawOps(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle, from, to int, px scene.EffectPixels, b *scene.BackdropImage) time.Duration {
+	if from >= to && from > 0 {
+		return 0
+	}
+	start := time.Now()
+	rows := bandRows
+	if px != nil {
+		rows = effectRows
+	}
+	bands := (area.Dy() + rows - 1) / rows
 	n := max(min(runtime.GOMAXPROCS(0), area.Dx()*area.Dy()/workArea, bands, maxWorkers), 1)
-	for len(*rs) < n {
-		*rs = append(*rs, renderer{})
+	for len(d.rs) < n {
+		d.rs = append(d.rs, renderer{})
 	}
 	if n == 1 {
-		(*rs)[0].render(dst, s, area, bounds)
+		d.rs[0].render(dst, s, area, bounds, from, to, px, b)
 		return time.Since(start)
 	}
 	var next atomic.Int32
 	var busy atomic.Int64
 	var wg sync.WaitGroup
 	for i := range n {
-		r := &(*rs)[i]
+		r := &d.rs[i]
 		wg.Go(func() {
 			began := time.Now()
-			for b := int(next.Add(1)) - 1; b < bands; b = int(next.Add(1)) - 1 {
+			for k := int(next.Add(1)) - 1; k < bands; k = int(next.Add(1)) - 1 {
 				band := area
-				band.Min.Y = area.Min.Y + b*bandRows
-				band.Max.Y = min(band.Min.Y+bandRows, area.Max.Y)
-				r.render(dst, s, band, bounds)
+				band.Min.Y = area.Min.Y + k*rows
+				band.Max.Y = min(band.Min.Y+rows, area.Max.Y)
+				r.render(dst, s, band, bounds, from, to, px, b)
 			}
 			busy.Add(int64(time.Since(began)))
 		})
@@ -131,19 +180,23 @@ func draw(rs *[]renderer, dst *Image, s *scene.Scene, area image.Rectangle, boun
 	return time.Duration(busy.Load())
 }
 
-// render draws the pixels of s within area, but for the operations whose
-// bounds miss it.
-func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) {
+// render draws the pixels of s within area, operations from to to but
+// those whose bounds miss it, over the clear color from the first; those
+// before only clip. px draws operation from when it is an effect, over
+// the backdrop b.
+func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle, from, to int, px scene.EffectPixels, b *scene.BackdropImage) {
 	r.dst, r.s, r.clips, r.spanBuf = dst, s, r.clips[:0], r.spanBuf[:0]
 	r.area = area.Intersect(image.Rect(0, 0, dst.W, dst.H))
 	if r.area.Empty() {
 		return
 	}
-	r.clear(s.Clear)
+	if from == 0 {
+		r.clear(s.Clear)
+	}
 	r.updateBounds()
-	for i := range s.Ops {
+	for i := range s.Ops[:to] {
 		op := &s.Ops[i]
-		if op.Kind != scene.OpPushClip && op.Kind != scene.OpPopClip && !bounds[i].Overlaps(r.area) {
+		if op.Kind != scene.OpPushClip && op.Kind != scene.OpPopClip && (i < from || !bounds[i].Overlaps(r.area)) {
 			continue
 		}
 		switch op.Kind {
@@ -155,6 +208,10 @@ func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, boun
 			r.glyphs(op)
 		case scene.OpImage:
 			r.image(op)
+		case scene.OpEffect:
+			if i == from && px != nil {
+				r.effect(op, px, b)
+			}
 		case scene.OpPushClip:
 			radii := scene.Corners(op.Rect, op.Radii, op.Continuous)
 			c := clip{shape: newShape(op.Rect, radii), round: hasRadii(radii), spans: -1}

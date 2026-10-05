@@ -236,6 +236,7 @@ type Element struct {
 	borderStyle  BorderStyle
 	radius       [4]float32
 	shadows      []shadow
+	material     Material
 	opacity      float32
 	opacitySet   bool
 	cursor       Cursor
@@ -439,6 +440,7 @@ const (
 	fillColor fillKind = iota
 	fillGradient
 	fillStripes
+	fillMaterial
 )
 
 type stripes struct {

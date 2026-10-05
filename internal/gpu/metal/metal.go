@@ -15,7 +15,9 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -29,6 +31,21 @@ import (
 
 //go:embed shader.metal
 var shaderSource string
+
+// effectSource is the head and the tail of an effect's library, around
+// the line "// effect" (see EffectSource).
+//
+//go:embed effect.metal
+var effectSource string
+
+// EffectSource returns the source of an effect's library: shader.metal
+// with EFFECT defined, the head of effect.metal, the effect's shader (see
+// scene.Effect), and the tail, which draws its instances with it
+// (effect_ps). Effects compile it ahead of time with CompileLibrary.
+func EffectSource(src string) string {
+	head, tail, _ := strings.Cut(effectSource, "\n// effect\n")
+	return "#define EFFECT\n" + shaderSource + "\n" + head + "\n" + src + "\n" + tail
+}
 
 type id = uintptr
 
@@ -50,6 +67,8 @@ const (
 	usageRenderTarget = 4
 	storageManaged    = 1
 
+	loadActionDontCare     = 0
+	loadActionLoad         = 1
 	loadActionClear        = 2
 	storeActionStore       = 1
 	primitiveTriStrip      = 4
@@ -287,6 +306,12 @@ type texture struct {
 // Renderer draws scenes into a CAMetalLayer it adds to a view's layer.
 type Renderer struct {
 	device, queue, pipeline, sampler id
+	// downPipe and blurPipe draw the passes computing the backdrops of
+	// effects, into the textures of backdrop, the second only along rows.
+	downPipe, blurPipe id
+	backdrop           [2]texture
+	// effects are the pipelines of the effects drawn, made as first drawn.
+	effects map[*scene.Effect]*effectPipe
 	// layer is the CAMetalLayer in superlayer, the view's.
 	layer, superlayer id
 	w, h              int
@@ -388,7 +413,7 @@ func newRenderer() (r *Renderer, err error) {
 	return r, nil
 }
 
-func (r *Renderer) init() error {
+func (r *Renderer) init() (err error) {
 	r.device = createDevice() // owned: NS_RETURNS_RETAINED
 	if err := need(r.device, "Metal device", "newCommandQueue", "newLibraryWithSource:options:error:",
 		"newRenderPipelineStateWithDescriptor:error:", "newSamplerStateWithDescriptor:", "newTextureWithDescriptor:",
@@ -408,31 +433,14 @@ func (r *Renderer) init() error {
 		return fmt.Errorf("metal: cannot compile the shader: %s", describe(errObj))
 	}
 	defer release(&lib)
-	vs := send(lib, "newFunctionWithName:", nsString("vs"))
-	defer release(&vs)
-	ps := send(lib, "newFunctionWithName:", nsString("ps"))
-	defer release(&ps)
-	if vs == 0 || ps == 0 {
-		return errors.New("metal: the shader has no vs or ps")
+	if r.pipeline, err = r.newPipeline(lib, "ps"); err != nil {
+		return err
 	}
-	desc := send(send(class("MTLRenderPipelineDescriptor"), "alloc"), "init")
-	defer release(&desc)
-	send(desc, "setVertexFunction:", vs)
-	send(desc, "setFragmentFunction:", ps)
-	ca := send(send(desc, "colorAttachments"), "objectAtIndexedSubscript:", 0)
-	send(ca, "setPixelFormat:", pixelFormatBGRA8Unorm)
-	// Premultiplied colors over what is drawn.
-	send(ca, "setBlendingEnabled:", 1)
-	send(ca, "setSourceRGBBlendFactor:", blendOne)
-	// Dual-source blending: the shader's second color is the source's
-	// alpha of each channel.
-	send(ca, "setDestinationRGBBlendFactor:", blendOneMinusSrc1Color)
-	send(ca, "setSourceAlphaBlendFactor:", blendOne)
-	send(ca, "setDestinationAlphaBlendFactor:", blendOneMinusSrc1A)
-	errObj = 0
-	r.pipeline = send(r.device, "newRenderPipelineStateWithDescriptor:error:", desc, uintptr(unsafe.Pointer(&errObj)))
-	if r.pipeline == 0 {
-		return fmt.Errorf("metal: cannot create the pipeline: %s", describe(errObj))
+	if r.downPipe, err = r.passPipeline(lib, "down"); err != nil {
+		return err
+	}
+	if r.blurPipe, err = r.passPipeline(lib, "blur"); err != nil {
+		return err
 	}
 	sd := send(send(class("MTLSamplerDescriptor"), "alloc"), "init")
 	defer release(&sd)
@@ -445,15 +453,122 @@ func (r *Renderer) init() error {
 	return nil
 }
 
+// newPipeline returns a pipeline drawing instances with the vertex
+// function vs and the fragment function fs of lib, blending premultiplied
+// colors over what is drawn.
+func (r *Renderer) newPipeline(lib id, fs string) (id, error) {
+	vsFn := send(lib, "newFunctionWithName:", nsString("vs"))
+	defer release(&vsFn)
+	fsFn := send(lib, "newFunctionWithName:", nsString(fs))
+	defer release(&fsFn)
+	if vsFn == 0 || fsFn == 0 {
+		return 0, fmt.Errorf("metal: the shader has no vs or %s", fs)
+	}
+	desc := send(send(class("MTLRenderPipelineDescriptor"), "alloc"), "init")
+	defer release(&desc)
+	send(desc, "setVertexFunction:", vsFn)
+	send(desc, "setFragmentFunction:", fsFn)
+	ca := send(send(desc, "colorAttachments"), "objectAtIndexedSubscript:", 0)
+	send(ca, "setPixelFormat:", pixelFormatBGRA8Unorm)
+	// Premultiplied colors over what is drawn.
+	send(ca, "setBlendingEnabled:", 1)
+	send(ca, "setSourceRGBBlendFactor:", blendOne)
+	// Dual-source blending: the shader's second color is the source's
+	// alpha of each channel.
+	send(ca, "setDestinationRGBBlendFactor:", blendOneMinusSrc1Color)
+	send(ca, "setSourceAlphaBlendFactor:", blendOne)
+	send(ca, "setDestinationAlphaBlendFactor:", blendOneMinusSrc1A)
+	var errObj id
+	pipe := send(r.device, "newRenderPipelineStateWithDescriptor:error:", desc, uintptr(unsafe.Pointer(&errObj)))
+	if pipe == 0 {
+		return 0, fmt.Errorf("metal: cannot create the %s pipeline: %s", fs, describe(errObj))
+	}
+	return pipe, nil
+}
+
+// effectPipe is the pipeline of an effect, or why it has none.
+type effectPipe struct {
+	pipe id
+	err  error
+}
+
+// effectPipeline returns the pipeline of e: from the library e compiled
+// ahead of time, unless it was compiled from another source, as when the
+// renderer's head or tail changed since, which it then compiles. It is 0
+// for an effect that does not compile, which draws nothing.
+func (r *Renderer) effectPipeline(e *scene.Effect) id {
+	if p := r.effects[e]; p != nil {
+		return p.pipe
+	}
+	p := &effectPipe{}
+	if r.effects == nil {
+		r.effects = map[*scene.Effect]*effectPipe{}
+	}
+	r.effects[e] = p
+	src := EffectSource(e.Metal.Source)
+	var lib id
+	if len(e.Metal.Compiled) > 0 && e.Metal.Sum == gpu.SourceSum(src) {
+		lib = r.libraryFromData(e.Metal.Compiled)
+	}
+	if lib == 0 {
+		var errObj id
+		if lib = send(r.device, "newLibraryWithSource:options:error:", nsString(src), 0, uintptr(unsafe.Pointer(&errObj))); lib == 0 {
+			p.err = fmt.Errorf("metal: cannot compile the effect %s: %s", e.Name, describe(errObj))
+		}
+	}
+	if lib != 0 {
+		p.pipe, p.err = r.newPipeline(lib, "effect_ps")
+		release(&lib)
+	}
+	if p.err != nil && r.err == nil {
+		// Shown once, as frames go on without the effect.
+		fmt.Fprintln(os.Stderr, p.err)
+	}
+	return p.pipe
+}
+
+// passPipeline returns the pipeline of a pass computing backdrops, which
+// draws the fragment function name of lib over its target, unblended.
+func (r *Renderer) passPipeline(lib id, name string) (id, error) {
+	vs := send(lib, "newFunctionWithName:", nsString("passVS"))
+	defer release(&vs)
+	fs := send(lib, "newFunctionWithName:", nsString(name))
+	defer release(&fs)
+	if vs == 0 || fs == 0 {
+		return 0, fmt.Errorf("metal: the shader has no passVS or %s", name)
+	}
+	desc := send(send(class("MTLRenderPipelineDescriptor"), "alloc"), "init")
+	defer release(&desc)
+	send(desc, "setVertexFunction:", vs)
+	send(desc, "setFragmentFunction:", fs)
+	ca := send(send(desc, "colorAttachments"), "objectAtIndexedSubscript:", 0)
+	send(ca, "setPixelFormat:", pixelFormatBGRA8Unorm)
+	var errObj id
+	pipe := send(r.device, "newRenderPipelineStateWithDescriptor:error:", desc, uintptr(unsafe.Pointer(&errObj)))
+	if pipe == 0 {
+		return 0, fmt.Errorf("metal: cannot create the %s pipeline: %s", name, describe(errObj))
+	}
+	return pipe, nil
+}
+
 // compiledLibrary returns the library compiled from the shader ahead of
 // time, or 0 when it was compiled from another shader.metal (go generate
 // was not run since it changed) or Metal cannot load it.
 func (r *Renderer) compiledLibrary() id {
-	if gpu.SourceSum(shaderSource) != shaderLibrarySum || dispatchDataCreate == 0 || !respondsTo(r.device, "newLibraryWithData:error:") {
+	if gpu.SourceSum(shaderSource) != shaderLibrarySum {
+		return 0
+	}
+	return r.libraryFromData(shaderLibrary)
+}
+
+// libraryFromData returns a library loaded from the code of one, or 0
+// when Metal cannot load it.
+func (r *Renderer) libraryFromData(code []byte) id {
+	if dispatchDataCreate == 0 || !respondsTo(r.device, "newLibraryWithData:error:") {
 		return 0
 	}
 	// Without a destructor, dispatch_data_create copies the bytes.
-	data, _, _ := purego.SyscallN(dispatchDataCreate, uintptr(unsafe.Pointer(&shaderLibrary[0])), uintptr(len(shaderLibrary)), 0, 0)
+	data, _, _ := purego.SyscallN(dispatchDataCreate, uintptr(unsafe.Pointer(&code[0])), uintptr(len(code)), 0, 0)
 	if data == 0 {
 		return 0
 	}
@@ -568,24 +683,77 @@ func (r *Renderer) encode(s *scene.Scene, target id) (id, error) {
 		copy(dst, r.b.Instances)
 	}
 
-	rpd := send(class("MTLRenderPassDescriptor"), "renderPassDescriptor")
-	ca := send(send(rpd, "colorAttachments"), "objectAtIndexedSubscript:", 0)
-	send(ca, "setTexture:", target)
-	send(ca, "setLoadAction:", loadActionClear)
-	send(ca, "setStoreAction:", storeActionStore)
-	c := s.Clear.Premul(1)
-	msgSetClearColor(ca, sel("setClearColor:"), mtlClearColor{float64(c[0]), float64(c[1]), float64(c[2]), float64(c[3])})
+	if err := r.fitBackdrop(); err != nil {
+		return 0, err
+	}
 	cb := send(r.queue, "commandBuffer")
 	if !r.checked {
 		if err := need(cb, "command buffer", "renderCommandEncoderWithDescriptor:", "commit", "waitUntilScheduled", "waitUntilCompleted", "status", "blitCommandEncoder"); err != nil {
 			return 0, err
 		}
 	}
+	enc, err := r.begin(cb, target, loadActionClear, s)
+	if err != nil {
+		return 0, err
+	}
+	bound, pipe := r.empty, r.pipeline
+	for _, b := range r.b.Batches {
+		// Metal requires scissor rectangles within the target.
+		sc := b.Scissor
+		sc.Left, sc.Top = max(sc.Left, 0), max(sc.Top, 0)
+		sc.Right, sc.Bottom = min(sc.Right, int32(s.Width)), min(sc.Bottom, int32(s.Height))
+		if b.Count == 0 || sc.Empty() {
+			continue
+		}
+		want := r.pipeline
+		if b.Effect != nil {
+			if want = r.effectPipeline(b.Effect); want == 0 {
+				continue
+			}
+		}
+		if b.Backdrop != 0 {
+			// The effect shows what is drawn so far.
+			send(enc, "endEncoding")
+			r.readBackdrop(cb, target, r.b.Backdrops[b.Backdrop-1])
+			if enc, err = r.begin(cb, target, loadActionLoad, s); err != nil {
+				return 0, err
+			}
+			send(enc, "setFragmentTexture:atIndex:", r.backdrop[0].tex, 3)
+			bound, pipe = r.empty, r.pipeline
+		}
+		if want != pipe {
+			pipe = want
+			send(enc, "setRenderPipelineState:", pipe)
+		}
+		if b.Image != 0 && b.Image != bound {
+			bound = b.Image
+			send(enc, "setFragmentTexture:atIndex:", bound, 2)
+		}
+		offset := uintptr(b.Start * gpu.InstanceSize)
+		send(enc, "setVertexBuffer:offset:atIndex:", r.instBuf, offset, 0)
+		send(enc, "setFragmentBuffer:offset:atIndex:", r.instBuf, offset, 0)
+		msgSetScissor(enc, sel("setScissorRect:"), mtlScissorRect{uint(sc.Left), uint(sc.Top), uint(sc.Right - sc.Left), uint(sc.Bottom - sc.Top)})
+		send(enc, "drawPrimitives:vertexStart:vertexCount:instanceCount:", primitiveTriStrip, 0, 4, uintptr(b.Count))
+	}
+	send(enc, "endEncoding")
+	return cb, nil
+}
+
+// begin starts encoding the drawing of s into target, which it clears or
+// keeps (load), with the state the instances draw with.
+func (r *Renderer) begin(cb, target id, load uintptr, s *scene.Scene) (id, error) {
+	rpd := send(class("MTLRenderPassDescriptor"), "renderPassDescriptor")
+	ca := send(send(rpd, "colorAttachments"), "objectAtIndexedSubscript:", 0)
+	send(ca, "setTexture:", target)
+	send(ca, "setLoadAction:", load)
+	send(ca, "setStoreAction:", storeActionStore)
+	c := s.Clear.Premul(1)
+	msgSetClearColor(ca, sel("setClearColor:"), mtlClearColor{float64(c[0]), float64(c[1]), float64(c[2]), float64(c[3])})
 	enc := send(cb, "renderCommandEncoderWithDescriptor:", rpd)
 	if !r.checked {
 		if err := need(enc, "render encoder", "setRenderPipelineState:", "setVertexBytes:length:atIndex:", "setVertexBuffer:offset:atIndex:",
-			"setFragmentBuffer:offset:atIndex:", "setFragmentTexture:atIndex:", "setFragmentSamplerState:atIndex:", "setScissorRect:",
-			"drawPrimitives:vertexStart:vertexCount:instanceCount:", "endEncoding"); err != nil {
+			"setFragmentBuffer:offset:atIndex:", "setFragmentBytes:length:atIndex:", "setFragmentTexture:atIndex:", "setFragmentSamplerState:atIndex:",
+			"setScissorRect:", "drawPrimitives:vertexStart:vertexCount:instanceCount:", "endEncoding"); err != nil {
 			if enc != 0 {
 				send(enc, "endEncoding")
 			}
@@ -600,27 +768,62 @@ func (r *Renderer) encode(s *scene.Scene, target id) (id, error) {
 	send(enc, "setFragmentTexture:atIndex:", or(r.mask.tex, r.empty), 0)
 	send(enc, "setFragmentTexture:atIndex:", or(r.color.tex, r.empty), 1)
 	send(enc, "setFragmentTexture:atIndex:", r.empty, 2)
-	bound := r.empty
-	for _, b := range r.b.Batches {
-		// Metal requires scissor rectangles within the target.
-		sc := b.Scissor
-		sc.Left, sc.Top = max(sc.Left, 0), max(sc.Top, 0)
-		sc.Right, sc.Bottom = min(sc.Right, int32(s.Width)), min(sc.Bottom, int32(s.Height))
-		if b.Count == 0 || sc.Empty() {
-			continue
-		}
-		if b.Image != 0 && b.Image != bound {
-			bound = b.Image
-			send(enc, "setFragmentTexture:atIndex:", bound, 2)
-		}
-		offset := uintptr(b.Start * gpu.InstanceSize)
-		send(enc, "setVertexBuffer:offset:atIndex:", r.instBuf, offset, 0)
-		send(enc, "setFragmentBuffer:offset:atIndex:", r.instBuf, offset, 0)
-		msgSetScissor(enc, sel("setScissorRect:"), mtlScissorRect{uint(sc.Left), uint(sc.Top), uint(sc.Right - sc.Left), uint(sc.Bottom - sc.Top)})
-		send(enc, "drawPrimitives:vertexStart:vertexCount:instanceCount:", primitiveTriStrip, 0, 4, uintptr(b.Count))
+	send(enc, "setFragmentTexture:atIndex:", r.empty, 3)
+	return enc, nil
+}
+
+// readBackdrop encodes the passes computing the backdrop bk of what
+// target holds, into r.backdrop[0].
+func (r *Renderer) readBackdrop(cb, target id, bk scene.Backdrop) {
+	w, h := bk.Size()
+	p := gpu.DownPass(bk, [2]int32{})
+	r.pass(cb, r.downPipe, target, r.backdrop[0].tex, w, h, &p)
+	if bk.Radius == 0 {
+		return
 	}
+	p = gpu.BlurPass(bk, [2]int32{1, 0})
+	r.pass(cb, r.blurPipe, r.backdrop[0].tex, r.backdrop[1].tex, w, h, &p)
+	p = gpu.BlurPass(bk, [2]int32{0, 1})
+	r.pass(cb, r.blurPipe, r.backdrop[1].tex, r.backdrop[0].tex, w, h, &p)
+}
+
+// pass encodes drawing the w×h texels at the start of dst with pipe,
+// which reads src.
+func (r *Renderer) pass(cb, pipe, src, dst id, w, h int, p *gpu.Pass) {
+	rpd := send(class("MTLRenderPassDescriptor"), "renderPassDescriptor")
+	ca := send(send(rpd, "colorAttachments"), "objectAtIndexedSubscript:", 0)
+	send(ca, "setTexture:", dst)
+	send(ca, "setLoadAction:", loadActionDontCare)
+	send(ca, "setStoreAction:", storeActionStore)
+	enc := send(cb, "renderCommandEncoderWithDescriptor:", rpd)
+	send(enc, "setRenderPipelineState:", pipe)
+	send(enc, "setFragmentTexture:atIndex:", src, 0)
+	send(enc, "setFragmentBytes:length:atIndex:", uintptr(unsafe.Pointer(p)), unsafe.Sizeof(*p), 0)
+	msgSetScissor(enc, sel("setScissorRect:"), mtlScissorRect{0, 0, uint(w), uint(h)})
+	send(enc, "drawPrimitives:vertexStart:vertexCount:instanceCount:", primitiveTriStrip, 0, 4, 1)
 	send(enc, "endEncoding")
-	return cb, nil
+}
+
+// fitBackdrop makes the textures of backdrops as large as the scene built
+// needs.
+func (r *Renderer) fitBackdrop() error {
+	w, h := r.b.BackdropSize()
+	if w == 0 || r.backdrop[0].w >= w && r.backdrop[0].h >= h {
+		return nil
+	}
+	// Somewhat larger, so that a pane growing does not make them again
+	// every frame.
+	w, h = max(w+w/4, r.backdrop[0].w), max(h+h/4, r.backdrop[0].h)
+	for i := range r.backdrop {
+		t := &r.backdrop[i]
+		release(&t.tex)
+		if t.tex = r.newTexture(w, h, pixelFormatBGRA8Unorm, usageRenderTarget|usageShaderRead, nil, 0); t.tex == 0 {
+			t.w, t.h = 0, 0
+			return errors.New("metal: cannot create a backdrop texture")
+		}
+		t.w, t.h = w, h
+	}
+	return nil
 }
 
 func or(a, b id) id {
@@ -781,6 +984,10 @@ func (r *Renderer) releaseTextures() {
 	}
 	release(&r.instBuf)
 	r.instCap = 0
+	for i := range r.backdrop {
+		release(&r.backdrop[i].tex)
+		r.backdrop[i] = texture{}
+	}
 }
 
 // changedSince returns what changed between the frame drawn in memory the
@@ -921,6 +1128,11 @@ func (r *Renderer) Release() {
 		release(&r.empty)
 		release(&r.sampler)
 		release(&r.pipeline)
+		release(&r.downPipe)
+		release(&r.blurPipe)
+		for _, p := range r.effects {
+			release(&p.pipe)
+		}
 		release(&r.queue)
 		release(&r.device)
 	})

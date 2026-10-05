@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"syscall"
 	"time"
 	"unsafe"
@@ -63,6 +64,7 @@ const (
 	devCreateSamplerState       = 23
 
 	// ID3D11DeviceContext
+	viewGetResource            = 7 // ID3D11View
 	ctxVSSetConstantBuffers    = 7
 	ctxPSSetShaderResources    = 8
 	ctxPSSetShader             = 9
@@ -70,6 +72,7 @@ const (
 	ctxVSSetShader             = 11
 	ctxMap                     = 14
 	ctxUnmap                   = 15
+	ctxPSSetConstantBuffers    = 16
 	ctxIASetInputLayout        = 17
 	ctxIASetVertexBuffers      = 18
 	ctxDrawInstanced           = 21
@@ -79,6 +82,7 @@ const (
 	ctxRSSetState              = 43
 	ctxRSSetViewports          = 44
 	ctxRSSetScissorRects       = 45
+	ctxCopySubresourceRegion   = 46
 	ctxUpdateSubresource       = 48
 	ctxClearRenderTargetView   = 50
 	ctxClearState              = 110
@@ -106,6 +110,7 @@ const (
 	bindVertexBuffer   = 0x1
 	bindConstantBuffer = 0x4
 	bindShaderResource = 0x8
+	bindRenderTarget   = 0x20
 
 	cpuAccessWrite  = 0x10000
 	mapWriteDiscard = 4
@@ -217,6 +222,7 @@ type swapChainDesc1 struct {
 
 type texture struct {
 	tex, srv  uintptr
+	rtv       uintptr // of a texture drawn into
 	w, h      int
 	gen, ver  uint64
 	lastFrame uint64
@@ -250,6 +256,16 @@ type Renderer struct {
 	mask, color texture
 	images      map[uint64]*texture
 	frame       uint64
+
+	// The passes computing the backdrops of effects: their shaders and
+	// constants, grab, which holds the area of the frame read, and
+	// backdrop, the textures they draw into, the second only along rows.
+	passVS, downPS, blurPS, passCB uintptr
+	grab                           texture
+	backdrop                       [2]texture
+	// effects are the pixel shaders of the effects drawn, made as first
+	// drawn.
+	effects map[*scene.Effect]*effectShader
 
 	b gpu.Builder
 }
@@ -295,15 +311,22 @@ func (r *Renderer) init() error {
 		return errors.New("d3d11: DXGI 1.2 is required")
 	}
 
-	vsCode, psCode, err := shaderCode()
+	code, err := shaderCode()
 	if err != nil {
 		return err
 	}
-	if failed(call(r.device, devCreateVertexShader, uintptr(unsafe.Pointer(&vsCode[0])), uintptr(len(vsCode)), 0, uintptr(unsafe.Pointer(&r.vs)))) {
-		return errors.New("d3d11: cannot create the vertex shader")
-	}
-	if failed(call(r.device, devCreatePixelShader, uintptr(unsafe.Pointer(&psCode[0])), uintptr(len(psCode)), 0, uintptr(unsafe.Pointer(&r.ps)))) {
-		return errors.New("d3d11: cannot create the pixel shader")
+	vsCode := code.vs
+	for _, s := range []struct {
+		code []byte
+		out  *uintptr
+		vtbl int
+		name string
+	}{{code.vs, &r.vs, devCreateVertexShader, "vertex"}, {code.ps, &r.ps, devCreatePixelShader, "pixel"},
+		{code.passVS, &r.passVS, devCreateVertexShader, "pass vertex"}, {code.down, &r.downPS, devCreatePixelShader, "down"},
+		{code.blur, &r.blurPS, devCreatePixelShader, "blur"}} {
+		if len(s.code) == 0 || failed(call(r.device, s.vtbl, uintptr(unsafe.Pointer(&s.code[0])), uintptr(len(s.code)), 0, uintptr(unsafe.Pointer(s.out)))) {
+			return fmt.Errorf("d3d11: cannot create the %s shader", s.name)
+		}
 	}
 	names := []string{"RECT", "RADII", "INNER", "COLOR", "COLOR", "COLOR", "GRAD", "UV", "CLIP", "CLIPR", "PARAMS"}
 	indices := []uint32{0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0}
@@ -338,6 +361,10 @@ func (r *Renderer) init() error {
 	cd := bufferDesc{ByteWidth: 16, Usage: usageDefault, BindFlags: bindConstantBuffer}
 	if failed(call(r.device, devCreateBuffer, uintptr(unsafe.Pointer(&cd)), 0, uintptr(unsafe.Pointer(&r.cbuf)))) {
 		return errors.New("d3d11: cannot create the constant buffer")
+	}
+	cd.ByteWidth = uint32(unsafe.Sizeof(gpu.Pass{}))
+	if failed(call(r.device, devCreateBuffer, uintptr(unsafe.Pointer(&cd)), 0, uintptr(unsafe.Pointer(&r.passCB)))) {
+		return errors.New("d3d11: cannot create the constant buffer of passes")
 	}
 	return nil
 }
@@ -463,7 +490,16 @@ func (r *Renderer) Release() {
 		free(&t.srv)
 		free(&t.tex)
 	}
-	for _, p := range []*uintptr{&r.rtv, &r.swapChain2, &r.swapChain, &r.instBuf, &r.cbuf, &r.samp, &r.raster, &r.blend, &r.layout, &r.ps, &r.vs, &r.factory, &r.ctx, &r.device} {
+	for _, p := range r.effects {
+		free(&p.ps)
+	}
+	for _, t := range []*texture{&r.grab, &r.backdrop[0], &r.backdrop[1]} {
+		free(&t.rtv)
+		free(&t.srv)
+		free(&t.tex)
+	}
+	for _, p := range []*uintptr{&r.rtv, &r.swapChain2, &r.swapChain, &r.instBuf, &r.cbuf, &r.passCB, &r.samp, &r.raster, &r.blend, &r.layout,
+		&r.blurPS, &r.downPS, &r.passVS, &r.ps, &r.vs, &r.factory, &r.ctx, &r.device} {
 		free(p)
 	}
 }
@@ -571,6 +607,9 @@ func (r *Renderer) draw(s *scene.Scene) error {
 		return err
 	}
 	r.b.Build(s, r.imageView)
+	if err := r.fitBackdrop(); err != nil {
+		return err
+	}
 
 	// Upload the instances, growing the buffer as needed.
 	if n := len(r.b.Instances); n > 0 {
@@ -599,24 +638,29 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	call(ctx, ctxOMSetRenderTargets, 1, uintptr(unsafe.Pointer(&r.rtv)), 0)
 	clear := s.Clear.Premul(1)
 	call(ctx, ctxClearRenderTargetView, r.rtv, uintptr(unsafe.Pointer(&clear[0])))
-	vp := viewport{W: float32(s.Width), H: float32(s.Height), MaxDepth: 1}
-	call(ctx, ctxRSSetViewports, 1, uintptr(unsafe.Pointer(&vp)))
 	call(ctx, ctxRSSetState, r.raster)
-	call(ctx, ctxOMSetBlendState, r.blend, 0, 0xffffffff)
 	call(ctx, ctxIASetPrimitiveTopology, topologyTriangleStrip)
-	call(ctx, ctxIASetInputLayout, r.layout)
-	stride, offset := uint32(gpu.InstanceSize), uint32(0)
-	call(ctx, ctxIASetVertexBuffers, 0, 1, uintptr(unsafe.Pointer(&r.instBuf)), uintptr(unsafe.Pointer(&stride)), uintptr(unsafe.Pointer(&offset)))
-	call(ctx, ctxVSSetShader, r.vs, 0, 0)
-	call(ctx, ctxVSSetConstantBuffers, 0, 1, uintptr(unsafe.Pointer(&r.cbuf)))
-	call(ctx, ctxPSSetShader, r.ps, 0, 0)
-	call(ctx, ctxPSSetSamplers, 0, 1, uintptr(unsafe.Pointer(&r.samp)))
-	views := [3]uintptr{r.mask.srv, r.color.srv, 0}
-	call(ctx, ctxPSSetShaderResources, 0, 3, uintptr(unsafe.Pointer(&views[0])))
-	bound := uintptr(0)
+	r.bindState(s, 0)
+	bound, ps := uintptr(0), r.ps
 	for _, b := range r.b.Batches {
 		if b.Count == 0 {
 			continue
+		}
+		want := r.ps
+		if b.Effect != nil {
+			if want = r.effectShader(b.Effect); want == 0 {
+				continue
+			}
+		}
+		if b.Backdrop != 0 {
+			// The effect shows what is drawn so far.
+			r.readBackdrop(r.b.Backdrops[b.Backdrop-1])
+			r.bindState(s, r.backdrop[0].srv)
+			bound, ps = 0, r.ps
+		}
+		if want != ps {
+			ps = want
+			call(ctx, ctxPSSetShader, ps, 0, 0)
 		}
 		if b.Image != 0 && b.Image != bound {
 			bound = b.Image
@@ -626,6 +670,156 @@ func (r *Renderer) draw(s *scene.Scene) error {
 		call(ctx, ctxRSSetScissorRects, 1, uintptr(unsafe.Pointer(&sc)))
 		call(ctx, ctxDrawInstanced, 4, uintptr(b.Count), 0, uintptr(b.Start))
 	}
+	return nil
+}
+
+// effectShader is the pixel shader of an effect, or why it has none.
+type effectShader struct {
+	ps  uintptr
+	err error
+}
+
+// effectShader returns the pixel shader of e: that e compiled ahead of
+// time, unless it was compiled from another source, as when the
+// renderer's head or tail changed since, which it then compiles. It is 0
+// for an effect that does not compile, which draws nothing.
+func (r *Renderer) effectShader(e *scene.Effect) uintptr {
+	if p := r.effects[e]; p != nil {
+		return p.ps
+	}
+	p := &effectShader{}
+	if r.effects == nil {
+		r.effects = map[*scene.Effect]*effectShader{}
+	}
+	r.effects[e] = p
+	code := e.HLSL.Compiled
+	if len(code) == 0 || e.HLSL.Sum != gpu.SourceSum(EffectSource(e.HLSL.Source)) {
+		code, p.err = CompileEffect(e.HLSL.Source)
+	}
+	if p.err == nil {
+		if hr := call(r.device, devCreatePixelShader, uintptr(unsafe.Pointer(&code[0])), uintptr(len(code)), 0, uintptr(unsafe.Pointer(&p.ps))); failed(hr) {
+			p.err = fmt.Errorf("d3d11: cannot create the pixel shader of the effect %s: %#x", e.Name, uint32(hr))
+		}
+	} else {
+		p.err = fmt.Errorf("d3d11: the effect %s: %w", e.Name, p.err)
+	}
+	if p.err != nil {
+		// Shown once, as frames go on without the effect.
+		fmt.Fprintln(os.Stderr, p.err)
+	}
+	return p.ps
+}
+
+// bindState sets the state the instances of s draw with, into the back
+// buffer, with the backdrop of an effect.
+func (r *Renderer) bindState(s *scene.Scene, backdrop uintptr) {
+	ctx := r.ctx
+	call(ctx, ctxOMSetRenderTargets, 1, uintptr(unsafe.Pointer(&r.rtv)), 0)
+	vp := viewport{W: float32(s.Width), H: float32(s.Height), MaxDepth: 1}
+	call(ctx, ctxRSSetViewports, 1, uintptr(unsafe.Pointer(&vp)))
+	call(ctx, ctxOMSetBlendState, r.blend, 0, 0xffffffff)
+	call(ctx, ctxIASetInputLayout, r.layout)
+	stride, offset := uint32(gpu.InstanceSize), uint32(0)
+	call(ctx, ctxIASetVertexBuffers, 0, 1, uintptr(unsafe.Pointer(&r.instBuf)), uintptr(unsafe.Pointer(&stride)), uintptr(unsafe.Pointer(&offset)))
+	call(ctx, ctxVSSetShader, r.vs, 0, 0)
+	call(ctx, ctxVSSetConstantBuffers, 0, 1, uintptr(unsafe.Pointer(&r.cbuf)))
+	call(ctx, ctxPSSetShader, r.ps, 0, 0)
+	call(ctx, ctxPSSetSamplers, 0, 1, uintptr(unsafe.Pointer(&r.samp)))
+	views := [4]uintptr{r.mask.srv, r.color.srv, 0, backdrop}
+	call(ctx, ctxPSSetShaderResources, 0, 4, uintptr(unsafe.Pointer(&views[0])))
+}
+
+// readBackdrop computes the backdrop bk of what the back buffer holds,
+// into r.backdrop[0]: it copies the area into grab, averages its squares
+// and blurs them.
+func (r *Renderer) readBackdrop(bk scene.Backdrop) {
+	ctx := r.ctx
+	// No texture drawn into may be bound for reading.
+	var none [5]uintptr
+	call(ctx, ctxPSSetShaderResources, 0, 5, uintptr(unsafe.Pointer(&none[0])))
+	var back uintptr
+	call(r.rtv, viewGetResource, uintptr(unsafe.Pointer(&back)))
+	from := box{Left: uint32(bk.Area.Min.X), Top: uint32(bk.Area.Min.Y), Right: uint32(bk.Area.Max.X), Bottom: uint32(bk.Area.Max.Y), Back: 1}
+	call(ctx, ctxCopySubresourceRegion, r.grab.tex, 0, 0, 0, 0, back, 0, uintptr(unsafe.Pointer(&from)))
+	free(&back)
+	call(ctx, ctxOMSetBlendState, 0, 0, 0xffffffff)
+	call(ctx, ctxIASetInputLayout, 0)
+	call(ctx, ctxVSSetShader, r.passVS, 0, 0)
+	call(ctx, ctxPSSetConstantBuffers, 1, 1, uintptr(unsafe.Pointer(&r.passCB)))
+	w, h := bk.Size()
+	r.pass(r.downPS, r.grab.srv, &r.backdrop[0], w, h, gpu.DownPass(bk, [2]int32{int32(bk.Area.Min.X), int32(bk.Area.Min.Y)}))
+	if bk.Radius > 0 {
+		r.pass(r.blurPS, r.backdrop[0].srv, &r.backdrop[1], w, h, gpu.BlurPass(bk, [2]int32{1, 0}))
+		r.pass(r.blurPS, r.backdrop[1].srv, &r.backdrop[0], w, h, gpu.BlurPass(bk, [2]int32{0, 1}))
+	}
+}
+
+// pass draws ps into the w×h texels at the start of dst, reading src.
+func (r *Renderer) pass(ps, src uintptr, dst *texture, w, h int, p gpu.Pass) {
+	ctx := r.ctx
+	call(ctx, ctxUpdateSubresource, r.passCB, 0, 0, uintptr(unsafe.Pointer(&p)), 0, 0)
+	call(ctx, ctxOMSetRenderTargets, 1, uintptr(unsafe.Pointer(&dst.rtv)), 0)
+	vp := viewport{W: float32(dst.w), H: float32(dst.h), MaxDepth: 1}
+	call(ctx, ctxRSSetViewports, 1, uintptr(unsafe.Pointer(&vp)))
+	sc := gpu.Scissor{Right: int32(w), Bottom: int32(h)}
+	call(ctx, ctxRSSetScissorRects, 1, uintptr(unsafe.Pointer(&sc)))
+	call(ctx, ctxPSSetShader, ps, 0, 0)
+	call(ctx, ctxPSSetShaderResources, 4, 1, uintptr(unsafe.Pointer(&src)))
+	call(ctx, ctxDrawInstanced, 4, 1, 0, 0)
+	var none uintptr
+	call(ctx, ctxPSSetShaderResources, 4, 1, uintptr(unsafe.Pointer(&none)))
+}
+
+// fitBackdrop makes the textures of backdrops as large as the scene built
+// needs, and the texture the area read is copied to.
+func (r *Renderer) fitBackdrop() error {
+	w, h := r.b.BackdropSize()
+	aw, ah := 0, 0
+	for _, bk := range r.b.Backdrops {
+		aw, ah = max(aw, bk.Area.Dx()), max(ah, bk.Area.Dy())
+	}
+	// Somewhat larger, so that a pane growing does not make them again
+	// every frame.
+	if aw > r.grab.w || ah > r.grab.h {
+		if err := r.newTarget(&r.grab, max(aw+aw/4, r.grab.w), max(ah+ah/4, r.grab.h), false); err != nil {
+			return err
+		}
+	}
+	if w > r.backdrop[0].w || h > r.backdrop[0].h {
+		w, h = max(w+w/4, r.backdrop[0].w), max(h+h/4, r.backdrop[0].h)
+		for i := range r.backdrop {
+			if err := r.newTarget(&r.backdrop[i], w, h, true); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// newTarget makes t a w×h texture of the back buffer's format, which
+// shaders read and, when drawn, draw into.
+func (r *Renderer) newTarget(t *texture, w, h int, drawn bool) error {
+	free(&t.rtv)
+	free(&t.srv)
+	free(&t.tex)
+	*t = texture{}
+	desc := texture2DDesc{Width: uint32(w), Height: uint32(h), MipLevels: 1, ArraySize: 1, Format: formatB8G8R8A8Unorm, SampleCount: 1,
+		Usage: usageDefault, BindFlags: bindShaderResource}
+	if drawn {
+		desc.BindFlags |= bindRenderTarget
+	}
+	if hr := call(r.device, devCreateTexture2D, uintptr(unsafe.Pointer(&desc)), 0, uintptr(unsafe.Pointer(&t.tex))); failed(hr) {
+		return fmt.Errorf("d3d11: cannot create a %dx%d backdrop texture: %#x", w, h, uint32(hr))
+	}
+	if hr := call(r.device, devCreateShaderResourceView, t.tex, 0, uintptr(unsafe.Pointer(&t.srv))); failed(hr) {
+		return fmt.Errorf("d3d11: cannot create a backdrop texture view: %#x", uint32(hr))
+	}
+	if drawn {
+		if hr := call(r.device, devCreateRenderTargetView, t.tex, 0, uintptr(unsafe.Pointer(&t.rtv))); failed(hr) {
+			return fmt.Errorf("d3d11: cannot create a backdrop render target: %#x", uint32(hr))
+		}
+	}
+	t.w, t.h = w, h
 	return nil
 }
 

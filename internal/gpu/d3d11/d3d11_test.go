@@ -16,42 +16,21 @@ import (
 
 // hiddenWindow creates a window that never shows, for a swap chain.
 func hiddenWindow(t *testing.T, w, h int) uintptr {
-	user32 := syscall.NewLazyDLL("user32.dll")
-	class, _ := syscall.UTF16PtrFromString("STATIC")
-	const wsPopup = 0x80000000
-	hwnd, _, err := user32.NewProc("CreateWindowExW").Call(0, uintptr(unsafe.Pointer(class)), 0, wsPopup, 0, 0, uintptr(w), uintptr(h), 0, 0, 0, 0)
-	if hwnd == 0 {
+	hwnd, err := newHiddenWindow(w, h)
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { user32.NewProc("DestroyWindow").Call(hwnd) })
+	t.Cleanup(func() { destroyWindow(hwnd) })
 	return hwnd
 }
 
 // readBack copies the back buffer to memory: BGRA rows and their stride.
 func (r *Renderer) readBack(t *testing.T) ([]byte, int) {
-	var back, staging uintptr
-	if hr := call(r.swapChain, scGetBuffer, 0, uintptr(unsafe.Pointer(&iidID3D11Texture2D)), uintptr(unsafe.Pointer(&back))); failed(hr) {
-		t.Fatalf("no back buffer: %#x", uint32(hr))
+	pix, stride, err := r.read()
+	if err != nil {
+		t.Fatal(err)
 	}
-	defer free(&back)
-	const usageStaging, cpuAccessRead, mapRead, ctxCopyResource = 3, 0x20000, 1, 47
-	desc := texture2DDesc{Width: uint32(r.bw), Height: uint32(r.bh), MipLevels: 1, ArraySize: 1, Format: formatB8G8R8A8Unorm,
-		SampleCount: 1, Usage: usageStaging, CPUAccessFlags: cpuAccessRead}
-	if hr := call(r.device, devCreateTexture2D, uintptr(unsafe.Pointer(&desc)), 0, uintptr(unsafe.Pointer(&staging))); failed(hr) {
-		t.Fatalf("no staging texture: %#x", uint32(hr))
-	}
-	defer free(&staging)
-	call(r.ctx, ctxCopyResource, staging, back)
-	var m mapped
-	if hr := call(r.ctx, ctxMap, staging, 0, mapRead, 0, uintptr(unsafe.Pointer(&m))); failed(hr) {
-		t.Fatalf("cannot map: %#x", uint32(hr))
-	}
-	defer call(r.ctx, ctxUnmap, staging, 0)
-	pix := make([]byte, r.w*r.h*4)
-	for y := range r.h {
-		copy(pix[y*r.w*4:], unsafe.Slice((*byte)(ptr(m.Data+uintptr(y)*uintptr(m.RowPitch))), r.w*4))
-	}
-	return pix, r.w * 4
+	return pix, stride
 }
 
 func TestDrawsAsTheCPURenderer(t *testing.T) {

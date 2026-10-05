@@ -14,6 +14,7 @@ import (
 	_ "embed"
 	"fmt"
 	"image"
+	"os"
 	"strings"
 	"sync"
 	"unsafe"
@@ -26,6 +27,21 @@ import (
 
 //go:embed shader.glsl
 var shaderSource string
+
+// effectSource is the head and the tail of an effect's fragment shader,
+// around the line "// effect" (see EffectSource).
+//
+//go:embed effect.glsl
+var effectSource string
+
+// EffectSource returns the source of an effect's fragment shader, after
+// the version header: shader.glsl with EFFECT defined, the head of
+// effect.glsl, the effect's shader (see scene.Effect), and the tail,
+// which draws its instances with it.
+func EffectSource(src string) string {
+	head, tail, _ := strings.Cut(effectSource, "\n// effect\n")
+	return "#define EFFECT\n" + shaderSource + "\n" + head + "\n" + src + "\n" + tail
+}
 
 // OpenGL enumerations.
 const (
@@ -103,6 +119,9 @@ var (
 	glGetUniformLocation    func(program uint32, name string) int32
 	glUniform1i             func(location, v int32)
 	glUniform2f             func(location int32, x, y float32)
+	glUniform1f             func(location int32, v float32)
+	glUniform2i             func(location, x, y int32)
+	glCopyTexSubImage2D     func(target uint32, level, xoff, yoff, x, y, w, h int32)
 	glGenVertexArrays       func(n int32, out *uint32)
 	glBindVertexArray       func(array uint32)
 	glDeleteVertexArrays    func(n int32, arrays *uint32)
@@ -187,6 +206,9 @@ func load() error {
 		gl(&glGetUniformLocation, "glGetUniformLocation")
 		gl(&glUniform1i, "glUniform1i")
 		gl(&glUniform2f, "glUniform2f")
+		gl(&glUniform1f, "glUniform1f")
+		gl(&glUniform2i, "glUniform2i")
+		gl(&glCopyTexSubImage2D, "glCopyTexSubImage2D")
 		gl(&glGenVertexArrays, "glGenVertexArrays")
 		gl(&glBindVertexArray, "glBindVertexArray")
 		gl(&glDeleteVertexArrays, "glDeleteVertexArrays")
@@ -281,7 +303,36 @@ type Renderer struct {
 	images   map[uint64]*texture
 	frame    uint64
 
+	// The passes computing the backdrops of effects: down and blur are
+	// their programs, with their uniforms' locations, drawn with passVAO;
+	// grab holds the area of the frame read, and backdrop the textures
+	// they draw into, through backdropFB, the second only along rows.
+	down, blur passProgram
+	passVAO    uint32
+	grab       texture
+	backdrop   [2]texture
+	backdropFB [2]uint32
+	// header is what the shaders start with; effects are the programs of
+	// the effects drawn, made as first drawn.
+	header  string
+	effects map[*scene.Effect]*effectProgram
+
 	b gpu.Builder
+}
+
+// effectProgram is the program of an effect and the location of its
+// uSize, or why it has none.
+type effectProgram struct {
+	program uint32
+	uSize   int32
+	err     error
+}
+
+// passProgram is the program of a pass computing backdrops and its
+// uniforms' locations.
+type passProgram struct {
+	program                                     uint32
+	origin, limit, shift, dir, down, rad, sigma int32
 }
 
 // New returns a renderer for the current GL context.
@@ -316,6 +367,7 @@ func (r *Renderer) init() error {
 		}
 		header += "precision highp float;\nprecision highp int;\n"
 	}
+	r.header = header
 	vs, err := compile(glVertexShader, header+"#define VERTEX\n"+shaderSource)
 	if err != nil {
 		return err
@@ -340,6 +392,13 @@ func (r *Renderer) init() error {
 	glUniform1i(glGetUniformLocation(r.program, "uColor"), 1)
 	glUniform1i(glGetUniformLocation(r.program, "uImage"), 2)
 	glUseProgram(0)
+	if r.down, err = passLink(header, "DOWN"); err != nil {
+		return err
+	}
+	if r.blur, err = passLink(header, "BLUR"); err != nil {
+		return err
+	}
+	glGenVertexArrays(1, &r.passVAO)
 
 	// The instance buffer feeds eleven float4 attributes per instance;
 	// draws point them at their batch's instances.
@@ -359,6 +418,91 @@ func (r *Renderer) init() error {
 		return fmt.Errorf("gl: setting up failed (error %#x)", e)
 	}
 	return nil
+}
+
+// effectProgram returns the program of e, compiled the first time from its
+// GLSL, which drivers keep compiled; its program is 0 for an effect that
+// does not compile, which draws nothing.
+func (r *Renderer) effectProgram(e *scene.Effect) *effectProgram {
+	if p := r.effects[e]; p != nil {
+		return p
+	}
+	p := &effectProgram{}
+	if r.effects == nil {
+		r.effects = map[*scene.Effect]*effectProgram{}
+	}
+	r.effects[e] = p
+	p.program, p.err = link(r.header+"#define VERTEX\n"+shaderSource, r.header+EffectSource(e.GLSL))
+	if p.err != nil {
+		p.err = fmt.Errorf("gl: the effect %s: %w", e.Name, p.err)
+		fmt.Fprintln(os.Stderr, p.err)
+		return p
+	}
+	glUseProgram(p.program)
+	p.uSize = glGetUniformLocation(p.program, "uSize")
+	glUniform1i(glGetUniformLocation(p.program, "uBackdrop"), 3)
+	return p
+}
+
+// link compiles a vertex and a fragment shader and links them.
+func link(vertex, fragment string) (uint32, error) {
+	vs, err := compile(glVertexShader, vertex)
+	if err != nil {
+		return 0, err
+	}
+	defer glDeleteShader(vs)
+	fs, err := compile(glFragmentShader, fragment)
+	if err != nil {
+		return 0, err
+	}
+	defer glDeleteShader(fs)
+	program := glCreateProgram()
+	glAttachShader(program, vs)
+	glAttachShader(program, fs)
+	glLinkProgram(program)
+	var ok int32
+	if glGetProgramiv(program, glLinkStatus, &ok); ok == 0 {
+		err := fmt.Errorf("gl: cannot link the shader: %s", infoLog(program, glGetProgramiv, glGetProgramInfoLog))
+		glDeleteProgram(program)
+		return 0, err
+	}
+	return program, nil
+}
+
+// passLink compiles and links the program of a pass computing backdrops,
+// the part of the shader defining name.
+func passLink(header, name string) (passProgram, error) {
+	vs, err := compile(glVertexShader, header+"#define PASS_VERTEX\n"+shaderSource)
+	if err != nil {
+		return passProgram{}, err
+	}
+	defer glDeleteShader(vs)
+	fs, err := compile(glFragmentShader, header+"#define "+name+"\n"+shaderSource)
+	if err != nil {
+		return passProgram{}, err
+	}
+	defer glDeleteShader(fs)
+	p := passProgram{program: glCreateProgram()}
+	glAttachShader(p.program, vs)
+	glAttachShader(p.program, fs)
+	glLinkProgram(p.program)
+	var ok int32
+	if glGetProgramiv(p.program, glLinkStatus, &ok); ok == 0 {
+		err := fmt.Errorf("gl: cannot link the %s pass: %s", name, infoLog(p.program, glGetProgramiv, glGetProgramInfoLog))
+		glDeleteProgram(p.program)
+		return passProgram{}, err
+	}
+	glUseProgram(p.program)
+	glUniform1i(glGetUniformLocation(p.program, "uSrc"), 0)
+	p.origin = glGetUniformLocation(p.program, "uOrigin")
+	p.limit = glGetUniformLocation(p.program, "uLimit")
+	p.shift = glGetUniformLocation(p.program, "uShift")
+	p.dir = glGetUniformLocation(p.program, "uDir")
+	p.down = glGetUniformLocation(p.program, "uDown")
+	p.rad = glGetUniformLocation(p.program, "uRadius")
+	p.sigma = glGetUniformLocation(p.program, "uSigma")
+	glUseProgram(0)
+	return p, nil
 }
 
 // attributes is the number of float4s in a gpu.Instance.
@@ -508,6 +652,13 @@ func (r *Renderer) draw(s *scene.Scene) error {
 		return err
 	}
 	r.b.Build(s, r.imageTexture)
+	if err := r.fitBackdrop(); err != nil {
+		return err
+	}
+	// The framebuffer drawn into, GTK's, which the passes computing
+	// backdrops leave for their own.
+	var fb int32
+	glGetIntegerv(glFramebufferBinding, &fb)
 
 	glViewport(0, 0, int32(s.Width), int32(s.Height))
 	glDisable(glScissorTest)
@@ -517,29 +668,42 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	if len(r.b.Instances) == 0 {
 		return nil
 	}
-	glUseProgram(r.program)
-	glUniform2f(r.uSize, float32(s.Width), float32(s.Height))
-	glBindVertexArray(r.vao)
 	glBindBuffer(glArrayBuffer, r.buf)
 	glBufferData(glArrayBuffer, len(r.b.Instances)*gpu.InstanceSize, unsafe.Pointer(&r.b.Instances[0]), glStreamDraw)
-	for unit, tex := range [3]uint32{or(r.mask.tex, r.empty), or(r.color.tex, r.empty), r.empty} {
-		glActiveTexture(glTexture0 + uint32(unit))
-		glBindTexture(glTexture2D, tex)
-	}
-	glEnable(glBlend)
-	if r.dual {
-		glBlendFuncSeparate(glOne, glOneMinusSrc1Color, glOne, glOneMinusSrc1Alpha)
-	} else {
-		glBlendFunc(glOne, glOneMinusSrcAlpha)
-	}
-	glEnable(glScissorTest)
-	bound := uintptr(r.empty)
+	r.bindState(s)
+	bound, program := uintptr(r.empty), r.program
 	for _, b := range r.b.Batches {
 		sc := b.Scissor
 		sc.Left, sc.Top = max(sc.Left, 0), max(sc.Top, 0)
 		sc.Right, sc.Bottom = min(sc.Right, int32(s.Width)), min(sc.Bottom, int32(s.Height))
 		if b.Count == 0 || sc.Empty() {
 			continue
+		}
+		want := r.program
+		if b.Effect != nil {
+			p := r.effectProgram(b.Effect)
+			if p.program == 0 {
+				continue
+			}
+			want = p.program
+		}
+		if b.Backdrop != 0 {
+			// The effect shows what is drawn so far.
+			r.readBackdrop(uint32(fb), s.Height, r.b.Backdrops[b.Backdrop-1])
+			glBindFramebuffer(glFramebuffer, uint32(fb))
+			glViewport(0, 0, int32(s.Width), int32(s.Height))
+			r.bindState(s)
+			glActiveTexture(glTexture0 + 3)
+			glBindTexture(glTexture2D, r.backdrop[0].tex)
+			glActiveTexture(glTexture0 + 2)
+			bound, program = uintptr(r.empty), r.program
+		}
+		if want != program {
+			program = want
+			glUseProgram(program)
+			if b.Effect != nil {
+				glUniform2f(r.effects[b.Effect].uSize, float32(s.Width), float32(s.Height))
+			}
 		}
 		if b.Image != 0 && b.Image != bound {
 			bound = b.Image
@@ -559,7 +723,7 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	// expects it.
 	glDisable(glScissorTest)
 	glDisable(glBlend)
-	for unit := range 3 {
+	for unit := range 4 {
 		glActiveTexture(glTexture0 + uint32(unit))
 		glBindTexture(glTexture2D, 0)
 	}
@@ -578,6 +742,115 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	return nil
 }
 
+// bindState sets the state the instances of s draw with, leaving texture
+// unit 2, the images', active.
+func (r *Renderer) bindState(s *scene.Scene) {
+	glUseProgram(r.program)
+	glUniform2f(r.uSize, float32(s.Width), float32(s.Height))
+	glBindVertexArray(r.vao)
+	glBindBuffer(glArrayBuffer, r.buf)
+	for unit, tex := range [4]uint32{or(r.mask.tex, r.empty), or(r.color.tex, r.empty), r.empty, r.empty} {
+		glActiveTexture(glTexture0 + uint32(unit))
+		glBindTexture(glTexture2D, tex)
+	}
+	glActiveTexture(glTexture0 + 2)
+	glEnable(glBlend)
+	if r.dual {
+		glBlendFuncSeparate(glOne, glOneMinusSrc1Color, glOne, glOneMinusSrc1Alpha)
+	} else {
+		glBlendFunc(glOne, glOneMinusSrcAlpha)
+	}
+	glEnable(glScissorTest)
+}
+
+// readBackdrop computes the backdrop bk of what the framebuffer fb holds,
+// a frame height pixels high, into r.backdrop[0]: it copies the area into
+// grab, whose rows go up as GL's, averages its squares and blurs them.
+func (r *Renderer) readBackdrop(fb uint32, height int, bk scene.Backdrop) {
+	w, h := bk.Size()
+	glDisable(glBlend)
+	glBindFramebuffer(glFramebuffer, fb)
+	glActiveTexture(glTexture0)
+	glBindTexture(glTexture2D, r.grab.tex)
+	glCopyTexSubImage2D(glTexture2D, 0, 0, 0, int32(bk.Area.Min.X), int32(height-bk.Area.Max.Y), int32(bk.Area.Dx()), int32(bk.Area.Dy()))
+	glBindVertexArray(r.passVAO)
+	// Rows go up in grab: the frame's row y is its row Max.Y-1-y.
+	r.down.set(gpu.DownPass(bk, [2]int32{int32(bk.Area.Min.X), int32(bk.Area.Max.Y - 1)}))
+	r.pass(0, w, h)
+	if bk.Radius > 0 {
+		r.blur.set(gpu.BlurPass(bk, [2]int32{1, 0}))
+		glBindTexture(glTexture2D, r.backdrop[0].tex)
+		r.pass(1, w, h)
+		r.blur.set(gpu.BlurPass(bk, [2]int32{0, 1}))
+		glBindTexture(glTexture2D, r.backdrop[1].tex)
+		r.pass(0, w, h)
+	}
+}
+
+// set uses the program with the uniforms of p.
+func (pp *passProgram) set(p gpu.Pass) {
+	glUseProgram(pp.program)
+	glUniform2i(pp.origin, p.Origin[0], p.Origin[1])
+	glUniform2i(pp.limit, p.Limit[0], p.Limit[1])
+	glUniform2i(pp.shift, p.Shift[0], p.Shift[1])
+	glUniform2i(pp.dir, p.Dir[0], p.Dir[1])
+	glUniform1i(pp.down, p.Down)
+	glUniform1i(pp.rad, p.Radius)
+	glUniform1f(pp.sigma, p.Sigma)
+}
+
+// pass draws the program in use into the w×h texels at the start of
+// r.backdrop[i], reading the texture bound to unit 0.
+func (r *Renderer) pass(i, w, h int) {
+	glBindFramebuffer(glFramebuffer, r.backdropFB[i])
+	glViewport(0, 0, int32(r.backdrop[i].w), int32(r.backdrop[i].h))
+	glScissor(0, 0, int32(w), int32(h))
+	glDrawArraysInstanced(glTriangleStrip, 0, 4, 1)
+}
+
+// fitBackdrop makes the textures of backdrops as large as the scene built
+// needs, and the texture the area read is copied to.
+func (r *Renderer) fitBackdrop() error {
+	w, h := r.b.BackdropSize()
+	aw, ah := 0, 0
+	for _, bk := range r.b.Backdrops {
+		aw, ah = max(aw, bk.Area.Dx()), max(ah, bk.Area.Dy())
+	}
+	if aw > r.grab.w || ah > r.grab.h {
+		// Somewhat larger, so that a pane growing does not make it again
+		// every frame.
+		aw, ah = min(max(aw+aw/4, r.grab.w), r.maxSize), min(max(ah+ah/4, r.grab.h), r.maxSize)
+		if r.grab.tex != 0 {
+			glDeleteTextures(1, &r.grab.tex)
+		}
+		r.grab = texture{tex: newTexture(glRGBA8, glRGBA, aw, ah, nil, 0), w: aw, h: ah}
+	}
+	if w <= r.backdrop[0].w && h <= r.backdrop[0].h {
+		return nil
+	}
+	w, h = min(max(w+w/4, r.backdrop[0].w), r.maxSize), min(max(h+h/4, r.backdrop[0].h), r.maxSize)
+	for i := range r.backdrop {
+		t := &r.backdrop[i]
+		if t.tex != 0 {
+			glDeleteTextures(1, &t.tex)
+		}
+		*t = texture{tex: newTexture(glRGBA8, glRGBA, w, h, nil, 0), w: w, h: h}
+		if r.backdropFB[i] == 0 {
+			glGenFramebuffers(1, &r.backdropFB[i])
+		}
+		var fb int32
+		glGetIntegerv(glFramebufferBinding, &fb)
+		glBindFramebuffer(glFramebuffer, r.backdropFB[i])
+		glFramebufferTexture2D(glFramebuffer, glColorAttachment0, glTexture2D, t.tex, 0)
+		done := glCheckFramebufferState(glFramebuffer) == glFramebufferDone
+		glBindFramebuffer(glFramebuffer, uint32(fb))
+		if !done {
+			return fmt.Errorf("gl: cannot draw into a %d×%d backdrop texture", w, h)
+		}
+	}
+	return nil
+}
+
 func or(a, b uint32) uint32 {
 	if a != 0 {
 		return a
@@ -588,6 +861,9 @@ func or(a, b uint32) uint32 {
 // forget drops the objects of a context that is gone.
 func (r *Renderer) forget() {
 	r.program, r.vao, r.buf, r.empty = 0, 0, 0, 0
+	r.down, r.blur, r.passVAO = passProgram{}, passProgram{}, 0
+	clear(r.effects)
+	r.grab, r.backdrop, r.backdropFB = texture{}, [2]texture{}, [2]uint32{}
 	r.mask, r.color = texture{}, texture{}
 	clear(r.images)
 }
@@ -602,10 +878,28 @@ func (r *Renderer) Release() {
 	for _, t := range r.images {
 		glDeleteTextures(1, &t.tex)
 	}
-	for _, tex := range []*uint32{&r.mask.tex, &r.color.tex, &r.empty} {
+	for _, tex := range []*uint32{&r.mask.tex, &r.color.tex, &r.empty, &r.grab.tex, &r.backdrop[0].tex, &r.backdrop[1].tex} {
 		if *tex != 0 {
 			glDeleteTextures(1, tex)
 		}
+	}
+	for i := range r.backdropFB {
+		if r.backdropFB[i] != 0 {
+			glDeleteFramebuffers(1, &r.backdropFB[i])
+		}
+	}
+	for _, p := range r.effects {
+		if p.program != 0 {
+			glDeleteProgram(p.program)
+		}
+	}
+	for _, p := range []uint32{r.down.program, r.blur.program} {
+		if p != 0 {
+			glDeleteProgram(p)
+		}
+	}
+	if r.passVAO != 0 {
+		glDeleteVertexArrays(1, &r.passVAO)
 	}
 	if r.buf != 0 {
 		glDeleteBuffers(1, &r.buf)

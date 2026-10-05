@@ -748,6 +748,26 @@ build` like mygo-runtime and released with the same version.
     from Ghostty's sources and writes it). The CLI puts them into apps
     (see the CLI's resources); other programs download theirs into the
     user's cache once, which packaged apps never do.
+- **glass** is Liquid Glass for native UI, as macOS 26 and later draw it:
+  `glass.Glass`, a `ui.Material` (interactive glass builds with its
+  element, following its press with `Animate`, and paints itself grown
+  while pressed, as macOS 27's: by a fixed 1.1 DIPs left and right and
+  0.45 above and below, measured from `NSGlassEffectView`), paints a
+  shadow and an
+  effect (`glass.Effect`, see Effects under Native UI), whose parameters
+  are a pane's material in device pixels. Its shader (`glass.metal`,
+  `glass.hlsl`, `glass.glsl`, and `pixels.go` for the CPU) takes what is
+  behind the pane, blurred, sampled where the curved surface refracts it:
+  displaced toward the middle within the bezel by Snell's law through
+  Apple's squircle profile (`lens`, along `normal`), which mirrors what is
+  just inside the rim; then maps its lightness and colors (`tone`; the CPU
+  keeps its curve in a table, as its power is slow there), tints it, and
+  lights the rim by how its normal faces the light. The defaults follow
+  macOS 27's, measured from
+  `NSGlassEffectView` over test patterns; the optics follow the
+  open-source reproductions of Liquid Glass. `go generate ./plugins/glass`
+  compiles the shaders ahead of time on macOS (`shaders_darwin.go`) and on
+  Windows (`shaders_windows.go`), with `internal/gen`.
 
 ## Typed client generation (`internal/tsgen`)
 
@@ -1452,9 +1472,36 @@ either.
   with a color, a linear gradient mixed in sRGB or Oklab, or stripes;
   shadows (blurred rounded rectangles, cut by the box casting them, as
   CSS's box-shadow is); runs of glyphs, whose masks may take a gradient
-  (paths drawn with one); images, in color or gray; and pushed and popped
-  clips. Renderers draw the whole scene each frame and retain only
-  textures. Wavy underlines are stroked paths.
+  (paths drawn with one); images, in color or gray; effects
+  (`OpEffect`); and pushed and popped clips. Renderers draw the whole
+  scene each frame and retain only textures. Wavy underlines are stroked
+  paths.
+- **Effects** (`scene.Effect`) are drawings that packages outside the
+  renderers define, as the official plugins do (the glass plugin's Liquid
+  Glass): a fragment shader for each GPU renderer, in Metal Shading
+  Language, HLSL and GLSL, which the renderer puts between a head and a
+  tail of its own (`effect.metal`, `effect.hlsl`, `effect.glsl`, after its
+  shader's common part, with `EFFECT` defined: `EffectSource`), and a twin
+  for the CPU renderer (`EffectPixels`), which must draw the same pixels.
+  An effect paints its op's shape from five float4s of parameters
+  (`EffectOp.Params`, which travel in the instance's slots fills use for
+  colors and gradients), and from its backdrop when it reads one: what
+  the operations before it painted, the area its blur reaches
+  (`scene.BackdropOf`), averaged over squares of 1, 2, 4 or 8 pixels a
+  side so that the blur stays a few texels wide, then blurred by a
+  Gaussian along rows and along columns, each step kept in 8 bits a
+  channel, as textures hold it, which the shaders sample bilinearly
+  (`sampleBackdrop`, `BackdropImage.Sample`). The renderer multiplies an
+  effect's color by its shape's coverage, the clip and the opacity.
+  Effects carry the code compiled ahead of time from what their renderer
+  makes of their shader, with its SHA-256: renderers compile the source
+  when it no longer matches, as when their head or tail changed since,
+  and an effect's tests fail then. Package `ui` gives packages a hook,
+  `Element.Material` (a `ui.Material`, built with its element when it is
+  a `MaterialBuilder`), and `Painter.Effect`, which only this module's
+  packages can call, since effects are internal types. An effect's shape
+  has continuous corners where its op does, which the renderer covers as
+  such, while the effect gets positive radii and takes them as circular.
 - **Corners.** On macOS, rounded corners are continuous, as AppKit's and
   SwiftUI's (`scene.Op.Continuous`), and drawn as Core Animation draws
   them on screen, with the function of its shaders (QuartzCore's
@@ -1598,7 +1645,20 @@ either.
   shader that computes the signed distance to rounded rectangles, Evan
   Wallace's blurred rounded box, gradients, stripes, the dashes of borders,
   atlas coverage and the innermost rounded clip; outer clips are scissor
-  rectangles. Near square corners, coverage is exact, the area of a pixel
+  rectangles. An effect draws in a batch of its own, with a pipeline of
+  its own, which the renderer makes the first time the effect draws; one
+  reading its backdrop draws after a backdrop step (`Builder.Backdrops`):
+  the renderer ends its pass, reads the backdrop's area of what it drew
+  (Metal from the drawable, which is not `framebufferOnly`; Direct3D 11
+  and OpenGL from a copy of the area, `CopySubresourceRegion` and
+  `glCopyTexSubImage2D`, whose rows go up), averages and blurs it with two
+  small pipelines (`down` and `blur`, scissored to the texels they
+  compute, reading them with `Load`, `read` or `texelFetch`) into textures
+  as large as the frame's largest backdrop, and goes on with the pass, the
+  backdrop bound for the effect. Each renderer draws scenes offscreen for
+  the tests of packages defining effects (`RenderOffscreen`,
+  `NewOffscreen`).
+  Near square corners, coverage is exact, the area of a pixel
   inside the box, so lines thinner than a pixel cover as much as they
   should, as text decorations need. A fill's border widths travel in its
   texture rectangle, which fills do not use, and a glyph's gamma ratios
@@ -1691,7 +1751,9 @@ either.
 
   `internal/raster` draws the same scene with the same formulas on the CPU,
   solid spans inside shapes and only the edges of shadows computed, and
-  redraws only what differs from the last scene (`raster.Renderer`): it is
+  redraws only what differs from the last scene (`raster.Renderer`), with
+  the effects reading their backdrops that meets and those backdrops, in
+  rectangles apart from each other (`addBackdrops`): it is
   the renderer of tests, of `MYGO_GPU=0` and of Linux until a window needs
   the GPU, and the one a window falls back to when its GPU renderer fails.
   Frames that are not the surface's (a capture before the first frame) are
@@ -1699,7 +1761,14 @@ either.
   area drawn goes through the operations whose bounds (those the damage is
   found from) it meets; a large one is drawn on up to eight cores, in
   bands of 64 rows that each takes in turn, as rows differ in how much
-  they draw, each pixel as drawing the area whole gives it. A whole frame
+  they draw, each pixel as drawing the area whole gives it. An effect is
+  readied (`EffectPixels.Begin`) before its pixels, and one reading its
+  backdrop reads pixels other bands draw, so an area is drawn up to each
+  effect, its backdrop computed (`backdrop.read`, its rows and columns on
+  several cores too), then from the effect to the next, in bands of 16
+  rows, as effects are costly and often short. The glass plugin's
+  `BenchmarkGlass`, a window of 1360×720 pixels with four panes, takes
+  6.4 ms drawn whole on an M5, 22 ms on one core. A whole frame
   of `BenchmarkFrame`'s view at 1844×2044 pixels, built and drawn, takes
   0.7 ms rather than 3.2 on a Ryzen 7 8745HS: memory bandwidth and the
   lower clock of all cores keep it from scaling further.

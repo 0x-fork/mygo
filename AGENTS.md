@@ -52,6 +52,7 @@ go run ./examples/terminal                 # a terminal (downloads libghostty-vt
 go generate ./plugins/terminal             # build libghostty-vt for every platform (with Zig), write Ghostty's themes
 go generate ./internal/gpu/d3d11           # recompile the Direct3D shader (on Windows)
 go generate ./internal/gpu/metal           # recompile the Metal shader (on macOS, with Xcode)
+go generate ./plugins/glass                # recompile the glass plugin's shaders (on macOS, and on Windows)
 bun run --cwd website dev                  # the website, with docs/ at /docs (see website/README.md)
 bun scripts/bench.ts run [--e2e]           # benchmarks and app sizes, medians of 6 runs (CI: bench.yml, /benchmarks)
 ```
@@ -77,7 +78,10 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   package draws the update window in native UI. The terminal plugin is Go
   only too, for native UI, with libghostty-vt loaded through purego: its
   `mygo-plugin.json` pins the builds the CLI puts into apps, published as
-  release assets (`libghostty-vt-<commit>`); change it with `go generate`.
+  release assets (`libghostty-vt-<commit>`); change it with `go generate`. The glass
+  plugin is Go only too, an effect of the renderers (`scene.Effect`): its
+  shader in Metal, HLSL and GLSL with a CPU twin that must draw the same
+  pixels, compiled ahead of time by `go generate` on macOS and Windows.
 - The `dist/` of npm packages is not committed: run `bun run build` after
   `bun install` (CI and releases do). Commit `internal/bridge/bridge.js`
   whenever its sources change, and keep the generated clients of examples

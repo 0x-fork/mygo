@@ -16,13 +16,15 @@ import (
 	"github.com/egoist/mygo/internal/scene"
 )
 
-// Scene returns a 320×410 scene with fills, borders of every width and
+// Scene returns a 320×540 scene with fills, borders of every width and
 // dashed, gradients mixed in sRGB and Oklab, stripes, shadows, blurred or
 // not, and cut by the boxes casting them, nested rounded clips, glyphs from
 // both atlases and subpixel ones, plain and in gradients, with Direct2D's
-// gamma and contrast, and images, in color and in gray.
+// gamma and contrast, images, in color and in gray, and effects, reading
+// their backdrop blurred at each size or not, over each other, clipped
+// and at the frame's edge, or reading none.
 func Scene() *scene.Scene {
-	s := &scene.Scene{Width: 320, Height: 410, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255},
+	s := &scene.Scene{Width: 320, Height: 540, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255},
 		Text: scene.TextParams{GammaRatios: scene.GammaRatios(1.8), Contrast: 1, SubpixelContrast: 0.5}}
 	mask := scene.NewAtlas(1, 64, 64)
 	color := scene.NewAtlas(4, 64, 32)
@@ -159,6 +161,40 @@ func Scene() *scene.Scene {
 	s.Glyphs = append(s.Glyphs, sub(248, scene.Color{R: 255, G: 255, B: 255, A: 255}), sub(266, scene.Color{R: 255, G: 255, B: 255, A: 255}), sub(284, red))
 	add(scene.Op{Kind: scene.OpGlyphs, Start: start, End: int32(len(s.Glyphs))})
 	add(scene.Op{Kind: scene.OpPopClip})
+
+	// Panes of glass over stripes, a gradient and glyphs.
+	for i := range 8 {
+		c := []scene.Color{red, blue, yellow, ink}[i%4]
+		add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: float32(i * 40), Y: 410, W: 20, H: 130}, Color: c})
+	}
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 0, Y: 470, W: 320, H: 20}, Color: red, Color2: blue, Paint: scene.PaintOklab, Gradient: [4]float32{0, 0, 320, 0}})
+	start = int32(len(s.Glyphs))
+	for i := range 14 {
+		s.Glyphs = append(s.Glyphs, scene.Glyph{X: float32(6 + i*22), Y: 516, W: 16, H: 16, U: uint16(dx), V: uint16(dy), UW: 16, VH: 16, Color: ink})
+	}
+	add(scene.Op{Kind: scene.OpGlyphs, Start: start, End: int32(len(s.Glyphs))})
+	// Effects over them: reading their backdrop blurred at a quarter of
+	// the size, over each other at the same size, unblurred, clipped and
+	// half transparent at full size, past the frame's edge at half the
+	// size; and one reading none.
+	effect := func(e *scene.Effect, r scene.Rect, radii [4]float32, blur, shift float32, tint scene.Color, opacity float32) {
+		fx := scene.EffectOp{Effect: e, Blur: blur}
+		fx.Params[0] = [4]float32{shift}
+		fx.Params[1] = [4]float32{float32(tint.R) / 255, float32(tint.G) / 255, float32(tint.B) / 255, float32(tint.A) / 255}
+		add(scene.Op{Kind: scene.OpEffect, Rect: r, Radii: radii, Start: int32(len(s.Effects)), Opacity: opacity})
+		s.Effects = append(s.Effects, fx)
+	}
+	white := scene.Color{R: 255, G: 255, B: 255, A: 90}
+	add(scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 12, Y: 424, W: 140, H: 44}, Radii: r4(22), Color: scene.Color{A: 40}, Blur: 16,
+		Cast: scene.Rect{X: 12, Y: 420, W: 140, H: 44}, CastRadii: r4(22)})
+	effect(LensEffect, scene.Rect{X: 12, Y: 420, W: 140, H: 44}, r4(22), 8, 2, white, 0)
+	effect(LensEffect, scene.Rect{X: 120, Y: 446, W: 60, H: 60}, r4(30), 12, 3, white, 0)
+	effect(LensEffect, scene.Rect{X: 190.5, Y: 418.25, W: 110, H: 50}, r4(16), 0, 1.5, scene.Color{R: 37, G: 99, B: 235, A: 120}, 0)
+	add(scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 30, Y: 480, W: 200, H: 50}, Radii: r4(12)})
+	effect(LensEffect, scene.Rect{X: 40, Y: 476, W: 240, H: 44}, [4]float32{22, 6, 22, 6}, 3, 1, scene.Color{A: 60}, 0.7)
+	add(scene.Op{Kind: scene.OpPopClip})
+	effect(LensEffect, scene.Rect{X: 284, Y: 494, W: 50, H: 50}, r4(14), 6, 2, white, 0)
+	effect(TintEffect, scene.Rect{X: 250, Y: 420, W: 30, H: 30}, r4(8), 0, 0, scene.Color{R: 220, G: 40, B: 40, A: 160}, 0)
 	return s
 }
 
@@ -225,8 +261,8 @@ func absInt(v int) int {
 // only the renderers of macOS draw (scene.Op.Continuous): a card with a
 // border and its shadow, a pill, a circle, which stays one, sides too short
 // for their corners' curves, a corner reaching past the middle of its
-// sides, a clip and an image, and a shadow without blur, cut by the box
-// casting it.
+// sides, a clip and an image, a shadow without blur, cut by the box
+// casting it, and an effect reading its backdrop.
 func ContinuousScene() *scene.Scene {
 	s := &scene.Scene{Width: 320, Height: 70, Clear: scene.Color{R: 236, G: 238, B: 242, A: 255}}
 	pix := make([]byte, 8*8*4)
@@ -262,5 +298,11 @@ func ContinuousScene() *scene.Scene {
 	add(scene.Op{Kind: scene.OpPopClip})
 	card = scene.Rect{X: 272.5, Y: 10.25, W: 40, H: 40}
 	add(scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 275.5, Y: 14.25, W: 40, H: 40}, Radii: r4(12), Color: ink, Cast: card, CastRadii: r4(12)})
+	// An effect reading its backdrop, over the pill and the card.
+	fx := scene.EffectOp{Effect: LensEffect, Blur: 4}
+	fx.Params[0] = [4]float32{2}
+	fx.Params[1] = [4]float32{1, 1, 1, 0.35}
+	add(scene.Op{Kind: scene.OpEffect, Rect: scene.Rect{X: 60, Y: 18, W: 70, H: 30}, Radii: r4(15), Start: int32(len(s.Effects))})
+	s.Effects = append(s.Effects, fx)
 	return s
 }

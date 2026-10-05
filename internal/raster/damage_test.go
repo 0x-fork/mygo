@@ -17,6 +17,8 @@ type sceneMaker struct {
 	img   *scene.Image
 	// masks are rectangles of the atlas holding something.
 	masks [][4]uint16
+	// effects has op make effects too.
+	effects bool
 }
 
 func newSceneMaker(seed uint64) *sceneMaker {
@@ -52,6 +54,18 @@ func (m *sceneMaker) rect() scene.Rect {
 
 // op returns a random operation that draws.
 func (m *sceneMaker) op(s *scene.Scene) scene.Op {
+	if m.effects && m.rnd.IntN(4) == 0 {
+		r := m.rnd.Float32() * 20
+		fx := scene.EffectOp{Effect: lensEffect, Blur: float32(m.rnd.IntN(4)) * 3}
+		if m.rnd.IntN(3) == 0 {
+			fx.Effect = tintEffect
+		}
+		fx.Params[0] = [4]float32{m.rnd.Float32() * 4}
+		c := m.color()
+		fx.Params[1] = [4]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255, float32(c.A) / 255}
+		s.Effects = append(s.Effects, fx)
+		return scene.Op{Kind: scene.OpEffect, Rect: m.rect(), Radii: [4]float32{r, r, r, r}, Start: int32(len(s.Effects) - 1)}
+	}
 	switch m.rnd.IntN(4) {
 	case 0:
 		r := m.rnd.Float32() * 12
@@ -143,8 +157,19 @@ func (m *sceneMaker) change(s *scene.Scene) string {
 }
 
 func TestRendererRedrawsWhatChanged(t *testing.T) {
+	testRedraws(t, false)
+}
+
+// TestRendererRedrawsEffects checks that effects, and what is under those
+// reading their backdrops, show however little of the window changes.
+func TestRendererRedrawsEffects(t *testing.T) {
+	testRedraws(t, true)
+}
+
+func testRedraws(t *testing.T, effects bool) {
 	for seed := range uint64(40) {
 		m := newSceneMaker(seed)
+		m.effects = effects
 		s := m.scene()
 		var r Renderer
 		full := NewImage(s.Width, s.Height)
@@ -290,7 +315,7 @@ func TestBandsDrawAsOne(t *testing.T) {
 		}
 		want := NewImage(s.Width, s.Height)
 		var r renderer
-		r.render(want, s, image.Rect(0, 0, s.Width, s.Height), all)
+		r.render(want, s, image.Rect(0, 0, s.Width, s.Height), all, 0, len(s.Ops), nil, nil)
 		if !bytes.Equal(got.Pix, want.Pix) {
 			t.Errorf("scene %d: drawn in bands, its pixels differ", i)
 		}
@@ -313,4 +338,29 @@ func scaled(s *scene.Scene, k float32) *scene.Scene {
 		s.Glyphs[i].Y *= k
 	}
 	return s
+}
+
+// TestSkipEffects checks that effects show what is under them when scenes
+// the GPU drew left parts of the image behind.
+func TestSkipEffects(t *testing.T) {
+	for seed := range uint64(40) {
+		m := newSceneMaker(seed)
+		m.effects = true
+		s := m.scene()
+		var r Renderer
+		r.Render(s)
+		full := NewImage(s.Width, s.Height)
+		for step := range 30 {
+			what := m.change(s)
+			if m.rnd.IntN(3) == 0 {
+				r.Skip(s)
+				continue
+			}
+			damage := r.Render(s)
+			Render(full, s)
+			if !bytes.Equal(r.Image.Pix, full.Pix) {
+				t.Fatalf("seed %d, step %d (%s): the redrawn %v differs from a whole drawing", seed, step, what, damage)
+			}
+		}
+	}
 }
