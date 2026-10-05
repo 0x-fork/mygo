@@ -118,7 +118,9 @@ jobs:
               echo "the results are published already"
               exit 0
             fi
-            # [skip ci]: the website's builds skip the branch too.
+            # [skip ci]: the website's builds skip the branch too. Only
+            # these commits may say it: anywhere in a commit message of main,
+            # GitHub skips the push's workflows and Cloudflare its deploy.
             git -C "$data" commit -q -m "Benchmarks of ${sha:0:7} [skip ci]"
             if git -C "$data" push origin HEAD:refs/heads/benchmarks; then
               exit 0

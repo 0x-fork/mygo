@@ -62,6 +62,10 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
 
 ## Conventions
 
+- Never write `[skip ci]` (or `[ci skip]`, `[no ci]`) in a commit message,
+  not even quoted in its body: GitHub skips the push's workflows, CI and
+  benchmarks included, and Cloudflare the website's deploy. Only the
+  benchmarks branch's commits say it.
 - New behavior goes into `package mygo` first; backends only translate
   `internal/platform` calls to native ones. Implement every platform method in
   `darwin`, `linux`, `windows`, `fake` and `unsupported`.
