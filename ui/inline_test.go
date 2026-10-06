@@ -162,7 +162,9 @@ func TestInlineInteraction(t *testing.T) {
 	if clicks != 1 {
 		t.Fatalf("%d clicks on inline text", clicks)
 	}
-	// Its tooltip shows when the pointer rests on its words.
+	// Its tooltip shows when the pointer rests on its words, once it came
+	// back after the click.
+	tt.Move(0, 90)
 	tt.Move(center(more.frags[0]))
 	tt.rt.hoverSince = time.Now().Add(-time.Second)
 	tt.Frame()

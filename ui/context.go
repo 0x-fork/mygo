@@ -351,6 +351,9 @@ type state struct {
 	pressX, pressY float32
 	dragX, dragY   float32
 	pressed        bool
+	// tipClosed is set as the element with a Tooltip is pressed or
+	// clicked, until the pointer leaves it.
+	tipClosed bool
 
 	// scrollX and scrollY are float64, as the content a List scrolls
 	// may be taller than float32 counts to a fraction of a DIP.

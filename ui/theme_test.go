@@ -114,7 +114,7 @@ func inverseFills(t *testing.T, th *Theme) (tooltip, toast Color) {
 			t.Fatalf("no %q; texts %q", s, tt.Texts())
 		}
 		px := tt.Image().RGBAAt(int(r.X)-3, int(r.Y+r.H/2))
-		return Color{px.R, px.G, px.B, px.A}
+		return Color{R: px.R, G: px.G, B: px.B, A: px.A}
 	}
 	b, _ := tt.Find("Save")
 	tt.Move(b.X+b.W/2, b.Y+b.H/2)

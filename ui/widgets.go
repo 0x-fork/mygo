@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -571,13 +572,21 @@ func (e *Element) Fit(f Fit) *Element { e.fit = f; return e }
 
 // Tooltip shows s near the pointer when it rests on the element, and
 // describes the element to assistive technology where Description does not.
+// A press or a click closes it until the pointer leaves the element.
 func (e *Element) Tooltip(s string) *Element {
 	e.flags |= flagHover
 	if e.description == "" {
 		e.description = s
 	}
-	rt := e.c.rt
-	if !e.Hovered() || rt.pressed != nil || s == "" {
+	rt, st := e.c.rt, e.st
+	if !e.Hovered() {
+		st.tipClosed = false
+		return e
+	}
+	if st.clicks > 0 || slices.ContainsFunc(rt.downs, func(id uint64) bool { return rt.pressedWithin(id, e) }) {
+		st.tipClosed = true
+	}
+	if st.tipClosed || rt.pressed != nil || s == "" {
 		return e
 	}
 	// Only the innermost element with a tooltip shows it.

@@ -432,3 +432,66 @@ func TestProgressReverse(t *testing.T) {
 		}
 	}
 }
+
+func TestTooltipHidesOnPress(t *testing.T) {
+	tt := NewTester(func(c *Context) {
+		Row(c).Gap(40).Padding(40).Children(func() {
+			Button(c, "Save").Tooltip("Save the file")
+			MenuButton(c, "More", func(m *Menu) { m.Item("Duplicate") }).Tooltip("More actions")
+		})
+	}, 400, 200)
+	rest := func(x, y float32) {
+		tt.Move(x, y)
+		tt.rt.hoverSince = time.Now().Add(-time.Second)
+		tt.Frame()
+	}
+	r, _ := tt.Find("Save")
+	x, y := center(r)
+	rest(x, y)
+	if !tt.HasText("Save the file") {
+		t.Fatal("no tooltip over the button")
+	}
+	// A click hides it, and it stays hidden while the pointer rests on
+	// the button.
+	tt.ClickAt(x, y)
+	rest(x+2, y)
+	if tt.HasText("Save the file") {
+		t.Error("the tooltip shows again after a click")
+	}
+	// It shows again as the pointer comes back.
+	rest(5, 5)
+	rest(x, y)
+	if !tt.HasText("Save the file") {
+		t.Error("no tooltip as the pointer comes back")
+	}
+	// A click by the keys closes it too.
+	tt.Key(0, KeyEnter)
+	if tt.HasText("Save the file") {
+		t.Error("the tooltip shows after Enter clicked the button")
+	}
+	// A press before it shows keeps it from showing.
+	rest(5, 5)
+	tt.Move(x, y)
+	tt.ClickAt(x, y)
+	rest(x, y)
+	if tt.HasText("Save the file") {
+		t.Error("the tooltip shows after a click before the delay")
+	}
+	// The press opening a menu button's menu closes it.
+	r, _ = tt.Find("More")
+	x, y = center(r)
+	rest(x, y)
+	if !tt.HasText("More actions") {
+		t.Fatal("no tooltip over the menu button")
+	}
+	tt.Press(x, y)
+	if tt.Menu() == nil || tt.HasText("More actions") {
+		t.Errorf("menu %q; the tooltip shows with the menu", tt.Menu())
+	}
+	tt.Release(x, y)
+	tt.CloseMenu()
+	rest(x, y)
+	if tt.HasText("More actions") {
+		t.Error("the tooltip shows again after the menu")
+	}
+}
