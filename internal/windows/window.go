@@ -19,14 +19,17 @@ type window struct {
 	parent *window
 
 	// The WebView2 controller is created asynchronously; calls that need
-	// it wait in pending until it exists.
-	controller uintptr // ICoreWebView2Controller
-	webview    uintptr // ICoreWebView2
-	settings   uintptr // ICoreWebView2Settings
-	ready      bool
-	pending    []func()
-	closed     bool
-	destroying bool
+	// it wait in pending until it exists, or fail with webViewErr, why it
+	// could not be created.
+	controller   uintptr // ICoreWebView2Controller
+	webview      uintptr // ICoreWebView2
+	settings     uintptr // ICoreWebView2Settings
+	ready        bool
+	pending      []pendingCall
+	webViewErr   error
+	webViewFails int // creations that failed
+	closed       bool
+	destroying   bool
 
 	minW, minH, maxW, maxH int // DIPs
 	movable, closable      bool
@@ -269,6 +272,13 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		w.cleanup()
 		w.h.Closed()
 		return 0, true
+	case wmTimer:
+		if wp != timerWebView {
+			return 0, false
+		}
+		procKillTimer.Call(w.hwnd, timerWebView)
+		w.createWebView()
+		return 0, true
 	case wmSize:
 		if !w.reframing { // SetFullScreen lays the window out once it is done
 			w.sized(wp)
@@ -454,7 +464,7 @@ func (w *window) cleanup() {
 		delete(w.calls, id)
 		cb("", errDestroyed)
 	}
-	w.pending = nil
+	w.failPending(errDestroyed)
 	if w.caption != nil {
 		w.caption.forget()
 	}

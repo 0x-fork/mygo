@@ -288,6 +288,13 @@ func (w *window) cleanup() {
 	release(w.lastMouseDown)
 	w.lastMouseDown = 0
 	release(w.ucc)
+	for _, j := range printJobs {
+		if j.w == w && j.cb != nil {
+			cb := j.cb
+			j.cb = nil
+			cb(nil, errDestroyed)
+		}
+	}
 	if w.surface != nil {
 		w.surface.destroy()
 	}
@@ -808,8 +815,19 @@ func securityOrigin(o id) string {
 	return origin
 }
 
-// printJobs holds the completions of print operations by their context.
-var printJobs = map[uintptr]func(success bool){}
+// printJob is a print operation of PrintToPDF, by its context in
+// printJobs until it ends. One whose window closes may never end: WebKit
+// leaves it waiting for the page, so the window's cleanup gives cb
+// errDestroyed, and done releases what the job holds if it ends after all.
+type printJob struct {
+	w    *window
+	cb   func(pdf []byte, err error) // nil once it got its result
+	done func(success bool)
+}
+
+var printJobs = map[uintptr]*printJob{}
+
+var errDestroyed = errors.New("mygo: window has been destroyed")
 
 func (w *window) PrintToPDF(o platform.PDFOptions, cb func([]byte, error)) {
 	if !respondsTo(w.web, "printOperationWithPrintInfo:") {
@@ -844,13 +862,14 @@ func (w *window) PrintToPDF(o platform.PDFOptions, cb func([]byte, error)) {
 		send(info, "setVerticalPagination:", 0)   // as many pages as it takes
 		send(info, "setHorizontallyCentered:", 0)
 		send(info, "setVerticallyCentered:", 0)
-		// The preferences are shared with the configuration's copy.
-		prefs := func() id { return send(send(w.web, "configuration"), "preferences") }
-		backgrounds := respondsTo(prefs(), "setShouldPrintBackgrounds:") // macOS 13.3
+		// The preferences are shared with the configuration's copy. They are
+		// kept for the job, which may end after the window closed.
+		prefs := retain(send(send(w.web, "configuration"), "preferences"))
+		backgrounds := respondsTo(prefs, "setShouldPrintBackgrounds:") // macOS 13.3
 		printedBackgrounds := false
 		if backgrounds {
-			printedBackgrounds = sendBool(prefs(), "shouldPrintBackgrounds")
-			send(prefs(), "setShouldPrintBackgrounds:", boolArg(o.Background))
+			printedBackgrounds = sendBool(prefs, "shouldPrintBackgrounds")
+			send(prefs, "setShouldPrintBackgrounds:", boolArg(o.Background))
 		}
 		// Kept until it ran: nothing else holds on to it.
 		op := retain(send(w.web, "printOperationWithPrintInfo:", uintptr(info)))
@@ -861,19 +880,26 @@ func (w *window) PrintToPDF(o platform.PDFOptions, cb func([]byte, error)) {
 		for printJobs[job] != nil {
 			job++
 		}
-		printJobs[job] = func(success bool) {
+		j := &printJob{w: w, cb: cb}
+		j.done = func(success bool) {
 			release(op)
 			if backgrounds {
-				withPool(func() { send(prefs(), "setShouldPrintBackgrounds:", boolArg(printedBackgrounds)) })
+				send(prefs, "setShouldPrintBackgrounds:", boolArg(printedBackgrounds))
 			}
+			release(prefs)
 			data, err := os.ReadFile(path)
 			os.Remove(path)
+			if j.cb == nil {
+				return
+			}
 			if err == nil && (!success || len(data) == 0) {
 				err = errors.New("mygo: printing to PDF failed")
 			}
-			cb(data, err)
+			j.cb(data, err)
 		}
-		send(op, "runOperationModalForWindow:delegate:didRunSelector:contextInfo:", uintptr(w.win), uintptr(w.delegate),
+		printJobs[job] = j
+		// The app's delegate hears of the end, as the window's may be gone.
+		send(op, "runOperationModalForWindow:delegate:didRunSelector:contextInfo:", uintptr(w.win), uintptr(w.b.delegate),
 			uintptr(sel("mygoPrintOperationDidRun:success:contextInfo:")), job)
 	})
 }
@@ -997,15 +1023,6 @@ func registerWindowClasses() {
 					}
 				}
 				callBlock(handler, uintptr(decision))
-			}),
-			// WebKit's print operations may finish on a background thread.
-			method("mygoPrintOperationDidRun:success:contextInfo:", func(self id, _ objc.SEL, op id, success bool, job uintptr) {
-				theBackend.runOnMain(func() {
-					if done := printJobs[job]; done != nil {
-						delete(printJobs, job)
-						done(success)
-					}
-				})
 			}),
 			method("windowWillClose:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {

@@ -72,6 +72,8 @@ func titleButtonColor(*mygo.Window, string) (uint8, uint8, uint8, bool) { return
 func composition(*mygo.Window) (bool, bool, bool) { return false, false, false }
 func loseComposition(bool) bool                   { return false }
 
+func failWebViews(int) bool { return false }
+
 // A Control-click is a secondary click on macOS only.
 func controlClick(*mygo.Window, float64, float64) bool { return false }
 

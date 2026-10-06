@@ -1692,6 +1692,85 @@ func TestCapturePage(t *testing.T) {
 	}
 }
 
+// callEnd is how a call of pageCalls ended.
+type callEnd struct {
+	name string
+	err  error
+}
+
+// pageCalls makes the calls that wait for a page's answer, each on a
+// goroutine of its own, and tells how they end.
+func pageCalls(w *mygo.Window) <-chan callEnd {
+	ended := make(chan callEnd, 3)
+	call := func(name string, fn func() error) {
+		go func() { ended <- callEnd{name, fn()} }()
+	}
+	call("Eval", func() error { _, err := w.Page().Eval("1"); return err })
+	call("CapturePage", func() error { _, err := w.CapturePage(); return err })
+	call("PrintToPDF", func() error { _, err := w.Page().PrintToPDF(mygo.PDFOptions{}); return err })
+	return ended
+}
+
+// waitCalls waits for the calls of pageCalls to end, and returns their
+// errors by name. A slow runner takes seconds to create a webview, and a
+// window may ask for its webview again.
+func waitCalls(t *testing.T, ended <-chan callEnd, what string) map[string]error {
+	t.Helper()
+	got := map[string]error{}
+	for range 3 {
+		select {
+		case e := <-ended:
+			got[e.name] = e.err
+		case <-time.After(time.Minute):
+			t.Fatalf("%s: only these calls ended: %v", what, got)
+		}
+	}
+	return got
+}
+
+// TestCallsEndWithTheWindow: calls on a new window's page, which on
+// Windows wait for WebView2 to create its webview, end when the window is
+// destroyed.
+func TestCallsEndWithTheWindow(t *testing.T) {
+	w := mygo.NewWindow(mygo.WindowOptions{Hidden: true})
+	ended := pageCalls(w)
+	time.Sleep(20 * time.Millisecond)
+	mygo.RunOnMain(func() {}) // the calls reached the window
+	w.Destroy()
+	waitCalls(t, ended, "after Destroy")
+}
+
+// TestWebViewFails: WebView2 may fail to create a window's webview, as it
+// does under load. The window asks again, and once it gives up, the calls
+// waiting for the webview fail with the reason, as do later ones.
+func TestWebViewFails(t *testing.T) {
+	if !failWebViews(1) {
+		t.Skip("only WebView2 creates webviews after their windows")
+	}
+	t.Cleanup(func() { failWebViews(0) })
+	const reason = "creating the WebView2 controller"
+	w := newWindow(t, mygo.WindowOptions{Hidden: true})
+	got := waitCalls(t, pageCalls(w), "after a failure")
+	for name, err := range got {
+		if err != nil && strings.Contains(err.Error(), reason) {
+			t.Errorf("after a failure, %s: %v", name, err)
+		}
+	}
+	if got["Eval"] != nil {
+		t.Errorf("after a failure, Eval: %v", got["Eval"])
+	}
+
+	failWebViews(1 << 10)
+	w = newWindow(t, mygo.WindowOptions{Hidden: true})
+	for _, when := range []string{"waiting", "later"} {
+		for name, err := range waitCalls(t, pageCalls(w), when) {
+			if err == nil || !strings.Contains(err.Error(), reason) {
+				t.Errorf("%s, %s: %v", when, name, err)
+			}
+		}
+	}
+}
+
 func TestMenuAndClipboard(t *testing.T) {
 	clicked := make(chan string, 1)
 	menu := mygo.NewMenu([]*mygo.MenuItem{

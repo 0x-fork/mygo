@@ -419,6 +419,7 @@ const (
 
 	sOK          = 0
 	eNoInterface = 0x80004002
+	eFail        = 0x80004005
 )
 
 type rect struct{ Left, Top, Right, Bottom int32 }

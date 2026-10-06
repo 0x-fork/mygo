@@ -114,6 +114,9 @@ func titleButtonColor(*mygo.Window, string) (uint8, uint8, uint8, bool) { return
 func composition(*mygo.Window) (bool, bool, bool) { return false, false, false }
 func loseComposition(bool) bool                   { return false }
 
+// WebKit creates web views with their windows.
+func failWebViews(int) bool { return false }
+
 func clickAndType(w *mygo.Window, x, y float64, text string) (ok bool) {
 	mygo.RunOnMain(func() { ok = darwin.TestClickAndType(w.NativeHandle(), x, y, text) })
 	return ok

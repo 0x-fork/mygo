@@ -170,6 +170,12 @@ func loseComposition(removed bool) (ok bool) {
 	return ok
 }
 
+// failWebViews makes WebView2 fail to create the next n webviews.
+func failWebViews(n int) bool {
+	mygo.RunOnMain(func() { win.TestFailWebViews(n) })
+	return true
+}
+
 // A Control-click is a secondary click on macOS only.
 func controlClick(*mygo.Window, float64, float64) bool { return false }
 

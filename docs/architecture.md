@@ -360,6 +360,12 @@ purego gives three primitives, used everywhere:
   that show native UI need none, so an app whose windows all do runs
   without WebView2. The environment and each controller are created
   asynchronously: window methods that need the webview wait in `pending`.
+  A creation that fails is tried again, three times in all, a second
+  then two apart, as Microsoft advises unless it failed with
+  `ERROR_INVALID_STATE`: under load, WebView2 fails some with `ERROR_BUSY`
+  or `CO_E_SERVER_EXEC_FAILURE`. When the webview never comes, the calls
+  that report a result (Eval, CapturePage, PrintToPDF) get the reason, as
+  later ones do: the window closed, or WebView2 could not create it.
   User data lives in `%LOCALAPPDATA%\<name>\WebView2`.
 - **Custom schemes** load from `http://<scheme>.localhost/`, which WebView2
   lets the app answer through `WebResourceRequested`. Chromium treats

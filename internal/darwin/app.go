@@ -238,6 +238,16 @@ const (
 
 func registerAppDelegate() {
 	classDef("MyGoAppDelegate", "NSObject", []string{"NSApplicationDelegate"}, []objc.MethodDef{
+		// The end of a PrintToPDF job (printJobs). WebKit's print operations
+		// may finish on a background thread.
+		method("mygoPrintOperationDidRun:success:contextInfo:", func(self id, _ objc.SEL, op id, success bool, job uintptr) {
+			theBackend.runOnMain(func() {
+				if j := printJobs[job]; j != nil {
+					delete(printJobs, job)
+					j.done(success)
+				}
+			})
+		}),
 		method("applicationWillFinishLaunching:", func(self id, _ objc.SEL, n id) {
 			// Handle the quit Apple Event (Dock > Quit, AppleScript, logout)
 			// ourselves so the sender gets a proper reply while Run still

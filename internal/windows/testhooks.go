@@ -236,6 +236,14 @@ func TestLoseComposition(removed bool) bool {
 	return true
 }
 
+// testFailWebViews is how many creations of webviews still fail
+// (TestFailWebViews).
+var testFailWebViews int
+
+// TestFailWebViews makes the next n creations of webviews fail, as WebView2
+// reports a failure, when it would have created them; 0 lets them be.
+func TestFailWebViews(n int) { testFailWebViews = n }
+
 // TestTopNonClient returns how many pixels at the top of a window are not
 // its client area, and how many a hidden title bar keeps there on this
 // version of Windows: one on Windows 11, none on Windows 10.
