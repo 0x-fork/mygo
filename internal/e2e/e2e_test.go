@@ -140,6 +140,7 @@ func TestMain(m *testing.M) {
 	code := 1
 	mygo.App.WhenReady(func() {
 		go func() {
+			warmUp()
 			code = m.Run()
 			mygo.App.Quit()
 		}()
@@ -149,6 +150,23 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Exit(code)
+}
+
+// warmUp shows a page once before the tests, so that the first test to
+// show one does not pay for starting the webview: WebView2 starts its
+// browser, GPU and renderer processes with the first page, which took a
+// slow runner over ten seconds.
+func warmUp() {
+	start := time.Now()
+	w := mygo.NewWindow(mygo.WindowOptions{Hidden: true, Title: "warm-up"})
+	defer w.Destroy()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if _, err := w.Page().EvalContext(ctx, "1"); err != nil {
+		fmt.Printf("e2e: the webview did not start in %v: %v\n", time.Since(start).Round(time.Millisecond), err)
+	} else if d := time.Since(start); d > 3*time.Second {
+		fmt.Printf("e2e: the webview took %v to start\n", d.Round(time.Millisecond))
+	}
 }
 
 // quitDuringDialog is a helper process for TestQuitDuringDialog: it quits
@@ -366,17 +384,53 @@ func TestEarlyWindow(t *testing.T) {
 // waitFor polls the page until expr is truthy. Until a page being loaded
 // commits, expr runs in the previous one, such as the empty document a new
 // window starts with, which is complete already: wait for something of the
-// page itself.
+// page itself. The 10 seconds start once the page first answers: WebView2
+// creates a window's webview asynchronously, and evaluating waits for it,
+// which may take longer than that on a slow runner.
 func waitFor(t testing.TB, w *mygo.Window, expr string) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if ok, _ := mygo.EvalAs[bool](w.Page(), "!!("+expr+")"); ok {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	p := w.Page()
+	check := "!!(" + expr + ")"
+	start := time.Now()
+	first, cancel := context.WithTimeout(t.Context(), time.Minute)
+	v, err := p.EvalContext(first, check)
+	late := err != nil && first.Err() != nil
+	cancel()
+	answered := time.Since(start)
+	if late {
+		t.Fatalf("waiting for %s: the page did not answer in %v: %v; %s", expr, answered.Round(time.Millisecond), err, pageState(p))
 	}
-	t.Fatalf("timed out waiting for %s", expr)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	for v != true {
+		select {
+		case <-ctx.Done():
+			msg := fmt.Sprintf("timed out waiting for %s, 10s after the page first answered (in %v)", expr, answered.Round(time.Millisecond))
+			if err != nil {
+				msg += "; the last check failed: " + err.Error()
+			}
+			t.Fatalf("%s; %s", msg, pageState(p))
+		case <-time.After(20 * time.Millisecond):
+		}
+		v, err = p.EvalContext(ctx, check)
+	}
+}
+
+// pageState describes where a page is, for failures: what the webview
+// reports, and what the page itself says, if it answers.
+func pageState(p *mygo.Page) string {
+	s := fmt.Sprintf("the webview is at %q (loading: %v)", p.URL(), p.IsLoading())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	v, err := p.EvalContext(ctx, "[location.href, document.title, document.readyState]")
+	if err != nil {
+		return s + ", and the page did not answer: " + err.Error()
+	}
+	a, _ := v.([]any)
+	if len(a) != 3 {
+		return fmt.Sprintf("%s, and the page answered %v", s, v)
+	}
+	return fmt.Sprintf("%s; location.href %q, document.title %q, document.readyState %q", s, a[0], a[1], a[2])
 }
 
 func newWindow(t *testing.T, opts mygo.WindowOptions) *mygo.Window {
