@@ -246,6 +246,13 @@ func useGPU(w *mygo.Window) (ok bool) {
 	return ok
 }
 
+// surfaceOnScreen returns, as a PNG, what the display shows of a window's
+// native UI.
+func surfaceOnScreen(w *mygo.Window) (png []byte, supported bool) {
+	mygo.RunOnMain(func() { png = linux.TestSurfaceOnScreen(w.NativeHandle()) })
+	return png, true
+}
+
 // rightClick clicks (x, y) in a window showing native UI with the
 // secondary button, through XTEST.
 func rightClick(w *mygo.Window, x, y float64) (ok bool) {

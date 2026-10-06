@@ -100,6 +100,7 @@ func glSurface(*mygo.Window) (string, []byte, int, int, bool) { return "", nil, 
 func lazyGPU(bool) bool                                       { return false }
 func useGPU(*mygo.Window) bool                                { return false }
 func surfaceInputLowest(*mygo.Window) bool                    { return true }
+func surfaceOnScreen(*mygo.Window) ([]byte, bool)             { return nil, false }
 
 func rightClick(*mygo.Window, float64, float64) bool { return false }
 func popupMenus() ([][]string, bool)                 { return nil, false }

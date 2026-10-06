@@ -174,6 +174,7 @@ func glSurface(*mygo.Window) (string, []byte, int, int, bool) { return "", nil, 
 func lazyGPU(bool) bool                                       { return false }
 func useGPU(*mygo.Window) bool                                { return false }
 func surfaceInputLowest(*mygo.Window) bool                    { return true }
+func surfaceOnScreen(*mygo.Window) ([]byte, bool)             { return nil, false }
 
 // Context menus are not automated on macOS: one shown waits for the user.
 func rightClick(*mygo.Window, float64, float64) bool { return false }

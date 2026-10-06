@@ -2417,6 +2417,73 @@ func TestContentWindowLazyGPU(t *testing.T) {
 	eventually(t, "the click", func() bool { return clicks.Load() == 1 })
 }
 
+// TestContentWindowRepaintsWhatChanged moves the red row of a window of
+// native UI under a menu bar, and reads what the display shows. On Linux,
+// GTK repaints only what frames drawn in memory changed, which a GtkGLArea
+// tells it where its GdkWindow, its parent's, has it: below the menu bar.
+func TestContentWindowRepaintsWhatChanged(t *testing.T) {
+	if !lazyGPU(true) {
+		t.Skip("only Linux repaints what frames drawn in memory changed")
+	}
+	defer lazyGPU(false)
+	prev := mygo.App.Menu()
+	defer mygo.App.SetMenu(prev)
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))
+	var frames, red atomic.Int32
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Box(c).Fill().Padding(20).Gap(20).Background(ui.RGB(30, 144, 255)).Children(func() {
+			for i := range int32(3) {
+				color := ui.RGB(255, 255, 255)
+				if i == red.Load() {
+					color = ui.RGB(255, 0, 0)
+				}
+				ui.Box(c).Size(300, 40).Background(color)
+			}
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Repaint", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	s := deviceScale(w)
+	// rows tells what the display shows at the top and the bottom of each
+	// row: r for red, w for white.
+	rows := func() string {
+		b, _ := surfaceOnScreen(w)
+		m, err := png.Decode(bytes.NewReader(b))
+		if err != nil {
+			return ""
+		}
+		shown := ""
+		for i := range 3 {
+			for _, y := range []float64{25, 55} {
+				r, g, _, _ := m.At(int(200*s), int((float64(i*60)+y)*s)).RGBA()
+				switch {
+				case r>>8 > 200 && g>>8 < 60:
+					shown += "r"
+				case r>>8 > 200:
+					shown += "w"
+				default:
+					shown += "?"
+				}
+			}
+		}
+		return shown
+	}
+	for _, to := range []int{2, 0, 1} {
+		before := frames.Load()
+		w.Update(func() { red.Store(int32(to)) })
+		eventually(t, "a frame after Update", func() bool { return frames.Load() > before })
+		want := strings.Repeat("ww", to) + "rr" + strings.Repeat("ww", 2-to)
+		deadline := time.Now().Add(5 * time.Second)
+		for shown := rows(); shown != want; shown = rows() {
+			if time.Now().After(deadline) {
+				t.Fatalf("with row %d red, the display shows %q, not %q", to, shown, want)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+}
+
 // TestContentWindowMenuButton opens a menu button's menu, which shows as
 // the button goes down, and chooses an item.
 func TestContentWindowMenuButton(t *testing.T) {

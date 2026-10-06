@@ -40,6 +40,7 @@ var (
 	gtkWidgetAddEvents          func(w ptr, mask int32)
 	gtkWidgetQueueDraw          func(w ptr)
 	gtkWidgetQueueDrawArea      func(w ptr, x, y, width, height int32)
+	gtkWidgetGetHasWindow       func(w ptr) bool
 	gtkWidgetAddTickCallback    func(w, callback, data, notify ptr) uint32
 	cairoClipExtents            func(cr ptr, x1, y1, x2, y2 *float64)
 	gtkWidgetGetAllocatedWidth  func(w ptr) int32
@@ -92,6 +93,7 @@ func loadSurface() {
 		mustBind(t, &gtkWidgetAddEvents, "gtk_widget_add_events")
 		mustBind(t, &gtkWidgetQueueDraw, "gtk_widget_queue_draw")
 		mustBind(t, &gtkWidgetQueueDrawArea, "gtk_widget_queue_draw_area")
+		mustBind(t, &gtkWidgetGetHasWindow, "gtk_widget_get_has_window")
 		mustBind(t, &gtkWidgetAddTickCallback, "gtk_widget_add_tick_callback")
 		mustBind(c, &cairoClipExtents, "cairo_clip_extents")
 		mustBind(t, &gtkWidgetGetAllocatedWidth, "gtk_widget_get_allocated_width")
@@ -178,7 +180,7 @@ func (w *window) createSurface() {
 	// MYGO_GPU=1 draws with OpenGL from the first frame, wherever GDK
 	// makes a context.
 	now := os.Getenv("MYGO_GPU") == "1" && !testLazyGL
-	s.newArea(gtkGLAreaNew != nil && os.Getenv("MYGO_GPU") != "0" && (now || hasGPUDevice()))
+	s.newArea(gtkGLAreaNew != nil && os.Getenv("MYGO_GPU") != "0" && (now || testLazyGL || hasGPUDevice()))
 	s.lazy = s.gl && !now
 	connect(s.im, "commit", cbIMCommit, data)
 	connect(s.im, "preedit-changed", cbIMPreedit, data)
@@ -333,9 +335,17 @@ func (s *surface) drawsGL() bool { return s.gl && gtkGLAreaGetError(s.area) == 0
 // the next frame.
 func (s *surface) PresentDamage(pix []byte, stride, width, height int, damage []image.Rectangle) {
 	scale := max(int(gtkWidgetGetScaleFactor(s.area)), 1)
+	// GTK takes the area to repaint in the coordinates of the widget's
+	// GdkWindow, whatever its documentation says: a GtkGLArea has none of
+	// its own, and its parent's starts above and left of it, by the title
+	// bar GTK draws, its shadow, or the menu bar.
+	var at gdkRectangle
+	if !gtkWidgetGetHasWindow(s.area) {
+		gtkWidgetGetAllocation(s.area, &at)
+	}
 	queue := func(d image.Rectangle) {
 		x0, y0 := d.Min.X/scale, d.Min.Y/scale
-		gtkWidgetQueueDrawArea(s.area, int32(x0), int32(y0), int32((d.Max.X+scale-1)/scale-x0), int32((d.Max.Y+scale-1)/scale-y0))
+		gtkWidgetQueueDrawArea(s.area, at.X+int32(x0), at.Y+int32(y0), int32((d.Max.X+scale-1)/scale-x0), int32((d.Max.Y+scale-1)/scale-y0))
 	}
 	if !s.ticking {
 		s.PresentPixels(pix, stride, width, height)
