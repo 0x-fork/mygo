@@ -640,7 +640,9 @@ func (e *Element) Center() *Element { e.justify, e.align = Center, Center; retur
 
 // Absolute takes the element out of its parent's layout and places it with
 // Top, Right, Bottom and Left relative to the parent's padding box, above
-// its siblings.
+// its siblings. As in CSS, that box is inside the parent's border but holds
+// its padding: Top(0) puts the element just below the border, whatever the
+// padding.
 func (e *Element) Absolute() *Element { e.flags |= flagAbsolute; return e }
 
 // Top, Right, Bottom and Left place an Absolute element. On an element in
@@ -776,7 +778,8 @@ func (e *Element) Stripes(c Color, width, gap, angle float32) *Element {
 }
 
 // Border draws a border of width DIPs inside the element's edges, on every
-// side; BorderWidth sets different widths.
+// side; BorderWidth sets different widths. As in CSS, the border takes room
+// within the element's size: the padding and the children are inside it.
 func (e *Element) Border(width float32, c Color) *Element {
 	e.border, e.borderC = [4]float32{width, width, width, width}, c
 	return e

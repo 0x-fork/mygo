@@ -63,10 +63,12 @@ centers them both ways. `Wrap` wraps a row onto more lines, which
 
 `Absolute` takes an element out of the flow, placed with `Top`, `Right`,
 `Bottom` and `Left` in its parent, in DIPs or with `TopPercent` and the
-like; automatic margins center it between the sides it is placed from. On
-an element in the flow, `Top` and the others move it from where the layout
-put it, without moving its siblings, as CSS's relative positioning does: a
-badge raised a little above its text.
+like; automatic margins center it between the sides it is placed from. As
+in CSS, they are measured from just inside the parent's border, whatever
+its padding: in a box with a border 1 DIP wide, `Top(0)` is 1 DIP below
+the box's top edge. On an element in the flow, `Top` and the others move
+it from where the layout put it, without moving its siblings, as CSS's
+relative positioning does: a badge raised a little above its text.
 
 ```go
 ui.Box(c).Size(40, 40).Children(func() {

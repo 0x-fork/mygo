@@ -12,7 +12,9 @@ ui.Column(c).Padding(18).Gap(12).Radius(10).
 - **Borders.** `Border(1, c)` draws one inside every edge; `BorderWidth`
   sets the sides apart, CSS style, with `BorderColor`, as a line under a
   header with `BorderWidth(0, 0, 1, 0)`, and `BorderStyle(ui.BorderDashed)`
-  dashes it.
+  dashes it. As with CSS's `box-sizing: border-box`, the border takes room
+  within the element's size, and the padding and the children are inside
+  it.
 - **Shadows.** `Shadow(x, y, blur, spread, c)` casts a box shadow, as CSS's
   `box-shadow` does: several stack, and each shows only outside the box,
   so a translucent background never shows its own shadow through.
