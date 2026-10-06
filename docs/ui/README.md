@@ -184,7 +184,8 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
 - [Alert dialog](alert-dialog.md): a question about something important,
   with buttons.
 - [Popover](popover.md): a panel below an element.
-- [Tooltip](tooltip.md): a tip shown as the pointer rests on an element.
+- [Tooltip](tooltip.md): a tip shown as the pointer rests on an element, or
+  the keyboard focus comes to it.
 - [Toast](toast.md): a short message near the bottom of the window, with an
   action or not.
 

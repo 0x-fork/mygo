@@ -286,6 +286,8 @@ type Element struct {
 	expanded bool
 	// vertical marks a slider going up (Vertical).
 	vertical bool
+	// tip marks an element with a tooltip (TooltipBase).
+	tip bool
 	// highlighted is set on the option of a select the pointer or the
 	// arrows are on.
 	highlighted bool

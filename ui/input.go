@@ -148,7 +148,6 @@ func (rt *engine) setHover(chain []uint64) bool {
 		}
 	}
 	rt.hover = chain
-	rt.hoverSince = time.Now()
 	if need {
 		rt.requestFrame()
 	}

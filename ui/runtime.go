@@ -130,8 +130,16 @@ type engine struct {
 	windowFocused bool
 	keys          []keyEvent
 	menu          menuState
-	toasts        []toast
-	nextToast     uint64
+	// toasts are the toasts the window holds, oldest first, and
+	// toastList those showing, as ToastViewportBase gives them; their time
+	// stops while toastsPaused. A viewport of them was built in the pass
+	// toastPass of the frame toastFrame.
+	toasts       []toast
+	nextToast    uint64
+	toastList    []Toast
+	toastsPaused bool
+	toastFrame   uint64
+	toastPass    int
 	// mods are the modifiers of the last pointer event.
 	mods Modifiers
 
@@ -194,16 +202,14 @@ type engine struct {
 	// theme is the default theme, which follows the appearance and the
 	// preferences, made once until they change (themeOK); each pass
 	// starts from a copy, passTheme, which the view may change.
-	theme        Theme
-	themeOK      bool
-	passTheme    Theme
-	collect      bool
-	labels       []labelNode
-	tooltipFrame uint64
-	tooltipDepth int
-	hoverSince   time.Time
-	scrollDrag   scrollDrag
-	lastPress    struct {
+	theme      Theme
+	themeOK    bool
+	passTheme  Theme
+	collect    bool
+	labels     []labelNode
+	tips       tooltips
+	scrollDrag scrollDrag
+	lastPress  struct {
 		at     time.Time
 		x, y   float32
 		id     uint64
@@ -671,7 +677,7 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 		// disabled after building it, as a Fieldset.
 		s.flags |= flagDisabled
 	}
-	s.cursor = e.cursor
+	s.cursor, s.tip = e.cursor, e.tip
 	s.role = e.role
 	s.input, s.caret, s.takesText = e.inputFn, e.caret, e.takesText
 	if e.flags&(flagEditable|flagSelectable) != 0 && s.cursor == 0 {

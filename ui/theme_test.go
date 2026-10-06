@@ -118,7 +118,7 @@ func inverseFills(t *testing.T, th *Theme) (tooltip, toast Color) {
 	}
 	b, _ := tt.Find("Save")
 	tt.Move(b.X+b.W/2, b.Y+b.H/2)
-	tt.rt.hoverSince = time.Now().Add(-time.Second)
+	tt.rt.tips.hoverSince = time.Now().Add(-time.Second)
 	tt.Frame()
 	tooltip = fill("Save the note")
 	tt.Click("Save")

@@ -442,7 +442,7 @@ func TestTooltipHidesOnPress(t *testing.T) {
 	}, 400, 200)
 	rest := func(x, y float32) {
 		tt.Move(x, y)
-		tt.rt.hoverSince = time.Now().Add(-time.Second)
+		tt.rt.tips.hoverSince = time.Now().Add(-time.Second)
 		tt.Frame()
 	}
 	r, _ := tt.Find("Save")

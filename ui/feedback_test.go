@@ -32,7 +32,7 @@ func TestToastAction(t *testing.T) {
 	// The time stops while the pointer rests on the toast.
 	r, _ := tt.Find("Note deleted")
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
-	if tt.rt.toasts[0].pausedAt.IsZero() {
+	if !tt.rt.toastsPaused {
 		t.Error("the pointer on the toast did not stop its time")
 	}
 	tt.Click("Undo")

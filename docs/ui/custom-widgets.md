@@ -18,6 +18,8 @@ own on them, as headless component libraries do on the web.
 | `SelectBase` | a `Trigger` opening a `Popup` of `Item`s choosing a `*T`, which the arrows highlight (`Highlighted`) and Enter chooses |
 | `ComboboxBase` | an `Input` whose text filters the `Item`s of a `Popup` below it, which the arrows highlight and Enter or a click chooses (`Chosen`) |
 | `PopoverBase`, `DialogBase` | a panel beside an anchor, or over a backdrop covering the window, that a press outside or Escape closes |
+| `TooltipBase` | a tip beside an anchor while the pointer rests on it or the keyboard focus is on it, which a press or Escape hides ([Tooltip](tooltip.md#without-a-look)) |
+| `ToastViewportBase`, `ToastBase` | the window's toasts in a viewport of your own, each a status with an `ActionButton` and a `CloseButton`, their time stopping while the pointer or the focus is on them ([Toast](toast.md#without-a-look)) |
 | `TextInputBase`, `TextAreaBase` | text inputs without padding, background, border or corners, `ReadOnly` or not |
 
 A segmented control on `SegmentedBase`, and a select on `SelectBase`:
