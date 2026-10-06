@@ -276,6 +276,12 @@ func (b *Backend) RemoveNotification(id string) {
 	}
 }
 
+func (b *Backend) RemoveAllNotifications() {
+	for _, n := range b.notifications {
+		b.finishNotification(n.tray)
+	}
+}
+
 func (b *Backend) finishNotification(t *tray) {
 	delete(b.notifications, t.notification)
 	t.notification = ""

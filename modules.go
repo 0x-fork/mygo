@@ -596,6 +596,19 @@ func (n *Notification) Close() {
 	onMain(func() { backend().RemoveNotification(n.id) })
 }
 
+// ClearNotifications removes the app's notifications, on macOS those of
+// earlier runs left in Notification Center too. An app calls it as it
+// comes to the front, so that what the user has seen in the app does not
+// wait there:
+//
+//	mygo.App.OnDidBecomeActive(func() { mygo.ClearNotifications() })
+func ClearNotifications() {
+	notifications.Lock()
+	clear(notifications.byID)
+	notifications.Unlock()
+	onMain(func() { backend().RemoveAllNotifications() })
+}
+
 // OnClick is called when the user clicks the notification.
 func (n *Notification) OnClick(fn func()) (off func()) { return n.onClick.add(fn, false) }
 

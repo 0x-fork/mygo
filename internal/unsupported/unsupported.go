@@ -49,6 +49,8 @@ func (*Backend) ShowNotification(_ *platform.Notification, done func(error)) {
 	done(errUnsupported)
 }
 
+func (*Backend) RemoveAllNotifications() {}
+
 type app struct{}
 
 func (app) SetActivationPolicy(string)                        {}

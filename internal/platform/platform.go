@@ -94,6 +94,9 @@ type Backend interface {
 	// system has it, or with why it could not.
 	ShowNotification(n *Notification, done func(error))
 	RemoveNotification(id string)
+	// RemoveAllNotifications removes the app's notifications, on macOS
+	// those of earlier runs too.
+	RemoveAllNotifications()
 }
 
 // AppOptions configures Backend.Init.

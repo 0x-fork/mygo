@@ -51,6 +51,12 @@ type Backend struct {
 	OpenResult    []string
 	SaveResult    string
 	MessageResult platform.MessageBoxResult
+	// NotificationError, when set, is what showing a notification fails
+	// with.
+	NotificationError error
+	// notifications are the notifications shown and not yet removed, by
+	// id.
+	notifications map[string]*platform.Notification
 }
 
 // New creates a fake backend.
@@ -228,11 +234,66 @@ func (b *Backend) PressHotkey(acc string) {
 	}
 }
 
-func (b *Backend) NotificationsSupported() bool { return false }
-func (b *Backend) ShowNotification(_ *platform.Notification, done func(error)) {
-	done(platform.ErrUnsupported)
+// Notifications are recorded rather than shown, so that a test can see
+// what the app asked for and report a click as a platform does.
+func (b *Backend) NotificationsSupported() bool { return true }
+
+func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
+	b.mu.Lock()
+	if err := b.NotificationError; err != nil {
+		b.mu.Unlock()
+		done(err)
+		return
+	}
+	if b.notifications == nil {
+		b.notifications = map[string]*platform.Notification{}
+	}
+	// A copy, as a real backend keeps its own.
+	c := *n
+	b.notifications[n.ID] = &c
+	b.mu.Unlock()
+	done(nil)
 }
-func (b *Backend) RemoveNotification(string) {}
+
+func (b *Backend) RemoveNotification(id string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.notifications, id)
+}
+
+func (b *Backend) RemoveAllNotifications() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	clear(b.notifications)
+}
+
+// Delivered adds a notification the platform still shows from an earlier
+// run of the app, which the app did not show in this one.
+func (b *Backend) Delivered(n *platform.Notification) {
+	b.ShowNotification(n, func(error) {})
+}
+
+// Notifications returns the notifications shown and not yet removed.
+func (b *Backend) Notifications() []*platform.Notification {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]*platform.Notification, 0, len(b.notifications))
+	for _, n := range b.notifications {
+		out = append(out, n)
+	}
+	return out
+}
+
+// Notification returns the notification with an id, or nil.
+func (b *Backend) Notification(id string) *platform.Notification {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.notifications[id]
+}
+
+// ClickNotification reports a click on a notification, as the platform
+// does. It runs on the main thread, like the backends report it.
+func (b *Backend) ClickNotification(id string) { b.h.NotificationClicked(id) }
 
 // Window is a fake native window. Scripts evaluated in it are recorded.
 type Window struct {

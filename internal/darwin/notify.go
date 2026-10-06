@@ -69,16 +69,11 @@ func (b *Backend) NotificationsSupported() bool {
 	return packaged && hasClass("UNUserNotificationCenter")
 }
 
-// notificationCenter returns the app's notification center, with the
-// delegate attached the first time. It throws when the app does not run
-// from a bundle: check NotificationsSupported first.
-func (b *Backend) notificationCenter() id {
-	center := send(class("UNUserNotificationCenter"), "currentNotificationCenter")
-	if b.notifyDelegate == 0 {
-		b.notifyDelegate = alloc("MyGoNotificationDelegate")
-		send(center, "setDelegate:", uintptr(b.notifyDelegate))
-	}
-	return center
+// notificationCenter returns the app's notification center. It throws
+// when the app does not run from a bundle: check NotificationsSupported
+// first.
+func notificationCenter() id {
+	return send(class("UNUserNotificationCenter"), "currentNotificationCenter")
 }
 
 // waitingNotification is a notification shown before the user has answered
@@ -95,6 +90,14 @@ func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
 	if !b.NotificationsSupported() {
 		done(platform.ErrUnsupported)
 		return
+	}
+	if b.notifyDelegate == 0 {
+		// For the clicks; removing notifications needs none, and may come
+		// before Run has registered the class.
+		b.notifyDelegate = alloc("MyGoNotificationDelegate")
+		withPool(func() {
+			send(notificationCenter(), "setDelegate:", uintptr(b.notifyDelegate))
+		})
 	}
 	if b.notifyAnswered {
 		b.addNotification(n, done)
@@ -120,7 +123,7 @@ func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
 				}
 			})
 		})
-		send(b.notificationCenter(), "requestAuthorizationWithOptions:completionHandler:",
+		send(notificationCenter(), "requestAuthorizationWithOptions:completionHandler:",
 			notifyOptions, uintptr(blk))
 		blk.Release()
 	})
@@ -147,7 +150,7 @@ func (b *Backend) addNotification(n *platform.Notification, done func(error)) {
 			withPool(func() { err = notificationError(nsErr) })
 			b.runOnMain(func() { done(err) })
 		})
-		send(b.notificationCenter(), "addNotificationRequest:withCompletionHandler:", uintptr(req), uintptr(blk))
+		send(notificationCenter(), "addNotificationRequest:withCompletionHandler:", uintptr(req), uintptr(blk))
 		blk.Release()
 	})
 }
@@ -181,9 +184,25 @@ func (b *Backend) RemoveNotification(ident string) {
 	}
 	b.notifyWaiting = waiting
 	withPool(func() {
-		center := b.notificationCenter()
+		center := notificationCenter()
 		ids := nsArray(nsString(ident))
 		send(center, "removeDeliveredNotificationsWithIdentifiers:", uintptr(ids))
 		send(center, "removePendingNotificationRequestsWithIdentifiers:", uintptr(ids))
+	})
+}
+
+func (b *Backend) RemoveAllNotifications() {
+	if !b.NotificationsSupported() {
+		return
+	}
+	waiting := b.notifyWaiting
+	b.notifyWaiting = nil
+	for _, w := range waiting {
+		w.done(nil)
+	}
+	withPool(func() {
+		center := notificationCenter()
+		send(center, "removeAllDeliveredNotifications")
+		send(center, "removeAllPendingNotificationRequests")
 	})
 }

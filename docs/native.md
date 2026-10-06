@@ -69,6 +69,24 @@ one asks the user whether to allow notifications, and `Show` waits for the
 answer; it returns `mygo.ErrNotificationsDenied` when they are not allowed,
 by that answer or later in System Settings.
 
+macOS keeps a notification in Notification Center after it is clicked,
+until the app removes it: `Close` it in `OnClick` to take it away, or call
+`mygo.ClearNotifications()`, which removes all of the app's notifications,
+those of earlier runs too, as the app comes to the front:
+
+```go
+n.OnClick(func() {
+	mainWindow().Focus()
+	n.Close()
+})
+
+// What the user has seen in the app does not wait in Notification Center.
+mygo.App.OnDidBecomeActive(func() { mygo.ClearNotifications() })
+```
+
+Linux asks the desktop's notification service to close them, which may
+have closed them already, and Windows hides its balloon.
+
 ## Clipboard
 
 ```go

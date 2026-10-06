@@ -567,6 +567,12 @@ func (b *Backend) RemoveNotification(id string) {
 	}
 }
 
+func (b *Backend) RemoveAllNotifications() {
+	for id := range notifyDBusIDs {
+		b.RemoveNotification(id)
+	}
+}
+
 func appName() string {
 	if theBackend.name != "" {
 		return theBackend.name
