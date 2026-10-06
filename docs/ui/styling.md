@@ -76,6 +76,15 @@ and GTK draw them. Size your own
 elements with the theme too, and they follow it: `t.Space(3)` is three
 units of its spacing, and `t.Rem(2)` twice its font size, as CSS's rem.
 
+Tooltips and toasts are the theme turned over, so that they stand out from
+what they are over: filled with `Inverse`, with `InverseText` on it, which
+left zero are the theme's `Text` and `Background`. A dark app that would
+rather keep them dark sets both:
+
+```go
+t.Inverse, t.InverseText = ui.Hex("#3f3f46"), ui.Hex("#fafafa")
+```
+
 ## The desktop's preferences
 
 `c.Preferences()` returns the settings of the desktop, which the default

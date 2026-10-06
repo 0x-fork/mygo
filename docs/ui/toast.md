@@ -22,6 +22,10 @@ c.ToastAction("Note deleted", "Undo", func() { app.restore(note) })
 A message already showing shows anew; others stack above it. A toast stays
 while the pointer rests on it, and fades in and out.
 
+A toast takes the theme's `Inverse` and `InverseText` colors, its text and
+background turned over unless the theme sets them (see
+[themes](styling.md#themes)).
+
 ## Accessibility
 
 Screen readers read a toast's text as it shows (see

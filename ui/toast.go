@@ -90,13 +90,14 @@ func (rt *engine) buildToasts(c *Context) {
 		return
 	}
 	t := c.theme
+	fill, text := t.inverse()
 	Overlay(c, func() {
 		stack := Column(c).Absolute().Left(0).Right(0).Bottom(t.Space(6)).AlignItems(Center).Gap(t.Space(2)).PassThrough()
 		stack.Children(func() {
 			for i := range live {
 				ts := &rt.toasts[i]
 				box := Row(c).Key(ts.id).AlignItems(Center).Gap(t.Space(4)).Padding(t.Space(2.5), t.Space(4)).Radius(t.Space(2)).MaxWidth(c.w - t.Space(12)).
-					Background(t.Text).TextColor(t.Background).Role(RoleStatus)
+					Background(fill).TextColor(text).Role(RoleStatus)
 				box.Shadow(0, 6, 20, 0, RGBA(0, 0, 0, 0.25))
 				// The time stops while the pointer rests on it.
 				switch hovered := box.Hovered(); {
@@ -127,10 +128,10 @@ func (rt *engine) buildToasts(c *Context) {
 					if ts.action == nil {
 						return
 					}
-					b := ButtonBase(c).Padding(t.Space(1), t.Space(2.5)).Radius(t.Radius).TextColor(t.Accent.Mix(t.Background, 0.35)).FontWeight(600)
+					b := ButtonBase(c).Padding(t.Space(1), t.Space(2.5)).Radius(t.Radius).TextColor(t.Accent.Mix(text, 0.35)).FontWeight(600)
 					b.styleFn = func(b *Element) {
 						if b.Hovered() {
-							b.bg = t.Background.Alpha(0.12)
+							b.bg = text.Alpha(0.12)
 						}
 					}
 					b.Children(func() { Text(c, ts.label) })

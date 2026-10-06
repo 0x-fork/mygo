@@ -15,6 +15,10 @@ leaves or presses. Over elements inside one another, the innermost one's
 tip shows. Give one to buttons showing only an icon, and to what a label
 alone does not explain.
 
+The tip takes the theme's `Inverse` and `InverseText` colors, its text and
+background turned over unless the theme sets them (see
+[themes](styling.md#themes)).
+
 ## Accessibility
 
 Assistive technology reads the tip as the element's description, after its

@@ -593,9 +593,10 @@ func (e *Element) Tooltip(s string) *Element {
 	c := e.c
 	t := c.theme
 	x, y := rt.pointerX+12, rt.pointerY+18
+	fill, text := t.inverse()
 	Overlay(c, func() {
 		tip := Box(c).Absolute().Left(x).Top(y).MaxWidth(t.Space(80)).Padding(t.Space(1.25), t.Space(2)).Radius(t.Space(1.25)).
-			Background(t.Text).TextColor(t.Background).FontSize(t.FontSize - 1).PassThrough().Role(RoleTooltip)
+			Background(fill).TextColor(text).FontSize(t.FontSize - 1).PassThrough().Role(RoleTooltip)
 		tip.Shadow(0, 2, 8, 0, RGBA(0, 0, 0, 0.2))
 		tip.Children(func() { Text(c, s) })
 		keepInWindow(tip, x, y, y-30)
