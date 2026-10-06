@@ -1,9 +1,12 @@
 # Popover
 
 `ui.Popover` shows a panel its function builds below an element, its
-anchor, while a `*bool` is true; clicking outside it or pressing Escape
-sets it to false. Where there is no room below the anchor, the panel shows
-above it.
+anchor, while a `*bool` is true; pressing outside it or Escape sets it to
+false. The press goes on to what is under the pointer, as with the web's
+popovers: a click on another button closes the popover and presses the
+button, and one on the anchor closes it, as the anchor toggles it. Where
+there is no room below the anchor, the panel shows above it, and it
+follows the anchor as the window scrolls.
 
 ```go
 more := ui.Button(c, "More ▾")
@@ -40,6 +43,19 @@ ui.PopoverBase(c, anchor, &app.open, func(panel *ui.Element) {
 	app.filters(c)
 })
 ```
+
+The panel goes elsewhere with `AttachTo`: to the right of the anchor, its
+middles lined up, and to the left where there is no room on the right:
+
+```go
+ui.PopoverBase(c, anchor, &app.open, func(panel *ui.Element) {
+	panel.AttachTo(anchor, ui.AnchorRight, ui.AnchorLeft).Margin(0, 0, 0, 6)
+	app.details(c)
+})
+```
+
+Popovers of your own, as a hover card, are built in an overlay with
+`AttachTo` and `PressedOutside`: see [overlays](overlays.md#your-own-overlays).
 
 See [custom widgets](custom-widgets.md).
 

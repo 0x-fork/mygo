@@ -284,6 +284,8 @@ type Element struct {
 	role     Role
 	checked  int8
 	expanded bool
+	// vertical marks a slider going up (Vertical).
+	vertical bool
 	// highlighted is set on the option of a select the pointer or the
 	// arrows are on.
 	highlighted bool
@@ -293,6 +295,8 @@ type Element struct {
 	accValue string
 	accRange [3]float64
 	hasRange bool
+	// accStep is how far the keys move the value of a range.
+	accStep float64
 
 	// Layout results, in DIPs relative to the window.
 	x, y, w, h float32
@@ -376,6 +380,9 @@ type Element struct {
 	leaving uint8
 	ghosts  bool
 	attach  attachment
+	// serial is the order the pass made the element in: of overlays, the
+	// one made last shows on top.
+	serial int32
 }
 
 type measure struct {
@@ -689,6 +696,30 @@ func (a attachment) anchors() (at, self Anchor) { return Anchor((a - 1) / 9), An
 func (e *Element) Attach(at, self Anchor) *Element {
 	e.flags |= flagAbsolute
 	e.attach = attachment(1 + min(at, AnchorBottomRight)*9 + min(self, AnchorBottomRight))
+	return e
+}
+
+// AttachTo takes the element out of its parent's layout, as Attach does,
+// and puts its point self on the point at of target's box, wherever target
+// is in the window: built in an Overlay, a panel goes below a button with
+// AttachTo(button, ui.AnchorBottomLeft, ui.AnchorTopLeft), and to its
+// right with AttachTo(button, ui.AnchorRight, ui.AnchorLeft). Where it
+// would overflow the window, it goes to the other side of target, or the
+// other way along it, if that overflows less, then moves along target into
+// the window. Its margins keep it apart from target: a top margin below
+// it, and above it as it goes there. Top, Right, Bottom and Left then move
+// it; the element keeps its own size.
+//
+// The element is target's popover: its elements follow target as Tab
+// moves, and a press on target is not outside it (PressedOutside). Build
+// target before it, in the same frame.
+func (e *Element) AttachTo(target *Element, at, self Anchor) *Element {
+	if target == nil {
+		return e
+	}
+	e.flags |= flagAbsolute
+	e.attach = attachment(1 + min(at, AnchorBottomRight)*9 + min(self, AnchorBottomRight))
+	e.popover = target
 	return e
 }
 

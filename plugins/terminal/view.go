@@ -505,7 +505,7 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 				url = urlAt(text, cols, col)
 			}
 			if url != "" {
-				v.c.OpenURL(url)
+				v.c.OpenURL(url, nil)
 				return true
 			}
 		}

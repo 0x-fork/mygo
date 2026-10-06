@@ -121,6 +121,8 @@ const (
 	uiaIsSelectedProperty       = 30079
 	uiaToggleStateProperty      = 30086
 	uiaIsDialogProperty         = 30174
+	uiaHeadingLevelProperty     = 30173
+	uiaOrientationProperty      = 30023
 	uiaIsOffscreenProperty      = 30022
 	uiaPositionInSetProperty    = 30152
 	uiaSizeOfSetProperty        = 30153
@@ -159,6 +161,8 @@ var uiaControlTypes = map[platform.AccessRole]int32{
 	platform.RoleListItem: 50007, platform.RoleMenuButton: 50000, platform.RoleToolbar: 50021, platform.RoleRadioGroup: 50026,
 	platform.RoleToggleButton: 50000, platform.RoleComboBox: 50003, platform.RoleDisclosure: 50000,
 	platform.RoleMeter: 50012, platform.RoleStepper: 50016, platform.RoleColorWell: 50000, platform.RoleAlertDialog: 50033,
+	platform.RoleMenu: 50009, platform.RoleMenuBar: 50010, platform.RoleMenuItem: 50011, platform.RoleMenuItemCheckBox: 50011,
+	platform.RoleMenuItemRadio: 50011, platform.RoleHeading: 50020,
 }
 
 // variant is VARIANT, with the value of the types used here.
@@ -249,7 +253,10 @@ func (e *uiaElement) supports(i int) bool {
 		}
 		return n.Actions&platform.ActionPress != 0
 	case ifaceToggle:
-		return n.Role == platform.RoleCheckBox || n.Role == platform.RoleSwitch || n.Role == platform.RoleToggleButton
+		// Items of menus showing a choice toggle it, as WPF's checkable
+		// items, and are invoked as well.
+		return n.Role == platform.RoleCheckBox || n.Role == platform.RoleSwitch || n.Role == platform.RoleToggleButton ||
+			n.Role == platform.RoleMenuItemCheckBox || n.Role == platform.RoleMenuItemRadio
 	case ifaceSelectionItem:
 		switch n.Role {
 		case platform.RoleRadio, platform.RoleTab, platform.RoleTreeItem:
@@ -528,6 +535,15 @@ func (e *uiaElement) notifyChanges(prev platform.AccessNode) {
 	if e.supports(ifaceExpandCollapse) && prev.States&platform.AccessExpanded != n.States&platform.AccessExpanded {
 		changed(uiaExpandStateProperty, variant{VT: vtI4, Val: uint64(expandState(prev))}, variant{VT: vtI4, Val: uint64(expandState(n))})
 	}
+}
+
+// smallChange returns how far the arrow keys move the value of a range:
+// its step, else a hundredth of it.
+func smallChange(n platform.AccessNode) float64 {
+	if n.Step > 0 {
+		return n.Step
+	}
+	return (n.Max - n.Min) / 100
 }
 
 func toggleState(n platform.AccessNode) int32 {
@@ -878,8 +894,8 @@ func initUIA() {
 		}),
 		rangeOf(func(n platform.AccessNode) float64 { return n.Max }),
 		rangeOf(func(n platform.AccessNode) float64 { return n.Min }),
-		rangeOf(func(n platform.AccessNode) float64 { return (n.Max - n.Min) / 10 }),  // LargeChange
-		rangeOf(func(n platform.AccessNode) float64 { return (n.Max - n.Min) / 100 }), // SmallChange, as the arrow keys
+		rangeOf(func(n platform.AccessNode) float64 { return max(smallChange(n), (n.Max-n.Min)/10) }), // LargeChange, as Page Up and Down
+		rangeOf(smallChange), // SmallChange, as the arrow keys
 	)
 
 	uiaVtbls[ifaceValue] = vtbl(
@@ -971,6 +987,8 @@ func (e *uiaElement) property(id int, v *variant) {
 			str("alert dialog")
 		case platform.RolePopup:
 			str("popup")
+		case platform.RoleHeading:
+			str("heading")
 		}
 	case uiaNameProperty:
 		str(n.Label)
@@ -1008,8 +1026,22 @@ func (e *uiaElement) property(id int, v *variant) {
 		*v = boolVariant(n.Role == platform.RoleDialog || n.Role == platform.RoleAlertDialog)
 	case uiaIsOffscreenProperty:
 		*v = boolVariant(n.States&platform.AccessOffscreen != 0)
+	case uiaOrientationProperty:
+		// OrientationType_Horizontal or Vertical, of a slider.
+		if n.Role == platform.RoleSlider {
+			o := uint64(1)
+			if n.States&platform.AccessVertical != 0 {
+				o = 2
+			}
+			*v = variant{VT: vtI4, Val: o}
+		}
+	case uiaHeadingLevelProperty:
+		// HeadingLevel1 to HeadingLevel9, as Chromium's headings.
+		if n.Role == platform.RoleHeading && n.Level > 0 {
+			*v = variant{VT: vtI4, Val: uint64(80050 + min(n.Level, 9))}
+		}
 	case uiaLevelProperty:
-		if n.Level > 0 {
+		if n.Level > 0 && n.Role != platform.RoleHeading {
 			*v = variant{VT: vtI4, Val: uint64(n.Level)}
 		}
 	case uiaPositionInSetProperty:

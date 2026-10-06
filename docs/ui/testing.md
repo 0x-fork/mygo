@@ -41,7 +41,8 @@ panics where the second key was given, as apps only log it.
   `tt.SetFocused` takes the keyboard from the window and gives it back.
 - **What it shows.** `tt.Texts`, `tt.HasText`, `tt.Find` (the box of a
   text), `tt.Focused`, `tt.Cursor`, `tt.Clipboard`, `tt.OpenedURLs` and
-  `tt.Announcements`, what the view asked screen readers to read out.
+  `tt.Announcements`, what the view asked screen readers to read out;
+  `tt.FailOpenURL` makes the links it opens fail, as those no app opens.
 - **Frames.** `tt.Frame` draws a frame, for what changed outside the view,
   and `tt.Image()` is the last frame, for snapshots; `ui.Render` draws a
   view once at a given scale.

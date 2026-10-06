@@ -32,8 +32,9 @@ type Conn struct {
 	// TitleBar returns the room the window controls take in a window with
 	// a hidden title bar, zero in other windows.
 	TitleBar func() platform.TitleBar
-	// OpenURL opens a link in the default browser.
-	OpenURL func(url string)
+	// OpenURL opens a link in the default browser, and gives done, unless
+	// nil, what came of it on the main thread.
+	OpenURL func(url string, done func(error))
 	// DevTools tells that the window's developer tools are on
 	// (PageOptions.DevTools): the content then opens its inspector.
 	DevTools bool

@@ -108,3 +108,13 @@ func observe(*mygo.Window) (func(), bool) { return nil, false }
 func rightClick(*mygo.Window, float64, float64) bool { return false }
 func popupMenus() ([][]string, bool)                 { return nil, false }
 func choosePopupItem(string) bool                    { return false }
+
+// Input methods keep the keys typed while they compose from the content
+// themselves here (GTK's filtering, IMM32's VK_PROCESSKEY), which a
+// composition the test makes up does not show.
+func pressKey(*mygo.Window, uint16, string) bool { return false }
+
+// AppKit's older accessibility API is macOS's.
+func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
+	return "", false, false, false
+}

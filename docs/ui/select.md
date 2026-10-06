@@ -21,7 +21,9 @@ few options shown at once, [radio buttons](radio.md).
 
 `ui.SelectBase` is a select without a look, choosing a value of any
 comparable type: a `Trigger` opening a `Popup` of `Item`s, which the arrows
-highlight (`Highlighted`) and Enter chooses:
+highlight (`Highlighted`) and Enter chooses. `Highlight` moves the
+highlight to an option, as a select of yours may as the user types its
+first letters:
 
 ```go
 sel := ui.SelectBase(c, &app.size)

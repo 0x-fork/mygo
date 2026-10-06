@@ -77,12 +77,81 @@ const (
 	// RoleAlertDialog is a dialog asking about something important
 	// (AlertDialog).
 	RoleAlertDialog
+	// RoleMenu holds the items of a menu drawn in the window, as a drop-down
+	// menu's panel, and RoleMenuBar the titles of menus along it.
+	// RoleMenuItem is an item of either, and RoleMenuItemCheckBox and
+	// RoleMenuItemRadio items showing a choice, checked with Checked.
+	RoleMenu
+	RoleMenuBar
+	RoleMenuItem
+	RoleMenuItemCheckBox
+	RoleMenuItemRadio
+	// RoleHeading is the title of a section, named by its text, its rank
+	// set with Level.
+	RoleHeading
 )
 
 // Role sets what the element is to assistive technology, for an element
 // drawn as a widget it is not built from, such as a custom toggle.
 func (e *Element) Role(r Role) *Element {
 	e.role = r
+	return e
+}
+
+// The states of an element of your own, which a widget's base sets
+// itself, tell assistive technology what it shows, as ARIA's states do
+// on the web.
+
+// Checked tells assistive technology whether the element, as a check box,
+// switch, radio button, toggle button or menu item of your own, is on.
+// Bases set it from their value.
+func (e *Element) Checked(on bool) *Element {
+	e.checked = 1 + int8(b2f(on))
+	return e
+}
+
+// Mixed tells assistive technology that the element, a check box, is
+// partly on, as one checking a group whose boxes differ.
+func (e *Element) Mixed() *Element {
+	e.checked = 3
+	return e
+}
+
+// Expanded tells assistive technology whether what the element opens
+// shows, as the popup of a button or the section below a header.
+func (e *Element) Expanded(open bool) *Element {
+	e.expanded = open
+	return e
+}
+
+// Value sets what assistive technology reads as the element's value, as
+// the choice a button opening a popup shows.
+func (e *Element) Value(s string) *Element {
+	e.accValue = s
+	return e
+}
+
+// Range tells assistive technology the range and the value of a slider,
+// progress bar, meter or stepper of your own: value, from lo to hi. Step
+// tells it how far the keys move the value.
+func (e *Element) Range(lo, hi, value float64) *Element {
+	e.hasRange, e.accRange = true, [3]float64{lo, hi, value}
+	return e
+}
+
+// Level tells assistive technology the rank of a heading, from 1 for the
+// highest, or how deep an item of a tree is, from 1 at the top.
+func (e *Element) Level(n int) *Element {
+	e.level = max(n, 0)
+	return e
+}
+
+// ActiveDescendant tells assistive technology that d has the keyboard
+// focus while the element does: the option the arrows are on in a list or
+// a menu that keeps the focus itself, as a combobox's input does. Call it
+// once d is built, inside the element or in its popup.
+func (e *Element) ActiveDescendant(d *Element) *Element {
+	e.activeDescendant = d
 	return e
 }
 
@@ -119,7 +188,7 @@ func leafRole(r platform.AccessRole) bool {
 	switch r {
 	case platform.RoleGroup, platform.RoleList, platform.RoleScroll, platform.RoleDialog, platform.RoleAlertDialog, platform.RolePopup, platform.RoleStatus,
 		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleTree, platform.RoleListItem,
-		platform.RoleToolbar, platform.RoleRadioGroup:
+		platform.RoleToolbar, platform.RoleRadioGroup, platform.RoleMenu, platform.RoleMenuBar:
 		return false
 	}
 	return true
@@ -157,12 +226,12 @@ func (rt *engine) accessTree() *platform.AccessTree {
 	var focused *Element
 	switch root := rt.c.root; {
 	case root == nil:
-	case rt.modal != 0 && rt.c.overlay != nil:
+	case rt.modal != 0 && rt.modalLayer != 0 && rt.c.overlay != nil:
 		// What is behind a dialog is inert: the dialog on top and what
 		// shows above it alone.
 		on := false
 		for ch := rt.c.overlay.first; ch != nil; ch = ch.next {
-			if on = on || ch.id == rt.modal; on {
+			if on = on || ch.id == rt.modalLayer; on {
 				rt.accessElement(t, ch, -1, false, &focused)
 			}
 		}
@@ -265,6 +334,9 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if e.segment {
 		n.States |= platform.AccessSegment
 	}
+	if e.vertical {
+		n.States |= platform.AccessVertical
+	}
 	if e.search {
 		n.States |= platform.AccessSearch
 	}
@@ -315,7 +387,7 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	n.Level = e.level
 	n.Value = e.accValue
 	if e.hasRange {
-		n.Min, n.Max, n.Now = e.accRange[0], e.accRange[1], e.accRange[2]
+		n.Min, n.Max, n.Now, n.Step = e.accRange[0], e.accRange[1], e.accRange[2], e.accStep
 	}
 	// A row of a list says which of all it is, built or not, and the list
 	// how many it has.
@@ -357,7 +429,11 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 		n.Actions |= platform.ActionExpand
 	}
 	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
-		n.Actions |= platform.ActionSetValue
+		if ed.readOnly {
+			n.States |= platform.AccessReadOnly
+		} else {
+			n.Actions |= platform.ActionSetValue
+		}
 		if ed.multiline {
 			n.States |= platform.AccessMultiline
 		}
@@ -444,7 +520,7 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 			s.expand = -1
 		}
 	case platform.AccessSetValue:
-		if s.editor == nil || s.flags&flagEditable == 0 {
+		if s.editor == nil || s.flags&flagEditable == 0 || s.editor.readOnly {
 			return
 		}
 		rt.focusOn(s)

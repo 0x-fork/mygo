@@ -52,7 +52,20 @@ func (w *Window) attachContent() {
 			}
 			return w.native.TitleBar()
 		},
-		OpenURL:    func(url string) { go Shell.OpenExternal(url) },
+		OpenURL: func(url string, done func(error)) {
+			// The system may take a while, as Windows' shell does: not
+			// in the frame.
+			go func() {
+				err := Shell.OpenExternal(url)
+				if done != nil {
+					postMain(func() {
+						if w.native != nil {
+							done(err)
+						}
+					})
+				}
+			}()
+		},
 		DevTools:   w.devTools,
 		Invalidate: w.Invalidate,
 		Post: func(fn func()) {

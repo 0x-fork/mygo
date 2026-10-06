@@ -23,6 +23,9 @@ ui.TextArea(c, &app.notes).Height(160)
   no password mode.
 - `AutoFocus` gives it the keyboard focus as it appears, as the first field
   of a dialog.
+- `ReadOnly(true)` shows the text without letting the user change it: it
+  still takes the focus, without a caret, and its text can be selected and
+  copied.
 - `Disabled(true)` grays it out.
 
 A text area is at least a few lines high and grows with its text; given a
@@ -40,7 +43,11 @@ and the arrows, and by words and lines with the platform's keys; undo and
 redo; cut, copy and paste, also from the Edit menu's roles; and a context
 menu of the editing commands. They take text composed with input methods,
 which see the text around the caret, so that press and hold, Japanese
-conversion and predictions work as in other apps.
+conversion and predictions work as in other apps. The keys typed while an
+input method composes are its own, as Enter choosing a candidate or Escape
+giving the composition up: they submit nothing, press no shortcut and
+close no dialog. `Composing` reports whether it composes, its text not yet
+in the string.
 
 The input keeps the text being edited, its selection and its undo history
 from frame to frame; setting the string from elsewhere replaces the text.
@@ -67,4 +74,5 @@ background, border or corners, for inputs of your own design: see
 
 Assistive technology sees a text field, or a text area, named by its
 `Label` or its field, whose value is its text, with the caret and the
-selection; it edits it as typing does. A password field hides its value.
+selection; it edits it as typing does, unless it is read-only. A password
+field hides its value.

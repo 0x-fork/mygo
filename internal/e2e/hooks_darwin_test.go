@@ -119,6 +119,13 @@ func clickAndType(w *mygo.Window, x, y float64, text string) (ok bool) {
 	return ok
 }
 
+// pressKey presses the key of a virtual key code in a window of native UI,
+// through the input method.
+func pressKey(w *mygo.Window, code uint16, chars string) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestKey(w.NativeHandle(), code, chars) })
+	return ok
+}
+
 func compose(w *mygo.Window, text string, caret int, commit bool) (ok bool) {
 	mygo.RunOnMain(func() { ok = darwin.TestCompose(w.NativeHandle(), text, caret, commit) })
 	return ok
@@ -161,6 +168,13 @@ func accessibility(w *mygo.Window) (nodes []accessNode, ok bool) {
 		}
 	})
 	return nodes, true
+}
+
+// axAttribute reads an attribute of an element through AppKit's older
+// accessibility API, which only macOS has.
+func axAttribute(w *mygo.Window, label, attr string) (value string, settable, named, ok bool) {
+	mygo.RunOnMain(func() { value, settable, named, ok = darwin.TestAccessibilityAttribute(w.NativeHandle(), label, attr) })
+	return value, settable, named, ok
 }
 
 func accessPerform(w *mygo.Window, label, action, value string) (ok bool) {

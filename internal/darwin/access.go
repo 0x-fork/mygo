@@ -114,6 +114,32 @@ var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleStepper:      {"AXIncrementor", ""},
 	platform.RoleColorWell:    {"AXColorWell", ""},
 	platform.RoleAlertDialog:  {"AXGroup", "AXApplicationAlertDialog"},
+	platform.RoleMenu:         {"AXMenu", ""},
+	platform.RoleMenuBar:      {"AXMenuBar", ""},
+	// AppKit's items show a choice with a mark (AXMenuItemMarkChar).
+	platform.RoleMenuItem:         {"AXMenuItem", ""},
+	platform.RoleMenuItemCheckBox: {"AXMenuItem", ""},
+	platform.RoleMenuItemRadio:    {"AXMenuItem", ""},
+	// WebKit's headings, whose value is their level.
+	platform.RoleHeading: {"AXHeading", ""},
+}
+
+// menuItem reports whether nodes of a role are items of a menu.
+func menuItem(r platform.AccessRole) bool {
+	return r == platform.RoleMenuItem || r == platform.RoleMenuItemCheckBox || r == platform.RoleMenuItemRadio
+}
+
+// markChar returns the mark an item of a menu shows for its choice, as
+// AppKit's: a check mark when on, a dash when mixed, none otherwise.
+func markChar(n platform.AccessNode) string {
+	switch {
+	case !menuItem(n.Role):
+	case n.States&platform.AccessMixed != 0:
+		return "-"
+	case n.States&platform.AccessChecked != 0:
+		return "✓"
+	}
+	return ""
 }
 
 // chooses reports whether a node is the row of a list, a table or an
@@ -145,7 +171,7 @@ func roleOf(n platform.AccessNode) (role, subrole string) {
 func titled(r platform.AccessRole) bool {
 	switch r {
 	case platform.RoleButton, platform.RoleLink, platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RolePopUpButton, platform.RoleTab,
-		platform.RoleMenuButton, platform.RoleToggleButton:
+		platform.RoleMenuButton, platform.RoleToggleButton, platform.RoleMenuItem, platform.RoleMenuItemCheckBox, platform.RoleMenuItemRadio:
 		return true
 	}
 	return false
@@ -190,6 +216,8 @@ func valueOf(n platform.AccessNode) id {
 		return msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Now)
 	case n.Role == platform.RoleText:
 		return nsString(n.Label)
+	case n.Role == platform.RoleHeading && n.Level > 0:
+		return nsNumberInt(n.Level)
 	}
 	if n.Value != "" || textual(n.Role) {
 		return nsString(n.Value)
@@ -229,6 +257,14 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 	if fresh || n.States&platform.AccessExpanded != o.States&platform.AccessExpanded {
 		send(obj, "setAccessibilityExpanded:", boolArg(n.States&platform.AccessExpanded != 0))
 	}
+	if n.Role == platform.RoleSlider && (fresh || n.States&platform.AccessVertical != o.States&platform.AccessVertical) {
+		// NSAccessibilityOrientationVertical or Horizontal.
+		orient := 2
+		if n.States&platform.AccessVertical != 0 {
+			orient = 1
+		}
+		send(obj, "setAccessibilityOrientation:", uintptr(orient))
+	}
 	if n.Role.Ranged() {
 		if fresh || n.Min != o.Min || n.Max != o.Max {
 			send(obj, "setAccessibilityMinValue:", uintptr(msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Min)))
@@ -239,11 +275,12 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 	// table tells (AXSelectedRowsChanged).
 	toggled := toggle(n.Role) && n.States&(platform.AccessChecked|platform.AccessMixed) != o.States&(platform.AccessChecked|platform.AccessMixed) ||
 		n.Role == platform.RoleDisclosure && n.States&platform.AccessExpanded != o.States&platform.AccessExpanded
-	if fresh || n.Value != o.Value || n.Now != o.Now || toggled || n.Role == platform.RoleText && n.Label != o.Label {
+	if fresh || n.Value != o.Value || n.Now != o.Now || toggled || n.Role == platform.RoleText && n.Label != o.Label ||
+		n.Role == platform.RoleHeading && n.Level != o.Level {
 		send(obj, "setAccessibilityValue:", uintptr(valueOf(n)))
 		valueChanged = !fresh
 	}
-	if n.Level > 0 && (fresh || n.Level != o.Level) {
+	if n.Level > 0 && n.Role != platform.RoleHeading && (fresh || n.Level != o.Level) {
 		// How deep the row of an outline is, from 0.
 		send(obj, "setAccessibilityDisclosureLevel:", uintptr(n.Level-1))
 	}
@@ -524,19 +561,60 @@ func registerAccessClass() {
 			return el != nil && el.s.access.Focus == el.node.ID
 		}),
 		// AXInvalid, which the newer API lacks, says a value is not valid,
-		// as WebKit's fields do.
+		// as WebKit's fields do, and AXMenuItemMarkChar what an item of a
+		// menu shows of its choice.
 		method("accessibilityAttributeNames", func(self id, cmd objc.SEL) id {
 			names := sendSuper(self, "MyGoAccessibilityElement", cmd)
-			if el := b().accessElementOf(self); el != nil && el.node.States&platform.AccessInvalid != 0 {
-				return send(names, "arrayByAddingObject:", uintptr(nsString("AXInvalid")))
+			el := b().accessElementOf(self)
+			if el == nil {
+				return names
+			}
+			if el.node.States&platform.AccessInvalid != 0 {
+				names = send(names, "arrayByAddingObject:", uintptr(nsString("AXInvalid")))
+			}
+			if menuItem(el.node.Role) {
+				names = send(names, "arrayByAddingObject:", uintptr(nsString("AXMenuItemMarkChar")))
 			}
 			return names
 		}),
 		method("accessibilityAttributeValue:", func(self id, cmd objc.SEL, attr id) id {
-			if el := b().accessElementOf(self); el != nil && el.node.States&platform.AccessInvalid != 0 && stringOf(attr) == "AXInvalid" {
-				return nsString("true")
+			if el := b().accessElementOf(self); el != nil {
+				switch stringOf(attr) {
+				case "AXInvalid":
+					if el.node.States&platform.AccessInvalid != 0 {
+						return nsString("true")
+					}
+				case "AXMenuItemMarkChar":
+					if m := markChar(el.node); m != "" {
+						return nsString(m)
+					}
+					if menuItem(el.node.Role) {
+						return 0
+					}
+				}
 			}
 			return sendSuper(self, "MyGoAccessibilityElement", cmd, uintptr(attr))
+		}),
+		// The older API asks which attributes are settable, which
+		// NSAccessibilityElement does not answer (calling super throws):
+		// AppKit's answer without it is the attributes of the setters the
+		// class overrides, AXValue, AXFocused and a row's AXDisclosing,
+		// kept but for the value of a read-only text field, which is not
+		// settable, as WebKit's.
+		method("accessibilityIsAttributeSettable:", func(self id, _ objc.SEL, attr id) bool {
+			el := b().accessElementOf(self)
+			if el == nil {
+				return false
+			}
+			switch stringOf(attr) {
+			case "AXValue":
+				return !textual(el.node.Role) || el.node.Actions&platform.ActionSetValue != 0
+			case "AXFocused":
+				return true
+			case "AXDisclosing":
+				return el.node.Role == platform.RoleTreeItem
+			}
+			return false
 		}),
 		method("isAccessibilitySelectorAllowed:", func(self id, cmd objc.SEL, selector objc.SEL) bool {
 			if el := b().accessElementOf(self); el != nil {

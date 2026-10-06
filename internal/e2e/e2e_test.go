@@ -2188,12 +2188,16 @@ func TestContentWindowAccessibility(t *testing.T) {
 // the stack overflows (#79).
 func TestContentWindowObserved(t *testing.T) {
 	var frames atomic.Int32
-	name := "Ada"
+	name, notes := "Ada", "Read only"
 	view := func(c *ui.Context) {
 		frames.Add(1)
 		ui.Column(c).Fill().Padding(20).Gap(10).Children(func() {
 			ui.Text(c, "Settings")
 			ui.TextInput(c, &name).Label("Name")
+			ui.TextInput(c, &notes).Label("Notes").ReadOnly(true)
+			ui.Column(c).Role(ui.RoleMenu).Label("Edit menu").Children(func() {
+				ui.Text(c, "Bold").Role(ui.RoleMenuItemCheckBox).Checked(true)
+			})
 		})
 	}
 	w := newWindow(t, mygo.WindowOptions{Title: "Observed", Width: 400, Height: 300, Content: ui.View(view)})
@@ -2221,6 +2225,16 @@ func TestContentWindowObserved(t *testing.T) {
 	// AppKit answers for what the element does not.
 	if accessPerform(w, "Settings", "press", "") {
 		t.Error("a text could be pressed")
+	}
+	// The overrides of the older API answer too.
+	if _, settable, _, ok := axAttribute(w, "Name", "AXValue"); ok && !settable {
+		t.Error("the text field's value is not settable")
+	}
+	if _, settable, _, ok := axAttribute(w, "Notes", "AXValue"); ok && settable {
+		t.Error("the read-only text field's value is settable")
+	}
+	if mark, _, named, ok := axAttribute(w, "Bold", "AXMenuItemMarkChar"); ok && (mark != "✓" || !named) {
+		t.Errorf("the menu item's mark is %q, named %v", mark, named)
 	}
 }
 
@@ -2321,6 +2335,40 @@ func TestContentWindowTyping(t *testing.T) {
 	compose(w, "にほん", 3, false)
 	compose(w, "日本", 0, true)
 	eventually(t, "the composed text", func() bool { return text() == "héllo日本" })
+}
+
+// TestContentWindowComposingKeys presses Escape and Return in a dialog's
+// text input while an input method composes: they are the input method's,
+// and neither close the dialog nor submit the input.
+func TestContentWindowComposingKeys(t *testing.T) {
+	var frames atomic.Int32
+	open, submitted, name := true, 0, ""
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Modal(c, &open, func() {
+			if ui.TextInput(c, &name).AutoFocus().Submitted() {
+				submitted++
+			}
+		})
+	}
+	state := func() (o bool, s int, n string) {
+		mygo.RunOnMain(func() { o, s, n = open, submitted, name })
+		return o, s, n
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Composing", Width: 400, Height: 200, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 1 })
+	compose(w, "ni", 2, false)
+	if !pressKey(w, 53, "\x1b") { // Escape
+		t.Skip("key automation not available on this platform")
+	}
+	pressKey(w, 36, "\r") // Return
+	compose(w, "你", 0, true)
+	eventually(t, "the composed text", func() bool { _, _, n := state(); return n == "你" })
+	if o, s, _ := state(); !o || s != 0 {
+		t.Fatalf("keys typed while composing: the dialog open %v, the input submitted %d times", o, s)
+	}
+	pressKey(w, 53, "\x1b")
+	eventually(t, "Escape closing the dialog", func() bool { o, _, _ := state(); return !o })
 }
 
 // TestContentWindow shows native UI: frames, input from the platform,

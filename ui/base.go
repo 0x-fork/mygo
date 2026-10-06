@@ -76,10 +76,11 @@ func RadioBase[T comparable](c *Context, selected *T, value T) *Element {
 
 // SliderBase creates a slider without a look: dragging across its
 // content box, within its padding, sets *value between lo and hi, as do
-// the arrows, Home and End while it has the focus; Changed reports a new
-// value, and assistive technology sees a slider of that range. Draw its
-// track and thumb where (*value-lo)/(hi-lo) puts them, and pad it by half
-// the thumb's width to keep the thumb inside it:
+// the arrows, Home and End while it has the focus, by a hundredth of the
+// range unless Step says otherwise; Changed reports a new value, and
+// assistive technology sees a slider of that range. Draw its track and
+// thumb where (*value-lo)/(hi-lo) puts them, and pad it by half the
+// thumb's width to keep the thumb inside it:
 //
 //	s := ui.SliderBase(c, &app.volume, 0, 100).Height(24).PaddingX(12)
 //	s.Draw(func(p *ui.Painter, r ui.Rect) {
@@ -88,10 +89,22 @@ func RadioBase[T comparable](c *Context, selected *T, value T) *Element {
 //		p.Fill(ui.Rect{X: x - 12, Y: r.Y, W: 24, H: 24}, blue, 12)
 //	})
 //
-// Slider is SliderBase with the theme's look.
+// Vertical makes it go up from lo at the bottom. Slider is SliderBase with
+// the theme's look.
 func SliderBase(c *Context, value *float64, lo, hi float64) *Element {
-	return sliderBase(c, value, lo, hi, 0)
+	s := sliderBase(c, value, lo, hi, 0)
+	s.widget = "SliderBase" // which Vertical takes
+	return s
 }
+
+// sliderSettings are what Step and Vertical said of a slider as the last
+// frame built it, which the input since applies by.
+type sliderSettings struct {
+	step     float64
+	vertical bool
+}
+
+type sliderKey struct{}
 
 // sliderBase creates a SliderBase whose values are lo and the multiples of
 // step from it, any for 0.
@@ -100,7 +113,14 @@ func sliderBase(c *Context, value *float64, lo, hi, step float64) *Element {
 	s.flags |= flagDraggable | flagHover
 	s.widget = "Slider"
 	st := s.st
-	set := func(v float64) {
+	// The view says them again as it builds the element.
+	set := Local(s, sliderKey{}, func() sliderSettings { return sliderSettings{} })
+	settings := *set
+	*set = sliderSettings{}
+	if settings.step > 0 {
+		step = settings.step
+	}
+	setValue := func(v float64) {
 		v = snap(max(lo, min(hi, v)), lo, hi, step)
 		if v != *value {
 			*value = v
@@ -108,25 +128,62 @@ func sliderBase(c *Context, value *float64, lo, hi, step float64) *Element {
 			c.rt.consumed = true
 		}
 	}
-	if st.pressed && st.cw > 0 {
-		frac := (c.rt.pointerX - st.cx) / st.cw
-		set(lo + float64(max(0, min(1, frac)))*(hi-lo))
+	if st.pressed && !s.disabled() {
+		switch {
+		case settings.vertical && st.ch > 0:
+			frac := 1 - (c.rt.pointerY-st.cy)/st.ch
+			setValue(lo + float64(max(0, min(1, frac)))*(hi-lo))
+		case !settings.vertical && st.cw > 0:
+			frac := (c.rt.pointerX - st.cx) / st.cw
+			setValue(lo + float64(max(0, min(1, frac)))*(hi-lo))
+		}
 	}
 	if step <= 0 {
 		step = (hi - lo) / 100
 	}
+	s.accStep = step
 	switch {
 	case s.Shortcut(0, KeyLeft), s.Shortcut(0, KeyDown):
-		set(*value - step)
+		setValue(*value - step)
 	case s.Shortcut(0, KeyRight), s.Shortcut(0, KeyUp):
-		set(*value + step)
+		setValue(*value + step)
+	case s.Shortcut(0, KeyPageDown):
+		setValue(*value - max(step, (hi-lo)/10))
+	case s.Shortcut(0, KeyPageUp):
+		setValue(*value + max(step, (hi-lo)/10))
 	case s.Shortcut(0, KeyHome):
-		set(lo)
+		setValue(lo)
 	case s.Shortcut(0, KeyEnd):
-		set(hi)
+		setValue(hi)
 	}
 	s.role, s.hasRange, s.accRange = RoleSlider, true, [3]float64{lo, hi, *value}
 	return s
+}
+
+// Step makes the values of a slider lo and the multiples of step from it,
+// which the arrows move between, as a StepSlider's. Of a range of your own
+// (Range), it tells assistive technology how far the keys move the value.
+func (e *Element) Step(step float64) *Element {
+	if step <= 0 {
+		return e
+	}
+	e.accStep = step
+	if e.widget == "Slider" || e.widget == "SliderBase" {
+		Local(e, sliderKey{}, func() sliderSettings { return sliderSettings{} }).step = step
+	}
+	return e
+}
+
+// Vertical makes a SliderBase go up, from lo at the bottom of its content
+// box to hi at the top, and tells assistive technology so. Pad it by half
+// the thumb's height, rather than its width. Slider, drawn across, stays
+// so.
+func (e *Element) Vertical() *Element {
+	if e.widget == "SliderBase" {
+		Local(e, sliderKey{}, func() sliderSettings { return sliderSettings{} }).vertical = true
+		e.vertical = true
+	}
+	return e
 }
 
 // TabsParts are the parts of a tab list without a look: TabsBase makes
@@ -310,13 +367,28 @@ func (s *SelectParts[T]) choose(v T) {
 // Open reports whether the popup shows.
 func (s *SelectParts[T]) Open() bool { return *s.open }
 
+// Highlight moves the highlight to the option of value while the popup
+// shows, as a select of your own may do as the user types the option's
+// first letters; Enter then chooses it.
+func (s *SelectParts[T]) Highlight(value T) {
+	for i, v := range *s.values {
+		if v == value {
+			if *s.highlight != i {
+				*s.highlight = i
+				s.c.rt.consumed = true
+			}
+			return
+		}
+	}
+}
+
 // Popup shows the popup below the trigger, at least as wide, while it is
 // open: fn styles the panel and builds the options in it with Item.
 // Clicking outside it or pressing Escape closes it. It returns the panel,
 // or nil when the popup is closed.
 func (s *SelectParts[T]) Popup(fn func(panel *Element)) *Element {
 	b := s.Trigger
-	return PopoverBase(s.c, b, s.open, func(panel *Element) {
+	return popover(s.c, b, s.open, true, func(panel *Element) {
 		panel.MinWidth(b.Bounds().W)
 		s.next = s.next[:0]
 		fn(panel)
@@ -358,30 +430,45 @@ func (s *SelectParts[T]) Item(value T) *Element {
 func (e *Element) Highlighted() bool { return e.highlighted }
 
 // PopoverBase shows a panel without a look below anchor while *open is
-// true: fn styles the panel and builds its content. Clicking outside it
-// or pressing Escape sets *open to false. Where there is no room below
-// the anchor, the panel shows above it; a top margin keeps it apart from
-// the anchor on either side. It returns the panel, or nil while closed;
-// Popover is PopoverBase with the theme's look.
+// true: fn styles the panel and builds its content. Pressing outside the
+// panel and the anchor, or Escape, sets *open to false; the press goes on
+// to what is under the pointer, as with the web's popovers. Where there is
+// no room below the anchor, the panel shows above it; a top margin keeps
+// it apart from the anchor on either side. fn may place it elsewhere with
+// AttachTo, as to the right of the anchor:
+//
+//	panel.AttachTo(anchor, ui.AnchorRight, ui.AnchorLeft).Margin(0, 0, 0, 6)
+//
+// It returns the panel, or nil while closed; Popover is PopoverBase with
+// the theme's look.
 func PopoverBase(c *Context, anchor *Element, open *bool, fn func(panel *Element)) *Element {
+	return popover(c, anchor, open, false, fn)
+}
+
+// popover shows the panel of a PopoverBase, over a backdrop taking the
+// presses outside it with modal, as a select's popup: a menu of the
+// system's takes them too.
+func popover(c *Context, anchor *Element, open *bool, modal bool, fn func(panel *Element)) *Element {
 	if !*open {
 		return nil
 	}
-	b := anchor.Bounds()
 	var panel *Element
 	Overlay(c, func() {
-		back := Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0)
-		back.flags |= flagClickable
-		back.popover = anchor
-		c.rt.openOverlay(back)
-		if back.Clicked() || c.rt.overlayShortcut(back.id, 0, KeyEscape) {
+		if modal {
+			back := Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0)
+			back.flags |= flagClickable
+			back.popover = anchor
+			if back.Clicked() {
+				*open = false
+			}
+		}
+		panel = Box(c).Role(RolePopup).AttachTo(anchor, AnchorBottomLeft, AnchorTopLeft)
+		// Presses on it stay in it.
+		panel.flags |= flagClickable
+		panel.Children(func() { fn(panel) })
+		if panel.OverlayShortcut(0, KeyEscape) || !modal && panel.PressedOutside() {
 			*open = false
 		}
-		panel = Box(c).Absolute().Left(b.X).Top(b.Y + b.H).Role(RolePopup)
-		panel.flags |= flagClickable
-		panel.popover = anchor
-		panel.Children(func() { fn(panel) })
-		keepInWindow(panel, b.X, b.Y+b.H, b.Y)
 	})
 	return panel
 }
@@ -397,10 +484,9 @@ func DialogBase(c *Context, open *bool, fn func(backdrop, panel *Element)) *Elem
 	}
 	var panel *Element
 	Overlay(c, func() {
-		back := Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center()
-		back.flags |= flagClickable | flagModal
-		c.rt.openOverlay(back)
-		if back.Clicked() || c.rt.overlayShortcut(back.id, 0, KeyEscape) {
+		back := Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Modal()
+		back.flags |= flagClickable
+		if back.Clicked() || back.OverlayShortcut(0, KeyEscape) {
 			*open = false
 		}
 		back.Children(func() {

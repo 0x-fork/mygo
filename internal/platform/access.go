@@ -29,8 +29,9 @@ type AccessNode struct {
 	Bounds RectF
 	States AccessStates
 	// Min, Max and Now are the range and the value of a slider or a
-	// progress bar; Now is below Min for progress of unknown length.
-	Min, Max, Now float64
+	// progress bar; Now is below Min for progress of unknown length. Step
+	// is how far an increment moves the value, 0 for none.
+	Min, Max, Now, Step float64
 	// SelStart and SelEnd are the selection of a text field, in runes,
 	// and Placeholder what it shows while empty.
 	SelStart, SelEnd int
@@ -39,7 +40,8 @@ type AccessNode struct {
 	// text read after it: a field's description and its error, or a
 	// tooltip.
 	Description string
-	// Level is how deep an item of a tree is, from 1; 0 for other nodes.
+	// Level is how deep an item of a tree is, or the rank of a heading,
+	// from 1; 0 for other nodes.
 	Level int
 	// PosInSet is the place of an item in its set, from 1, and SetSize
 	// the size of the set, 0 when not given: a list's rows say which of
@@ -104,6 +106,18 @@ const (
 	// RoleAlertDialog is a dialog asking about something important, its
 	// Description the message.
 	RoleAlertDialog
+	// RoleMenu holds the items of a menu, RoleMenuBar the menus' titles
+	// along a window, and RoleMenuItem is an item of either, which
+	// RoleMenuItemCheckBox and RoleMenuItemRadio are when they show a
+	// choice, AccessChecked (AccessMixed) while chosen.
+	RoleMenu
+	RoleMenuBar
+	RoleMenuItem
+	RoleMenuItemCheckBox
+	RoleMenuItemRadio
+	// RoleHeading is the title of a section, Level its rank: 1 for the
+	// highest.
+	RoleHeading
 )
 
 // Ranged reports whether nodes of a role have a value in a range (Min,
@@ -149,6 +163,8 @@ const (
 	// AccessExpandable is set on an item of a tree with children, which
 	// AccessExpanded shows.
 	AccessExpandable
+	// AccessVertical is set on a slider going up.
+	AccessVertical
 )
 
 // AccessActions are the actions an element of an AccessTree takes.

@@ -907,7 +907,11 @@ func layoutAbsolute(e *Element) {
 			continue
 		}
 		if c.attach != 0 {
-			attach(c, e, pw, ph)
+			if c.popover != nil {
+				attachTo(c, e, pw, ph)
+			} else {
+				attach(c, e, pw, ph)
+			}
 			continue
 		}
 		top, tok := c.inset[0].resolve(ph)
@@ -961,6 +965,114 @@ func layoutAbsolute(e *Element) {
 		c.x, c.y = e.border[3]+x, e.border[0]+y
 		layoutBox(c, w, h)
 	}
+}
+
+// attachTo places c, a child of e whose padding box is pw×ph, attached to
+// a point of the box of the element it is a popover of (AttachTo).
+func attachTo(c, e *Element, pw, ph float32) {
+	var w float32
+	if v, ok := c.width.resolve(pw); ok {
+		w = c.clampW(v, pw)
+	} else {
+		w = fitWidth(c, pw, pw)
+	}
+	var h float32
+	if v, ok := c.height.resolve(ph); ok {
+		h = c.clampH(v, ph)
+	} else {
+		h = heightAt(c, w, ph)
+	}
+	t := laidOutBox(c.popover)
+	at, self := c.attach.anchors()
+	ax, ay := at.fractions()
+	sx, sy := self.fractions()
+	x := alongTarget(t.X, t.W, ax, sx, w, c.m(3)-c.m(1), c.c.w)
+	y := alongTarget(t.Y, t.H, ay, sy, h, c.m(0)-c.m(2), c.c.h)
+	dx, dy := c.relative(pw, ph)
+	ox, oy := laidOutOrigin(e)
+	c.x, c.y = x+dx-ox, y+dy-oy
+	layoutBox(c, w, h)
+}
+
+// windowMargin keeps what overlays place apart from the window's edges.
+const windowMargin = 4
+
+// alongTarget returns where an element size long goes along an axis of the
+// window, limit long, with its point at fraction self on target's point at
+// fraction at, moved by off: on the other side of target, or the other way
+// along it, where that overflows the window less, then moved into the
+// window along target.
+func alongTarget(t0, tsize, at, self, size, off, limit float32) float32 {
+	pos := func(at, self, off float32) float32 { return t0 + at*tsize - self*size + off }
+	over := func(p float32) float32 {
+		return max(0, windowMargin-p) + max(0, p+size-(limit-windowMargin))
+	}
+	p := pos(at, self, off)
+	if over(p) > 0 {
+		if q := pos(1-at, 1-self, -off); over(q) < over(p) {
+			p = q
+		}
+	}
+	beside := at == 1 && self == 0 || at == 0 && self == 1
+	if !beside && over(p) > 0 {
+		p = max(windowMargin, min(p, limit-windowMargin-size))
+	}
+	return p
+}
+
+// laidOutOrigin returns where place will put the box of an element laid
+// out, in the window: its position and those of the elements around it,
+// less the offsets of the scroll containers among them.
+func laidOutOrigin(e *Element) (x, y float32) {
+	x, y = e.x, e.y
+	for ch, p := e, e.parent; p != nil; ch, p = p, p.parent {
+		if ch.flags&flagAbsolute == 0 || ch.leaving == 1 {
+			if f := p.followX; f != nil {
+				x -= float32(f.st.scrollX)
+			}
+			if p.scrolls() {
+				x -= float32(p.st.scrollX)
+				y -= float32(p.st.scrollY - p.scrollBase)
+			}
+		}
+		x += p.x
+		y += p.y
+	}
+	return x, y
+}
+
+// laidOutBox returns where place, or commit for an inline element, will
+// put the box of an element of the frame, in the window, as its overlays
+// are laid out; that of the last frame for one this frame did not build.
+func laidOutBox(e *Element) Rect {
+	if e.st.seen != e.c.rt.frame || e.parent == nil {
+		return e.Bounds()
+	}
+	if !e.isInline() {
+		x, y := laidOutOrigin(e)
+		return Rect{x, y, e.w, e.h}
+	}
+	// The box around its text in the paragraph's layout.
+	start, end := e.runes[0], e.runes[1]
+	para := e.parent
+	for para.isInline() {
+		start, end = start+para.runes[0], end+para.runes[0]
+		para = para.parent
+	}
+	x, y := laidOutOrigin(para)
+	x, y = x+para.contentX(), y+para.contentY()
+	if para.tl == nil {
+		return Rect{x, y, 0, 0}
+	}
+	var box Rect
+	for i, r := range para.tl.Selection(start, end) {
+		if f := (Rect{x + r.X, y + r.Y, r.W, r.H}); i == 0 {
+			box = f
+		} else {
+			box = union(box, f)
+		}
+	}
+	return box
 }
 
 // attach places c, attached to a point of the padding box of its parent e,

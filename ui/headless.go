@@ -24,8 +24,12 @@ type headless struct {
 	cursor    Cursor
 	ime       platform.TextInputState
 	opened    []string
-	bar       TitleBar
-	access    *platform.AccessTree
+	openErr   error
+	// later are what the view asked to run after the frame, as a window
+	// posts them to the main thread.
+	later  []func()
+	bar    TitleBar
+	access *platform.AccessTree
 	// told are the announcements of the trees, and announced those the
 	// view made.
 	told, announced []string
@@ -59,7 +63,16 @@ func (h *headless) isDark() bool                               { return h.dark }
 func (h *headless) preferences() platform.Preferences          { return h.prefs }
 func (h *headless) titleBar() TitleBar                         { return h.bar }
 func (h *headless) invalidate()                                { h.requested.Store(true) }
-func (h *headless) openURL(u string)                           { h.opened = append(h.opened, u) }
+
+// openURL notes the link, and gives done the error FailOpenURL set before
+// the next frame, as a window gives it after the system opened the link.
+func (h *headless) openURL(u string, done func(error)) {
+	h.opened = append(h.opened, u)
+	if done != nil {
+		err := h.openErr
+		h.later = append(h.later, func() { done(err) })
+	}
+}
 
 // post asks for a frame rather than run fn: the Tester builds each frame
 // anew.
@@ -112,8 +125,13 @@ func NewTester(view func(c *Context), width, height int) *Tester {
 func (t *Tester) settle() {
 	for i := 0; i < 20; i++ {
 		t.h.requested.Store(false)
+		for len(t.h.later) > 0 {
+			fn := t.h.later[0]
+			t.h.later = t.h.later[1:]
+			fn()
+		}
 		t.rt.runFrame()
-		if !t.h.requested.Load() {
+		if !t.h.requested.Load() && len(t.h.later) == 0 {
 			return
 		}
 	}
@@ -384,6 +402,10 @@ func (t *Tester) Cursor() Cursor { return t.h.cursor }
 
 // OpenedURLs returns the links the view opened.
 func (t *Tester) OpenedURLs() []string { return t.h.opened }
+
+// FailOpenURL makes the links the view opens from now on fail with err, as
+// those no app opens, or opens them again for nil.
+func (t *Tester) FailOpenURL(err error) { t.h.openErr = err }
 
 // Announcements returns what the view asked screen readers to read out
 // (Context.Announce), as a Router the titles of the pages it showed, and

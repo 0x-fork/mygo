@@ -23,7 +23,12 @@ func (rt *engine) enterScope(e *Element) focusScope {
 	saved := rt.commitScope
 	if e.flags&flagModal != 0 {
 		rt.commitScope = focusScope{modal: e.id}
-		rt.modal = e.id
+		rt.modal, rt.modalLayer = e.id, 0
+		for l := e; l.parent != nil; l = l.parent {
+			if l.parent.id == overlayID {
+				rt.modalLayer = l.id
+			}
+		}
 	}
 	if a := e.popover; a != nil {
 		// A popover opened from a dialog is in the dialog.
@@ -103,11 +108,12 @@ func (rt *engine) scopeOf(id uint64) uint64 {
 	return 0
 }
 
-// overlayShortcut registers that overlay id handles mods+key while the
-// focused element and those around it do not, the overlay on top first,
-// and reports whether such a key was delivered to it.
-func (rt *engine) overlayShortcut(id uint64, mods Modifiers, key Key) bool {
-	rt.nextRegs = append(rt.nextRegs, shortcutReg{id: id, mods: mods, key: key, overlay: true})
+// overlayShortcut registers that overlay e handles mods+key while the
+// focused element and those around it do not, the overlay made last (on
+// top) first, and reports whether such a key was delivered to it.
+func (rt *engine) overlayShortcut(e *Element, mods Modifiers, key Key) bool {
+	id := e.id
+	rt.nextRegs = append(rt.nextRegs, shortcutReg{id: id, mods: mods, key: key, overlay: true, serial: e.serial})
 	for i, d := range rt.delivered {
 		if d.id == id && d.mods == mods && d.key == key {
 			rt.delivered = append(rt.delivered[:i], rt.delivered[i+1:]...)
@@ -163,6 +169,76 @@ func (c *Context) insideModal() bool {
 			continue
 		}
 		p = p.parent
+	}
+	return false
+}
+
+// Modal makes the element, built in an Overlay, a dialog's backdrop, as
+// DialogBase's: while it shows, the focus moves into it, Tab goes round
+// the elements inside it, the window's shortcuts built outside it wait,
+// and assistive technology sees it and what shows above it alone, as what
+// is behind it is inert. Build the dialog inside it.
+func (e *Element) Modal() *Element {
+	e.flags |= flagModal
+	return e
+}
+
+// OverlayShortcut reports whether the key with exactly the modifiers mods
+// was pressed for the element, an overlay, which gets the keys the focused
+// element and those around it leave, wherever the focus is: the overlay
+// built last first, so that Escape closes the one on top. Overlays close
+// with it, as PopoverBase and DialogBase do:
+//
+//	if panel.OverlayShortcut(0, ui.KeyEscape) {
+//		app.open = false
+//	}
+func (e *Element) OverlayShortcut(mods Modifiers, key Key) bool {
+	if e.c.inert {
+		return false
+	}
+	return e.c.rt.overlayShortcut(e, mods, key)
+}
+
+// PressedOutside reports whether the pointer went down since the last
+// frame outside the element: on neither it, nor what it holds, nor the
+// element it is attached to (AttachTo), nor the overlays attached to
+// elements inside it, as the popover of one of its buttons. A popover
+// closes then, the press going on to what is under the pointer, as
+// PopoverBase does.
+func (e *Element) PressedOutside() bool {
+	rt := e.c.rt
+	for _, id := range rt.downs {
+		if !rt.pressedWithin(id, e) {
+			rt.consumed = true
+			return true
+		}
+	}
+	return false
+}
+
+// pressedWithin reports whether element id of the last frame is e, inside it,
+// the element e is attached to, or in an overlay attached to one of them.
+func (rt *engine) pressedWithin(id uint64, e *Element) bool {
+	var anchor uint64
+	if e.popover != nil {
+		anchor = e.popover.id
+	}
+	s := rt.states[id]
+	for range 1000 { // against cycles of anchors
+		if s == nil {
+			return false
+		}
+		if s.id == e.id || anchor != 0 && s.id == anchor {
+			return true
+		}
+		next := s.parent
+		if s.anchor != 0 {
+			next = s.anchor // a popover is where its anchor is
+		}
+		if next == 0 {
+			return false
+		}
+		s = rt.states[next]
 	}
 	return false
 }

@@ -73,6 +73,7 @@ func (c *Context) alloc() *Element {
 	shadows, cols, rows, frags := e.shadows[:0], e.cols[:0], e.rows[:0], e.frags[:0]
 	*e = Element{}
 	e.shadows, e.cols, e.rows, e.frags = shadows, cols, rows, frags
+	e.serial = int32(c.used)
 	e.shrink = 1
 	e.justify, e.align, e.self, e.alignContent = alignAuto, alignAuto, alignAuto, alignAuto
 	e.justifyItems, e.justifySelf = alignAuto, alignAuto
@@ -266,8 +267,26 @@ func (c *Context) Announce(text string) {
 }
 
 // OpenURL opens a URL in the default browser, or the app registered for
-// its scheme, as a Link does.
-func (c *Context) OpenURL(url string) { c.rt.host.openURL(url) }
+// its scheme, as a Link does. It returns at once; done, unless nil, gets
+// what came of it in a while, before a frame builds anew with what it
+// changed: an error when no app could open the URL.
+//
+//	c.OpenURL(url, func(err error) {
+//		if err != nil {
+//			app.failed = url
+//		}
+//	})
+func (c *Context) OpenURL(url string, done func(err error)) {
+	rt := c.rt
+	var then func(error)
+	if done != nil {
+		then = func(err error) {
+			done(err)
+			rt.requestFrame()
+		}
+	}
+	rt.host.openURL(url, then)
+}
 
 // Shortcut reports whether the key with exactly the modifiers mods was
 // pressed, wherever the keyboard focus is, unless a focused element
@@ -342,9 +361,9 @@ type state struct {
 	startX, startY float64
 	// list is the ListState that placed the rows of a List last.
 	list *ListState
-	// cx and cw are the left and width of the element's content box,
-	// inside its padding, in the last frame.
-	cx, cw float32
+	// cx, cy, cw and ch are the element's content box, inside its
+	// padding, in the last frame.
+	cx, cy, cw, ch float32
 
 	changed, submitted bool
 	// submitMods are the modifiers held with the Enter submitting a text
@@ -384,8 +403,9 @@ type state struct {
 	input     func(InputEvent) bool
 	caret     Rect
 	takesText bool
-	// scope is the dialog the element was in, 0 for none.
-	scope uint64
+	// scope is the dialog the element was in, 0 for none, and anchor the
+	// element it was a popover of (AttachTo, PopoverBase).
+	scope, anchor uint64
 	// page is the Router's page the element was in, 0 for none.
 	page uint64
 	// trec is what the element's Transition keeps, by the engine's

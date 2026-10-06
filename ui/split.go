@@ -82,6 +82,7 @@ func split(c *Context, size *float32, first, second func(), vertical bool) *Elem
 				set(*size + t.Space(2.5))
 			}
 			div.hasRange, div.accRange = true, [3]float64{float64(minPane), float64(max(total-1-minPane, minPane)), float64(*size)}
+			div.accStep = float64(t.Space(2.5))
 
 			b := Box(c).Grow(1).Shrink(1).Clip()
 			if vertical {

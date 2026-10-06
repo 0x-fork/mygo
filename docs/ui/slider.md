@@ -2,8 +2,8 @@
 
 `ui.Slider` creates a slider setting a `*float64` between a low and a high
 value: dragging the knob, or a press on the track, sets it, as do the
-arrows, Home and End while it has the keyboard focus. `Changed` reports a
-new value.
+arrows, Page Up and Page Down (a tenth of the range), Home and End while
+it has the keyboard focus. `Changed` reports a new value.
 
 ```go
 ui.Slider(c, &app.volume, 0, 100).Label("Volume")
@@ -39,9 +39,19 @@ s.Draw(func(p *ui.Painter, r ui.Rect) {
 })
 ```
 
+`Step` snaps its values to the low value and multiples of a step, which
+the arrows move between, rather than by a hundredth of the range, and
+`Vertical` makes it go up, from the low value at the bottom of its content
+box; pad it by half the thumb's height then:
+
+```go
+ui.SliderBase(c, &app.level, 0, 10).Step(1).Vertical().Size(24, 120).PaddingY(12).Draw(drawLevel)
+```
+
 See [custom widgets](custom-widgets.md).
 
 ## Accessibility
 
 Assistive technology sees a slider of its range and value, named by its
-`Label`, which it increments and decrements as the arrows do.
+`Label`, horizontal or vertical, which it increments and decrements as the
+arrows do.

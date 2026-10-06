@@ -137,7 +137,7 @@ func ColorPicker(c *Context, color *Color) *Element {
 			set(hsva{x.h, x.s, x.v - 0.01, x.a})
 		}
 		x = st.hsv
-		sq.hasRange, sq.accRange = true, [3]float64{0, 100, math.Round(x.s * 100)}
+		sq.hasRange, sq.accRange, sq.accStep = true, [3]float64{0, 100, math.Round(x.s * 100)}, 1
 		sq.accValue = fmt.Sprintf("%.0f%% saturation, %.0f%% brightness", x.s*100, x.v*100)
 		hue := hsva{x.h, 1, 1, 1}.color()
 		sq.Draw(func(p *Painter, r Rect) {

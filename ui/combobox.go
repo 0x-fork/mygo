@@ -167,13 +167,11 @@ func (p *ComboboxParts) Popup(fn func(panel *Element)) *Element {
 	b := p.anchor.Bounds()
 	var panel *Element
 	Overlay(c, func() {
-		panel = Box(c).Absolute().Left(b.X).Top(b.Y + b.H).MinWidth(b.W).Role(RoleList)
+		panel = Box(c).MinWidth(b.W).Role(RoleList).AttachTo(p.anchor, AnchorBottomLeft, AnchorTopLeft)
 		// Pressing an option keeps the focus in the input.
 		panel.flags |= flagClickable | flagKeepFocus
 		panel.choosesItems = true
-		panel.popover = p.Input
 		panel.Children(func() { fn(panel) })
-		keepInWindow(panel, b.X, b.Y+b.H, b.Y)
 	})
 	*p.values = append((*p.values)[:0], p.next...)
 	n := len(p.next)

@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -219,7 +221,7 @@ func Link(c *Context, label, url string) *Element {
 		if r := c.router; r != nil && isPath(url) {
 			r.Push(url)
 		} else {
-			c.rt.host.openURL(url)
+			c.rt.host.openURL(url, nil)
 		}
 	}
 	if e.Hovered() {
@@ -380,8 +382,31 @@ func snap(v, lo, hi, step float64) float64 {
 	if v > hi {
 		v -= step
 	}
-	// Away from the rounding of floating point, as 0.1 steps add up.
-	return math.Round(v*1e9) / 1e9
+	// Away from the rounding of floating point, as 0.1 steps add up: to
+	// the decimals of the step and of lo, as browsers round the values of
+	// their number inputs.
+	d := max(decimals(step), decimals(lo))
+	if d >= 15 {
+		return v
+	}
+	r, err := strconv.ParseFloat(strconv.FormatFloat(v, 'f', d, 64), 64)
+	if err != nil {
+		return v
+	}
+	return r
+}
+
+// decimals returns how many digits a number has after the decimal point,
+// written as briefly as it reads back the same.
+func decimals(v float64) int {
+	s := strconv.FormatFloat(math.Abs(v), 'e', -1, 64)
+	mant, exp, _ := strings.Cut(s, "e")
+	e, _ := strconv.Atoi(exp)
+	digits := 0
+	if _, frac, ok := strings.Cut(mant, "."); ok {
+		digits = len(frac)
+	}
+	return max(digits-e, 0)
 }
 
 // tickCount returns how many tick marks a slider of step shows, 0 for none
@@ -579,12 +604,26 @@ func (e *Element) Tooltip(s string) *Element {
 }
 
 // Overlay builds fn's elements above the rest of the window. Place them
-// with Absolute, Left and Top, in DIPs relative to the window.
+// with Absolute, Left and Top, in DIPs relative to the window, or beside
+// another element with AttachTo. Each, as it goes with the focus in it,
+// gives the focus back to the element that had it as it came.
 func Overlay(c *Context, fn func()) {
 	saved := c.parent
-	c.parent = c.overlayRoot()
+	o := c.overlayRoot()
+	c.parent = o
+	last := o.last
 	fn()
 	c.parent = saved
+	first := o.first
+	if last != nil {
+		first = last.next
+	}
+	if c.inert {
+		return
+	}
+	for e := first; e != nil; e = e.next {
+		c.rt.openOverlay(e)
+	}
 }
 
 // Modal shows a dialog built by fn over a dimmed window while *open is

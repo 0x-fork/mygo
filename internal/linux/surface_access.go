@@ -87,7 +87,7 @@ var (
 	atkStates struct {
 		enabled, sensitive, visible, showing, focusable, focused, checkable, checked, indeterminate,
 		expandable, expanded, editable, readOnly, multiLine, singleLine, selectableText, defunct int32
-		selectable, selected, multiselectable, hasPopup, invalidEntry int32
+		selectable, selected, multiselectable, hasPopup, invalidEntry, vertical, horizontal int32
 	}
 
 	// The trees of surfaces, by the surface and by its accessible, and the
@@ -262,6 +262,9 @@ func loadAccessNames() {
 		platform.RoleComboBox: {"combo box"}, platform.RoleDisclosure: {"toggle button"},
 		platform.RoleMeter: {"level bar", "progress bar"}, platform.RoleStepper: {"spin button"},
 		platform.RoleColorWell: {"push button", "button"}, platform.RoleAlertDialog: {"alert", "dialog"},
+		platform.RoleMenu: {"menu"}, platform.RoleMenuBar: {"menu bar"}, platform.RoleMenuItem: {"menu item"},
+		platform.RoleMenuItemCheckBox: {"check menu item", "menu item"}, platform.RoleMenuItemRadio: {"radio menu item", "menu item"},
+		platform.RoleHeading: {"heading", "label"},
 	} {
 		atkRoles[r] = role(names...)
 	}
@@ -273,7 +276,7 @@ func loadAccessNames() {
 		&st.editable: "editable", &st.readOnly: "read-only", &st.multiLine: "multi-line",
 		&st.singleLine: "single-line", &st.selectableText: "selectable-text", &st.defunct: "defunct",
 		&st.selectable: "selectable", &st.selected: "selected", &st.multiselectable: "multiselectable",
-		&st.hasPopup: "has-popup", &st.invalidEntry: "invalid-entry",
+		&st.hasPopup: "has-popup", &st.invalidEntry: "invalid-entry", &st.vertical: "vertical", &st.horizontal: "horizontal",
 	} {
 		*p = atkStateTypeForName(cs(name))
 	}
@@ -577,7 +580,7 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 		list = append(list, st.focused)
 	}
 	switch n.Role {
-	case platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch:
+	case platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RoleMenuItemCheckBox, platform.RoleMenuItemRadio:
 		list = append(list, st.checkable)
 	case platform.RoleTab, platform.RoleTreeItem, platform.RoleRow, platform.RoleListItem:
 		// Rows and items of lists only where their list chooses them.
@@ -590,6 +593,13 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 		}
 	case platform.RolePopUpButton:
 		list = append(list, st.expandable)
+	case platform.RoleSlider:
+		// As GtkScale's.
+		if n.States&platform.AccessVertical != 0 {
+			list = append(list, st.vertical)
+		} else {
+			list = append(list, st.horizontal)
+		}
 	case platform.RoleDisclosure:
 		// Checked while open, as GTK's expanders.
 		list = append(list, st.expandable)
@@ -971,6 +981,10 @@ func initAccessCallbacks() {
 	current := valueOf(func(n platform.AccessNode) float64 { return max(n.Now, n.Min) })
 	maximum := valueOf(func(n platform.AccessNode) float64 { return n.Max })
 	minimum := valueOf(func(n platform.AccessNode) float64 { return n.Min })
+	// The step, through the GValue of get_minimum_increment: callbacks
+	// return no floats for get_increment, which AT-SPI's bridge then
+	// leaves for this.
+	increment := valueOf(func(n platform.AccessNode) float64 { return n.Step })
 	valueAndText := purego.NewCallback(func(obj, value, text ptr) {
 		if an := node(obj); an != nil && value != 0 {
 			*(*float64)(unsafe.Pointer(slot(value, 0))) = max(an.n.Now, an.n.Min)
@@ -998,8 +1012,9 @@ func initAccessCallbacks() {
 	})
 	cbValueInit = purego.NewCallback(func(iface, data ptr) {
 		// get_current_value, get_maximum_value, get_minimum_value,
-		// get_value_and_text, get_range and set_value.
-		setIface(iface, map[int]ptr{0: current, 1: maximum, 2: minimum, 5: valueAndText, 6: valueRange, 9: setValue})
+		// get_minimum_increment, get_value_and_text, get_range and
+		// set_value.
+		setIface(iface, map[int]ptr{0: current, 1: maximum, 2: minimum, 4: increment, 5: valueAndText, 6: valueRange, 9: setValue})
 	})
 
 	getText := purego.NewCallback(func(obj ptr, start, end int32) ptr {

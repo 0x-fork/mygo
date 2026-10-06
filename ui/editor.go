@@ -691,6 +691,9 @@ func (ed *editor) process(c *Context, e *Element) {
 			ed.compose = ""
 			ed.insert(ev.text)
 		case editCompose:
+			if ed.readOnly {
+				break
+			}
 			if ed.area != nil {
 				ed.area.reveal = true
 			}
@@ -775,6 +778,8 @@ func textInputBase(c *Context, value *string, multiline bool) *Element {
 	if !focused {
 		ed.compose = ""
 	}
+	// ReadOnly says again for the next frame's input, as the frame builds.
+	ed.readOnly = false
 	return e
 }
 
@@ -784,6 +789,29 @@ func (e *Element) Placeholder(s string) *Element {
 		e.st.editor.placeholder = s
 	}
 	return e
+}
+
+// ReadOnly makes a text input show its text without letting the user
+// change it: the text can still be selected and copied, from the keyboard
+// too, as it takes the focus, without a caret; assistive technology reads
+// it as read-only.
+func (e *Element) ReadOnly(on bool) *Element {
+	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
+		ed.readOnly = on
+		if on {
+			ed.compose = ""
+		}
+	}
+	return e
+}
+
+// Composing reports whether an input method composes text in a text
+// input, as Pinyin before a candidate is chosen: its value holds the text
+// once composed. Keys typed meanwhile are the input method's, as Enter
+// choosing a candidate: they submit nothing and press no shortcut.
+func (e *Element) Composing() bool {
+	ed := e.st.editor
+	return ed != nil && ed.compose != ""
 }
 
 // Password hides what a text input holds. It does nothing to a text area:
@@ -924,7 +952,7 @@ func (e *Element) paintInput(p *Painter) {
 			p.Fill(Rect{ox + r.X, oy + r.Y + r.H - 2, r.W, 1}, ts.color, 0)
 		}
 	}
-	if focused {
+	if focused && !ed.readOnly {
 		rt := e.c.rt
 		phase := time.Since(rt.blinkStart)
 		const blink = 530 * time.Millisecond

@@ -616,9 +616,9 @@ func (h *windowHost) titleBar() TitleBar {
 
 func (h *windowHost) invalidate() { h.conn.Invalidate() }
 
-func (h *windowHost) openURL(u string) {
+func (h *windowHost) openURL(u string, done func(error)) {
 	if h.conn.OpenURL != nil {
-		h.conn.OpenURL(u)
+		h.conn.OpenURL(u, done)
 	}
 }
 

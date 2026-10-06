@@ -36,7 +36,7 @@ type host interface {
 	invalidate()
 	// post runs fn on the main thread soon; it is safe from any goroutine.
 	post(fn func())
-	openURL(string)
+	openURL(url string, done func(error))
 	// popupMenu shows a context menu at (x, y) after the event being
 	// handled; chosen receives the ID of the item chosen.
 	popupMenu(m *platform.Menu, x, y float32, chosen func(id int))
@@ -76,6 +76,9 @@ type engine struct {
 	focusOrder  []uint64
 	focusScopes []focusScope
 	modal       uint64
+	// modalLayer is the element at the top of the overlay holding the
+	// dialog on top, which assistive technology sees with what is above.
+	modalLayer  uint64
 	commitScope focusScope
 	// The focus groups of the frame, the group of each element of the
 	// focus order in one, and the element of each that had the focus
@@ -87,8 +90,10 @@ type engine struct {
 	memberOf   map[uint64]uint64
 	groupLast  map[uint64]uint64
 	// openers are the elements that had the focus as overlays opened, by
-	// overlay.
+	// overlay; downs the elements the pointer went down on since the last
+	// pass (0 for none), for PressedOutside.
 	openers   map[uint64]uint64
+	downs     []uint64
 	regs      []shortcutReg
 	nextRegs  []shortcutReg
 	delivered []shortcutReg
@@ -236,8 +241,10 @@ type shortcutReg struct {
 	id   uint64
 	mods Modifiers
 	key  Key
-	// overlay marks the registration of an overlay (overlayShortcut).
+	// overlay marks the registration of an overlay (overlayShortcut),
+	// made serial-th in its pass: the overlay made last is on top.
 	overlay bool
+	serial  int32
 }
 
 type keyEvent struct {
@@ -483,6 +490,7 @@ func (rt *engine) endPass() {
 	rt.clickLater = rt.clickLater[:0]
 	rt.menu.chosen = 0
 	rt.delivered = rt.delivered[:0]
+	rt.downs = rt.downs[:0]
 	// The next pass may not ask again, as when the view cleared what asked.
 	for _, e := range rt.c.reveal {
 		if !slices.Contains(rt.revealIDs, e.id) {
@@ -622,7 +630,7 @@ func (rt *engine) close() {
 func (rt *engine) commit(root *Element, w, h float32) {
 	rt.hits = rt.hits[:0]
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
-	rt.modal, rt.commitScope, rt.commitPage = 0, focusScope{}, 0
+	rt.modal, rt.modalLayer, rt.commitScope, rt.commitPage = 0, 0, focusScope{}, 0
 	if rt.groups == nil {
 		rt.groups = map[uint64]groupInfo{}
 	}
@@ -654,6 +662,10 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 		s.parent = 0
 	}
 	s.flags = e.flags
+	s.anchor = 0
+	if e.popover != nil {
+		s.anchor = e.popover.id
+	}
 	if e.parent != nil && e.parent.st.flags&flagDisabled != 0 {
 		// Disabled with the element around it, which may have been
 		// disabled after building it, as a Fieldset.
@@ -667,7 +679,8 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	}
 	v := intersect(Rect{e.x, e.y, e.w, e.h}, clip)
 	s.vx, s.vy, s.vw, s.vh = v.X, v.Y, v.W, v.H
-	s.cx, s.cw = e.x+e.contentX(), max(e.w-e.padX(), 0)
+	s.cx, s.cy = e.x+e.contentX(), e.y+e.contentY()
+	s.cw, s.ch = max(e.w-e.padX(), 0), max(e.h-e.padY(), 0)
 	if e.flags&(flagScrollX|flagScrollY) != 0 {
 		s.contentW, s.contentH = e.contentW, e.contentH
 	}

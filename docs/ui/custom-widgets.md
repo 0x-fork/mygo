@@ -11,14 +11,14 @@ own on them, as headless component libraries do on the web.
 | `ButtonBase` | a row that takes the focus, and reports `Clicked` for the pointer, Enter and Space |
 | `CheckboxBase`, `SwitchBase`, `ToggleBase` | a row that toggles a `*bool` |
 | `RadioBase` | a row that selects its value into a `*T` |
-| `SliderBase` | sets a `*float64` from where the pointer is across its content box, inside its padding, and with the arrows, Home and End |
+| `SliderBase` | sets a `*float64` from where the pointer is across its content box, inside its padding, or up it (`Vertical`), and with the arrows, Page Up and Down, Home and End, by its `Step` |
 | `TabsBase` | the tab `List`, whose `Tab`s choose a `*int`, with the arrows moving the choice and the focus |
 | `SegmentedBase` | a `Track` of `Segment`s, a radio group choosing a `*int` |
 | `CollapsibleBase` | a `Trigger` that shows and hides what `Panel` builds, growing and shrinking it with `Progress`, which goes from 0 closed to 1 open |
 | `SelectBase` | a `Trigger` opening a `Popup` of `Item`s choosing a `*T`, which the arrows highlight (`Highlighted`) and Enter chooses |
 | `ComboboxBase` | an `Input` whose text filters the `Item`s of a `Popup` below it, which the arrows highlight and Enter or a click chooses (`Chosen`) |
-| `PopoverBase`, `DialogBase` | a panel below an anchor, or over a backdrop covering the window, that a click outside or Escape closes |
-| `TextInputBase`, `TextAreaBase` | text inputs without padding, background, border or corners |
+| `PopoverBase`, `DialogBase` | a panel beside an anchor, or over a backdrop covering the window, that a press outside or Escape closes |
+| `TextInputBase`, `TextAreaBase` | text inputs without padding, background, border or corners, `ReadOnly` or not |
 
 A segmented control on `SegmentedBase`, and a select on `SelectBase`:
 
@@ -79,7 +79,11 @@ func Spoiler(c *ui.Context, text string) {
 }
 ```
 
-Give a widget a [role](accessibility.md#roles) and a name for assistive
-technology, take the keys it needs with `Shortcut` on its element, or every
-key as it comes with [`HandleInput`](input.md#every-key-as-it-comes), and
-paint what elements do not with [`Draw`](drawing.md).
+Give a widget a [role](accessibility.md#roles), a name and its
+[states](accessibility.md#states) for assistive technology, take the keys
+it needs with `Shortcut` on its element, or every key as it comes with
+[`HandleInput`](input.md#every-key-as-it-comes), and paint what elements
+do not with [`Draw`](drawing.md). Overlays of your own, as drawers, hover
+cards and menus, are placed with `AttachTo` and close with
+`PressedOutside` and `OverlayShortcut`; `Modal` keeps the focus in one:
+see [overlays](overlays.md#your-own-overlays).

@@ -357,6 +357,26 @@ func TestClickAndType(handle uintptr, x, y float64, text string) bool {
 	return true
 }
 
+// TestKey presses and releases the key of virtual key code code, typing
+// chars, in a window showing native UI, as the keyboard does: the events
+// go through the window to its surface, and the input method.
+func TestKey(handle uintptr, code uint16, chars string) bool {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.surface == nil {
+		return false
+	}
+	withPool(func() {
+		number := sendInt(w.win, "windowNumber")
+		s := nsString(chars)
+		for _, typ := range []uint{10, 11} { // NSEventTypeKeyDown, KeyUp
+			ev := msgKeyEvent(class("NSEvent"), sel("keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:"),
+				typ, NSPoint{}, 0, 0, number, 0, s, s, false, code)
+			send(w.win, "sendEvent:", uintptr(ev))
+		}
+	})
+	return true
+}
+
 // TestCompose does what an input method does to a window showing native
 // UI: it shows text as the composition, its caret at rune caret, or with
 // commit, inserts it. It reports false for a window showing a web page.
@@ -530,6 +550,29 @@ func TestAccessibilityPerform(handle uintptr, label, action, value string) bool 
 		return ok
 	}
 	return false
+}
+
+// TestAccessibilityAttribute reads an attribute of the element labeled
+// label through AppKit's older API, as assistive technology does: its
+// value, whether it is settable, and whether the element names it.
+func TestAccessibilityAttribute(handle uintptr, label, attr string) (value string, settable, named, ok bool) {
+	for _, n := range TestAccessibility(handle) {
+		if n.Label != label {
+			continue
+		}
+		withPool(func() {
+			name := nsString(attr)
+			if v := send(n.obj, "accessibilityAttributeValue:", uintptr(name)); v != 0 {
+				value = goString(send(v, "description"))
+			}
+			settable = sendBool(n.obj, "accessibilityIsAttributeSettable:", uintptr(name))
+			for _, a := range arrayItems(send(n.obj, "accessibilityAttributeNames")) {
+				named = named || goString(a) == attr
+			}
+		})
+		return value, settable, named, true
+	}
+	return "", false, false, false
 }
 
 // TestObserve has key-value observing watch the view of a window showing

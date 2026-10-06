@@ -41,7 +41,7 @@ func TimeInput(c *Context, tm *time.Time) *Element {
 			seg := Box(c).Padding(0, t.Space(0.5)).Radius(t.Space(1)).Focusable().FocusRing(false).Role(RoleStepper)
 			seg.flags |= flagTypeSelect
 			seg.label, seg.nameFrom, seg.nameJoin = name, f, true
-			seg.hasRange, seg.accRange = true, [3]float64{0, float64([]int{23, 59}[k]), float64(v)}
+			seg.hasRange, seg.accRange, seg.accStep = true, [3]float64{0, float64([]int{23, 59}[k]), float64(v)}, 1
 			if seg.Focused() {
 				seg.Background(t.Accent).TextColor(t.AccentText)
 			}

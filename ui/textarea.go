@@ -334,7 +334,7 @@ func (a *area) paint(e *Element, p *Painter, ox, oy float32) {
 			}
 		}
 	}
-	if focused {
+	if focused && !ed.readOnly {
 		rt := e.c.rt
 		phase := time.Since(rt.blinkStart)
 		const blink = 530 * time.Millisecond

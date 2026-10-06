@@ -518,6 +518,18 @@ func roleName(r Role) string {
 		return "Stepper"
 	case RoleColorWell:
 		return "ColorWell"
+	case RoleMenu:
+		return "Menu"
+	case RoleMenuBar:
+		return "MenuBar"
+	case RoleMenuItem:
+		return "MenuItem"
+	case RoleMenuItemCheckBox:
+		return "MenuItemCheckbox"
+	case RoleMenuItemRadio:
+		return "MenuItemRadio"
+	case RoleHeading:
+		return "Heading"
 	}
 	return ""
 }

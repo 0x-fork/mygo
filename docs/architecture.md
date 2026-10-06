@@ -1046,6 +1046,10 @@ either.
   `XF86Forward` on Linux, and `WM_XBUTTONUP` (taken, so that
   DefWindowProc sends no `WM_APPCOMMAND` as well), `VK_BROWSER_BACK` and
   `VK_BROWSER_FORWARD`, and `WM_APPCOMMAND`'s browser commands on Windows.
+  A key typed while the input method composes is the input method's
+  alone, as Enter choosing a candidate: on macOS `keyDown:` sends no
+  `KeyPressed` while there is marked text, as GTK's input method filters
+  such keys on Linux and IMM32 makes them `VK_PROCESSKEY` on Windows.
   Input methods name what text and compositions replace in the text
   around the caret (`Replace`, `From`, `To`): NSTextInputClient's
   replacement ranges, GtkIMContext's `delete-surrounding`, IMM32's
@@ -1077,6 +1081,28 @@ either.
   Flutter's alerts: `UiaRaiseNotificationEvent` returned `S_OK` but its
   events reached no client, unlike the provider's automation events.
   Statuses, as toasts, are polite live regions too (`LiveSetting`).
+  Widgets of an app's own set what the bases set with element methods
+  (`Checked`, `Mixed`, `Expanded`, `Value`, `Range`, `Level`,
+  `ActiveDescendant`). Menus drawn in the window are AppKit's `AXMenu`,
+  `AXMenuBar` and `AXMenuItem`, whose choice shows as
+  `AXMenuItemMarkChar` (answered through `accessibilityAttributeValue:`,
+  as `AXInvalid` is), ATK's menu, menu bar, menu item, check menu item and
+  radio menu item, and UI Automation's Menu, MenuBar and MenuItem, with
+  Toggle for the items showing a choice; headings are WebKit's
+  `AXHeading`, whose value is their level, ATK's heading with the `level`
+  attribute, and UI Automation's Text with `HeadingLevel`. A vertical
+  slider says so (`AccessVertical`: `AXOrientation`, ATK's vertical state,
+  UI Automation's Orientation). A range's step, how far the keys move
+  its value (`AccessNode.Step`), is UI Automation's SmallChange (and
+  LargeChange at least as much) and ATK's minimum increment, through
+  `get_minimum_increment`, as purego's callbacks return no floats for
+  `get_increment`; AppKit has none, and its increments go through the
+  keys. A read-only text input is
+  `AccessReadOnly`, without `ActionSetValue`. AppKit finds an element's
+  value settable when its class overrides the setter, whatever
+  `isAccessibilitySelectorAllowed:` says, so elements answer the older
+  `accessibilityIsAttributeSettable:` themselves, as AppKit would but for
+  that value: `NSAccessibilityElement` has no implementation to call.
   The rows of a `List` (list items) and a `Table` (rows) are named by
   their content and say which of all the rows they are (`PosInSet`,
   `SetSize`, the list giving its total), as only those in view are built;
@@ -1456,16 +1482,33 @@ either.
   them, by label, for its overflow menu, whose choices click them after
   the pass (`clickLater`).
 - **Overlays** (`ui/scope.go`) scope the keyboard. Committing a frame
-  notes the dialog each focusable element is in (`DialogBase`'s backdrop,
-  `flagModal`; a popover is in its anchor's), the dialog on top
-  (`engine.modal`), and moves a popover's elements after its anchor in the
-  focus order. Tab cycles the dialog on top, the focus moves into it while
-  it is outside, the window's shortcuts built outside it do not fire, and
-  the accessibility tree is the dialog and what is above it. Overlays
-  register Escape as overlay shortcuts, which the keys the focus and the
-  elements around it leave reach, the last registered (the overlay on top)
-  first. An overlay notes the focus as it opens (`openers`), which pruning
-  gives back once it is gone with the focus that was in it.
+  notes the dialog each focusable element is in (an element made `Modal`,
+  as `DialogBase`'s backdrop, `flagModal`; a popover is in its anchor's),
+  the dialog on top (`engine.modal`, and `modalLayer`, the element at the
+  top of the overlay holding it), and moves a popover's elements after its
+  anchor in the focus order. Tab cycles the dialog on top, the focus moves
+  into it while it is outside, the window's shortcuts built outside it do
+  not fire, and the accessibility tree is the dialog's layer and what is
+  above it. Overlays register Escape as overlay shortcuts
+  (`OverlayShortcut`), which the keys the focus and the elements around it
+  leave reach, the last registered (the overlay on top) first. Each element
+  built at the top of `Overlay` notes the focus as it opens (`openers`),
+  which pruning gives back once it is gone with the focus that was in it.
+  An element attached to another (`AttachTo`, which `PopoverBase` and the
+  popups of selects and comboboxes use) is that element's popover
+  (`Element.popover`, and `state.anchor` once committed): its layout
+  (`attachTo`) finds where the target will be in the window from the boxes
+  laid out before it, the scroll offsets around it, and for an inline
+  target the paragraph's layout (`laidOutBox`), so that a popover follows
+  its anchor in the frame that moves it; then it goes to the other side, or
+  the other way along the target, where that leaves the window less, and
+  moves along the target into the window (`alongTarget`). Popovers have no
+  backdrop: the engine notes what each press went down on (`downs`, for a
+  pass), and `PressedOutside` walks from there through parents, and from a
+  popover to its anchor, which keeps presses in popovers of elements inside
+  the panel, and on its anchor, inside it, as the press goes on to what is
+  under it. A select's popup keeps a backdrop taking the presses outside,
+  as the system's pop-up menus do.
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
   menu key marks the element, from the states of the last frame, and the
   next frame runs its `ContextMenu` function to collect a `platform.Menu`;
@@ -1603,7 +1646,10 @@ either.
     (`System.GlyphRun`): their coverage added and clamped, cached as one
     bitmap.
   Paths drawn with
-  `Painter` are masks in the coverage atlas, rasterized by `internal/vec`.
+  `Painter` are masks in the coverage atlas, rasterized by `internal/vec`,
+  cached by their shape relative to the pixel grid in quarters of a pixel,
+  to which their points move first: a path looks the same whichever path
+  of its key drew its mask first.
   So are icons: `internal/svg` parses SVG documents (with `encoding/xml`
   and its own small CSS cascade) into nodes of paths, paints and layers,
   and draws them on the CPU with `internal/vec`, compositing gradients,

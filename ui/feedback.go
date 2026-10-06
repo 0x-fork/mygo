@@ -164,16 +164,14 @@ func AlertDialog(c *Context, open *bool, title, message string, buttons ...strin
 	t := c.theme
 	chosen := -1
 	Overlay(c, func() {
-		back := Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(RGBA(0, 0, 0, 0.4))
-		back.flags |= flagModal
-		c.rt.openOverlay(back)
+		back := Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(RGBA(0, 0, 0, 0.4)).Modal()
 		cancel := -1
 		for i, b := range buttons {
 			if b == "Cancel" {
 				cancel = i
 			}
 		}
-		if c.rt.overlayShortcut(back.id, 0, KeyEscape) && cancel >= 0 {
+		if back.OverlayShortcut(0, KeyEscape) && cancel >= 0 {
 			chosen = cancel
 		}
 		back.Children(func() {

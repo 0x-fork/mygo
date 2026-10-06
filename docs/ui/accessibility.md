@@ -33,6 +33,39 @@ out but not its children:
 toggle := ui.Box(c).Size(36, 20).Focusable().Role(ui.RoleSwitch).Label("Wi-Fi")
 ```
 
+Besides the roles of MyGo's widgets, `ui.RoleHeading` is the title of a
+section, ranked with `Level`, and `ui.RoleMenu`, `ui.RoleMenuBar`,
+`ui.RoleMenuItem`, `ui.RoleMenuItemCheckBox` and `ui.RoleMenuItemRadio`
+make menus drawn in the window, as a drop-down menu or a menu bar of your
+own:
+
+```go
+ui.Text(c, "Appearance").Bold().Role(ui.RoleHeading).Level(2)
+```
+
+## States
+
+The bases tell assistive technology what their widgets show. A widget of
+your own tells it with these, as ARIA's states do on the web:
+
+| Method | What it tells |
+|---|---|
+| `Checked(on)`, `Mixed()` | whether a check box, switch, radio button, toggle or menu item is on, or partly on |
+| `Expanded(open)` | whether what the element opens shows, as a popup or a section |
+| `Value(s)` | its value, as the choice a button opening a popup shows |
+| `Range(lo, hi, value)`, `Step(step)` | the range and value of a slider, progress bar, meter or stepper, and how far the keys move it |
+| `Level(n)` | the rank of a heading, or how deep an item of a tree is |
+| `ActiveDescendant(e)` | the option that has the focus while the element keeps it, as the one the arrows are on in a menu or a list |
+
+```go
+all := ui.CheckboxBase(c, &app.all).Label("Select all")
+if app.some {
+	all.Mixed()
+}
+
+date := ui.ButtonBase(c).Role(ui.RolePopUpButton).Label("Due").Value(app.due.Format("Jan 2")).Expanded(app.picking)
+```
+
 ## Descriptions and errors
 
 `Description` tells more than the name, as help text read after it, as a

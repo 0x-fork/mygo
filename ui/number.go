@@ -55,7 +55,7 @@ func NumberInput(c *Context, value *float64, lo, hi, step float64) *Element {
 			// What the app set, or what was typed, shown in full.
 			*text = format(*value)
 		}
-		in.hasRange, in.accRange = true, [3]float64{lo, hi, *value}
+		in.hasRange, in.accRange, in.accStep = true, [3]float64{lo, hi, *value}, step
 		for _, b := range []struct {
 			label string
 			delta float64
