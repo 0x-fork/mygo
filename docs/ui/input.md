@@ -137,9 +137,9 @@ the window or an element around the focus handles with `Shortcut` go there
 first. `TextCaret` turns on the system's input methods for such an element
 while it has the focus, composing at the caret it gives. `c.ReadClipboard`,
 `c.WriteClipboard` and `c.OpenURL` copy, paste and open links for them;
-the function `c.OpenURL` takes, unless nil, gets what came of opening the
-link a moment later, as the system opens it, with an error when no app
-could, and the view builds a frame anew:
+`c.OpenURLThen` opens a link too, and its function gets what came of it a
+moment later, as the system opens it, with an error when no app could,
+and the view builds a frame anew:
 
 ```go
 ui.Box(c).Fill().Focusable().HandleInput(func(ev ui.InputEvent) bool {
@@ -153,7 +153,7 @@ ui.Box(c).Fill().Focusable().HandleInput(func(ev ui.InputEvent) bool {
 	return false
 }).TextCaret(app.caretRect())
 
-c.OpenURL(url, func(err error) {
+c.OpenURLThen(url, func(err error) {
 	if err != nil {
 		c.Toast("No app opens " + url)
 	}

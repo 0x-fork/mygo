@@ -128,10 +128,13 @@ func TestOpenURLOutcome(t *testing.T) {
 	calls := 0
 	tt := NewTester(func(c *Context) {
 		if ButtonBase(c).Size(40, 20).Label("go").Clicked() {
-			c.OpenURL("x-unknown://a", func(err error) {
+			c.OpenURLThen("x-unknown://a", func(err error) {
 				outcome = err
 				calls++
 			})
+		}
+		if ButtonBase(c).Size(40, 20).Label("plain").Clicked() {
+			c.OpenURL("https://example.com")
 		}
 		if outcome != nil {
 			Text(c, "Couldn't open the link")
@@ -146,8 +149,9 @@ func TestOpenURLOutcome(t *testing.T) {
 	if calls != 2 || outcome == nil || !tt.HasText("Couldn't open the link") {
 		t.Errorf("failing: %d calls, error %v, texts %q", calls, outcome, tt.Texts())
 	}
-	if got := tt.OpenedURLs(); len(got) != 2 {
-		t.Errorf("opened %q", got)
+	tt.Click("plain")
+	if got := tt.OpenedURLs(); len(got) != 3 || got[2] != "https://example.com" || calls != 2 {
+		t.Errorf("opened %q, %d calls", got, calls)
 	}
 }
 

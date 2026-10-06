@@ -267,16 +267,20 @@ func (c *Context) Announce(text string) {
 }
 
 // OpenURL opens a URL in the default browser, or the app registered for
-// its scheme, as a Link does. It returns at once; done, unless nil, gets
-// what came of it in a while, before a frame builds anew with what it
-// changed: an error when no app could open the URL.
+// its scheme, as a Link does. It returns at once; OpenURLThen tells what
+// came of it.
+func (c *Context) OpenURL(url string) { c.rt.host.openURL(url, nil) }
+
+// OpenURLThen opens a URL as OpenURL does, and done, unless nil, gets what
+// came of it in a while, before a frame builds anew with what it changed:
+// an error when no app could open the URL.
 //
-//	c.OpenURL(url, func(err error) {
+//	c.OpenURLThen(url, func(err error) {
 //		if err != nil {
 //			app.failed = url
 //		}
 //	})
-func (c *Context) OpenURL(url string, done func(err error)) {
+func (c *Context) OpenURLThen(url string, done func(err error)) {
 	rt := c.rt
 	var then func(error)
 	if done != nil {
