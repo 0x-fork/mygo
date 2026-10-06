@@ -261,6 +261,14 @@ func (s *surface) RefreshRate() float64 {
 	return 0
 }
 
+// WideGamut reports whether the window's screen shows Display P3's colors,
+// outside the sRGB gamut, as the screens of recent Macs do.
+func (s *surface) WideGamut() bool {
+	const displayGamutP3 = 2 // NSDisplayGamutP3
+	screen := send(s.w.win, "screen")
+	return screen != 0 && respondsTo(screen, "canRepresentDisplayGamut:") && byte(send(screen, "canRepresentDisplayGamut:", displayGamutP3)) != 0
+}
+
 func (s *surface) PresentPixels(pix []byte, stride, width, height int) {
 	if len(pix) < stride*height || width == 0 || height == 0 {
 		return

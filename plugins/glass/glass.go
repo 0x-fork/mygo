@@ -156,7 +156,9 @@ func paint(p *ui.Painter, box ui.Rect, radii [4]float32, g Glass) {
 		mat.low, mat.high, mat.curve, mat.saturation = 0.541, 1, 1.2, 1
 	}
 	if g.Tint.A > 0 {
-		mat.tint = [4]float32{float32(g.Tint.R) / 255, float32(g.Tint.G) / 255, float32(g.Tint.B) / 255, float32(g.Tint.A) / 255 * 0.88}
+		mat.tint, mat.wideTint = p.EffectColor(g.Tint)
+		mat.tint[3] *= 0.88
+		mat.wideTint[3] *= 0.88
 	}
 	// The shadow grows with the pane, softly, and below it.
 	sh := min(20, m/4)

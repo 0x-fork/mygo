@@ -228,13 +228,15 @@ func (p *Painter) drawPath(f *flatPath, width float32, c Color, g *LinearGradien
 		return
 	}
 	start := int32(len(p.s.Glyphs))
-	p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{X: x0, Y: y0, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: c.Alpha(p.opacity).scene()})
+	c = c.Alpha(p.opacity)
+	p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{X: x0, Y: y0, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: c.scene(), Wide: p.glyphWide(c)})
 	op := scene.Op{Kind: scene.OpGlyphs, Start: start, End: start + 1}
 	if g != nil {
 		// The gradient spans the path's bounds.
 		op.Rect = scene.Rect{X: minX - hw, Y: minY - hw, W: maxX - minX + 2*hw, H: maxY - minY + 2*hw}
 		op.Opacity = p.opacity
 		p.gradient(&op, *g)
+		op.Wide = p.wide(g.From, g.To, Color{})
 	}
 	p.s.Ops = append(p.s.Ops, op)
 }

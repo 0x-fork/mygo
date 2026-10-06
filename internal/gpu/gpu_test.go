@@ -82,6 +82,69 @@ func TestBuild(t *testing.T) {
 	}
 }
 
+// TestBuildWide checks that the colors outside the sRGB gamut replace
+// those of ops and glyphs only for a target that keeps them.
+func TestBuildWide(t *testing.T) {
+	green, red := scene.Color{G: 255, A: 255}, scene.Color{R: 255, A: 255}
+	wg, wr := [4]float32{-0.2, 1.1, -0.1, 1}, [4]float32{1.1, -0.2, -0.1, 1}
+	s := &scene.Scene{Width: 100, Height: 100, MaskAtlas: scene.NewAtlas(1, 16, 16)}
+	s.Wide = []scene.WideColors{
+		{Color: wg, Border: wr, Set: scene.WideColor | scene.WideBorder},
+		{Color: wr, Set: scene.WideColor},
+		{Color: wg, Color2: wr, Set: scene.WideColor | scene.WideColor2},
+	}
+	s.Glyphs = []scene.Glyph{{W: 2, H: 2, UW: 2, VH: 2, Color: red, Wide: 2}, {W: 2, H: 2, UW: 2, VH: 2, Color: green}}
+	s.Ops = []scene.Op{
+		{Kind: scene.OpFill, Rect: scene.Rect{W: 10, H: 10}, Color: green, Color2: red, Border: scene.Uniform(1), BorderColor: red, Wide: 1},
+		{Kind: scene.OpShadow, Rect: scene.Rect{W: 10, H: 10}, Color: red, Wide: 2},
+		{Kind: scene.OpGlyphs, Start: 0, End: 2},
+		{Kind: scene.OpGlyphs, Start: 0, End: 2, Paint: scene.PaintOklab, Color: green, Color2: red, Wide: 3},
+	}
+	straight := func(c scene.Color) [4]float32 {
+		return [4]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255, float32(c.A) / 255}
+	}
+	type colors struct{ color, color2, border [4]float32 }
+	build := func(wide bool) []colors {
+		b := Builder{Wide: wide}
+		b.Build(s, nil)
+		var out []colors
+		for _, in := range b.Instances {
+			out = append(out, colors{in.Color, in.Color2, in.Border})
+		}
+		return out
+	}
+	srgb := []colors{
+		{straight(green), straight(red), straight(red)},
+		{straight(red), [4]float32{}, [4]float32{}},
+		{straight(red), [4]float32{}, [4]float32{}},
+		{straight(green), [4]float32{}, [4]float32{}},
+		{straight(green), straight(red), [4]float32{}},
+		{straight(green), straight(red), [4]float32{}},
+	}
+	wide := []colors{
+		{wg, straight(red), wr},
+		{wr, [4]float32{}, [4]float32{}},
+		{wr, [4]float32{}, [4]float32{}},
+		{straight(green), [4]float32{}, [4]float32{}},
+		{wg, wr, [4]float32{}},
+		{wg, wr, [4]float32{}},
+	}
+	for _, c := range []struct {
+		wide bool
+		want []colors
+	}{{false, srgb}, {true, wide}} {
+		got := build(c.wide)
+		if len(got) != len(c.want) {
+			t.Fatalf("wide %v: %d instances", c.wide, len(got))
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("wide %v, instance %d: %v, want %v", c.wide, i, got[i], c.want[i])
+			}
+		}
+	}
+}
+
 func TestSourceSum(t *testing.T) {
 	lf, crlf := "float4 ps() {\n\treturn 1;\n}\n", "float4 ps() {\r\n\treturn 1;\r\n}\r\n"
 	if SourceSum(lf) != SourceSum(crlf) {

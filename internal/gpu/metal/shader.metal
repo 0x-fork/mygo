@@ -40,6 +40,8 @@ struct VSOut {
 	uint inst [[flat]];
 };
 
+// globals holds the frame's width and height in pixels, and 1 in z when
+// its target keeps colors outside the sRGB gamut (extended sRGB, float16).
 vertex VSOut vs(uint vid [[vertex_id]], uint iid [[instance_id]],
                 const device Inst *insts [[buffer(0)]],
                 constant float4 &globals [[buffer(1)]]) {
@@ -286,12 +288,16 @@ float boxShadow(float2 p, float4 rect, float sigma, float4 radii) {
 	return v;
 }
 
+// toLinear and toSRGB mirror the curve around zero, as extended sRGB does,
+// for the components of wide colors.
 float3 toLinear(float3 c) {
-	return select(pow((c + 0.055f) / 1.055f, float3(2.4f)), c / 12.92f, c <= 0.04045f);
+	float3 a = abs(c);
+	return sign(c) * select(pow((a + 0.055f) / 1.055f, float3(2.4f)), a / 12.92f, a <= 0.04045f);
 }
 
 float3 toSRGB(float3 c) {
-	return select(1.055f * pow(max(c, float3(0.0f)), float3(1.0f / 2.4f)) - 0.055f, c * 12.92f, c <= 0.0031308f);
+	float3 a = abs(c);
+	return sign(c) * select(1.055f * pow(a, float3(1.0f / 2.4f)) - 0.055f, a * 12.92f, a <= 0.0031308f);
 }
 
 float3 cbrt3(float3 v) { return sign(v) * pow(abs(v), float3(1.0f / 3.0f)); }
@@ -321,8 +327,10 @@ float3 fromOklab(float3 lab) {
 }
 
 // paint returns the premultiplied color at p of plain color, a gradient
-// mixed in sRGB (1) or Oklab (2), or stripes (3), as scene.Paint says.
-float4 paint(float2 p, float mode, float4 rect, float4 c1, float4 c2, float4 g) {
+// mixed in sRGB (1) or Oklab (2), or stripes (3), as scene.Paint says. In a
+// target that keeps colors outside the sRGB gamut (wide, extended sRGB), an
+// Oklab gradient keeps those its mix has, which others clamp.
+float4 paint(float2 p, float mode, float4 rect, float4 c1, float4 c2, float4 g, bool wide) {
 	if (mode < 0.5f) {
 		return premul(c1);
 	}
@@ -334,7 +342,11 @@ float4 paint(float2 p, float mode, float4 rect, float4 c1, float4 c2, float4 g) 
 			return float4(mix(c1.rgb * c1.a, c2.rgb * c2.a, t), a);
 		}
 		float3 lab = mix(oklab(c1.rgb) * c1.a, oklab(c2.rgb) * c2.a, t);
-		return a > 0.0f ? float4(saturate(fromOklab(lab / a)) * a, a) : float4(0.0f);
+		if (a <= 0.0f) {
+			return float4(0.0f);
+		}
+		float3 rgb = fromOklab(lab / a);
+		return float4((wide ? rgb : saturate(rgb)) * a, a);
 	}
 	float s = dot(p - rect.xy, g.xy);
 	float phase = s - g.w * floor(s / g.w);
@@ -379,16 +391,18 @@ float dash(float2 p, float4 rect, float4 w) {
 
 fragment PSOut ps(VSOut v [[stage_in]],
                    const device Inst *insts [[buffer(0)]],
+                   constant float4 &globals [[buffer(1)]],
                    texture2d<float> maskTex [[texture(0)]],
                    texture2d<float> colorTex [[texture(1)]],
                    texture2d<float> imageTex [[texture(2)]],
                    sampler samp [[sampler(0)]]) {
 	Inst i = insts[v.inst];
 	float kind = i.params.x;
+	bool wide = globals.z > 0.5f;
 	float4 res;
 	if (kind < 0.5f) {
 		float outer = rectCoverage(v.p, i.rect, i.radii);
-		res = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad) * outer;
+		res = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad, wide) * outer;
 		float4 bw = i.uv; // top, right, bottom, left
 		if (any(bw > 0.0f)) {
 			float4 ir = float4(i.rect.xy + bw.wx, i.rect.zw - bw.yz - bw.wx);
@@ -408,7 +422,7 @@ fragment PSOut ps(VSOut v [[stage_in]],
 		}
 		res = premul(i.color) * s;
 	} else if (kind < 2.5f) {
-		float4 c = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad);
+		float4 c = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad, wide);
 		res = c * textCoverage(maskTex.sample(samp, v.tex).r, unpremul(c), i.inner.x, i.inner.y, i.radii);
 	} else if (kind < 3.5f) {
 		res = colorTex.sample(samp, v.tex) * i.color.a;
@@ -418,7 +432,7 @@ fragment PSOut ps(VSOut v [[stage_in]],
 			res.rgb = float3(dot(res.rgb, float3(0.2126f, 0.7152f, 0.0722f)));
 		}
 	} else {
-		float4 c = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad);
+		float4 c = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad, wide);
 		float3 straight = unpremul(c);
 		float3 a = subpixelCoverage(colorTex.sample(samp, v.tex).rgb, straight, i.inner.x, i.inner.y, i.radii);
 		float3 w = a * c.a * rectCoverage(v.p, i.clip, i.clipRadii) * i.params.w;

@@ -57,11 +57,11 @@ func TestParseHex(t *testing.T) {
 		want Color
 		ok   bool
 	}{
-		{"#2563eb", Color{0x25, 0x63, 0xeb, 255}, true},
-		{"2563EB", Color{0x25, 0x63, 0xeb, 255}, true},
-		{" #00ff0080 ", Color{0, 255, 0, 0x80}, true},
-		{"#fA0", Color{255, 0xaa, 0, 255}, true},
-		{"#fa08", Color{255, 0xaa, 0, 0x88}, true},
+		{"#2563eb", Color{R: 0x25, G: 0x63, B: 0xeb, A: 255}, true},
+		{"2563EB", Color{R: 0x25, G: 0x63, B: 0xeb, A: 255}, true},
+		{" #00ff0080 ", Color{R: 0, G: 255, B: 0, A: 0x80}, true},
+		{"#fA0", Color{R: 255, G: 0xaa, B: 0, A: 255}, true},
+		{"#fa08", Color{R: 255, G: 0xaa, B: 0, A: 0x88}, true},
 		{"#12345", Color{}, false},
 		{"#1234567", Color{}, false},
 		{"#123456789", Color{}, false},

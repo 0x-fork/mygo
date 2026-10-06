@@ -452,6 +452,75 @@ func card(c *ui.Context, title string, body func()) *ui.Element {
 	})
 }
 
+// wideColors draws what each kind of color paints (fills, gradients,
+// stripes, text, shadows) in the sRGB color nearest to an Oklch one, on the
+// left, and in the Oklch color itself, on the right. Where the window draws
+// a wide gamut (a Display P3 screen on macOS) the right column is the more
+// vivid; elsewhere the two match.
+func wideColors(c *ui.Context) {
+	t := c.Theme()
+	vivid, warm := ui.Oklch(0.85, 0.3, 145), ui.Oklch(0.7, 0.3, 30)
+	black := ui.RGB(0, 0, 0)
+	ui.Text(c, "Compare the columns on a Display P3 screen: the right one is more vivid.").FontSize(12).TextColor(t.TextMuted)
+
+	// pair builds a sample twice, in sRGB and then in Oklch, in equal columns.
+	pair := func(sample func(wide bool) *ui.Element) {
+		ui.Row(c).Gap(12).Children(func() {
+			for _, wide := range []bool{false, true} {
+				sample(wide).Basis(0).Grow(1)
+			}
+		})
+	}
+	box := func(label string) *ui.Element {
+		return ui.Row(c).Height(30).Radius(6).Center().Children(func() {
+			ui.Text(c, label).FontSize(12).Bold().TextColor(black)
+		})
+	}
+
+	pair(func(wide bool) *ui.Element {
+		if wide {
+			return ui.Text(c, "Oklch").FontSize(12).Bold().TextColor(t.TextMuted)
+		}
+		return ui.Text(c, "sRGB").FontSize(12).Bold().TextColor(t.TextMuted)
+	})
+	pair(func(wide bool) *ui.Element {
+		if wide {
+			return box("Fill").Background(vivid)
+		}
+		return box("Fill").Background(vivid.SRGB())
+	})
+	pair(func(wide bool) *ui.Element {
+		if wide {
+			return box("Gradient").LinearGradient(ui.LinearGradient{From: warm, To: vivid, Angle: 90, Oklab: true})
+		}
+		return box("Gradient").LinearGradient(ui.LinearGradient{From: warm.SRGB(), To: vivid.SRGB(), Angle: 90, Oklab: true})
+	})
+	pair(func(wide bool) *ui.Element {
+		white := ui.RGB(255, 255, 255)
+		if wide {
+			return box("Stripes").Background(white).Stripes(vivid, 4, 6, 45)
+		}
+		return box("Stripes").Background(white).Stripes(vivid.SRGB(), 4, 6, 45)
+	})
+	pair(func(wide bool) *ui.Element {
+		return ui.Row(c).Height(30).Radius(6).Center().Background(ui.RGB(20, 20, 20)).Children(func() {
+			text := ui.Text(c, "Text").FontSize(14).Bold()
+			if wide {
+				text.TextColor(vivid)
+			} else {
+				text.TextColor(vivid.SRGB())
+			}
+		})
+	})
+	pair(func(wide bool) *ui.Element {
+		e := box("Shadow").Margin(6).Background(ui.RGB(255, 255, 255))
+		if wide {
+			return e.Shadow(0, 4, 12, 0, vivid)
+		}
+		return e.Shadow(0, 4, 12, 0, vivid.SRGB())
+	})
+}
+
 func (g *gallery) overview(c *ui.Context) {
 	t := c.Theme()
 	ui.Text(c, "Everything here is laid out with flexbox and grids and drawn by MyGo itself: no HTML, no JavaScript, no cgo. "+
@@ -1101,6 +1170,7 @@ func (g *gallery) styling(c *ui.Context) {
 				ui.Text(c, "Stripes: unavailable").FontSize(12).TextColor(t.TextMuted)
 			})
 		})
+		card(c, "Wide colors (Oklch)", func() { wideColors(c) })
 		card(c, "Text decorations", func() {
 			ui.RichText(c, ui.Span{Text: "Spell checkers mark "}, ui.Span{Text: "mispeled", WavyUnderline: true, DecorationColor: t.Danger},
 				ui.Span{Text: " words with waves."})

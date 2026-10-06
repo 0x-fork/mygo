@@ -33,7 +33,7 @@ func (rt *engine) preferences() Preferences {
 	if !rt.prefsKnown {
 		p := rt.host.preferences()
 		rt.prefs = Preferences{
-			Accent:       Color(p.Accent),
+			Accent:       Color{R: p.Accent.R, G: p.Accent.G, B: p.Accent.B, A: p.Accent.A},
 			ReduceMotion: p.ReduceMotion,
 			HighContrast: p.HighContrast,
 			TextScale:    float32(p.TextScale),
@@ -50,7 +50,7 @@ func (rt *engine) preferences() Preferences {
 func (t *Theme) follow(p Preferences) {
 	if a := p.Accent; a.A > 0 {
 		a.A = 255
-		black, white := Color{A: 255}, Color{255, 255, 255, 255}
+		black, white := Color{A: 255}, Color{R: 255, G: 255, B: 255, A: 255}
 		t.Accent = a
 		if t.Dark {
 			t.AccentHover, t.AccentPressed = a.Mix(white, 0.2), a.Mix(black, 0.15)
@@ -63,7 +63,7 @@ func (t *Theme) follow(p Preferences) {
 		// on yellow.
 		t.AccentText = white
 		if l := a.gray().R; l > 165 {
-			t.AccentText = Color{24, 24, 27, 255}
+			t.AccentText = Color{R: 24, G: 24, B: 27, A: 255}
 		}
 	}
 	if p.HighContrast {

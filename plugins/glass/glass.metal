@@ -1,7 +1,8 @@
 // The glass's effect in Metal Shading Language (see scene.Effect), as
 // pixels.go draws it on the CPU. The parameters are those of material:
 // p0 the bezel, the refraction, the rim and its width; p1 the tint; p2 the
-// low, high, curve and saturation; p3 the light's direction.
+// low, high, curve and saturation; p3 the light's direction; p4 the tint in
+// extended sRGB, for a target that keeps colors outside the sRGB gamut.
 
 // glassLens returns how far, as a fraction of the refraction, the glass
 // bends what shows through it t pixels inside its edge (lens).
@@ -57,7 +58,8 @@ float4 effect(float2 p, Effect e, texture2d<float> backdrop) {
 		q -= n * (e.p0.y * glassLens(t, bezel));
 	}
 	float3 c = glassTone(sampleBackdrop(backdrop, e, q), e.p2);
-	c += (e.p1.rgb - c) * e.p1.a;
+	float4 tint = e.wide ? e.p4 : e.p1;
+	c += (tint.rgb - c) * tint.a;
 	if (e.p0.z > 0.0f && t < 3.0f * rimWidth) {
 		float r = t / rimWidth;
 		float a = e.p0.z * exp(-r * r);

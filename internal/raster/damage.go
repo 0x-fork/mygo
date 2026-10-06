@@ -290,6 +290,9 @@ func (r *Renderer) same(i int, s *scene.Scene, j int, maskRects, colorRects []im
 		ga, gb = r.glyphs[a.Start:a.End], s.Glyphs[b.Start:b.End]
 	}
 	a.Start, a.End, b.Start, b.End = 0, 0, 0, 0
+	// The CPU draws the sRGB colors, not those outside its gamut, which
+	// Wide points at in each scene's own table.
+	a.Wide, b.Wide = 0, 0
 	if a != b {
 		return false
 	}
@@ -299,10 +302,14 @@ func (r *Renderer) same(i int, s *scene.Scene, j int, maskRects, colorRects []im
 			return false
 		}
 		for k := range gb {
-			if ga[k] != gb[k] {
-				return false
-			}
 			g := &gb[k]
+			if ga[k] != *g {
+				x := ga[k]
+				x.Wide = g.Wide
+				if x != *g {
+					return false
+				}
+			}
 			rects := maskRects
 			if g.Colored {
 				rects = colorRects

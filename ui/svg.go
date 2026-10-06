@@ -202,7 +202,8 @@ func (p *Painter) drawIcon(s *SVG, r Rect, c Color, rotate float32) {
 	}
 	x, y := d.X-float32((cw-w)/2), d.Y-float32((ch-h)/2)
 	start := int32(len(p.s.Glyphs))
-	p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{X: x, Y: y, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: c.Alpha(p.opacity).scene()})
+	c = c.Alpha(p.opacity)
+	p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{X: x, Y: y, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: c.scene(), Wide: p.glyphWide(c)})
 	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: start + 1})
 }
 
@@ -256,7 +257,9 @@ func (p *Painter) drawSVG(s *SVG, box Rect, fit Fit, radius [4]float32, current 
 	if !s.doc.UsesCurrentColor() {
 		current = Color{}
 	}
-	img := p.rt.picture(pictureKey{s: s, w: w, h: h, color: current, stretch: fit == FillBox})
+	// Pictures are bitmaps in sRGB: current draws there as its nearest
+	// sRGB color.
+	img := p.rt.picture(pictureKey{s: s, w: w, h: h, color: current.SRGB(), stretch: fit == FillBox})
 	op := scene.Op{Kind: scene.OpImage, Rect: d, Radii: p.radii(radius), Continuous: continuousCorners, Image: img, Src: scene.Rect{W: float32(w), H: float32(h)}, Opacity: p.opacity, Grayscale: gray}
 	if fit == Cover || fit == NaturalSize {
 		// Only what falls in the box shows.

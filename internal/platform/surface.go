@@ -63,6 +63,14 @@ type OccludableSurface interface {
 	Occluded() bool
 }
 
+// WideGamutSurface is a Surface that tells whether its window's screen
+// shows colors outside the sRGB gamut (macOS's).
+type WideGamutSurface interface {
+	// WideGamut reports whether the screen showing most of the window
+	// shows colors outside the sRGB gamut, as Display P3 screens do.
+	WideGamut() bool
+}
+
 // IdleSurface is a Surface that can give back memory once frames stop.
 type IdleSurface interface {
 	// Idle tells that no frame came for a while: the surface may give

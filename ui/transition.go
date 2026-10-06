@@ -516,9 +516,15 @@ func mixPremultiplied(a, b Color, k float32) Color {
 	if alpha <= 0 {
 		return Color{}
 	}
+	if a.wide.ok() || b.wide.ok() {
+		// Premultiplied, b weighs this much of the straight colors.
+		c := mixWide(a, b, k*ba/alpha)
+		c.A = alphaByte(alpha)
+		return c
+	}
 	ch := func(x, y uint8) uint8 {
 		v := lerp(float32(x)*aa, float32(y)*ba, k) / alpha
 		return uint8(max(0, min(v+0.5, 255)))
 	}
-	return Color{ch(a.R, b.R), ch(a.G, b.G), ch(a.B, b.B), alphaByte(alpha)}
+	return Color{R: ch(a.R, b.R), G: ch(a.G, b.G), B: ch(a.B, b.B), A: alphaByte(alpha)}
 }

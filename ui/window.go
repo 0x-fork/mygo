@@ -102,6 +102,10 @@ type windowHost struct {
 	// rest of it draws on the GPU (see gpuLoad).
 	cpuBurst cpuLoad
 	cpuHeavy bool
+	// wide tells that the GPU renderer draws the colors of scenes outside
+	// the sRGB gamut (see wideHold), until wideUntil.
+	wide      bool
+	wideUntil time.Time
 	// idleTimer runs idle once frames stop, at idleAt when idleArmed.
 	idleTimer *time.Timer
 	idleAt    time.Time
@@ -135,6 +139,25 @@ type gpuRenderer interface {
 type pixelPresenter interface {
 	PresentPixels(pix []byte, stride, width, height int, scale float64, damage []image.Rectangle) error
 }
+
+// wideRenderer is a GPU renderer that can draw the colors of scenes outside
+// the sRGB gamut (Metal's).
+type wideRenderer interface {
+	// SetWide has the frames drawn from now on show those colors, into
+	// drawables of a wide gamut, or their nearest sRGB ones, and reports
+	// whether they do.
+	SetWide(on bool) bool
+}
+
+// A window whose screen shows more than sRGB, as a Mac's Display P3
+// screen, draws the colors of ui.Oklch outside the sRGB gamut once a frame
+// has some, on the GPU, whose drawables then hold float16 components, and
+// goes on for wideHold after the last frame with some: a blinking caret or
+// a color in transition does not switch the drawables back and forth. The
+// CPU draws sRGB colors: frames meanwhile are the GPU's, and those after
+// it may draw on the CPU again. A window on an sRGB screen draws the
+// nearest sRGB colors, as it would show anyway, with the CPU's frames.
+const wideHold = 2 * time.Second
 
 // Frames that change little draw on the CPU, which the renderer copies
 // into its drawables: a clock ticking, typing, the pointer over a button.
@@ -258,7 +281,7 @@ func (h *windowHost) present(s *scene.Scene) {
 	h.lastFrame = now
 	defer func() { h.frameEnd = time.Now() }()
 	h.armIdle(frameIdle)
-	if h.drawOnCPU(s, burst) {
+	if !h.useWide(s, now) && h.drawOnCPU(s, burst) {
 		h.gpuSinceCPU = time.Time{}
 		if h.path == "" {
 			h.path = "drawn on the CPU"
@@ -406,6 +429,28 @@ func (h *windowHost) drawOnCPU(s *scene.Scene, burst bool) bool {
 	return true
 }
 
+// useWide has the GPU renderer draw the colors of s outside the sRGB gamut
+// when the window shows them (see wideHold), and reports whether it does.
+func (h *windowHost) useWide(s *scene.Scene, now time.Time) bool {
+	w, ok := h.gpu.(wideRenderer)
+	if !ok {
+		return false
+	}
+	if len(s.Wide) > 0 {
+		h.wideUntil = now.Add(wideHold)
+	}
+	if on := now.Before(h.wideUntil) && h.screenWide(); on != h.wide {
+		h.wide = w.SetWide(on)
+	}
+	return h.wide
+}
+
+// screenWide reports whether the window's screen shows more than sRGB.
+func (h *windowHost) screenWide() bool {
+	w, ok := h.conn.Surface.(platform.WideGamutSurface)
+	return ok && w.WideGamut()
+}
+
 // noteCPUFrame notes that drawing and presenting a frame begun at now on
 // the CPU, for the GPU renderer to present, took d, and cpu of CPU time,
 // and draws the rest of the burst on the GPU once its frames cost too
@@ -496,6 +541,7 @@ func (h *windowHost) makeGPU() {
 		h.degraded = false
 	}
 	h.gpu, h.gpuSince = r, time.Now()
+	h.wide = false // the renderer draws sRGB until told otherwise
 }
 
 // software reports whether a renderer draws on the CPU, as Direct3D's WARP.

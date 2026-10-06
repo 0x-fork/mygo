@@ -120,7 +120,11 @@ type Builder struct {
 	Instances []Instance
 	Batches   []Batch
 	Backdrops []scene.Backdrop
-	stack     []clip
+	// Wide draws the colors of scenes outside the sRGB gamut
+	// (Scene.Wide), for a target that keeps them, as Metal's float16
+	// drawables do; without it, their nearest sRGB colors.
+	Wide  bool
+	stack []clip
 }
 
 // Pass is what a pass computing a backdrop reads, the layout of the
@@ -214,9 +218,10 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 			if op.Dashed {
 				dashed = 1
 			}
+			w := b.wideOf(s, op.Wide)
 			b.add(Instance{
 				Rect: rect(op.Rect), Radii: radii, Inner: inner,
-				Color: straight(op.Color), Color2: straight(op.Color2), Border: straight(op.BorderColor), Grad: op.Gradient,
+				Color: wideColor(w, scene.WideColor, op.Color), Color2: wideColor(w, scene.WideColor2, op.Color2), Border: wideColor(w, scene.WideBorder, op.BorderColor), Grad: op.Gradient,
 				UV:     bw,
 				Params: [4]float32{0, dashed, float32(op.Paint), opacity(op.Opacity)},
 			}, 0)
@@ -230,7 +235,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 			}
 			in := Instance{
 				Rect: rect(op.Rect), Radii: scene.Corners(op.Rect, op.Radii, op.Continuous),
-				Color: straight(op.Color), Params: [4]float32{1, 0, sigma, opacity(op.Opacity)},
+				Color: wideColor(b.wideOf(s, op.Wide), scene.WideColor, op.Color), Params: [4]float32{1, 0, sigma, opacity(op.Opacity)},
 			}
 			if !op.Cast.Empty() {
 				in.UV, in.Inner = rect(op.Cast), scene.Corners(op.Cast, op.CastRadii, op.Continuous)
@@ -238,6 +243,11 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 			b.add(in, 0)
 		case scene.OpGlyphs:
 			grad := op.Paint == scene.PaintLinear || op.Paint == scene.PaintOklab
+			var c1, c2 [4]float32
+			if grad {
+				w := b.wideOf(s, op.Wide)
+				c1, c2 = wideColor(w, scene.WideColor, op.Color), wideColor(w, scene.WideColor2, op.Color2)
+			}
 			for _, g := range s.Glyphs[op.Start:op.End] {
 				a, kind, contrast := s.MaskAtlas, float32(2), s.Text.Contrast
 				switch {
@@ -262,8 +272,11 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 					Color:  straight(g.Color),
 					Params: [4]float32{kind, 0, 0, 1},
 				}
+				if w := b.wideOf(s, g.Wide); w != nil {
+					in.Color = w.Color
+				}
 				if grad && !g.Colored {
-					in.Color, in.Color2, in.Grad = straight(op.Color), straight(op.Color2), op.Gradient
+					in.Color, in.Color2, in.Grad = c1, c2, op.Gradient
 					in.Params[2], in.Params[3] = float32(op.Paint), opacity(op.Opacity)
 				}
 				b.add(in, 0)
@@ -352,6 +365,29 @@ func rect(r scene.Rect) [4]float32 { return [4]float32{r.X, r.Y, r.W, r.H} }
 
 func straight(c scene.Color) [4]float32 {
 	return [4]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255, float32(c.A) / 255}
+}
+
+// wideOf returns the colors outside the sRGB gamut of an op or a glyph of
+// s whose Wide is i, or nil when it has none or b does not draw them.
+func (b *Builder) wideOf(s *scene.Scene, i uint16) *scene.WideColors {
+	if !b.Wide || i == 0 || int(i) > len(s.Wide) {
+		return nil
+	}
+	return &s.Wide[i-1]
+}
+
+// wideColor returns the color of w that bit names, or c when w has none.
+func wideColor(w *scene.WideColors, bit scene.WideSet, c scene.Color) [4]float32 {
+	if w == nil || w.Set&bit == 0 {
+		return straight(c)
+	}
+	switch bit {
+	case scene.WideColor:
+		return w.Color
+	case scene.WideColor2:
+		return w.Color2
+	}
+	return w.Border
 }
 
 func opacity(o float32) float32 {

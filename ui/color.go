@@ -7,17 +7,26 @@ import (
 	"github.com/egoist/mygo/internal/scene"
 )
 
-// Color is an sRGB color with straight (not premultiplied) alpha.
-type Color struct{ R, G, B, A uint8 }
+// Color is a color with straight (not premultiplied) alpha. R, G, B and A are
+// its sRGB value. A Color from [Oklch] may lie outside the sRGB gamut and
+// then also holds the wide color, which a window that draws a wide gamut
+// (on a Mac whose screen shows one) shows in place of R, G and B; every
+// other one shows them, the nearest sRGB color, found as CSS Color 4 does.
+// Set R, G or B of such a color and the wide color is stale: make a new one
+// instead.
+type Color struct {
+	R, G, B, A uint8
+	wide       wideRGB
+}
 
 // Transparent is the color of nothing.
 var Transparent = Color{}
 
 // RGB returns an opaque color.
-func RGB(r, g, b uint8) Color { return Color{r, g, b, 255} }
+func RGB(r, g, b uint8) Color { return Color{R: r, G: g, B: b, A: 255} }
 
 // RGBA returns a color with alpha between 0 and 1.
-func RGBA(r, g, b uint8, alpha float32) Color { return Color{r, g, b, alphaByte(alpha)} }
+func RGBA(r, g, b uint8, alpha float32) Color { return Color{R: r, G: g, B: b, A: alphaByte(alpha)} }
 
 // Hex parses "#rgb", "#rgba", "#rrggbb" or "#rrggbbaa". It panics on other
 // input, which is a mistake in the program.
@@ -46,13 +55,13 @@ func parseHex(s string) (Color, error) {
 		if len(h) == 4 {
 			a = v[3]
 		}
-		return Color{v[0] * 17, v[1] * 17, v[2] * 17, a * 17}, nil
+		return Color{R: v[0] * 17, G: v[1] * 17, B: v[2] * 17, A: a * 17}, nil
 	case 6, 8:
 		a := uint8(255)
 		if len(h) == 8 {
 			a = v[6]<<4 | v[7]
 		}
-		return Color{v[0]<<4 | v[1], v[2]<<4 | v[3], v[4]<<4 | v[5], a}, nil
+		return Color{R: v[0]<<4 | v[1], G: v[2]<<4 | v[3], B: v[4]<<4 | v[5], A: a}, nil
 	}
 	return Color{}, fmt.Errorf("ui: invalid color %q", s)
 }
@@ -89,14 +98,22 @@ func (c Color) Alpha(a float32) Color {
 // gray returns the color in shades of gray, of the same luminance.
 func (c Color) gray() Color {
 	l := uint8(0.2126*float32(c.R) + 0.7152*float32(c.G) + 0.0722*float32(c.B) + 0.5)
-	return Color{l, l, l, c.A}
+	return Color{R: l, G: l, B: l, A: c.A}
 }
 
 // Mix returns the color t of the way from c to o.
 func (c Color) Mix(o Color, t float32) Color {
 	t = max(0, min(t, 1))
 	m := func(a, b uint8) uint8 { return uint8(float32(a)*(1-t) + float32(b)*t + 0.5) }
-	return Color{m(c.R, o.R), m(c.G, o.G), m(c.B, o.B), m(c.A, o.A)}
+	if c.wide.ok() || o.wide.ok() {
+		// The wide colors mix, so that the mix draws the same on every
+		// renderer when it is inside the sRGB gamut, and wide only when
+		// it is not.
+		r := mixWide(c, o, t)
+		r.A = m(c.A, o.A)
+		return r
+	}
+	return Color{R: m(c.R, o.R), G: m(c.G, o.G), B: m(c.B, o.B), A: m(c.A, o.A)}
 }
 
 // Over returns c composited over the opaque color base.

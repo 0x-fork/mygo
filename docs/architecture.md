@@ -1800,7 +1800,28 @@ either.
     the GPU did, and presents it, with no command buffer: the driver
     allocates its 32 to 44 MB only for frames that run on the GPU, and the
     CPU draws a small change in a fraction of the time the GPU takes to
-    start. Its drawables are not `framebufferOnly` for that;
+    start. Its drawables are not `framebufferOnly` for that. Colors
+    outside the sRGB gamut (`ui.Oklch`, as CSS's `oklch()`) are in a
+    table of the scene (`scene.Scene.Wide`), which ops and glyphs point
+    into with a 16-bit index (`Op.Wide`, in room the op's other fields
+    leave); their `Color`, `Color2` and `BorderColor` hold the nearest
+    sRGB colors, found as CSS Color 4 does (`internal/gamut`), which the
+    CPU, OpenGL and Direct3D renderers draw, as `gpu.Builder` does unless
+    `Wide`. The window host decides when a window draws them
+    (`wideHold`): on a screen showing more than sRGB
+    (`platform.WideGamutSurface`, `canRepresentDisplayGamut:` on macOS),
+    from a frame with some until none came for two seconds, so that a
+    blinking caret does not switch formats at every blink; those frames
+    are the GPU's, and a window on an sRGB screen keeps drawing the
+    nearest colors on the CPU. The Metal renderer (`SetWide`) then
+    switches the layer to `RGBA16Float` in the extended sRGB color space,
+    which keeps components outside 0 to 1 and which the system shows in
+    the display's gamut, and draws with pipelines and backdrop textures
+    of that format, made the first time. A uniform of the frame (the z of
+    the vertex and fragment globals) tells the shaders: Oklab gradients
+    then keep what their mix has outside sRGB, and effects read it as
+    `e.wide`, as the glass does to take its tint in extended sRGB
+    (`ui.Painter.EffectColor`);
   - `internal/gpu/gl` with the shader in GLSL 3.30 or GLSL ES 3.00, which
     the driver compiles when the renderer starts, since these versions
     have no compiled form every driver takes, and drivers keep what they

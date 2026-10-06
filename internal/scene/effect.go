@@ -27,7 +27,9 @@ import (
 // of the pixel the shape and the clip cover, and by the opacity. The
 // shape's corners may be continuous (Op.Continuous), which the renderer
 // covers as such, while e.radii, positive, has the effect take them as
-// circular.
+// circular. In Metal, e.wide tells that the target keeps colors outside
+// the sRGB gamut, in extended sRGB (Scene.Wide), which the effect may then
+// take from a parameter holding such a color (ui.Painter.EffectColor).
 // sampleBackdrop(e, q) (with the backdrop texture first in Metal) returns
 // the backdrop at q, premultiplied, as BackdropImage.Sample does.
 type Effect struct {

@@ -21,6 +21,24 @@ func (c Color) Premul(opacity float32) [4]float32 {
 	return [4]float32{float32(c.R) / 255 * a, float32(c.G) / 255 * a, float32(c.B) / 255 * a, a}
 }
 
+// WideColors are the colors outside the sRGB gamut of an op or a glyph
+// (see Op.Wide): straight RGBA with sRGB-encoded components beyond 0 to 1
+// (extended sRGB), for those of Color, Color2 and BorderColor a Set bit
+// names, of which a glyph has only Color, times its opacity.
+type WideColors struct {
+	Color, Color2, Border [4]float32
+	Set                   WideSet
+}
+
+// WideSet says which colors of WideColors replace those of the op.
+type WideSet uint8
+
+const (
+	WideColor WideSet = 1 << iota
+	WideColor2
+	WideBorder
+)
+
 // Rect is a rectangle in device pixels.
 type Rect struct{ X, Y, W, H float32 }
 
@@ -92,8 +110,14 @@ type Op struct {
 	Color Color
 	// Paint, unless PaintSolid, fills with Color and Color2 as Gradient
 	// says.
-	Paint    Paint
-	Color2   Color
+	Paint  Paint
+	Color2 Color
+	// Wide, unless 0, is 1 + the index in Scene.Wide of the op's colors
+	// outside the sRGB gamut, which the renderers drawing a wide gamut
+	// draw in place of Color, Color2 and BorderColor; those hold the
+	// nearest sRGB colors, which every other renderer draws. It fits in
+	// the room the fields around it leave.
+	Wide     uint16
 	Gradient [4]float32
 
 	// Border holds the widths of the border on the top, right, bottom and
@@ -163,6 +187,9 @@ type Glyph struct {
 	U, V, UW, VH uint16
 	// Color tints mask glyphs; color glyphs take its alpha only.
 	Color Color
+	// Wide, unless 0, is 1 + the index in Scene.Wide of the glyph's
+	// color outside the sRGB gamut, as Op.Wide.
+	Wide uint16
 	// Colored glyphs come from Scene.ColorAtlas, the others from
 	// Scene.MaskAtlas.
 	Colored bool
@@ -251,6 +278,10 @@ type Scene struct {
 	Glyphs []Glyph
 	// Effects holds the effects of OpEffect operations.
 	Effects []EffectOp
+	// Wide holds the colors outside the sRGB gamut of ops and glyphs (see
+	// Op.Wide), and those of the parameters of effects, which no op points
+	// at. Without any, the scene draws the same on every renderer.
+	Wide []WideColors
 	// Text corrects the coverage of mask and subpixel glyphs.
 	Text TextParams
 	// MaskAtlas holds coverage masks (one byte per pixel), ColorAtlas
@@ -265,6 +296,7 @@ func (s *Scene) Reset(width, height int, clear Color) {
 	s.Ops = s.Ops[:0]
 	s.Glyphs = s.Glyphs[:0]
 	s.Effects = s.Effects[:0]
+	s.Wide = s.Wide[:0]
 }
 
 var lastImageID atomic.Uint64

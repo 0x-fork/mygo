@@ -11,21 +11,21 @@ func TestThemeFollowsTheAccent(t *testing.T) {
 	if theme.Accent != LightTheme().Accent {
 		t.Fatalf("without an accent of the desktop: %v", theme.Accent)
 	}
-	pink := Color{219, 39, 119, 255}
+	pink := Color{R: 219, G: 39, B: 119, A: 255}
 	tt.SetPreferences(Preferences{Accent: pink})
-	if theme.Accent != pink || theme.AccentText != (Color{255, 255, 255, 255}) || theme.AccentHover == pink {
+	if theme.Accent != pink || theme.AccentText != (Color{R: 255, G: 255, B: 255, A: 255}) || theme.AccentHover == pink {
 		t.Errorf("pink: accent %v, text %v, hover %v", theme.Accent, theme.AccentText, theme.AccentHover)
 	}
 	if theme.Focus.A == 0 || theme.Selection.A == 0 || theme.Focus.R != pink.R {
 		t.Errorf("pink: focus %v, selection %v", theme.Focus, theme.Selection)
 	}
 	// Text on a light accent is dark.
-	tt.SetPreferences(Preferences{Accent: Color{250, 204, 21, 255}})
+	tt.SetPreferences(Preferences{Accent: Color{R: 250, G: 204, B: 21, A: 255}})
 	if l := theme.AccentText.gray().R; l > 100 {
 		t.Errorf("text on yellow: %v", theme.AccentText)
 	}
 	tt.SetDark(true)
-	if !theme.Dark || theme.Accent != (Color{250, 204, 21, 255}) {
+	if !theme.Dark || theme.Accent != (Color{R: 250, G: 204, B: 21, A: 255}) {
 		t.Errorf("dark: %+v", theme)
 	}
 }
@@ -72,7 +72,7 @@ func TestOwnThemeIgnoresPreferences(t *testing.T) {
 		c.SetTheme(LightTheme())
 		accent = c.Theme().Accent
 	}, 200, 100)
-	tt.SetPreferences(Preferences{Accent: Color{219, 39, 119, 255}})
+	tt.SetPreferences(Preferences{Accent: Color{R: 219, G: 39, B: 119, A: 255}})
 	if accent != LightTheme().Accent {
 		t.Errorf("a theme of the app's took the desktop's accent: %v", accent)
 	}

@@ -57,7 +57,7 @@ func (x hsva) color() Color {
 		r, b = c, y
 	}
 	m := x.v - c
-	return Color{byte8(r + m), byte8(g + m), byte8(b + m), byte8(x.a)}
+	return Color{R: byte8(r + m), G: byte8(g + m), B: byte8(b + m), A: byte8(x.a)}
 }
 
 func byte8(v float64) uint8 { return uint8(math.Round(math.Max(0, math.Min(1, v)) * 255)) }
