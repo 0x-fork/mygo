@@ -123,7 +123,7 @@ components, from buttons to tables.
 - [Terminal](plugins/terminal.md): a terminal for native UI, which runs
   the shell or any program with Ghostty's terminal emulator.
 - [Glass](plugins/glass.md): Liquid Glass for native UI, as macOS draws
-  it, on every platform.
+  it, on every platform, with macOS's scroll edges and backdrop blurs.
 
 ## Reference
 

@@ -26,7 +26,8 @@ ui.Column(c).Padding(18).Gap(12).Radius(10).
 - **Materials.** `Material(m)` fills the box with a material a package
   paints, in place of a background, as the [glass
   plugin](../plugins/glass.md)'s Liquid Glass, which what is under it shows
-  through, frosted and bent along its edges.
+  through, frosted and bent along its edges, its scroll edges and its
+  backdrop blur, which may fade along a gradient.
 - **Pointer.** `Cursor` takes the shapes of the platforms: `CursorPointer`,
   `CursorText`, `CursorMove`, `CursorGrab` and `CursorGrabbing`, the
   resize cursors (both ways, toward one side as `CursorResizeE`, and of

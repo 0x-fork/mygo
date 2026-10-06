@@ -2,7 +2,7 @@
 
 package glass
 
-// The Metal library compiled ahead of time is for macOS alone.
-var metalLibrary []byte
+// The Metal libraries compiled ahead of time are for macOS alone.
+var metalLibrary, blurMetalLibrary []byte
 
-const metalSum = ""
+const metalSum, blurMetalSum = "", ""

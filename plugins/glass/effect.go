@@ -7,8 +7,8 @@ import (
 	"github.com/egoist/mygo/internal/scene"
 )
 
-// The shaders of the glass, one for each renderer, which go generate
-// compiles ahead of time where it can (shaders_darwin.go,
+// The shaders of the glass and of the blur, one for each renderer, which
+// go generate compiles ahead of time where it can (shaders_darwin.go,
 // shaders_windows.go).
 var (
 	//go:embed glass.metal
@@ -17,6 +17,12 @@ var (
 	hlslSource string
 	//go:embed glass.glsl
 	glslSource string
+	//go:embed blur.metal
+	blurMetalSource string
+	//go:embed blur.hlsl
+	blurHLSLSource string
+	//go:embed blur.glsl
+	blurGLSLSource string
 )
 
 // Effect is the glass's effect, which the renderers draw (see
@@ -30,6 +36,18 @@ var Effect = &scene.Effect{
 	HLSL:     scene.EffectCode{Source: hlslSource, Compiled: hlslBytecode, Sum: hlslSum},
 	GLSL:     glslSource,
 	Pixels:   func() scene.EffectPixels { return &pixels{} },
+}
+
+// blurEffect is a level of a blur (blurLevel), which the renderers draw:
+// what is behind it, blurred, by how much the level shows at each pixel,
+// along the mask.
+var blurEffect = &scene.Effect{
+	Name:     "blur",
+	Backdrop: true,
+	Metal:    scene.EffectCode{Source: blurMetalSource, Compiled: blurMetalLibrary, Sum: blurMetalSum},
+	HLSL:     scene.EffectCode{Source: blurHLSLSource, Compiled: blurBytecode, Sum: blurHLSLSum},
+	GLSL:     blurGLSLSource,
+	Pixels:   func() scene.EffectPixels { return &blurPixels{} },
 }
 
 // material is a pane of glass, in device pixels: the effect's parameters.

@@ -59,6 +59,19 @@ scroll bars over its content while the pointer is over it, which the user
 drags; they take no room. The theme's `ScrollbarWidth` sets their width and
 its `Scrollbar` their color.
 
+`ScrollbarInsets` moves the bars in from the container's edges, CSS style
+as `Padding`: the vertical bar runs from the top inset to the bottom one,
+the right inset in from the right, and the horizontal bar from the left
+inset to the right one, the bottom inset up. So the bars keep clear of
+what floats over the content, as a toolbar it scrolls under, as AppKit's
+and UIKit's do:
+
+```go
+ui.Scroll(c).Fill().Padding(64, 16, 16).ScrollbarInsets(64, 0, 0).Children(func() { /* ... */ })
+// The toolbar floats over the top 64 DIPs.
+ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(64).Children(func() { /* ... */ })
+```
+
 ## Accessibility
 
 Assistive technology sees a scroll area, which it scrolls to show what it

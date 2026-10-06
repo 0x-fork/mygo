@@ -6,6 +6,10 @@
 // CPU, so it looks the same everywhere.
 //
 //	ui.Row(c).Padding(8, 16).Radius(22).Material(glass.Glass{})
+//
+// ScrollEdge is macOS's scroll edge effect, which content scrolling under
+// a bar fades or frosts under, and Blur blurs what is under an element
+// without the glass, evenly or fading along a gradient.
 package glass
 
 //go:generate go run ./internal/gen

@@ -788,9 +788,30 @@ build` like mygo-runtime and released with the same version.
   lights the rim by how its normal faces the light. The defaults follow
   macOS 27's, measured from
   `NSGlassEffectView` over test patterns; the optics follow the
-  open-source reproductions of Liquid Glass. `go generate ./plugins/glass`
-  compiles the shaders ahead of time on macOS (`shaders_darwin.go`) and on
-  Windows (`shaders_windows.go`), with `internal/gen`.
+  open-source reproductions of Liquid Glass. `glass.Blur`, a backdrop
+  blur, is a second effect (`blurEffect`): what is behind the element,
+  blurred, with its alpha (the effect samples the backdrop's texels
+  itself, as the heads' `sampleBackdrop` gives no alpha), so over nothing
+  it stays transparent. Masked by a `LinearGradient`, the blur varies as
+  the gradient's alpha (`blurLevels`): the element paints levels in turn,
+  each blurring what the levels before painted (blurs add as their
+  variances do), shown where the blur wanted is above its band, by how far
+  into the band, so a level's top doubles from at most 2 pixels to the
+  blur's most and a pixel between two levels mixes their blurs. A level of
+  a square element covers only where it shows (`blurWanted`), and so
+  reads less. Bounding the levels after the first to the element, so that
+  they read no unblurred content around it, measured worse against a blur
+  varying per pixel than leaving them reading it: the repeated edge biases
+  more than what is around. A level may tone what it shows (`blurTone`:
+  saturation, an offset, an opaque color over it), which the hard style of
+  `glass.ScrollEdge`, macOS's scroll edge effect, frosts with in one
+  level; the soft style is a gradient of the background, as macOS 27's
+  replays its window's background under a mask, with no blur (measured
+  from SwiftUI's `safeAreaBar` over test patterns, its layers dumped).
+  `go generate ./plugins/glass`
+  compiles both effects' shaders ahead of time on macOS
+  (`shaders_darwin.go`) and on Windows (`shaders_windows.go`), with
+  `internal/gen`.
 
 ## Typed client generation (`internal/tsgen`)
 

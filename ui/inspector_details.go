@@ -196,6 +196,9 @@ func ownStyles(rt *engine, e *Element) []inspDecl {
 	if v, ok := edgesCSS(e.margin); ok {
 		add("margin", v)
 	}
+	if v, ok := edgesCSS(e.barInset); ok {
+		add("scrollbar-insets", v)
+	}
 	if v, ok := edgesCSS(e.border); ok {
 		style := "solid"
 		if e.borderStyle == BorderDashed {

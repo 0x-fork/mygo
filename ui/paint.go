@@ -689,7 +689,7 @@ func (p *Painter) scrollbars(e *Element) {
 		x = rescale(x, e.contentW-float64(e.w), w-float64(e.w))
 		y = rescale(y, e.contentH-float64(e.h), h-float64(e.h))
 	}
-	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, float32(w), float32(h), float32(x), float32(y), e.flags, theme.scrollbarWidth())
+	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.barInset, float32(w), float32(h), float32(x), float32(y), e.flags, theme.scrollbarWidth())
 	if g.vertical {
 		bar := g.v
 		if dragging && !rt.scrollDrag.horizontal {
@@ -723,10 +723,11 @@ type scrollGeometry struct {
 }
 
 // scrollBars returns the scroll bars of a container box scrolled by
-// (x, y) over content w×h, with thumbs width DIPs wide: those of the
+// (x, y) over content w×h, with thumbs width DIPs wide, moved in from its
+// edges by inset (top, right, bottom, left, ScrollbarInsets): those of the
 // directions its flags scroll that overflow, which leave each other the
 // corner where both show.
-func scrollBars(box Rect, w, h, x, y float32, flags uint32, width float32) scrollGeometry {
+func scrollBars(box Rect, inset [4]float32, w, h, x, y float32, flags uint32, width float32) scrollGeometry {
 	var g scrollGeometry
 	g.vertical = flags&flagScrollY != 0 && h > box.H+0.5
 	g.horizontal = flags&flagScrollX != 0 && w > box.W+0.5
@@ -734,15 +735,18 @@ func scrollBars(box Rect, w, h, x, y float32, flags uint32, width float32) scrol
 	if g.vertical && g.horizontal {
 		corner = width + 3
 	}
+	top, right, bottom, left := inset[0], inset[1], inset[2], inset[3]
 	if g.vertical {
-		g.vTrack = Rect{box.X + box.W - width - 6, box.Y, width + 6, box.H - corner}
-		t := scrollThumb(box.Y, box.H-corner, box.H, h, y)
-		g.v = Rect{box.X + box.W - width - 3, t.Y, width, t.H}
+		track := max(box.H-top-bottom-corner, 0)
+		g.vTrack = Rect{box.X + box.W - right - width - 6, box.Y + top, width + 6, track}
+		t := scrollThumb(box.Y+top, track, box.H, h, y)
+		g.v = Rect{box.X + box.W - right - width - 3, t.Y, width, t.H}
 	}
 	if g.horizontal {
-		g.hTrack = Rect{box.X, box.Y + box.H - width - 6, box.W - corner, width + 6}
-		t := scrollThumb(box.X, box.W-corner, box.W, w, x)
-		g.h = Rect{t.Y, box.Y + box.H - width - 3, t.H, width}
+		track := max(box.W-left-right-corner, 0)
+		g.hTrack = Rect{box.X + left, box.Y + box.H - bottom - width - 6, track, width + 6}
+		t := scrollThumb(box.X+left, track, box.W, w, x)
+		g.h = Rect{t.Y, box.Y + box.H - bottom - width - 3, t.H, width}
 	}
 	return g
 }

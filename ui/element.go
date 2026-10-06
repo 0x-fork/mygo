@@ -302,6 +302,9 @@ type Element struct {
 	x, y, w, h float32
 	// contentW and contentH are the size of a scroll container's content.
 	contentW, contentH float64
+	// barInset moves a scroll container's scroll bars in from its edges
+	// (ScrollbarInsets): top, right, bottom, left.
+	barInset [4]float32
 	// scrollBase is the offset of a List's content that its rows were
 	// placed at: placing moves them by how far the offset moved since.
 	scrollBase float64
@@ -561,6 +564,17 @@ func (e *Element) MarginX(v float32) *Element { e.margin[1], e.margin[3] = v, v;
 
 // MarginY sets the top and bottom margins.
 func (e *Element) MarginY(v float32) *Element { e.margin[0], e.margin[2] = v, v; return e }
+
+// ScrollbarInsets moves a scroll container's scroll bars in from its
+// edges, CSS style as Padding: the vertical bar runs from top DIPs below
+// its top to bottom DIPs above its bottom, right DIPs in from its right,
+// and the horizontal bar from left to right DIPs in, bottom DIPs up. A bar
+// keeps clear so of what floats over the content, as a toolbar the
+// content scrolls under, which AppKit's scrollerInsets and UIKit's scroll
+// indicator insets do:
+//
+//	ui.Scroll(c).Fill().Padding(64, 16, 16).ScrollbarInsets(64, 0, 0)
+func (e *Element) ScrollbarInsets(v ...float32) *Element { e.barInset = edges(v); return e }
 
 // Width sets the width in DIPs.
 func (e *Element) Width(v float32) *Element { e.width = px(v); return e }
