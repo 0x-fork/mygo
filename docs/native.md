@@ -87,6 +87,29 @@ mygo.App.OnDidBecomeActive(func() { mygo.ClearNotifications() })
 Linux asks the desktop's notification service to close them, which may
 have closed them already, and Windows hides its balloon.
 
+A notification can outlive the run that showed it, in Notification Center
+on macOS, where a click launches the app again. Give it an `ID` of the
+app's own, which `App.OnNotificationClick` receives for every click, that
+one included when it is registered before `Run`; showing a notification
+with the `ID` of one still shown replaces it. `Group` gathers notifications
+in one stack of Notification Center, such as the messages of a
+conversation (macOS):
+
+```go
+// IDs are "<conversation>/<message>".
+mygo.App.OnNotificationClick(func(id string) {
+	conversation, _, _ := strings.Cut(id, "/")
+	openConversation(conversation)
+})
+
+mygo.NewNotification(mygo.NotificationOptions{
+	ID:    "ada/" + msg.ID,
+	Group: "ada",
+	Title: "Ada",
+	Body:  msg.Text,
+}).Show()
+```
+
 ## Clipboard
 
 ```go

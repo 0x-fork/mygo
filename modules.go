@@ -1,10 +1,10 @@
 package mygo
 
 import (
+	"crypto/rand"
 	"errors"
 	"math"
 	"runtime"
-	"strconv"
 	"sync"
 
 	"github.com/egoist/mygo/internal/accelerator"
@@ -514,11 +514,20 @@ func (t *Tray) OnRightClick(fn func()) (off func()) { return t.onRight.add(fn, f
 
 // NotificationOptions configures a desktop notification.
 type NotificationOptions struct {
+	// ID identifies the notification: App.OnNotificationClick receives
+	// it, also after the app has quit and been launched again, and showing
+	// a notification with the ID of one still shown replaces that one.
+	// Empty gives it an ID of its own.
+	ID       string
 	Title    string
 	Subtitle string
 	Body     string
 	// Silent suppresses the notification sound.
 	Silent bool
+	// Group gathers the notifications that share it in one stack of
+	// Notification Center (macOS), such as the messages of a conversation.
+	// Empty leaves them in the app's.
+	Group string
 }
 
 // Notification is a desktop notification.
@@ -530,7 +539,6 @@ type Notification struct {
 
 var notifications struct {
 	sync.Mutex
-	next int
 	byID map[string]*Notification
 }
 
@@ -544,12 +552,17 @@ func NotificationsSupported() bool {
 
 // NewNotification creates a notification; call Show to display it.
 func NewNotification(opts NotificationOptions) *Notification {
-	notifications.Lock()
-	notifications.next++
-	n := &Notification{id: "mygo-" + strconv.Itoa(notifications.next), opts: opts}
-	notifications.Unlock()
-	return n
+	id := opts.ID
+	if id == "" {
+		// Unique across runs too, as notifications outlive them.
+		id = "mygo-" + rand.Text()
+	}
+	return &Notification{id: id, opts: opts}
 }
+
+// ID returns the notification's ID: NotificationOptions.ID, or the one it
+// was given.
+func (n *Notification) ID() string { return n.id }
 
 // ErrNotificationsDenied is returned by Notification.Show when the user has
 // not allowed the app to show notifications (macOS).
@@ -576,6 +589,7 @@ func (n *Notification) Show() error {
 			Subtitle: n.opts.Subtitle,
 			Body:     n.opts.Body,
 			Silent:   n.opts.Silent,
+			Group:    n.opts.Group,
 		}, func(err error) { deliver(ch, err) })
 	})
 	err := await(ch)
@@ -619,4 +633,5 @@ func notificationClicked(id string) {
 	if n != nil {
 		fire(&n.onClick)
 	}
+	fire1(&App.onNotificationClick, id)
 }

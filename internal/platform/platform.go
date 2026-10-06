@@ -707,4 +707,7 @@ type Notification struct {
 	Subtitle string
 	Body     string
 	Silent   bool
+	// Group gathers the notifications that share it (threadIdentifier on
+	// macOS).
+	Group string
 }

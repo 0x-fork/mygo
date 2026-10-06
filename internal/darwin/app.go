@@ -106,6 +106,7 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	b.delegate = alloc("MyGoAppDelegate")
 	send(b.app, "setDelegate:", uintptr(b.delegate))
 	b.menuTarget = alloc("MyGoMenuTarget")
+	b.attachNotificationDelegate()
 
 	// A run loop source drives the queue of functions posted from other
 	// goroutines. It fires in every run loop mode, including while menus

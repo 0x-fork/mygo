@@ -76,6 +76,20 @@ func notificationCenter() id {
 	return send(class("UNUserNotificationCenter"), "currentNotificationCenter")
 }
 
+// attachNotificationDelegate gives the notification center the delegate
+// that receives clicks, at launch: the system delivers the click that
+// launched the app before the app has finished launching, and drops it
+// when the center has no delegate yet.
+func (b *Backend) attachNotificationDelegate() {
+	if !b.NotificationsSupported() {
+		return
+	}
+	b.notifyDelegate = alloc("MyGoNotificationDelegate")
+	withPool(func() {
+		send(notificationCenter(), "setDelegate:", uintptr(b.notifyDelegate))
+	})
+}
+
 // waitingNotification is a notification shown before the user has answered
 // whether the app may show notifications.
 type waitingNotification struct {
@@ -90,14 +104,6 @@ func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
 	if !b.NotificationsSupported() {
 		done(platform.ErrUnsupported)
 		return
-	}
-	if b.notifyDelegate == 0 {
-		// For the clicks; removing notifications needs none, and may come
-		// before Run has registered the class.
-		b.notifyDelegate = alloc("MyGoNotificationDelegate")
-		withPool(func() {
-			send(notificationCenter(), "setDelegate:", uintptr(b.notifyDelegate))
-		})
 	}
 	if b.notifyAnswered {
 		b.addNotification(n, done)
@@ -141,6 +147,9 @@ func (b *Backend) addNotification(n *platform.Notification, done func(error)) {
 		send(content, "setBody:", uintptr(nsString(n.Body)))
 		if !n.Silent {
 			send(content, "setSound:", uintptr(send(class("UNNotificationSound"), "defaultSound")))
+		}
+		if n.Group != "" {
+			send(content, "setThreadIdentifier:", uintptr(nsString(n.Group)))
 		}
 		req := send(class("UNNotificationRequest"), "requestWithIdentifier:content:trigger:",
 			uintptr(nsString(n.ID)), uintptr(content), 0)

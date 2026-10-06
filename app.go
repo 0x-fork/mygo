@@ -61,6 +61,8 @@ type Application struct {
 	onOpenURL         listeners[func(string)]
 	onOpenFile        listeners[func(string)]
 	onWindowCreated   listeners[func(*Window)]
+
+	onNotificationClick listeners[func(string)]
 }
 
 // App is the application singleton.
@@ -464,6 +466,16 @@ func (a *Application) OnOpenURL(fn func(url string)) (off func()) {
 // instance get those of later ones.
 func (a *Application) OnOpenFile(fn func(path string)) (off func()) {
 	return a.onOpenFile.add(fn, false)
+}
+
+// OnNotificationClick is called with the ID of every notification of the
+// app that the user clicks, after its OnClick listeners: also one of an
+// earlier run, which no Notification of this run holds, such as the one
+// whose click launched the app (macOS). Register it before Run to receive
+// that one. Give notifications IDs of the app's own, such as the
+// conversation they are about, to know what to open.
+func (a *Application) OnNotificationClick(fn func(id string)) (off func()) {
+	return a.onNotificationClick.add(fn, false)
 }
 
 // OnWindowCreated is called for every new window.
