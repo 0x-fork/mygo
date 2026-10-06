@@ -281,6 +281,17 @@ purego gives three primitives, used everywhere:
   as a Wayland compositor requires; neither event reaches WebKit. Nothing
   resizes a maximized or full screen window, and a tiled one only resizes
   at the edges the window manager allows, as with GTK's own decorations.
+- `gtk_window_realize` announces server-side decorations to a Wayland
+  compositor that speaks `org_kde_kwin_server_decoration` (KWin, COSMIC,
+  Sway) for every window GTK does not decorate itself, one without
+  decorations too, and the compositor draws its title bar on it. A
+  frameless window is realized before it shows and announced client-side
+  instead (`gdk_wayland_window_announce_csd`, looked up at startup): GDK
+  keeps that for the `GdkWindow` and requests it again whenever the window
+  maps or the compositor answers with another mode, so the window gets no
+  title bar unless the compositor decorates every window. Without the
+  protocol (Mutter), or on X11, which reads the hint of
+  `gtk_window_set_decorated`, nothing decorates the window anyway.
 - A hidden title bar (`titlebar.go`) is a window without decorations whose
   web view is in a `GtkOverlay`, under a `GtkHeaderBar` for each side of
   `gtk-decoration-layout` that names window buttons. Each bar shows only
@@ -294,9 +305,10 @@ purego gives three primitives, used everywhere:
   rebuilds them. A Wayland compositor that decorates windows itself
   (`gdk_wayland_display_prefers_ssd`: the default mode of
   `org_kde_kwin_server_decoration_manager`, server on KWin, Hyprland and
-  Sway) gets no bars: GTK asks it to decorate a window without decorations
-  too, so its title bar, or a tiling compositor's lack of one, stands for
-  the buttons, whatever the layout says.
+  Sway) gets no bars: such a window keeps GTK's announcement of server-side
+  decorations, unlike a frameless one, so the compositor's title bar, or a
+  tiling compositor's lack of one, stands for the buttons, whatever the
+  layout says.
 - `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set unless the user set it, which
   avoids blank webviews on NVIDIA drivers, VMs and containers.
 - XDG desktop portal calls go through `portalCall` (`portal.go`), which

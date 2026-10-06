@@ -44,6 +44,9 @@ type Backend struct {
 	// compositorDecorates reports a Wayland compositor that decorates
 	// windows itself, whose title bar shows no buttons of GTK's (titlebar.go).
 	compositorDecorates bool
+	// announceCSD tells a Wayland compositor that a window decorates
+	// itself, so that it draws no title bar (gdk_wayland_window_announce_csd).
+	announceCSD func(window ptr)
 
 	// What the launcher entry shows (Window.SetProgressBar, badges).
 	launcher struct {
@@ -103,9 +106,13 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	// open, and decides with it which windows it decorates.
 	var waylandType func() uintptr
 	var prefersSSD func(display ptr) bool
-	b.compositorDecorates = bind(libGDK, &waylandType, "gdk_wayland_display_get_type") &&
-		gTypeCheckInstanceIsA(gdkDisplayGetDefault(), waylandType()) &&
+	onWayland := bind(libGDK, &waylandType, "gdk_wayland_display_get_type") &&
+		gTypeCheckInstanceIsA(gdkDisplayGetDefault(), waylandType())
+	b.compositorDecorates = onWayland &&
 		bind(libGDK, &prefersSSD, "gdk_wayland_display_prefers_ssd") && prefersSSD(gdkDisplayGetDefault())
+	if onWayland {
+		bind(libGDK, &b.announceCSD, "gdk_wayland_window_announce_csd")
+	}
 	initCallbacks()
 	return nil
 }

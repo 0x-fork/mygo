@@ -50,7 +50,6 @@ var (
 	gtkWidgetHasFocus           func(w ptr) bool
 	gtkWidgetGetRealized        func(w ptr) bool
 	gtkWidgetGetMapped          func(w ptr) bool
-	gtkWidgetRealize            func(w ptr)
 	gtkWidgetUnrealize          func(w ptr)
 	gtkWidgetMap                func(w ptr)
 	gdkWindowLower              func(w ptr)
@@ -103,7 +102,6 @@ func loadSurface() {
 		mustBind(t, &gtkWidgetHasFocus, "gtk_widget_has_focus")
 		mustBind(t, &gtkWidgetGetRealized, "gtk_widget_get_realized")
 		mustBind(t, &gtkWidgetGetMapped, "gtk_widget_get_mapped")
-		mustBind(t, &gtkWidgetRealize, "gtk_widget_realize")
 		mustBind(t, &gtkWidgetUnrealize, "gtk_widget_unrealize")
 		mustBind(t, &gtkWidgetMap, "gtk_widget_map")
 		mustBind(d, &gdkWindowLower, "gdk_window_lower")

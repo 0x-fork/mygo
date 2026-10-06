@@ -303,6 +303,7 @@ var (
 	gtkMenuPopupAtRect                  func(menu, window ptr, rect *gdkRectangle, rectAnchor, menuAnchor int32, event ptr)
 	gtkMenuShellDeactivate              func(menu ptr)
 	gtkWidgetGetWindow                  func(w ptr) ptr
+	gtkWidgetRealize                    func(w ptr)
 	gtkWidgetGetAllocation              func(w ptr, a *gdkRectangle)
 	gtkAccelGroupNew                    func() ptr
 	gtkFileChooserNativeNew             func(title *byte, parent ptr, action int32, accept, cancel *byte) ptr
@@ -702,6 +703,7 @@ func load() error {
 	mustBind(t, &gtkMenuPopupAtRect, "gtk_menu_popup_at_rect")
 	mustBind(t, &gtkMenuShellDeactivate, "gtk_menu_shell_deactivate")
 	mustBind(t, &gtkWidgetGetWindow, "gtk_widget_get_window")
+	mustBind(t, &gtkWidgetRealize, "gtk_widget_realize")
 	mustBind(t, &gtkWidgetGetAllocation, "gtk_widget_get_allocation")
 	mustBind(t, &gtkAccelGroupNew, "gtk_accel_group_new")
 	mustBind(t, &gtkFileChooserNativeNew, "gtk_file_chooser_native_new")

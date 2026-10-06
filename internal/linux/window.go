@@ -188,6 +188,15 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if w.web != 0 {
 		b.byWebView[w.web] = w
 	}
+	if o.Frameless && b.announceCSD != nil {
+		// GTK asks a Wayland compositor that speaks
+		// org_kde_kwin_server_decoration (KWin, COSMIC, Sway…) to decorate
+		// every window it does not decorate itself, an undecorated one
+		// too: say the window decorates itself, before it is mapped, so
+		// that the compositor draws no title bar.
+		gtkWidgetRealize(w.win)
+		b.announceCSD(gtkWidgetGetWindow(w.win))
+	}
 	gtkWidgetShowAll(w.box)
 	if o.FullScreen {
 		gtkWindowFullscreen(w.win)
