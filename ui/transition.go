@@ -397,6 +397,7 @@ func (rt *engine) animateExits(root *Element, now time.Time, still bool) {
 		if r.ghost == nil {
 			e := r.elem
 			r.ghost = ghostOf(e)
+			r.elem = nil
 			r.ghost.leaving = 1
 			if e.flags&flagAbsolute != 0 {
 				r.ghost.leaving = 2

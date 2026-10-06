@@ -398,8 +398,14 @@ func (r *Renderer) remember(s *scene.Scene) {
 	r.valid = true
 	r.w, r.h = s.Width, s.Height
 	r.clear = s.Clear
+	if len(r.ops) > len(s.Ops) {
+		clear(r.ops[len(s.Ops):])
+	}
 	r.ops = append(r.ops[:0], s.Ops...)
 	r.glyphs = append(r.glyphs[:0], s.Glyphs...)
+	if len(r.effects) > len(s.Effects) {
+		clear(r.effects[len(s.Effects):])
+	}
 	r.effects = append(r.effects[:0], s.Effects...)
 	r.bounds, r.next = r.next, r.bounds
 	r.versions = r.versions[:0]

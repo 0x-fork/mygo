@@ -38,6 +38,28 @@ func TestDrawsAsTheCPURenderer(t *testing.T) {
 	gputest.Compare(t, "metal-continuous", pix, s.Width*4, s)
 }
 
+// The CPU presenter starts without drawing resources; the first GPU
+// frame creates them, and a frame after they are freed draws correctly.
+func TestDrawingResourcesOnDemand(t *testing.T) {
+	r, err := newRenderer()
+	if err != nil {
+		t.Skip("no Metal:", err)
+	}
+	defer r.Release()
+	if r.queue != 0 || r.sampler != 0 || r.empty != 0 || r.cur.pipeline != 0 {
+		t.Fatal("created GPU drawing resources before a GPU frame")
+	}
+	s := gputest.Scene()
+	for range 2 {
+		pix, err := r.renderOffscreen(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gputest.Compare(t, "metal-on-demand", pix, s.Width*4, s)
+		pool(r.releaseTextures)
+	}
+}
+
 // TestShaderLibrary checks that the library compiled ahead of time comes
 // from shader.metal as it is, and that Metal loads it.
 func TestShaderLibrary(t *testing.T) {

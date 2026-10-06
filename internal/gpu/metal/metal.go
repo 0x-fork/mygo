@@ -446,21 +446,34 @@ func (r *Renderer) init() (err error) {
 		"newBufferWithLength:options:"); err != nil {
 		return err
 	}
-	r.queue = send(r.device, "newCommandQueue")
-	if r.queue == 0 {
+	return nil
+}
+
+// initGPU makes what only drawing on the GPU needs. A window presenting
+// CPU frames needs the device and layer alone: neither a command queue
+// nor shaders, samplers and textures.
+func (r *Renderer) initGPU() error {
+	if r.queue != 0 {
+		return nil
+	}
+	queue := send(r.device, "newCommandQueue")
+	if queue == 0 {
 		return errors.New("metal: no command queue")
 	}
-	if err := r.makePipelines(r.cur); err != nil {
-		return err
-	}
+	defer release(&queue)
 	sd := send(send(class("MTLSamplerDescriptor"), "alloc"), "init")
 	defer release(&sd)
 	send(sd, "setMinFilter:", filterLinear)
 	send(sd, "setMagFilter:", filterLinear)
-	r.sampler = send(r.device, "newSamplerStateWithDescriptor:", sd)
-	if r.empty = r.newTexture(1, 1, pixelFormatRGBA8Unorm, usageShaderRead, []byte{0, 0, 0, 0}, 4); r.empty == 0 || r.sampler == 0 {
+	sampler := send(r.device, "newSamplerStateWithDescriptor:", sd)
+	defer release(&sampler)
+	empty := r.newTexture(1, 1, pixelFormatRGBA8Unorm, usageShaderRead, []byte{0, 0, 0, 0}, 4)
+	defer release(&empty)
+	if empty == 0 || sampler == 0 {
 		return errors.New("metal: cannot create a texture")
 	}
+	r.queue, r.sampler, r.empty = queue, sampler, empty
+	queue, sampler, empty = 0, 0, 0
 	return nil
 }
 
@@ -742,6 +755,14 @@ func (r *Renderer) waitLast() {
 // encode encodes drawing s into target, returning the autoreleased
 // command buffer, not yet committed.
 func (r *Renderer) encode(s *scene.Scene, target id) (id, error) {
+	if err := r.initGPU(); err != nil {
+		return 0, err
+	}
+	if r.cur.pipeline == 0 {
+		if err := r.makePipelines(r.cur); err != nil {
+			return 0, err
+		}
+	}
 	r.frame++
 	if err := r.syncAtlas(&r.mask, s.MaskAtlas, pixelFormatR8Unorm); err != nil {
 		return 0, err
@@ -1069,9 +1090,9 @@ func (r *Renderer) presentPixels(pix []byte, stride, width, height int, scale fl
 	return nil
 }
 
-// releaseTextures frees what only frames the GPU draws use, once only
-// frames drawn in memory came for a while; the next frame the GPU draws
-// makes them again, uploading the atlases whole.
+// releaseTextures frees what only frames the GPU draws use, once the
+// window is idle or only frames drawn in memory came for a while. The next
+// frame the GPU draws makes them again, uploading the atlases whole.
 func (r *Renderer) releaseTextures() {
 	release(&r.mask.tex)
 	release(&r.color.tex)
@@ -1087,6 +1108,7 @@ func (r *Renderer) releaseTextures() {
 			r.formats[i].backdrop[j] = texture{}
 		}
 	}
+	r.b = gpu.Builder{}
 }
 
 // changedSince returns what changed between the frame drawn in memory the
@@ -1164,6 +1186,9 @@ func (r *Renderer) trim() {
 		return
 	}
 	pool(func() {
+		r.waitLast()
+		r.releaseTextures()
+		r.lastGPU = time.Time{}
 		tx := class("CATransaction")
 		send(tx, "begin")
 		send(tx, "setDisableActions:", 1)

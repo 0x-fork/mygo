@@ -326,6 +326,8 @@ func (rt *engine) runFrame() {
 		// The last frame's elements stay as they are while this one builds,
 		// for copies of those that go with an exit transition.
 		rt.c.chunks, rt.c.spare = rt.c.spare, rt.c.chunks
+		rt.c.dirty, rt.c.spareDirty = rt.c.spareDirty, rt.c.dirty
+		rt.c.used = rt.c.dirty
 	}
 
 	// An event handled while building (a click, an edit) may change what
@@ -391,6 +393,8 @@ func (rt *engine) runFrame() {
 	rt.next()
 	rt.armTimer()
 	rt.showMenu()
+	rt.c.finish()
+	clear(rt.byID)
 	rt.stats.end(rt)
 }
 
@@ -534,6 +538,9 @@ func (rt *engine) prune() {
 				if rt.scrollDrag.st == s {
 					rt.scrollDrag.st = nil
 				}
+				// Recycle the state itself, without keeping the editor,
+				// local resources or callbacks of the element that went.
+				*s = state{}
 				if len(rt.free) < maxFree {
 					rt.free = append(rt.free, s)
 				}

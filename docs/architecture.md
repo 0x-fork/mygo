@@ -1221,7 +1221,12 @@ either.
   before: elements come from the context's arena, the default theme is
   copied for each pass, the states that pruning frees go to new elements
   (as rows coming into a list's view take those of rows that went out of
-  it), and a text keeps in its state what it made of its spans
+  it), without keeping their local resources, editors or callbacks.
+  The arena uses chunks of 32 elements, releases unused chunks after a
+  smaller frame, and keeps one empty chunk for growth; unused elements
+  and the spare arena of exit transitions give up their references after
+  the frame copied what it needs. A text keeps in its state what it made
+  of its spans
   (`spanCache`: their text, the styles of their layout, encoded, and where
   each ends), which a frame compares rather than makes again. With
   `MYGO_FRAME_STATS` set, frames slower than its threshold log how long
@@ -1735,7 +1740,12 @@ either.
   animated shapes never fill the atlas. When an atlas fills up during a
   frame anyway, the engine calls `MakeRoom`, which repacks what the frame
   drew, grows the atlas when that is much of it and forgets the rest, and
-  paints the frame again: no frame shows with glyphs missing.
+  paints the frame again: no frame shows with glyphs missing. The mask
+  atlas starts at 256×256, and the color atlas at one transparent texel
+  until a color or subpixel glyph draws. Growth accounts for the width
+  and height of missing bitmaps as well as their area, so long thin
+  paths fit on the repaint too. The first glyph can grow an empty atlas
+  immediately, without invalidating anything already painted.
 - **Renderers.** `internal/gpu` turns a scene into one instanced quad per
   operation, in batches that share a scissor rectangle and an image, for one
   shader that computes the signed distance to rounded rectangles, Evan
@@ -1790,16 +1800,19 @@ either.
     spares a first launch the 100 to 150 ms Metal takes to compile the
     source until it has cached it; a library older than `shader.metal`
     falls back to that, and its test fails. It draws into a CAMetalLayer
-    it adds to the surface view's layer. Its frames present with the Core
-    Animation transaction (`presentsWithTransaction`), so a live resize
+    it adds to the surface view's layer. The command queue, shaders,
+    sampler and placeholder texture are made on demand: a window that
+    only presents CPU frames keeps the device and layer alone. Its frames
+    present with the Core Animation transaction (`presentsWithTransaction`), so a live resize
     shows no stretched frames, and each frame waits for the GPU to finish
     the last before it updates the textures and the instance buffer the
     last read, so two drawables do rather than the three a layer makes
     while a window animates. Two seconds after the last frame, as the
     driver frees its own memory of frames, a timer shrinks the drawables,
     which frees all but the one shown, until the next frame makes them
-    again: an idle window keeps one frame of memory. It also presents
-    frames drawn on the CPU without the GPU (`PresentPixels`): it locks
+    again, and releases GPU instance buffers, atlas/image textures and
+    backdrop textures: an idle window keeps one frame of memory. It also
+    presents frames drawn on the CPU without the GPU (`PresentPixels`): it locks
     the next drawable's IOSurface and copies what changed since the frame
     drawn in memory that drawable holds (it keeps the damage of the last
     four, and whether the GPU drew into a drawable since), all of it after

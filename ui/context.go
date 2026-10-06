@@ -13,11 +13,14 @@ import (
 // view function receives it on the main thread; it is only valid during
 // that call.
 type Context struct {
-	rt       *engine
-	parent   *Element
-	root     *Element
-	chunks   [][]Element
-	used     int
+	rt     *engine
+	parent *Element
+	root   *Element
+	chunks [][]Element
+	used   int
+	// dirty is how many elements in the arena have held references since
+	// finish last cleared the unused ones, including earlier build passes.
+	dirty    int
 	theme    *Theme
 	now      time.Time
 	w, h     float32
@@ -50,7 +53,8 @@ type Context struct {
 	// spare are the chunks of the frame before, which the engine keeps
 	// while elements of that frame may leave with an exit transition, to
 	// copy them (engine.exitsBuilt).
-	spare [][]Element
+	spare      [][]Element
+	spareDirty int
 	// transitions are the elements given a Transition, in the order asked,
 	// and dividers those drawing lines between their children.
 	transitions []transitionUse
@@ -60,7 +64,7 @@ type Context struct {
 	depthStarts []int
 }
 
-const chunkSize = 256
+const chunkSize = 32
 
 // alloc returns a zeroed element from the frame's arena.
 func (c *Context) alloc() *Element {
@@ -81,13 +85,19 @@ func (c *Context) alloc() *Element {
 }
 
 func (c *Context) reset(now time.Time, w, h float32) {
+	c.dirty = max(c.dirty, c.used)
 	c.used = 0
 	c.now = now
 	c.w, c.h = w, h
 	c.theme = c.rt.defaultTheme()
 	c.tree = nil
+	clear(c.reveal)
 	c.reveal = c.reveal[:0]
+	clear(c.transitions)
 	c.transitions = c.transitions[:0]
+	clear(c.sortedUses)
+	c.sortedUses = c.sortedUses[:0]
+	clear(c.dividers)
 	c.dividers = c.dividers[:0]
 	c.router, c.routers, c.inert = nil, 0, false
 	root := c.alloc()
@@ -101,6 +111,33 @@ func (c *Context) reset(now time.Time, w, h float32) {
 	c.root = root
 	c.parent = root
 	c.overlay = nil
+}
+
+// finish frees references to elements left out of the frame, including
+// those from an earlier pass. Exit transitions have copied what they
+// need from the spare arena by now. Keep one empty chunk for growth, so
+// that a few rows entering and leaving a list do not allocate every frame.
+func (c *Context) finish() {
+	c.chunks = trimArena(c.chunks, c.used, max(c.dirty, c.used))
+	c.spare = trimArena(c.spare, 0, c.spareDirty)
+	c.dirty, c.spareDirty = c.used, 0
+}
+
+func trimArena(chunks [][]Element, used, dirty int) [][]Element {
+	n := (used + chunkSize - 1) / chunkSize
+	// Only elements used since the last cleanup can retain anything.
+	// Clear at most the two chunks kept; the rest give up their storage.
+	for i, end := used, min(dirty, (n+1)*chunkSize); i < end; {
+		ci, ei := i/chunkSize, i%chunkSize
+		to := min(chunkSize, end-ci*chunkSize)
+		clear(chunks[ci][ei:to])
+		i = ci*chunkSize + to
+	}
+	if n < len(chunks) {
+		clear(chunks[n+1:])
+		chunks = chunks[:n+1]
+	}
+	return chunks
 }
 
 // overlayID is the ID of the layer of overlays.
@@ -438,7 +475,9 @@ func (rt *engine) lookState(id uint64) (s *state, built bool) {
 	if s == nil {
 		if n := len(rt.free); n > 0 {
 			// A state pruned, which nothing refers to any more.
-			s, rt.free = rt.free[n-1], rt.free[:n-1]
+			s = rt.free[n-1]
+			rt.free[n-1] = nil
+			rt.free = rt.free[:n-1]
 			*s = state{id: id, born: rt.frame}
 		} else {
 			s = &state{id: id, born: rt.frame}

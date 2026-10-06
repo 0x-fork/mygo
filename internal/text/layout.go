@@ -2,6 +2,7 @@ package text
 
 import (
 	"encoding/binary"
+	"image"
 	"math"
 	"slices"
 	"sync"
@@ -293,9 +294,12 @@ type System struct {
 	// full tells which atlases (mask, color) left out something the frame
 	// draws, and want how many pixels that needed; failed counts failed
 	// allocations.
-	full   [2]bool
-	want   [2]int
-	failed int
+	full [2]bool
+	want [2]int
+	// wantSize is the largest bitmap left out of each atlas, including
+	// padding: area alone does not tell whether a long, thin mask fits.
+	wantSize [2]image.Point
+	failed   int
 	// subpixel tells that the system's settings ask for subpixel
 	// antialiasing (TextParams).
 	subpixel bool
@@ -328,17 +332,19 @@ var shared = sync.OnceValue(newSystem)
 
 func newSystem() *System {
 	return &System{
-		fonts:      map[Style]*Font{},
-		layouts:    map[Params]*cached{},
-		marks:      map[markKey]float32{},
-		glyphs:     map[glyphKey]*atlasEntry{},
-		places:     map[placeKey]placement{},
-		runs:       map[runKey]*atlasEntry{},
-		masks:      map[uint64]*atlasEntry{},
-		transient:  map[uint64]GlyphImage{},
-		recent:     map[uint64]uint64{},
-		MaskAtlas:  scene.NewAtlas(1, 1024, 1024),
-		ColorAtlas: scene.NewAtlas(4, 512, 512),
+		fonts:     map[Style]*Font{},
+		layouts:   map[Params]*cached{},
+		marks:     map[markKey]float32{},
+		glyphs:    map[glyphKey]*atlasEntry{},
+		places:    map[placeKey]placement{},
+		runs:      map[runKey]*atlasEntry{},
+		masks:     map[uint64]*atlasEntry{},
+		transient: map[uint64]GlyphImage{},
+		recent:    map[uint64]uint64{},
+		MaskAtlas: scene.NewAtlas(1, 256, 256),
+		// Most interfaces have no color or subpixel glyphs. Keep just a
+		// transparent texel until one asks for room.
+		ColorAtlas: scene.NewAtlas(4, 1, 1),
 	}
 }
 
