@@ -531,3 +531,37 @@ func TestAccessibilityPerform(handle uintptr, label, action, value string) bool 
 	}
 	return false
 }
+
+// TestObserve has key-value observing watch the view of a window showing
+// native UI and the elements of it that assistive technology reads, as
+// other code may: the runtime gives each a generated subclass of its
+// class, whose methods reach the overrides of MyGo's classes. stop ends it.
+func TestObserve(handle uintptr) (stop func()) {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.surface == nil {
+		return func() {}
+	}
+	type observed struct {
+		obj id
+		key string
+	}
+	list := []observed{{w.surface.view, "frame"}}
+	for _, n := range TestAccessibility(handle) {
+		list = append(list, observed{n.obj, "accessibilityValue"})
+	}
+	withPool(func() {
+		for _, o := range list {
+			// Kept until stop: an object observed must not go away.
+			retain(o.obj)
+			send(o.obj, "addObserver:forKeyPath:options:context:", uintptr(w.delegate), uintptr(nsString(o.key)), 0, 0)
+		}
+	})
+	return func() {
+		withPool(func() {
+			for _, o := range list {
+				send(o.obj, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString(o.key)))
+				release(o.obj)
+			}
+		})
+	}
+}

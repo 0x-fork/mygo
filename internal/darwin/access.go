@@ -526,7 +526,7 @@ func registerAccessClass() {
 		// AXInvalid, which the newer API lacks, says a value is not valid,
 		// as WebKit's fields do.
 		method("accessibilityAttributeNames", func(self id, cmd objc.SEL) id {
-			names := id(objc.ID(self).SendSuper(cmd))
+			names := sendSuper(self, "MyGoAccessibilityElement", cmd)
 			if el := b().accessElementOf(self); el != nil && el.node.States&platform.AccessInvalid != 0 {
 				return send(names, "arrayByAddingObject:", uintptr(nsString("AXInvalid")))
 			}
@@ -536,7 +536,7 @@ func registerAccessClass() {
 			if el := b().accessElementOf(self); el != nil && el.node.States&platform.AccessInvalid != 0 && stringOf(attr) == "AXInvalid" {
 				return nsString("true")
 			}
-			return id(objc.ID(self).SendSuper(cmd, attr))
+			return sendSuper(self, "MyGoAccessibilityElement", cmd, uintptr(attr))
 		}),
 		method("isAccessibilitySelectorAllowed:", func(self id, cmd objc.SEL, selector objc.SEL) bool {
 			if el := b().accessElementOf(self); el != nil {
@@ -546,7 +546,7 @@ func registerAccessClass() {
 					}
 				}
 			}
-			return objc.ID(self).SendSuper(cmd, selector) != 0
+			return byte(sendSuper(self, "MyGoAccessibilityElement", cmd, uintptr(selector))) != 0
 		}),
 		// Scrolling into view is an action of the older API alone, which
 		// VoiceOver asks for as it moves to what is out of view: answering
@@ -592,7 +592,7 @@ func registerAccessClass() {
 		}),
 		// Opening and closing a row of an outline, as VoiceOver does.
 		method("setAccessibilityDisclosed:", func(self id, cmd objc.SEL, open bool) {
-			objc.ID(self).SendSuper(cmd, open)
+			sendSuper(self, "MyGoAccessibilityElement", cmd, boolArg(open))
 			if el := b().accessElementOf(self); el != nil && el.node.Actions&platform.ActionExpand != 0 {
 				kind := platform.AccessCollapse
 				if open {
@@ -607,7 +607,7 @@ func registerAccessClass() {
 			}
 		}),
 		method("setAccessibilityValue:", func(self id, cmd objc.SEL, value id) {
-			objc.ID(self).SendSuper(cmd, value)
+			sendSuper(self, "MyGoAccessibilityElement", cmd, uintptr(value))
 			if el := b().accessElementOf(self); el != nil && textual(el.node.Role) {
 				el.act(platform.AccessSetValue, stringOf(value))
 			}

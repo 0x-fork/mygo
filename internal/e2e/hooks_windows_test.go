@@ -231,6 +231,9 @@ func useGPU(*mygo.Window) bool                                { return false }
 func surfaceInputLowest(*mygo.Window) bool                    { return true }
 func surfaceOnScreen(*mygo.Window) ([]byte, bool)             { return nil, false }
 
+// Only macOS has key-value observing.
+func observe(*mygo.Window) (func(), bool) { return nil, false }
+
 // rightClick clicks (x, y) in a window showing native UI with the
 // secondary button, with the messages a mouse sends.
 func rightClick(w *mygo.Window, x, y float64) (ok bool) {

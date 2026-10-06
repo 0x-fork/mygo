@@ -270,3 +270,6 @@ func choosePopupItem(label string) (ok bool) {
 	mygo.RunOnMain(func() { ok = linux.TestChoosePopupItem(label) })
 	return ok
 }
+
+// Only macOS has key-value observing.
+func observe(*mygo.Window) (func(), bool) { return nil, false }

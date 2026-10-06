@@ -168,6 +168,14 @@ func accessPerform(w *mygo.Window, label, action, value string) (ok bool) {
 	return ok
 }
 
+// observe has key-value observing watch the view of a window showing
+// native UI and its elements, until stop.
+func observe(w *mygo.Window) (stop func(), supported bool) {
+	var end func()
+	mygo.RunOnMain(func() { end = darwin.TestObserve(w.NativeHandle()) })
+	return func() { mygo.RunOnMain(end) }, true
+}
+
 // Only Linux draws native UI in a GtkGLArea, nor waits to load the GPU's
 // driver.
 func glSurface(*mygo.Window) (string, []byte, int, int, bool) { return "", nil, 0, 0, false }

@@ -2180,6 +2180,50 @@ func TestContentWindowAccessibility(t *testing.T) {
 	}
 }
 
+// TestContentWindowObserved resizes a window of native UI and acts on its
+// elements as assistive technology does while key-value observing watches
+// them, as other code may: the runtime gives each a generated subclass of
+// its class, so their overrides must call the superclass of the class they
+// are defined in, not of the object's, which would call them again until
+// the stack overflows (#79).
+func TestContentWindowObserved(t *testing.T) {
+	var frames atomic.Int32
+	name := "Ada"
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Column(c).Fill().Padding(20).Gap(10).Children(func() {
+			ui.Text(c, "Settings")
+			ui.TextInput(c, &name).Label("Name")
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Observed", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	eventually(t, "the text field", func() bool {
+		nodes, _ := accessibility(w)
+		return slices.ContainsFunc(nodes, func(n accessNode) bool { return n.role == roleTextField })
+	})
+	stop, ok := observe(w)
+	if !ok {
+		t.Skip("only macOS has key-value observing")
+	}
+	defer stop()
+	before := frames.Load()
+	w.SetSize(500, 400)
+	eventually(t, "a frame at the new size", func() bool { return frames.Load() > before })
+	if !accessPerform(w, "Name", "value", "Grace") {
+		t.Fatal("cannot set the text field's value")
+	}
+	eventually(t, "the text field's new value", func() bool {
+		var s string
+		mygo.RunOnMain(func() { s = name })
+		return s == "Grace"
+	})
+	// AppKit answers for what the element does not.
+	if accessPerform(w, "Settings", "press", "") {
+		t.Error("a text could be pressed")
+	}
+}
+
 // TestContentWindowListAccessibility reads the rows of a List as assistive
 // technology does, and chooses one by pressing it.
 func TestContentWindowListAccessibility(t *testing.T) {

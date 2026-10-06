@@ -210,6 +210,12 @@ purego gives three primitives, used everywhere:
   scheme handler, menu and tray targets. Only protocols that exist at run
   time are adopted (`WKScriptMessageHandler` is not registered, and WebKit
   does not need it).
+- **Overrides call super with `sendSuper`** (`sendSuperSize` for an
+  `NSSize`), naming the class they are defined in, never purego's
+  `objc.ID.SendSuper`: that resolves super from the object's class, which
+  key-value observing replaces with a generated subclass, so the override
+  would call itself until the stack overflows. `TestSuperFromDefinedClass`
+  rejects it.
 - **The web view is not the content view.** A plain `NSView` is, holding the
   web view and, with vibrancy, an `NSVisualEffectView` behind it. WebKit
   docks the inspector next to the web view in its superview; were that the
