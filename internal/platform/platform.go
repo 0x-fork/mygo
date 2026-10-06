@@ -158,7 +158,8 @@ type AppController interface {
 	OpenAtLogin(id, name, arg string) bool
 	OpenedAtLogin() bool
 	// Package describes the application bundle the process runs from; ok
-	// is false for a plain executable (e.g. `go run`).
+	// is false for a plain executable (e.g. `go run`). Safe to call from
+	// any goroutine, before Init too.
 	Package() (info PackageInfo, ok bool)
 }
 

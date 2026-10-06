@@ -223,7 +223,11 @@ purego gives three primitives, used everywhere:
   on.
 - **Memory is managed by hand.** Objects created with `alloc`/`init` are owned
   (+1) and must be released; convenience constructors return autoreleased
-  objects. Code that creates temporary objects runs inside `withPool`.
+  objects. Code that creates temporary objects runs inside `withPool`,
+  which keeps the goroutine on its thread until it pops the pool: a pool
+  belongs to the thread that pushed it, and a goroutine other than the
+  main one, as those reading the bundle for `App.Name`, may otherwise
+  resume on another thread, where popping it crashes.
   Delegates and windows are released with `autorelease` from
   `windowWillClose:` because AppKit still uses them while closing.
 - **Blocks.** Completion handlers passed to Apple APIs are created with

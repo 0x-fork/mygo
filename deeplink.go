@@ -26,9 +26,14 @@ var (
 	packageFileExtensions string // comma separated, lower case
 )
 
+// bundleInfo is what the backend reads of the app's bundle, which does not
+// change while it runs. Public methods such as App.Name ask for it from any
+// goroutine.
+var bundleInfo = sync.OnceValues(func() (platform.PackageInfo, bool) { return backend().App().Package() })
+
 // packageInfo describes the app as packaged by `mygo build` or `mygo dev`.
 func packageInfo() (platform.PackageInfo, bool) {
-	if info, ok := backend().App().Package(); ok {
+	if info, ok := bundleInfo(); ok {
 		return info, true
 	}
 	if packageIdentifier != "" {

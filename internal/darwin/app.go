@@ -3,7 +3,6 @@
 package darwin
 
 import (
-	"runtime"
 	"strings"
 	"unsafe"
 
@@ -190,15 +189,11 @@ func (b *Backend) Step() {
 	})
 }
 
-// Wake makes a pending Step return. It is called from any goroutine: the
-// autorelease pool of postEvent belongs to one thread, so the goroutine
-// must not move to another one meanwhile.
+// Wake makes a pending Step return. It is called from any goroutine.
 func (b *Backend) Wake() {
 	if b.app == 0 {
 		return
 	}
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	b.postEvent(wakeSubtype)
 }
 

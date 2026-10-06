@@ -333,8 +333,13 @@ func alloc(className string) id {
 	return send(send(class(className), "alloc"), "init")
 }
 
-// withPool runs fn inside an autorelease pool.
+// withPool runs fn inside an autorelease pool. A pool belongs to the thread
+// that pushed it, and popping it on another one crashes, so the goroutine
+// stays on its thread meanwhile: off the main thread, where public methods
+// such as App.Name read the bundle, it would move between threads.
 func withPool(fn func()) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	pool, _, _ := purego.SyscallN(poolPushFn)
 	defer purego.SyscallN(poolPopFn, pool)
 	fn()
