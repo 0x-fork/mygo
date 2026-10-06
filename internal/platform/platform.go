@@ -18,6 +18,10 @@ import (
 // ErrUnsupported is returned by features the current backend cannot provide.
 var ErrUnsupported = errors.New("not supported on this platform")
 
+// ErrNotificationsDenied is what ShowNotification fails with when the user
+// does not allow the app to show notifications.
+var ErrNotificationsDenied = errors.New("mygo: the user does not allow notifications")
+
 // Point is a position in screen coordinates (DIPs, origin top-left of the
 // primary display).
 type Point struct{ X, Y int }
@@ -86,7 +90,9 @@ type Backend interface {
 	UnregisterHotkey(id int)
 
 	NotificationsSupported() bool
-	ShowNotification(n *Notification) error
+	// ShowNotification shows n; done runs on the main thread once the
+	// system has it, or with why it could not.
+	ShowNotification(n *Notification, done func(error))
 	RemoveNotification(id string)
 }
 

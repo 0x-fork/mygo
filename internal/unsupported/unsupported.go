@@ -43,8 +43,11 @@ func (*Backend) NewTray(platform.TrayHandler) (platform.Tray, error)        { re
 func (*Backend) RegisterHotkey(int, string) error                           { return errUnsupported }
 func (*Backend) UnregisterHotkey(int)                                       {}
 func (*Backend) NotificationsSupported() bool                               { return false }
-func (*Backend) ShowNotification(*platform.Notification) error              { return errUnsupported }
 func (*Backend) RemoveNotification(string)                                  {}
+
+func (*Backend) ShowNotification(_ *platform.Notification, done func(error)) {
+	done(errUnsupported)
+}
 
 type app struct{}
 

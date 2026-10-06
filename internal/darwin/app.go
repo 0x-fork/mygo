@@ -35,8 +35,11 @@ type Backend struct {
 	hotkeys     map[int]uintptr
 	hkInstalled bool
 
-	notifyDelegate   id
-	notifyAuthorized bool
+	notifyDelegate id
+	// notifyAnswered records that the user has answered whether the app
+	// may show notifications; notifyWaiting holds those shown meanwhile.
+	notifyAnswered bool
+	notifyWaiting  []waitingNotification
 
 	stepping       int
 	quitAfterModal bool

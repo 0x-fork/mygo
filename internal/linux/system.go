@@ -505,7 +505,11 @@ func (b *Backend) NotificationsSupported() bool {
 	return err == nil
 }
 
-func (b *Backend) ShowNotification(n *platform.Notification) error {
+func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
+	done(b.showNotification(n))
+}
+
+func (b *Backend) showNotification(n *platform.Notification) error {
 	conn, err := bus()
 	if err != nil {
 		return fmt.Errorf("mygo: notifications need a D-Bus session: %w", err)

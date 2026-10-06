@@ -228,9 +228,11 @@ func (b *Backend) PressHotkey(acc string) {
 	}
 }
 
-func (b *Backend) NotificationsSupported() bool                  { return false }
-func (b *Backend) ShowNotification(*platform.Notification) error { return platform.ErrUnsupported }
-func (b *Backend) RemoveNotification(string)                     {}
+func (b *Backend) NotificationsSupported() bool { return false }
+func (b *Backend) ShowNotification(_ *platform.Notification, done func(error)) {
+	done(platform.ErrUnsupported)
+}
+func (b *Backend) RemoveNotification(string) {}
 
 // Window is a fake native window. Scripts evaluated in it are recorded.
 type Window struct {
