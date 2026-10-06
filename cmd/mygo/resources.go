@@ -619,7 +619,7 @@ func (r resource) walk(fn func(path string, info fs.FileInfo) error) error {
 		if err := fn(path, info); err != nil || !info.IsDir() {
 			return err
 		}
-		entries, err := os.ReadDir(path)
+		entries, err := readDir(path)
 		if err != nil {
 			return err
 		}

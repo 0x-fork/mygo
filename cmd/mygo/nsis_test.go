@@ -122,14 +122,15 @@ func TestWindowsInstaller(t *testing.T) {
 }
 
 // uninstall runs the uninstaller of the app installed in dir silently, and
-// waits until the app is gone.
+// waits until it is done.
 func uninstall(t *testing.T, dir string) {
 	t.Helper()
 	if out, err := exec.Command(filepath.Join(dir, "Uninstall.exe"), "/S").CombinedOutput(); err != nil {
 		t.Fatalf("uninstalling: %v\n%s", err, out)
 	}
-	// The uninstaller copies itself away and runs from there.
-	deadline := time.Now().Add(10 * time.Second)
+	// The uninstaller copies itself away and runs from there, and removes
+	// the app's folder last.
+	deadline := time.Now().Add(30 * time.Second)
 	for {
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			return

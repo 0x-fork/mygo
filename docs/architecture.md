@@ -2022,7 +2022,9 @@ renderer's (`gputest.Compare`).
     the platform directories of other platforms. Frontend sources
     are the dev server's business and never rebuild the app. A build keeps
     the watcher's baseline unless it changed what is watched, so edits made
-    during a build trigger another one.
+    during a build trigger another one. On Windows the watcher opens
+    directories sharing them for deletion (`openDir`), which `os.Open`
+    does not, so that deleting or renaming one it lists does not fail.
   - Quitting the app ends `mygo dev`; a crash waits for the next change.
 - `build` generates the client, runs `buildCommand`, then compiles each
   target with `-trimpath -ldflags "-s -w -X …production=1"` (`-H=windowsgui`
@@ -2087,7 +2089,12 @@ renderer's (`gputest.Compare`).
   menu shortcut, a desktop shortcut that the finish page's second check
   box (MUI's "show readme" one) creates, and an uninstaller registered
   under `HKCU\…\Uninstall\<identifier>`; `/S /D=<dir>` installs
-  silently, without the desktop shortcut.
+  silently, without the desktop shortcut. The uninstaller runs from a
+  copy of itself that nothing waits for, so it removes the app's folder
+  last: the folder is gone once the uninstall is done. It tries deleting
+  each shortcut again for up to 5 s, as Explorer opens a new shortcut a
+  few seconds after it appears, not sharing it for deletion, and `Delete`
+  fails meanwhile.
   `makensis` comes from an installation of NSIS or, on Windows, where NSIS
   is rarely installed, from the official zip of the release `nsisRelease`
   pins, which the CLI downloads once, checks against its SHA-256 and

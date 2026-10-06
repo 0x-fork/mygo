@@ -342,12 +342,37 @@ Function CreateDesktopShortcut
   CreateShortCut "$DESKTOP\` + shortcut + `" "$INSTDIR\` + nsisEscape(exe) + `"
 FunctionEnd
 
+; Deletes the shortcut on the stack, trying again for 5 s while it is in
+; use: Explorer opens a new shortcut a few seconds after it appears, not
+; sharing it for deletion, and Delete fails meanwhile. It succeeds when
+; there is no shortcut.
+Function un.DeleteShortcut
+  Exch $0
+  Push $1
+  StrCpy $1 50
+  retry:
+    ClearErrors
+    Delete $0
+    IfErrors 0 done
+    IntOp $1 $1 - 1
+    IntCmp $1 0 done
+    Sleep 100
+    Goto retry
+  done:
+  Pop $1
+  Pop $0
+FunctionEnd
+
 Section "Uninstall"
-  Delete "$SMPROGRAMS\` + shortcut + `"
-  Delete "$DESKTOP\` + shortcut + `"
-  RMDir /r "$INSTDIR"
+  Push "$SMPROGRAMS\` + shortcut + `"
+  Call un.DeleteShortcut
+  Push "$DESKTOP\` + shortcut + `"
+  Call un.DeleteShortcut
   DeleteRegKey HKCU ` + nsisString(uninstallKey) + `
-` + unregister + `SectionEnd
+` + unregister + `  ; Last, so that the app's folder is gone once the uninstall is done:
+  ; the uninstaller runs from a copy of itself that nothing waits for.
+  RMDir /r "$INSTDIR"
+SectionEnd
 `
 	nsi := filepath.Join(work, "installer.nsi")
 	if err := os.WriteFile(nsi, []byte(script), 0o644); err != nil {

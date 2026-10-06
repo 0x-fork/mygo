@@ -1281,7 +1281,7 @@ func TestMenuRolesAndState(t *testing.T) {
 	mu.Unlock()
 
 	menu.ItemByID("new").SetEnabled(false)
-	time.Sleep(20 * time.Millisecond)
+	onMain(func() {}) // the update reaches the backend on the main thread
 	updates := fb.MenuUpdates()
 	last := updates[len(updates)-1]
 	if last.ID != menu.ItemByID("new").uid || last.Enabled {

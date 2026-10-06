@@ -129,10 +129,28 @@ func TestDevLaunch(t *testing.T) {
 
 func TestWatcher(t *testing.T) {
 	dir := t.TempDir()
-	file := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(file, []byte("package main"), 0o644); err != nil {
-		t.Fatal(err)
+	// put writes a file in dir at once, as editors save files: the watcher
+	// must not see it, or the directories made for it, half written, which
+	// it reports as a change of its own when the writing takes longer than
+	// an interval, as it may on a busy machine.
+	put := func(name, content string) {
+		t.Helper()
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		top := path // the first part of the path that does not exist yet
+		for p := filepath.Dir(path); !fileExists(p); p = filepath.Dir(p) {
+			top = p
+		}
+		staged := filepath.Join(t.TempDir(), filepath.Base(top))
+		rel, err := filepath.Rel(top, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFiles(t, staged, map[string]string{filepath.ToSlash(rel): content})
+		if err := os.Rename(staged, top); err != nil {
+			t.Fatal(err)
+		}
 	}
+	put("main.go", "package main")
 	w := &watcher{}
 	w.set(&buildInputs{sourceDirs: []string{dir}})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -153,25 +171,17 @@ func TestWatcher(t *testing.T) {
 	}
 	expect(false, "nothing")
 	for _, f := range []string{"main_test.go", "notes.txt", "web.ts"} {
-		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		put(f, "x")
 	}
 	expect(false, "files the build ignores")
-	if err := os.WriteFile(file, []byte("package main // edited"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	put("main.go", "package main // edited")
 	expect(true, "edited source")
-	if err := os.WriteFile(filepath.Join(dir, "new.go"), []byte("package main"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	put("new.go", "package main")
 	expect(true, "new source")
 
 	// An edit made while a build runs is not lost when the build hands
 	// over the same inputs.
-	if err := os.WriteFile(file, []byte("package main // edited during a build"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	put("main.go", "package main // edited during a build")
 	w.set(&buildInputs{sourceDirs: []string{dir}})
 	expect(true, "edit during a build")
 
@@ -179,18 +189,13 @@ func TestWatcher(t *testing.T) {
 	// Windows resources that builds write into the main package.
 	w.set(&buildInputs{sourceDirs: []string{dir}, fileDirs: []string{dir}})
 	expect(false, "embedded files")
-	syso := filepath.Join(dir, "mygo_windows_amd64.syso")
-	if err := os.WriteFile(syso, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	put("mygo_windows_amd64.syso", "x")
 	expect(false, "resources of a build")
-	if err := os.Remove(syso); err != nil {
+	if err := os.Remove(filepath.Join(dir, "mygo_windows_amd64.syso")); err != nil {
 		t.Fatal(err)
 	}
 	expect(false, "resources of a build removed")
-	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	put("index.html", "x")
 	expect(true, "new embedded file")
 	w.set(&buildInputs{sourceDirs: []string{dir}})
 	expect(false, "new inputs")
@@ -201,21 +206,22 @@ func TestWatcher(t *testing.T) {
 	res := filepath.Join(dir, "resources")
 	w.set(&buildInputs{sourceDirs: []string{dir}, resources: res})
 	expect(false, "new inputs")
-	writeFiles(t, res, map[string]string{"data/words.txt": "hello"})
+	put("resources/data/words.txt", "hello")
 	expect(true, "new resources")
-	writeFiles(t, res, map[string]string{"data/.DS_Store": "junk"})
+	put("resources/data/.DS_Store", "junk")
 	expect(false, "hidden file in resources")
-	writeFiles(t, res, map[string]string{"data/words.txt": "hello, world"})
+	put("resources/data/words.txt", "hello, world")
 	expect(true, "edited resource")
 	other := "windows-arm64"
 	if runtime.GOOS == "windows" {
 		other = "linux-amd64"
 	}
-	writeFiles(t, res, map[string]string{other + "/bin/server": "x", "darwin-universal/bin/server": "x"})
+	put("resources/"+other+"/bin/server", "x")
+	put("resources/darwin-universal/bin/server", "x")
 	expect(false, "resources of other platforms")
-	writeFiles(t, res, map[string]string{runtime.GOOS + "-" + runtime.GOARCH + "/bin/server": "x"})
+	put("resources/"+runtime.GOOS+"-"+runtime.GOARCH+"/bin/server", "x")
 	expect(true, "resources of this platform")
-	writeFiles(t, res, map[string]string{runtime.GOOS + "/bin/tool": "x"})
+	put("resources/"+runtime.GOOS+"/bin/tool", "x")
 	expect(true, "resources of this system")
 	if runtime.GOOS != "windows" {
 		// Linked entries are followed, as builds follow them.
@@ -225,13 +231,41 @@ func TestWatcher(t *testing.T) {
 			t.Fatal(err)
 		}
 		expect(true, "linked resource")
-		writeFiles(t, sidecar, map[string]string{"server": "12"})
+		put("sidecar/server", "12")
 		expect(true, "edited linked resource")
 	}
 	if err := os.RemoveAll(res); err != nil {
 		t.Fatal(err)
 	}
 	expect(true, "removed resources")
+}
+
+// TestReadDir lists a directory as os.ReadDir does, and lets others
+// delete it meanwhile, which a directory os.Open opened on Windows does
+// not.
+func TestReadDir(t *testing.T) {
+	// Longer than MAX_PATH.
+	dir := filepath.Join(t.TempDir(), strings.Repeat("a", 100), strings.Repeat("b", 100), strings.Repeat("c", 100))
+	writeFiles(t, dir, map[string]string{"b.txt": "", "a/c.txt": "", "C.txt": ""})
+	entries, err := readDir(dir)
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if err != nil || strings.Join(names, " ") != "C.txt a b.txt" {
+		t.Errorf("readDir = %q, %v", names, err)
+	}
+	f, err := openDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := os.RemoveAll(dir); err != nil {
+		t.Errorf("deleting a directory being read: %v", err)
+	}
+	if _, err := readDir(dir); !os.IsNotExist(err) {
+		t.Errorf("readDir of a deleted directory: %v", err)
+	}
 }
 
 // TestListBuildInputs lists the inputs of the mygo command itself.

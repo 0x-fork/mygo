@@ -139,7 +139,7 @@ func fingerprint(in *buildInputs) uint64 {
 		fmt.Fprintf(h, "%s\x00%v\x00%d\x00%d\x00", path, info.Mode(), info.Size(), info.ModTime().UnixNano())
 	}
 	list := func(dir string, keep func(name string) bool) {
-		entries, _ := os.ReadDir(dir)
+		entries, _ := readDir(dir)
 		for _, e := range entries {
 			if e.IsDir() || !keep(e.Name()) {
 				continue
@@ -185,7 +185,7 @@ func fingerprint(in *buildInputs) uint64 {
 	// platform, which is the one mygo dev builds for.
 	var entries func(dir string, platforms bool)
 	entries = func(dir string, platforms bool) {
-		list, err := os.ReadDir(dir)
+		list, err := readDir(dir)
 		if err != nil {
 			fmt.Fprintf(h, "%s\x00-\x00", dir)
 			return
@@ -208,6 +208,19 @@ func fingerprint(in *buildInputs) uint64 {
 		tree(t)
 	}
 	return h.Sum64()
+}
+
+// readDir is os.ReadDir, but lets others delete the directory while it
+// reads it (openDir), as the watcher reads directories all the time.
+func readDir(name string) ([]os.DirEntry, error) {
+	f, err := openDir(name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(-1)
+	slices.SortFunc(entries, func(a, b os.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	return entries, err
 }
 
 // watch polls every interval and signals on the returned channel once
