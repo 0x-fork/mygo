@@ -252,7 +252,8 @@ type Glyph struct {
 	ID   uint32
 	// Size is the font size in DIPs.
 	Size float32
-	// X is the left of the glyph's advance box, Y its baseline.
+	// X is the glyph's drawing origin, including shaping offsets, Y its
+	// baseline. Advance moves the pen independently of those offsets.
 	X, Y    float32
 	Advance float32
 	// Cluster is the first rune of the glyph's cluster, Runes how many
@@ -724,7 +725,7 @@ func line(p Params, text []rune, sl shapedLine, offset int, rtl bool, m lineMetr
 		}
 	}
 	size := p.Style.FontSize()
-	x0, x1 := float32(math.MaxFloat32), float32(-math.MaxFloat32)
+	x0 := float32(math.MaxFloat32)
 	starts := *buf
 	for _, run := range sl.runs {
 		runSize := size
@@ -759,14 +760,18 @@ func line(p Params, text []rune, sl shapedLine, offset int, rtl bool, m lineMetr
 				g.Cluster += offset
 			}
 			g.Size = runSize
-			x0, x1 = min(x0, g.X), max(x1, g.X+g.Advance)
+			x0 = min(x0, g.X)
+			// Logical width follows the pen, not the glyphs' drawing
+			// offsets. Pango may kern "11" by offsetting its second glyph
+			// while keeping whole-pixel advances for line breaking.
+			line.Width += g.Advance
 			line.Glyphs = append(line.Glyphs, g)
 		}
 	}
 	if len(line.Glyphs) == 0 {
-		x0, x1 = 0, 0
+		x0 = 0
 	}
-	line.Width = x1 - x0
+	line.Width = max(line.Width, 0)
 	line.Height = max(m.lineHeight, line.Ascent+line.Descent)
 	line.Y = *y
 	line.Baseline = *y + (line.Height-line.Ascent-line.Descent)/2 + line.Ascent
@@ -864,13 +869,13 @@ func (s *System) ellipsize(text []rune, spans []Span, start int, p Params, rtl b
 
 // advance returns the width a shaped line's glyphs take.
 func advance(l shapedLine) float32 {
-	x0, x1 := float32(math.MaxFloat32), float32(-math.MaxFloat32)
+	var width float32
 	for _, run := range l.runs {
 		for _, g := range run.glyphs {
-			x0, x1 = min(x0, g.X), max(x1, g.X+g.Advance)
+			width += g.Advance
 		}
 	}
-	return max(x1-x0, 0)
+	return max(width, 0)
 }
 
 // isRTL reports whether a paragraph is right-to-left: whether its first
