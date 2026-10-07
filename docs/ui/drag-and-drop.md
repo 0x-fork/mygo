@@ -176,4 +176,7 @@ memory or stream representations (virtual-file promises are not supported).
 See [`examples/drag-drop`](../../examples/drag-drop) for two windows exchanging
 notes, files, text and URLs, including a lazy JSON representation and move
 completion. The transfer model is reusable without native UI; existing
-clipboard methods continue to use their current API.
+clipboard convenience methods keep their signatures. `Clipboard.Write` and
+`Clipboard.Read` exchange this same `transfer.Data`; each clipboard write and
+drag gets an independent provider cache. See [Clipboard and drag data](../data-transfer.md)
+for clipboard negotiation, persistence, and provider lifetimes.

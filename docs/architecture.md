@@ -53,7 +53,7 @@ framework safely. Read it before changing anything under `internal/`.
 ├── protocol.go         custom schemes served by http.Handler, FileServer
 ├── frontend.go         the app's frontend: relative URLs, devUrl, mygo://localhost
 ├── menu.go             Menu/MenuItem model, roles, native item updates
-├── dialog.go modules.go shell, clipboard, screen, theme, tray, shortcuts, notifications
+├── dialog.go modules.go clipboard.go: shell, clipboard, screen, theme, tray, shortcuts, notifications
 ├── loop.go             main-thread queue: postMain / onMain / await
 ├── events.go           listener lists and the Preventable event types
 ├── single_instance.go  RequestSingleInstanceLock over a Unix socket
@@ -1062,6 +1062,35 @@ backend, which:
 
 macOS gets a default menu bar (App, File, Edit, View, Window), which is what
 makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
+
+## Clipboard and drag data (`transfer`)
+
+`transfer.Data` is the immutable serialized model shared by clipboard writes
+and native drags: ordered items with alternative byte representations, MIME
+formats, file/URI lists, and lazy providers. Each clipboard write or drag
+starts an independent provider cache; discovery reads no bytes, and success,
+errors and recovered provider panics are cached once. Typed `Drag(value)`
+remains process-local, resolved by the core's temporary drag registry; its
+token is rejected by clipboard writes.
+
+`clipboard.go` owns validation, main-thread dispatch, provider reentry guards,
+and deferred, exactly-once release hooks. `platform.Clipboard` accepts a
+snapshot, returns materialized reads, discovers formats without rendering,
+and flushes/closes native ownership. Clipboard providers belong to the app,
+not a source window. Quit flushes them before stopping the loop, and finish
+releases remaining providers. Linux requires a clipboard manager for data
+to remain after exit; a failed provider prevents flushing its offer.
+
+macOS owns NSPasteboardItemDataProvider objects until AppKit finishes them,
+with eager NSPasteboardItems after flush. GTK uses application-owned selection
+get/clear callbacks and owner-change generation checks; clipboard-only apps
+bind selection primitives without requiring a surface. Windows shares the
+drag adapter's IDataObject, vtables, native conversions and reference-counted
+objects with OleSetClipboard/OleFlushClipboard; foreign reads hold a Win32
+clipboard lock. Callback signatures are allocated once and routed by native
+object or user data. Native reads copy bytes so application data outlives
+native handles. See [Clipboard and drag data](data-transfer.md) for API and
+format mappings.
 
 ## Native UI (`ui`)
 

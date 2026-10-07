@@ -317,12 +317,16 @@ func droppedPaths(data uintptr) []string {
 		return nil
 	}
 	defer procReleaseStgMedium.Call(uintptr(unsafe.Pointer(&m)))
-	n, _, _ := procDragQueryFileW.Call(m.Handle, 0xFFFFFFFF, 0, 0)
+	return droppedHDropPaths(m.Handle)
+}
+
+func droppedHDropPaths(handle uintptr) []string {
+	n, _, _ := procDragQueryFileW.Call(handle, 0xFFFFFFFF, 0, 0)
 	var paths []string
 	for i := range n {
-		size, _, _ := procDragQueryFileW.Call(m.Handle, i, 0, 0)
+		size, _, _ := procDragQueryFileW.Call(handle, i, 0, 0)
 		buf := make([]uint16, size+1)
-		procDragQueryFileW.Call(m.Handle, i, uintptr(unsafe.Pointer(&buf[0])), size+1)
+		procDragQueryFileW.Call(handle, i, uintptr(unsafe.Pointer(&buf[0])), size+1)
 		if p := syscall.UTF16ToString(buf); p != "" {
 			paths = append(paths, p)
 		}

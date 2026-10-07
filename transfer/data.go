@@ -1,6 +1,6 @@
-// Package transfer describes data exchanged through native drag and drop.
-// Values contain explicit representations, never Go object references. The
-// immutable model can also be used by clipboard integrations.
+// Package transfer describes data exchanged through the clipboard and native
+// drag and drop. Values contain explicit representations, never Go object
+// references. The immutable model is shared by both integrations.
 package transfer
 
 import (
@@ -29,6 +29,10 @@ const (
 
 // ErrFormat means the requested item or representation is not available.
 var ErrFormat = errors.New("transfer: representation unavailable")
+
+// ErrProviderPanic means a lazy provider panicked. The panic is contained at
+// the data boundary, rather than escaping through a native callback.
+var ErrProviderPanic = errors.New("transfer: provider panicked")
 
 type value struct {
 	once     sync.Once
@@ -101,8 +105,16 @@ func (i Item) Read(format Format) ([]byte, error) {
 		}
 		v := r.value
 		v.once.Do(func() {
+			defer func() {
+				if p := recover(); p != nil {
+					v.bytes, v.err = nil, fmt.Errorf("%w: %v", ErrProviderPanic, p)
+				}
+			}()
 			if v.provider != nil {
 				v.bytes, v.err = v.provider()
+				if v.err != nil {
+					v.bytes = nil
+				}
 				v.bytes = bytes.Clone(v.bytes)
 			}
 		})
@@ -133,7 +145,25 @@ func (d Data) Formats() []Format {
 	return formats
 }
 
-// Snapshot starts a new provider cache, as each drag session does.
+// Preferred chooses the first preferred format advertised by the data,
+// without invoking any provider. The caller supplies its own preference
+// order (for example, custom JSON before HTML before plain text).
+func (d Data) Preferred(formats ...Format) (Format, bool) {
+	return PreferredFormat(d.Formats(), formats...)
+}
+
+// PreferredFormat negotiates formats from a clipboard or drag offer without
+// requesting data. Receiver preference order wins over source item order.
+func PreferredFormat(offered []Format, preferred ...Format) (Format, bool) {
+	for _, f := range preferred {
+		if slices.Contains(offered, f) {
+			return f, true
+		}
+	}
+	return "", false
+}
+
+// Snapshot starts a new provider cache, as each clipboard write or drag does.
 func (d Data) Snapshot() Data {
 	items := make([]Item, len(d.items))
 	for n, i := range d.items {

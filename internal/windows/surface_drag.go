@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"image/png"
 	"slices"
 	"strings"
 	"syscall"
@@ -51,6 +52,8 @@ type dragDataObject struct {
 	formats   []uint16
 	extra     map[uint16]stgMedium
 	err       error
+	clipboard bool
+	onRelease func()
 }
 type oleDragSource struct {
 	vtbl     *[5]uintptr
@@ -86,6 +89,11 @@ func initDataSource() {
 				for _, m := range d.extra {
 					procReleaseStgMedium.Call(uintptr(unsafe.Pointer(&m)))
 				}
+				d.providers, d.extra = nil, nil
+				if fn := d.onRelease; fn != nil {
+					d.onRelease = nil
+					fn()
+				}
 			}
 			return uintptr(d.refs)
 		}),
@@ -119,6 +127,13 @@ func initDataSource() {
 			if f.Tymed&tymedStream != 0 {
 				stream := memStream(b)
 				if stream == 0 {
+					return eFail
+				}
+				// IDataObject::GetData transfers bytes from zero through the
+				// stream's current position. OLE uses that position as the
+				// length when rendering a stream onto the Win32 clipboard.
+				if failed(comCall(stream, 5, 0, 2, 0)) { // IStream::Seek(0, STREAM_SEEK_END)
+					release(stream)
 					return eFail
 				}
 				*(*stgMedium)(native(medium)) = stgMedium{Tymed: tymedStream, Handle: stream}
@@ -277,27 +292,65 @@ func dataGlobal(b []byte) uintptr {
 	return h
 }
 
-func newDragData(r platform.DragRequest) uintptr {
-	d := &dragDataObject{vtbl: &dragDataVtbl, refs: 1, providers: map[uint16]func() ([]byte, error){}, extra: map[uint16]stgMedium{}}
+func newDragData(r platform.DragRequest) uintptr { return newTransferData(r.Data, r.Session, false) }
+
+func newTransferData(data transfer.Data, session string, clipboard bool) uintptr {
+	d := &dragDataObject{vtbl: &dragDataVtbl, refs: 1, providers: map[uint16]func() ([]byte, error){}, extra: map[uint16]stgMedium{}, clipboard: clipboard}
+	setTransferProviders(d, data, session)
+	p := uintptr(unsafe.Pointer(d))
+	dragObjects[p] = d
+	return p
+}
+
+func setTransferProviders(d *dragDataObject, data transfer.Data, session string) {
+	d.providers = map[uint16]func() ([]byte, error){}
+	d.formats = nil
 	add := func(f uint16, provider func() ([]byte, error)) {
 		if !slices.Contains(d.formats, f) {
 			d.formats = append(d.formats, f)
 		}
 		d.providers[f] = provider
 	}
-	for _, f := range r.Data.Formats() {
+	for _, f := range data.Formats() {
 		f := f
-		add(uint16(registerClipboardFormat(string(f))), func() ([]byte, error) { return r.Data.Read(f) })
+		add(uint16(registerClipboardFormat(string(f))), func() ([]byte, error) { return data.Read(f) })
+		if d.clipboard {
+			// HGLOBAL allocations can include padding after OleFlushClipboard.
+			// Keep the byte length as a separate, optional interoperability
+			// hint; the actual format still contains unwrapped standard bytes.
+			add(uint16(registerClipboardFormat(clipboardLengthPrefix+string(f))), func() ([]byte, error) {
+				b, err := data.Read(f)
+				if err != nil {
+					return nil, err
+				}
+				length := make([]byte, 8)
+				binary.LittleEndian.PutUint64(length, uint64(len(b)))
+				return length, nil
+			})
+		}
 		switch f {
 		case transfer.Text:
-			add(cfUnicodeText, func() ([]byte, error) { b, err := r.Data.Read(transfer.Text); return utf16Bytes(string(b)), err })
+			add(cfUnicodeText, func() ([]byte, error) { b, err := data.Read(transfer.Text); return utf16Bytes(string(b)), err })
 		case transfer.HTML:
-			add(uint16(cfHTML), func() ([]byte, error) { b, err := r.Data.Read(transfer.HTML); return htmlData(string(b)), err })
+			add(uint16(cfHTML), func() ([]byte, error) { b, err := data.Read(transfer.HTML); return htmlData(string(b)), err })
 		case transfer.PNG:
-			add(uint16(cfPNG), func() ([]byte, error) { return r.Data.Read(transfer.PNG) })
+			add(uint16(cfPNG), func() ([]byte, error) { return data.Read(transfer.PNG) })
+			if d.clipboard {
+				add(cfDIB, func() ([]byte, error) {
+					b, err := data.Read(transfer.PNG)
+					if err != nil {
+						return nil, err
+					}
+					img, err := png.Decode(bytes.NewReader(b))
+					if err != nil {
+						return nil, err
+					}
+					return imageToDIB(img), nil
+				})
+			}
 		case transfer.URIList:
 			add(uint16(registerClipboardFormat("UniformResourceLocatorW")), func() ([]byte, error) {
-				urls, err := r.Data.URLs()
+				urls, err := data.URLs()
 				if err != nil || len(urls) == 0 {
 					return nil, transfer.ErrFormat
 				}
@@ -305,7 +358,7 @@ func newDragData(r platform.DragRequest) uintptr {
 			})
 		case transfer.FileList:
 			add(cfHDrop, func() ([]byte, error) {
-				paths, err := r.Data.Files()
+				paths, err := data.Files()
 				if err != nil {
 					return nil, err
 				}
@@ -319,10 +372,9 @@ func newDragData(r platform.DragRequest) uintptr {
 			})
 		}
 	}
-	add(uint16(registerClipboardFormat(string(platform.DragSessionFormat))), func() ([]byte, error) { return []byte(r.Session), nil })
-	p := uintptr(unsafe.Pointer(d))
-	dragObjects[p] = d
-	return p
+	if session != "" {
+		add(uint16(registerClipboardFormat(string(platform.DragSessionFormat))), func() ([]byte, error) { return []byte(session), nil })
+	}
 }
 
 func (s *surface) SetDropFormats([]transfer.Format) {} // OLE enumerates the offered IDataObject.
@@ -433,6 +485,10 @@ func oleDataBytes(data uintptr, f uint16) ([]byte, error) {
 }
 
 func readDragStream(stream uintptr) ([]byte, error) {
+	// GetData leaves the cursor at the end of the transferred bytes.
+	if failed(comCall(stream, 5, 0, 0, 0)) { // IStream::Seek(0, STREAM_SEEK_SET)
+		return nil, errors.New("mygo: cannot seek drag stream")
+	}
 	var out []byte
 	buf := make([]byte, 64<<10)
 	for {
@@ -468,16 +524,20 @@ func oleFormat(f uint16) transfer.Format {
 	case uint16(cfPNG):
 		return transfer.PNG
 	}
+	name := oleRegisteredFormatName(f)
+	if name == "UniformResourceLocatorW" {
+		return transfer.URIList
+	}
+	return transfer.Format(name)
+}
+
+func oleRegisteredFormatName(f uint16) string {
 	var buf [256]uint16
 	n, _, _ := procGetClipboardFormatNameW.Call(uintptr(f), uintptr(unsafe.Pointer(&buf[0])), 256)
 	if n == 0 {
 		return ""
 	}
-	name := syscall.UTF16ToString(buf[:n])
-	if name == "UniformResourceLocatorW" {
-		return transfer.URIList
-	}
-	return transfer.Format(name)
+	return syscall.UTF16ToString(buf[:n])
 }
 
 func oleOffer(data uintptr, allowed uint32, keys uintptr) (*platform.DataDragEvent, map[transfer.Format]uint16) {
@@ -490,7 +550,7 @@ func oleOffer(data uintptr, allowed uint32, keys uintptr) (*platform.DataDragEve
 	formats := map[transfer.Format]uint16{}
 	add := func(f uint16) {
 		canonical := oleFormat(f)
-		if canonical == "" {
+		if canonical == "" || strings.HasPrefix(string(canonical), clipboardLengthPrefix) || strings.ContainsAny(string(canonical), "\x00\r\n") {
 			return
 		}
 		if canonical == platform.DragSessionFormat {

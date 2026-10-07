@@ -136,3 +136,26 @@ func TestOperationNegotiation(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderPanicIsCachedAndNegotiationIsLazy(t *testing.T) {
+	var calls atomic.Int32
+	d := New(NewItem(Lazy(HTML, func() ([]byte, error) { calls.Add(1); panic("codec failed") }), Bytes(Text, []byte("fallback"))))
+	if f, ok := d.Preferred(PNG, Text, HTML); !ok || f != Text || calls.Load() != 0 {
+		t.Fatal("negotiation read a provider")
+	}
+	if _, ok := d.Preferred(PNG); ok {
+		t.Fatal("unavailable preference matched")
+	}
+	for range 2 {
+		b, err := d.Read(HTML)
+		if !errors.Is(err, ErrProviderPanic) || len(b) != 0 {
+			t.Fatalf("panic result %q: %v", b, err)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatal("panicking provider retried")
+	}
+	if b, err := d.Read(Text); err != nil || string(b) != "fallback" {
+		t.Fatal("panic lost the alternative")
+	}
+}

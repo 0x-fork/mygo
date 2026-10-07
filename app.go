@@ -193,12 +193,18 @@ func (a *Application) prepareQuit() bool {
 		a.quitting = false
 		return false
 	}
+	// Providers are application-owned, independent of the windows just
+	// closed. Persist them before the native loop ends; callers needing
+	// error handling may Flush explicitly from a quit listener.
+	_ = Clipboard.Flush()
 	return true
 }
 
 // finish runs once after the event loop has stopped.
 func (a *Application) finish() {
 	a.finished.Do(func() {
+		clipboardStopped = true
+		backend().Clipboard().Close()
 		saveWindowStates()
 		fire(&a.onQuit)
 		if a.relaunch {

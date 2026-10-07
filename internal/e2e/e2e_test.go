@@ -105,6 +105,10 @@ func TestMain(m *testing.M) {
 		fmt.Println("skipping e2e tests; set MYGO_E2E=1 to run them in a desktop session")
 		os.Exit(0)
 	}
+	if mode := os.Getenv("MYGO_E2E_CLIPBOARD_PEER"); mode != "" {
+		clipboardPeer(mode)
+		return
+	}
 	if os.Getenv("MYGO_E2E_QUIT_DURING_DIALOG") == "1" {
 		quitDuringDialog()
 		return

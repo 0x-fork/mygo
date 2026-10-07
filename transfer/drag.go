@@ -64,6 +64,11 @@ type Offer struct {
 	Suggested  Operation
 }
 
+// Preferred selects a format without requesting any representation bytes.
+func (o Offer) Preferred(formats ...Format) (Format, bool) {
+	return PreferredFormat(o.Formats, formats...)
+}
+
 // DropOptions describes a destination. At least one offered format must
 // match Formats. Empty Formats accepts none; zero Operations permits copy.
 type DropOptions struct {
