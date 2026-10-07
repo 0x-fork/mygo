@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/text"
+	"github.com/egoist/mygo/transfer"
 )
 
 // Context builds a window's user interface for one frame. The window's
@@ -435,6 +436,9 @@ type state struct {
 	droppedValue any
 	hasDropped   bool
 	dropX, dropY float32
+	dataSource   *dataSource
+	dataTarget   *transfer.DropOptions
+	dataDropped  *transfer.Drop
 	editor       *editor
 	// textScope is the Selectable container this paragraph belongs to.
 	textScope uint64
@@ -493,6 +497,7 @@ func (rt *engine) lookState(id uint64) (s *state, built bool) {
 	s.seen, s.pass = rt.frame, rt.pass
 	// What the element drags and takes, as this pass asks.
 	s.dragValue, s.dragFn, s.accepts = nil, nil, nil
+	s.dataSource, s.dataTarget = nil, nil
 	return s, built
 }
 

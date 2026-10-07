@@ -145,6 +145,17 @@ func htmlOffset(data, key string) int {
 }
 
 func (c clipboard) WriteHTML(markup string) {
+	if !c.open() {
+		return
+	}
+	defer closeClipboard()
+	procEmptyClipboard.Call()
+	setClipboardData(cfHTML, htmlData(markup))
+	setClipboardData(cfUnicodeText, utf16Bytes(markup))
+}
+
+// htmlData is shared by clipboard and drag representations.
+func htmlData(markup string) []byte {
 	const header = "Version:0.9\r\nStartHTML:%010d\r\nEndHTML:%010d\r\nStartFragment:%010d\r\nEndFragment:%010d\r\n"
 	prefix := "<html><body><!--StartFragment-->"
 	suffix := "<!--EndFragment--></body></html>"
@@ -152,13 +163,7 @@ func (c clipboard) WriteHTML(markup string) {
 	startFragment := h + len(prefix)
 	endFragment := startFragment + len(markup)
 	doc := fmt.Sprintf(header, h, endFragment+len(suffix), startFragment, endFragment) + prefix + markup + suffix
-	if !c.open() {
-		return
-	}
-	defer closeClipboard()
-	procEmptyClipboard.Call()
-	setClipboardData(cfHTML, append([]byte(doc), 0))
-	setClipboardData(cfUnicodeText, utf16Bytes(markup))
+	return append([]byte(doc), 0)
 }
 
 func (c clipboard) ReadImage() []byte {

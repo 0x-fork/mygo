@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/transfer"
 )
 
 // ErrNoReply makes Window.CallAsyncFunction never call back, like a
@@ -718,17 +719,36 @@ type Surface struct {
 	// Scale is the device pixels per DIP.
 	Scale float64
 
-	mu        sync.Mutex
-	requests  int
-	frames    int
-	pixels    []byte
-	pixW      int
-	pixH      int
-	cursor    platform.Cursor
-	textInput platform.TextInputState
-	access    *platform.AccessTree
-	accessN   int
-	rate      float64
+	mu          sync.Mutex
+	requests    int
+	frames      int
+	pixels      []byte
+	pixW        int
+	pixH        int
+	cursor      platform.Cursor
+	textInput   platform.TextInputState
+	access      *platform.AccessTree
+	accessN     int
+	rate        float64
+	dataDrag    *platform.DragRequest
+	dropFormats []transfer.Format
+}
+
+func (s *Surface) StartDataDrag(r platform.DragRequest) { s.dataDrag = &r }
+func (s *Surface) CancelDataDrag()                      { s.FinishDataDrag(transfer.Result{Canceled: true}) }
+func (s *Surface) SetDropFormats(f []transfer.Format) {
+	s.dropFormats = append([]transfer.Format(nil), f...)
+}
+
+// DataDrag returns the active native-source request. Main thread only.
+func (s *Surface) DataDrag() *platform.DragRequest { return s.dataDrag }
+
+// FinishDataDrag delivers the native source's result once. Main thread only.
+func (s *Surface) FinishDataDrag(r transfer.Result) {
+	if d := s.dataDrag; d != nil {
+		s.dataDrag = nil
+		d.Done(r)
+	}
 }
 
 func (s *Surface) Native() platform.SurfaceNative { return platform.SurfaceNative{} }

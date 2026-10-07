@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/text"
+	"github.com/egoist/mygo/transfer"
 )
 
 // host is where a runtime's frames go: a window's surface, or memory for
@@ -28,6 +29,9 @@ type host interface {
 	readClipboard() string
 	writeClipboard(string)
 	startDrag()
+	startDataDrag(transfer.Data, any, transfer.DragOptions, float32, float32) error
+	cancelDataDrag()
+	setDropFormats([]transfer.Format)
 	titleBarDoubleClicked()
 	isDark() bool
 	preferences() platform.Preferences
@@ -183,7 +187,12 @@ type engine struct {
 		base  int
 	}
 	// drag is the value being dragged within the window.
-	drag *valueDrag
+	drag        *valueDrag
+	incoming    *platform.DataDragEvent
+	dataOver    uint64
+	closed      bool
+	dropFormats []transfer.Format
+	dropScratch []transfer.Format
 	// kept are the pages of the history that Routers keep, and commitPage
 	// the page around the elements being committed.
 	kept       map[uint64]bool
@@ -388,6 +397,7 @@ func (rt *engine) runFrame() {
 	rt.host.present(&rt.scene)
 	rt.stats.lap(phasePresent)
 	rt.prune()
+	rt.syncDropFormats()
 	rt.prunePictures()
 	rt.text.EndFrame()
 	rt.regs, rt.nextRegs = rt.nextRegs, rt.regs
@@ -532,12 +542,18 @@ func (rt *engine) forgetInput() {
 		s.changed, s.submitted, s.typing = false, false, false
 		s.dropped = nil
 		s.droppedValue, s.hasDropped = nil, false
+		s.dataDropped = nil
 	}
 }
 
 // prune forgets the elements the frame did not build, but those of the
 // pages Routers keep.
 func (rt *engine) prune() {
+	if d := rt.drag; d != nil && d.native {
+		if s := rt.states[d.src]; s == nil || s.seen != rt.frame || s.pass != rt.pass {
+			rt.host.cancelDataDrag()
+		}
+	}
 	unpressed := false
 	for id, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
@@ -644,7 +660,12 @@ func (rt *engine) armTimer() {
 }
 
 func (rt *engine) close() {
+	rt.closed = true
 	rt.textInputClosed = true
+	if rt.drag != nil && rt.drag.native {
+		rt.host.cancelDataDrag()
+	}
+	rt.drag, rt.incoming = nil, nil
 	for _, s := range rt.states {
 		if s.textAdapter != nil {
 			s.textAdapter.release()

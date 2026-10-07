@@ -150,7 +150,13 @@ type surface struct {
 	input     platform.TextInputState
 	// lastKey is a copy of the last key press, which a context menu the
 	// key opens shows for.
-	lastKey ptr
+	lastKey      ptr
+	lastPointer  ptr
+	dragContext  ptr
+	dragRequest  *platform.DragRequest
+	dragError    error
+	dragCanceled bool
+	dataDrop     *gtkDataDrop
 }
 
 // GDK event masks of the drawing area.
@@ -227,6 +233,12 @@ func (w *window) contentWindow() ptr {
 }
 
 func (s *surface) destroy() {
+	s.cancelPendingDrop()
+	s.CancelDataDrag()
+	if s.lastPointer != 0 {
+		gdkEventFree(s.lastPointer)
+		s.lastPointer = 0
+	}
 	gtkIMContextSetClientWindow(s.im, 0)
 	gObjectUnref(s.im)
 	s.im = 0
@@ -651,12 +663,28 @@ func initSurfaceCallbacks() {
 		} else if !gtkWidgetHasFocus(s.area) {
 			gtkWidgetGrabFocus(s.area)
 		}
+		if kind == platform.PointerDown && button == 0 {
+			if s.lastPointer != 0 {
+				gdkEventFree(s.lastPointer)
+			}
+			s.lastPointer = gdkEventCopy(event)
+		}
 		s.send(platform.SurfaceEvent{Kind: kind, X: field[float64](event, 24), Y: field[float64](event, 32), Button: button, Mods: mods})
+		if kind == platform.PointerUp && button == 0 && s.dragRequest == nil && s.lastPointer != 0 {
+			gdkEventFree(s.lastPointer)
+			s.lastPointer = 0
+		}
 		return true
 	})
 	// GdkEventMotion: x 24, y 32, state 48.
 	cbSurfaceMotion = purego.NewCallback(func(widget, event, data ptr) bool {
 		if s := b().surfaceOf(data); s != nil {
+			if field[uint32](event, 48)&(1<<8) != 0 {
+				if s.lastPointer != 0 {
+					gdkEventFree(s.lastPointer)
+				}
+				s.lastPointer = gdkEventCopy(event)
+			}
 			s.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: field[float64](event, 24), Y: field[float64](event, 32), Mods: gdkMods(field[uint32](event, 48))})
 		}
 		return false

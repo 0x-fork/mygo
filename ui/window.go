@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/surface"
 	"github.com/egoist/mygo/internal/text"
+	"github.com/egoist/mygo/transfer"
 )
 
 // Content is a user interface for a window, the value of
@@ -367,6 +368,12 @@ func (h *windowHost) detach() {
 }
 
 func (h *windowHost) requestFrame() { h.conn.Surface.RequestFrame() }
+
+func (h *windowHost) startDataDrag(data transfer.Data, local any, options transfer.DragOptions, x, y float32) error {
+	return h.conn.StartDataDrag(data, local, options, float64(x), float64(y))
+}
+func (h *windowHost) cancelDataDrag()                    { h.conn.CancelDataDrag() }
+func (h *windowHost) setDropFormats(f []transfer.Format) { h.conn.Surface.SetDropFormats(f) }
 
 func (h *windowHost) post(fn func()) {
 	if h.conn.Post != nil {

@@ -94,6 +94,7 @@ framework safely. Read it before changing anything under `internal/`.
 │                       terminal, a view of native UI running programs with
 │                       libghostty-vt
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester
+├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native, vibrancy; counter-native
 │                       and gallery (native UI)
@@ -1536,6 +1537,24 @@ either.
   shifting it there and back, with a count beside the pointer for
   several rows. Lists and grids take their own rows (`rowDrag`,
   `itemDrag`), placing them by the middles of the rows of the last frame.
+- **Native data drags** (`transfer`, `drag.go`, `ui/data_drag.go`). An
+  element with `DragData` promotes the gesture to the native drag tracker.
+  `transfer.Data` holds immutable items with MIME-tagged representations;
+  providers are advertised lazily and cached per session. `DropData`
+  accepts matching formats with a negotiated copy/move effect. The core
+  owns one live source, identified by a random token: backends transfer the
+  token as data, never a Go pointer. Only the core resolves it to the
+  original items and optional typed value, while the source lives. A
+  completion or cancellation invalidates the token and calls Done once.
+  `Surface.StartDataDrag`, `CancelDataDrag` and `SetDropFormats` translate
+  to AppKit sessions/pasteboard item providers, GTK selections, or OLE
+  IDataObject/IDropSource/IDropTarget. GTK collects accepted formats through
+  asynchronous callbacks after drop; OLE runs its native modal tracker
+  after the source input callback returns. None waits on the main thread
+  for data that needs that thread. Dropped bytes outlive native objects;
+  unhandled file transfers still reach the existing file-drop path, with
+  copy semantics. The unsupported backend cannot create windows/surfaces,
+  and continues to fail at Init without linking any native drag code.
 - **Grid views** (`ui/gridview.go`). A grid view is a `List` of rows of
   items, whose columns it takes from the width its rows had in the last
   frame: the layout asks for another frame when the width calls for
@@ -2453,6 +2472,6 @@ which npm allows only for packages that exist: the first release uses an
 | custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `http://<scheme>.localhost` (the page's `location`) |
 | window.open | keeps the opener | independent window | independent window |
 | native UI surface | layer-backed NSView, frames from `CADisplayLink` (a timer at the display's rate before macOS 14), input methods through NSTextInputClient | GtkGLArea (GtkDrawingArea without a GPU), GtkIMMulticontext | `MyGoSurface` child window, IMM32 |
-| native UI file drops | NSDraggingDestination | GTK drag destination (`text/uri-list`) | OLE `IDropTarget` |
+| native UI data drags | NSDraggingSession, NSPasteboardItemDataProvider, NSDraggingDestination | GTK drag contexts, MIME selections, text/uri-list | OLE IDataObject, IDropSource, IDropTarget, Shell drag images |
 | native UI accessibility | `NSAccessibilityElement` subclasses | ATK objects (GObject types registered through purego), bridged to AT-SPI by GTK | UI Automation fragments (COM objects; assembly thunks for the methods taking doubles) |
 | native UI rendering | Metal, into a CAMetalLayer presenting with the Core Animation transaction | OpenGL 3.3 or ES 3.0 in the GtkGLArea's render signal; on the CPU, painted with cairo, where OpenGL runs on the CPU | Direct3D 11 (WARP without a GPU), flip-model swap chain |

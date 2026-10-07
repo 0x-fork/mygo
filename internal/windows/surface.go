@@ -132,6 +132,7 @@ type surface struct {
 	reconvert  *[2]int // the runes a reconversion replaces
 	dropTarget uintptr // IDropTarget
 	access     *uiaTree
+	dragSource *oleDragSource
 }
 
 func registerSurfaceClass() {
@@ -553,6 +554,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 	case wmGetObject:
 		return s.getObject(wp, lp)
 	case wmDestroy:
+		s.CancelDataDrag()
 		s.destroyAccess()
 		s.revokeFileDrops()
 		delete(s.w.b.surfaces, hwnd)

@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/surface"
+	"github.com/egoist/mygo/transfer"
 )
 
 // testSurface is a surface that counts the frames drawn in memory.
@@ -21,6 +22,11 @@ func (s *testSurface) PresentPixels([]byte, int, int, int)      { s.pixels++ }
 func (s *testSurface) SetCursor(platform.Cursor)                {}
 func (s *testSurface) SetTextInput(platform.TextInputState)     {}
 func (s *testSurface) UpdateAccessibility(*platform.AccessTree) {}
+func (s *testSurface) StartDataDrag(r platform.DragRequest) {
+	r.Done(transfer.Result{Err: platform.ErrUnsupported})
+}
+func (s *testSurface) CancelDataDrag()                  {}
+func (s *testSurface) SetDropFormats([]transfer.Format) {}
 
 // testGPU is a GPU renderer whose device goes away when fail is set.
 type testGPU struct {
