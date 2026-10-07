@@ -1,9 +1,9 @@
 # SQLite
 
 The SQLite plugin provides local databases to web pages and Go, including
-native UI apps. It compiles SQLite's C amalgamation with Zig and calls it
-through purego, so Go builds need no cgo and apps need no compiler at run
-time. It supports macOS, Linux and Windows on amd64 and arm64.
+native UI apps. It ships prebuilt SQLite libraries and loads them through
+purego, so apps build without cgo or a C compiler and need no compiler at
+run time. It supports macOS, Linux and Windows on amd64 and arm64.
 
 ## Using the page plugin
 
