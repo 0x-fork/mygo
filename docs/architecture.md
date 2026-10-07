@@ -2101,6 +2101,10 @@ renderer's (`gputest.Compare`).
   -tool`, or a `tool` line beside the `replace` of a checkout), for
   `go tool mygo dev` and `build`; no Bun. Without a frontend in the
   configuration, `bindings` stays empty and the CLI writes no client.
+- Both templates install the agent skills embedded under
+  `cmd/mygo/template/shared/.agents/skills`. `install-skills [dir]` refreshes
+  the same bundled files in an existing directory, without reading project
+  configuration or replacing unrelated skills and extra custom files.
 - The configuration is `mygo.config.ts`, or `mygo.json` (`config.go`,
   `config_ts.go`). For the former, Bun, else Node.js 22.6 or later (with
   `--experimental-strip-types` before 22.18 and 23.6), runs a loader that
