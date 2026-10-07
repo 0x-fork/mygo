@@ -1079,9 +1079,8 @@ either.
 
 - **The surface.** With `platform.WindowOptions.Surface`, a backend creates
   a view MyGo draws in place of the webview: a layer-backed NSView on
-  macOS, a GtkGLArea on Linux, without an OpenGL context until the content
-  asks for the GPU (a GtkDrawingArea where OpenGL would not run
-  on a GPU), a child window of class `MyGoSurface` on Windows.
+  macOS, a GtkGLArea on Linux (a GtkDrawingArea where OpenGL would not
+  run on a GPU), a child window of class `MyGoSurface` on Windows.
   `platform.Surface` gives its native handles (for a swap chain, a layer,
   or the GtkGLArea while its `render` signal draws a frame, with its
   context current), size and scale, and the refresh rate of the display
@@ -1839,8 +1838,7 @@ either.
     source until it has cached it; a library older than `shader.metal`
     falls back to that, and its test fails. It draws into a CAMetalLayer
     it adds to the surface view's layer. The command queue, shaders,
-    sampler and placeholder texture are made on demand: a window that
-    only presents CPU frames keeps the device and layer alone. Its frames
+    sampler and placeholder texture are made on demand. Its frames
     present with the Core Animation transaction (`presentsWithTransaction`), so a live resize
     shows no stretched frames, and each frame waits for the GPU to finish
     the last before it updates the textures and the instance buffer the
@@ -1849,15 +1847,9 @@ either.
     driver frees its own memory of frames, a timer shrinks the drawables,
     which frees all but the one shown, until the next frame makes them
     again, and releases GPU instance buffers, atlas/image textures and
-    backdrop textures: an idle window keeps one frame of memory. It also
-    presents frames drawn on the CPU without the GPU (`PresentPixels`): it locks
-    the next drawable's IOSurface and copies what changed since the frame
-    drawn in memory that drawable holds (it keeps the damage of the last
-    four, and whether the GPU drew into a drawable since), all of it after
-    the GPU did, and presents it, with no command buffer: the driver
-    allocates its 32 to 44 MB only for frames that run on the GPU, and the
-    CPU draws a small change in a fraction of the time the GPU takes to
-    start. Its drawables are not `framebufferOnly` for that. Colors
+    backdrop textures: an idle window keeps one frame of memory. Its
+    drawables are not `framebufferOnly`, as effects sample the drawable
+    for their backdrops. Colors
     outside the sRGB gamut (`ui.Oklch`, as CSS's `oklch()`) are in a
     table of the scene (`scene.Scene.Wide`), which ops and glyphs point
     into with a 16-bit index (`Op.Wide`, in room the op's other fields
@@ -1890,19 +1882,12 @@ either.
     else OpenGL ES 3.0, as GPUs with OpenGL ES alone have, and so does
     the probe below (`glContext`).
 
-  Linux draws with OpenGL only where it runs on a GPU, and only once a
-  window needs it. A GL context loads Mesa for good: some 50 MB of
-  libraries (LLVM, which distributions' Mesa links, takes 19 MB as it
-  loads), its threads and heap, as much as the rest of a small app. So a
-  surface's GtkGLArea makes no context until the content asks for the GPU
-  (`platform.LazyGPUSurface`): its `create-context` handler stops the
-  signal, as GTK's own handler would make one, and the area paints frames
-  drawn in memory with cairo, in a window GTK paints without OpenGL.
-  `UseGPU` realizes the area anew, which makes the context, moving the
-  input method's focus with it, and lowers the area's new input window
-  under a hidden title bar's controls, which mapping it raised it over.
-  Before that, the backend makes one context,
-  on a window that never shows, and reads its renderer. A software
+  Linux draws with OpenGL only where it runs on a GPU. A GL context loads
+  Mesa for good: some 50 MB of libraries (LLVM, which distributions' Mesa
+  links, takes 19 MB as it loads), its threads and heap, as much as the
+  rest of a small app; the first window of native UI loads it.
+  Before a surface has one, the backend makes one context, on a window
+  that never shows, and reads its renderer. A software
   renderer such as Mesa's llvmpipe (in virtual machines, in WSL without
   `GALLIUM_DRIVER=d3d12`) redraws every pixel of every frame on the CPU,
   ten times the CPU renderer's work on an animated page; and once a window
@@ -1922,8 +1907,9 @@ either.
   redraws only what differs from the last scene (`raster.Renderer`), with
   the effects reading their backdrops that meets and those backdrops, in
   rectangles apart from each other (`addBackdrops`): it is
-  the renderer of tests, of `MYGO_GPU=0` and of Linux until a window needs
-  the GPU, and the one a window falls back to when its GPU renderer fails.
+  the renderer of tests, of `MYGO_GPU=0` and of Linux where OpenGL would not
+  run on a GPU, and the one a window falls back to when its GPU renderer
+  fails.
   Frames that are not the surface's (a capture before the first frame) are
   kept, not drawn: OpenGL's context is current only in the surface's. An
   area drawn goes through the operations whose bounds (those the damage is
@@ -1954,47 +1940,10 @@ either.
   signal, and repaints in the next frame what it changed outside GTK's
   clip.
 
-  Where the GPU renderer presents frames drawn in memory (Metal's), the
-  window host draws on the CPU the frames that change little, measuring
-  first what `raster.Renderer` would redraw and what changed since the
-  frame before (`Changes`): a frame after a pause of 50 ms or more, unless
-  it redraws more than 8 million pixels, and in a burst of frames one that
-  changes at most a sixteenth of the window: clocks, typing, the pointer
-  over a button, a progress bar. Scrolling, resizing and animations of
-  much of the window draw on the GPU, whose scenes the CPU's renderer
-  notes (`Skip`) to compare the next with, and redraws where its frame no
-  longer shows them: the first frame changing little draws on the CPU
-  again, catching up, so that a progress bar moving on after a page slid
-  in draws on the CPU though its frames never pause. Once the GPU has
-  drawn alone for a second, the host frees the pixels of the CPU's frame,
-  which keeps the scene to compare with (`ReleaseImage`) and draws whole
-  next. Frames that change little may still cost the CPU much, as an
-  animation repainting translucent layers over gradients and shadows at
-  the display's rate: the host measures the CPU's frames of each burst as
-  it does those of a lazy surface below (`cpuLoad`, `noteCPUFrame`), and
-  once they take more than a quarter of a burst lasting 250 ms or more,
-  the rest of the burst draws on the GPU, which Metal does in a millisecond
-  or two of the CPU's time; a pause of 50 ms after the last frame was done
-  starts a burst on the CPU again. A dot pulsing at 60 Hz in the headers of
-  a terminal's translucent panes took 4.0 to 4.5 CPU seconds over 10 s on
-  the CPU, and 1.5 to 1.8 this way. A frame the CPU draws that changes
-  nothing presents nothing. The
-  gallery, which updates once a second, takes 0.2 to 0.4% of a core and
-  67 to 77 MB on macOS this way, against 0.4 to 0.5% and 110 to 116 MB on
-  the GPU alone.
-
-  On a surface that gives the GPU on demand (Linux's), the host measures
-  how long drawing and presenting each frame in memory takes, over bursts
-  of frames each begun within 50 ms of the last one's end (`cpuLoad`),
-  however long they take. Once that is more than a quarter of a burst
-  lasting 250 ms or more, as scrolling or animating much of a large window
-  may on a slow CPU or a fast display, it asks for the GPU when the window
-  has been idle for 250 ms, so that loading the driver delays no frame, or
-  at once, after the frame, when the burst goes on for a second or its
-  frames take longer than a refresh of the display (`noteCPU`). The next
-  frame makes the GPU renderer; a surface without one to give is not asked
-  again. A whole frame of a window 1834×2044 pixels takes 3.4 ms on a
-  Ryzen 7 8745HS, so it stays in memory there at 60 Hz.
+  With a GPU renderer, every frame draws on the GPU, small changes too, so
+  a gesture never switches renderers mid-way: on the CPU, a frame
+  redrawing glass or a blur that content scrolls under takes 30 to 70 ms
+  on a large window, where Metal takes 2 to 3.
 
   Two seconds after the last frame (`frameIdle`), the host frees the frame
   drawn in memory, as large as the window, which the next frame draws whole,

@@ -21,11 +21,9 @@ import (
 // render signal, into the framebuffer of the context GTK makes current,
 // and GTK shows them. Without OpenGL, frames drawn in memory are painted
 // with cairo in the draw signal, as on a GtkDrawingArea, which the surface
-// is with MYGO_GPU=0 and without a GPU. A GtkGLArea makes no context until
-// the content asks for the GPU (UseGPU), as making one loads the driver
-// for good, some 50 MB: until then it paints frames drawn in memory too,
-// and GTK paints the window without OpenGL. GTK's frame clock paces both;
-// keys go through a GtkIMContext while a text input has the focus.
+// is with MYGO_GPU=0 and where OpenGL would not draw on a GPU (gpuGL).
+// GTK's frame clock paces both; keys go through a GtkIMContext while a
+// text input has the focus.
 //
 // Frames drawn in memory are drawn in the frame clock's update phase, by a
 // tick callback, before GTK paints: the area then asks GTK to repaint what
@@ -48,12 +46,6 @@ var (
 	gtkWidgetGetScaleFactor     func(w ptr) int32
 	gtkWidgetGetDisplay         func(w ptr) ptr
 	gtkWidgetHasFocus           func(w ptr) bool
-	gtkWidgetGetRealized        func(w ptr) bool
-	gtkWidgetGetMapped          func(w ptr) bool
-	gtkWidgetUnrealize          func(w ptr)
-	gtkWidgetMap                func(w ptr)
-	gdkWindowLower              func(w ptr)
-	gSignalStopEmissionByName   func(obj ptr, signal *byte)
 	gtkIMMulticontextNew        func() ptr
 	gtkIMContextSetClientWindow func(im, win ptr)
 	gtkIMContextFilterKeypress  func(im, event ptr) bool
@@ -100,12 +92,6 @@ func loadSurface() {
 		mustBind(t, &gtkWidgetGetScaleFactor, "gtk_widget_get_scale_factor")
 		mustBind(t, &gtkWidgetGetDisplay, "gtk_widget_get_display")
 		mustBind(t, &gtkWidgetHasFocus, "gtk_widget_has_focus")
-		mustBind(t, &gtkWidgetGetRealized, "gtk_widget_get_realized")
-		mustBind(t, &gtkWidgetGetMapped, "gtk_widget_get_mapped")
-		mustBind(t, &gtkWidgetUnrealize, "gtk_widget_unrealize")
-		mustBind(t, &gtkWidgetMap, "gtk_widget_map")
-		mustBind(d, &gdkWindowLower, "gdk_window_lower")
-		mustBind(libGObject, &gSignalStopEmissionByName, "g_signal_stop_emission_by_name")
 		mustBind(t, &gtkIMMulticontextNew, "gtk_im_multicontext_new")
 		mustBind(t, &gtkIMContextSetClientWindow, "gtk_im_context_set_client_window")
 		mustBind(t, &gtkIMContextFilterKeypress, "gtk_im_context_filter_keypress")
@@ -138,10 +124,9 @@ type surface struct {
 	im                ptr // GtkIMContext
 	cr                ptr // the cairo context of the draw signal in progress
 	cursor            platform.Cursor
-	// gl tells that the area is a GtkGLArea, lazy that it makes no
-	// context until UseGPU, rendering that its render signal is in
-	// progress, rendered that it ran.
-	gl, lazy, rendering, rendered bool
+	// gl tells that the area is a GtkGLArea, rendering that its render
+	// signal is in progress, rendered that it ran.
+	gl, rendering, rendered bool
 	// present shows the frames the content draws in memory in a GtkGLArea,
 	// as when its GL renderer fails; inMemory tells that it did, failed
 	// that it failed too.
@@ -154,7 +139,7 @@ type surface struct {
 	again, ticking bool
 	// staged is the frame the tick callback drew, which the draw signal
 	// paints in the same frame of the frame clock: the host's memory,
-	// valid until it draws or frees another (see Idle and UseGPU).
+	// valid until it draws or frees another (see Idle).
 	staged struct {
 		pix                   []byte
 		stride, width, height int
@@ -176,11 +161,7 @@ func (w *window) createSurface() {
 	data := ptr(w.id)
 	s := &surface{w: w}
 	s.im = gtkIMMulticontextNew()
-	// MYGO_GPU=1 draws with OpenGL from the first frame, wherever GDK
-	// makes a context.
-	now := os.Getenv("MYGO_GPU") == "1" && !testLazyGL
-	s.newArea(gtkGLAreaNew != nil && os.Getenv("MYGO_GPU") != "0" && (now || testLazyGL || hasGPUDevice()))
-	s.lazy = s.gl && !now
+	s.newArea(gtkGLAreaNew != nil && os.Getenv("MYGO_GPU") != "0" && gpuGL())
 	connect(s.im, "commit", cbIMCommit, data)
 	connect(s.im, "preedit-changed", cbIMPreedit, data)
 	connect(s.im, "preedit-end", cbIMPreeditEnd, data)
@@ -364,39 +345,6 @@ func (s *surface) PresentDamage(pix []byte, stride, width, height int, damage []
 	for _, d := range damage {
 		queue(d)
 	}
-}
-
-// UseGPU gives the GtkGLArea its OpenGL context, where OpenGL draws on a
-// GPU, and reports whether it did. GtkGLArea makes it as it is realized,
-// so the area is realized anew. Without a GPU it stays without one.
-func (s *surface) UseGPU() bool {
-	if !s.lazy || s.w.closed || !gpuGL() {
-		return false
-	}
-	s.lazy = false
-	s.staged.pix = nil // the host frees it
-	if gtkWidgetGetRealized(s.area) {
-		// Input methods follow the input window, which realizing makes anew.
-		focused, mapped := gtkWidgetHasFocus(s.area), gtkWidgetGetMapped(s.area)
-		if focused {
-			gtkIMContextFocusOut(s.im)
-		}
-		gtkWidgetUnrealize(s.area)
-		gtkWidgetRealize(s.area)
-		if mapped {
-			gtkWidgetMap(s.area)
-		}
-		// Mapped, the new input window went over its siblings, as the
-		// windows of a hidden title bar's controls: they take the pointer.
-		if win := s.eventWindow(); win != gtkWidgetGetWindow(s.area) {
-			gdkWindowLower(win)
-		}
-		if focused {
-			gtkIMContextFocusIn(s.im)
-		}
-	}
-	gtkWidgetQueueDraw(s.area)
-	return gtkGLAreaGetError(s.area) == 0
 }
 
 // mallocTrim is glibc's malloc_trim, which other C libraries lack.
@@ -625,13 +573,8 @@ func initSurfaceCallbacks() {
 	})
 	// The GtkGLArea's context: OpenGL 3.3, else OpenGL ES 3.0. One GDK
 	// cannot make leaves the area its error, so that it draws with cairo,
-	// as does the area until UseGPU, without the context GTK's own handler
-	// would make.
+	// without the context GTK's own handler would make.
 	cbAreaContext = purego.NewCallback(func(area, data ptr) ptr {
-		if s := b().surfaceOf(data); s != nil && s.lazy {
-			gSignalStopEmissionByName(area, cs("create-context"))
-			return 0
-		}
 		ctx, gerr := glContext(gtkWidgetGetWindow(area))
 		if gerr != 0 {
 			gtkGLAreaSetError(area, gerr)

@@ -180,8 +180,9 @@ with the optics of the open-source reproductions of Liquid Glass:
 Each pane reads what is under it, averages and blurs it, then draws with
 its own shader: a few small passes on the GPU, and a pane changes when
 anything under it does, as content scrolling under a bar. When a window
-draws on the CPU, as [Rendering](../ui/rendering.md) describes, a change
-under a pane redraws the pane and what its blur reaches around it. A
+draws on the CPU, without a GPU, as [Rendering](../ui/rendering.md)
+describes, a change under a pane redraws the pane and what its blur
+reaches around it. A
 progressive blur does this for each of its steps, where each shows: on
 the CPU, a strip of 1360×176 pixels blurred by 24 takes 9 ms on an M5
 fading, 1.7 evenly, and on the GPU a few small passes for each step.

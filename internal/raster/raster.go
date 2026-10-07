@@ -9,7 +9,6 @@ import (
 	"math"
 	"runtime"
 	"slices"
-	"time"
 
 	"github.com/egoist/mygo/internal/scene"
 )
@@ -100,19 +99,17 @@ const (
 
 // draw draws the pixels of s within area into dst, with the renderers of
 // d.rs, made as needed, leaving out the operations whose bounds (opBounds)
-// miss the band drawn. It returns how long the cores took, together: on
-// several cores, a multiple of how long drawing lasted.
+// miss the band drawn.
 //
 // Each effect is readied (EffectPixels.Begin) before its pixels, and one
 // reading its backdrop reads pixels other bands draw: the operations up to
 // each effect in the area are drawn first, then its backdrop is read
 // (d.bd), then the effect and the operations up to the next. The area
 // holds the backdrops of the effects in it (Renderer.diff).
-func (d *drawer) draw(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) time.Duration {
+func (d *drawer) draw(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) {
 	area = area.Intersect(image.Rect(0, 0, dst.W, dst.H))
 	// px draws operation from, an effect over the backdrop b.
 	from, px, b := 0, scene.EffectPixels(nil), (*scene.BackdropImage)(nil)
-	var busy time.Duration
 	for i := range s.Ops {
 		op := &s.Ops[i]
 		if op.Kind != scene.OpEffect || int(op.Start) >= len(s.Effects) || !bounds[i].Overlaps(area) {
@@ -123,28 +120,26 @@ func (d *drawer) draw(dst *Image, s *scene.Scene, area image.Rectangle, bounds [
 		if next == nil {
 			continue
 		}
-		busy += d.drawOps(dst, s, area, bounds, from, i, px, b)
+		d.drawOps(dst, s, area, bounds, from, i, px, b)
 		b = nil
 		if fx.Effect.Backdrop {
-			busy += d.bd.read(dst, scene.BackdropOf(op.Rect, fx.Blur, dst.W, dst.H))
+			d.bd.read(dst, scene.BackdropOf(op.Rect, fx.Blur, dst.W, dst.H))
 			b = &d.bd.img
 		}
 		next.Begin(fx, op.Rect, scene.FitRadii(op.Rect, op.Radii))
 		from, px = i, next
 	}
-	return busy + d.drawOps(dst, s, area, bounds, from, len(s.Ops), px, b)
+	d.drawOps(dst, s, area, bounds, from, len(s.Ops), px, b)
 }
 
 // drawOps draws operations from to to of s within area, as draw does,
 // over the pixels the operations before them drew, or over the scene's
 // clear color from the first; px draws operation from when it is an
-// effect, over the backdrop b. It returns how long the cores took,
-// together.
-func (d *drawer) drawOps(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle, from, to int, px scene.EffectPixels, b *scene.BackdropImage) time.Duration {
+// effect, over the backdrop b.
+func (d *drawer) drawOps(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle, from, to int, px scene.EffectPixels, b *scene.BackdropImage) {
 	if from >= to && from > 0 {
-		return 0
+		return
 	}
-	start := time.Now()
 	rows := bandRows
 	if px != nil {
 		rows = effectRows
@@ -156,15 +151,14 @@ func (d *drawer) drawOps(dst *Image, s *scene.Scene, area image.Rectangle, bound
 	}
 	if n == 1 {
 		d.rs[0].render(dst, s, area, bounds, from, to, px, b)
-		return time.Since(start)
+		return
 	}
 	d.job = bandJob{dst, s, area, bounds, from, to, rows, px, b}
 	if d.bands.do == nil {
 		d.bands.do = d.band
 	}
-	busy := d.bands.run(n, bands)
+	d.bands.run(n, bands)
 	d.job = bandJob{}
-	return busy
 }
 
 // bandJob is what the bands of drawOps draw: operations from to to of s

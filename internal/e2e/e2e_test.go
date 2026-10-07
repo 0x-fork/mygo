@@ -2727,67 +2727,14 @@ func TestContentWindow(t *testing.T) {
 	}
 }
 
-// TestContentWindowLazyGPU gives a window of native UI drawing in memory
-// the GPU, as its content asks once that costs too much: on Linux, its
-// GtkGLArea, which has no context until then, is realized anew and makes
-// one, then shows its frames through OpenGL and still takes clicks, its
-// input window under those of its hidden title bar's controls.
-func TestContentWindowLazyGPU(t *testing.T) {
-	if !lazyGPU(true) {
-		t.Skip("only Linux loads the GPU's driver on demand")
-	}
-	defer lazyGPU(false)
-	var frames, clicks atomic.Int32
-	view := func(c *ui.Context) {
-		frames.Add(1)
-		ui.Box(c).Fill().Background(ui.RGB(30, 144, 255)).Children(func() {
-			if ui.Box(c).Size(200, 100).Background(ui.RGB(255, 0, 0)).Clicked() {
-				clicks.Add(1)
-			}
-		})
-	}
-	w := newWindow(t, mygo.WindowOptions{Title: "Lazy GPU", Width: 400, Height: 300, TitleBarStyle: mygo.TitleBarHidden,
-		Content: ui.View(view)})
-	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
-	if how, _, _, _, _ := glSurface(w); how != "cairo" {
-		t.Fatalf("the surface draws %q before asking for the GPU, not with cairo", how)
-	}
-	if !useGPU(w) {
-		t.Skip("OpenGL draws on the CPU here: set MYGO_GPU=1")
-	}
-	if !surfaceInputLowest(w) {
-		t.Error("the surface's input window went over the title bar's controls")
-	}
-	var pix []byte
-	var gw int
-	eventually(t, "a frame shown through OpenGL", func() bool {
-		var how string
-		how, pix, gw, _, _ = glSurface(w)
-		return how != "cairo" && how != "" && len(pix) > 0
-	})
-	s := deviceScale(w)
-	bgra := func(x, y float64) []byte { return pix[(int(y*s)*gw+int(x*s))*4:][:4] }
-	if c := bgra(100, 50); c[2] < 200 || c[0] > 60 {
-		t.Errorf("the red box is %v (BGRA) in the GtkGLArea", c)
-	}
-	if c := bgra(300, 250); c[0] < 200 || c[2] > 60 {
-		t.Errorf("the background is %v (BGRA) in the GtkGLArea", c)
-	}
-	if !click(w, 100, 50) {
-		t.Skip("click automation not available on this platform")
-	}
-	eventually(t, "the click", func() bool { return clicks.Load() == 1 })
-}
-
 // TestContentWindowRepaintsWhatChanged moves the red row of a window of
-// native UI under a menu bar, and reads what the display shows. On Linux,
-// GTK repaints only what frames drawn in memory changed, which a GtkGLArea
-// tells it where its GdkWindow, its parent's, has it: below the menu bar.
+// native UI drawing in memory under a menu bar, and reads what the display
+// shows. On Linux, GTK repaints only what frames drawn in memory changed,
+// below the menu bar.
 func TestContentWindowRepaintsWhatChanged(t *testing.T) {
-	if !lazyGPU(true) {
+	if !memoryUI(t) {
 		t.Skip("only Linux repaints what frames drawn in memory changed")
 	}
-	defer lazyGPU(false)
 	prev := mygo.App.Menu()
 	defer mygo.App.SetMenu(prev)
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))

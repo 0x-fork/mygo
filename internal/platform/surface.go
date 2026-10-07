@@ -34,17 +34,6 @@ type Surface interface {
 	UpdateAccessibility(tree *AccessTree)
 }
 
-// LazyGPUSurface is a Surface that draws in memory until its content asks
-// for the GPU, because a GPU renderer would take much memory for good:
-// Linux's, whose OpenGL driver, Mesa's some 50 MB, stays loaded once a
-// context made it load.
-type LazyGPUSurface interface {
-	// UseGPU makes Native give the objects of a GPU renderer from the
-	// next frame on, which it asks for, where the GPU can draw, and
-	// reports whether it will. It is not called while a frame is drawn.
-	UseGPU() bool
-}
-
 // DamageSurface is a Surface that shows a frame drawn in memory by what
 // changed since the last one: Linux's, whose toolkit then repaints, and
 // the compositor takes, only that.
