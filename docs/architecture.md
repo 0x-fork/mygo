@@ -797,8 +797,7 @@ build` like mygo-runtime and released with the same version.
   `glass.Glass`, a `ui.Material` (interactive glass builds with its
   element, following its press with `Animate`, and paints itself grown
   while pressed, as macOS 27's: by a fixed 1.1 DIPs left and right and
-  0.45 above and below, measured from `NSGlassEffectView`), paints a
-  shadow and an
+  0.45 above and below, measured from `NSGlassEffectView`), paints an
   effect (`glass.Effect`, see Effects under Native UI), whose parameters
   are a pane's material in device pixels. Its shader (`glass.metal`,
   `glass.hlsl`, `glass.glsl`, and `pixels.go` for the CPU) takes what is
