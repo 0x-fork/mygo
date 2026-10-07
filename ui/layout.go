@@ -425,6 +425,8 @@ func layoutBox(e *Element, w, h float32) {
 	cw, ch := max(w-e.padX(), 0), max(h-e.padY(), 0)
 	switch e.kind {
 	case kindText:
+		// Lists may build paragraphs while laying out, after the view's pass.
+		e.prepareSelectable()
 		e.tl = textSystem().Layout(e.textParams(max(cw, 1)))
 		if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 {
 			// Selectable text hit-tests and selects in what it shows.

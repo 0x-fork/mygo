@@ -140,7 +140,7 @@ func (p *Painter) element(e *Element) {
 		case kindText:
 			ts := e.resolvedText()
 			ox, oy := e.x+e.contentX(), e.y+e.contentY()
-			if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 && e.Focused() {
+			if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 && p.rt.textSelectionVisible(e.st) {
 				if a, b := ed.selection(); a != b {
 					for _, r := range e.tl.Selection(a, b) {
 						p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, e.c.theme.Selection, 0)

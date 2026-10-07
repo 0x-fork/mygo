@@ -71,6 +71,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.requestFrame()
 	case platform.SurfaceBlur:
 		rt.windowFocused = false
+		rt.selection.dragging = false
 		if p := rt.pressed; p != nil {
 			// The release will not come: an element taking its input
 			// gets one now.
@@ -182,6 +183,9 @@ func (rt *engine) pointerMove(x, y float32) {
 	}
 	moved := x != rt.pointerX || y != rt.pointerY
 	rt.pointerX, rt.pointerY, rt.pointerIn = x, y, true
+	if rt.selection.dragging && rt.pressed != nil {
+		rt.moveTextSelection(x, y)
+	}
 	if rt.pressed == nil {
 		// The chain goes in a buffer, which the hover's last chain
 		// becomes when the hover takes it.
@@ -293,6 +297,9 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 	rt.pressed, rt.pressButton = target, button
 	target.pressed, target.pressMods = true, mods
 	target.pressX, target.pressY = x-target.x, y-target.y
+	if button == 0 && rt.pressTextSelection(target, x, y, mods, clicks) {
+		return
+	}
 	if target.editor != nil {
 		target.editor.pressMods = mods
 		target.editor.press(x-target.x, y-target.y, clicks, button)
@@ -324,6 +331,10 @@ func (rt *engine) pointerUp(button, clicks int) {
 	s := rt.pressed
 	if s == nil || button != rt.pressButton {
 		return
+	}
+	if rt.selection.dragging {
+		rt.moveTextSelection(rt.pointerX, rt.pointerY)
+		rt.selection.dragging = false
 	}
 	rt.pressed = nil
 	s.pressed = false
@@ -509,6 +520,10 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 		return false
 	}
 	if s := rt.states[rt.focused]; s != nil && s.editor != nil && s.flags&(flagEditable|flagSelectable) != 0 && s.editor.wants(k) {
+		if rt.textSelectionKey(s, k) {
+			rt.requestFrame()
+			return false
+		}
 		s.editor.queue = append(s.editor.queue, editEvent{kind: editKey, mods: mods, key: key})
 		rt.blinkStart = time.Now()
 		rt.requestFrame()
@@ -712,6 +727,10 @@ func (rt *engine) editEvent(ev editEvent) {
 	}
 	// Selectable text takes the menus' commands, as Copy, not text.
 	if s.flags&flagEditable == 0 && (s.flags&flagSelectable == 0 || ev.kind != editCommand) {
+		return
+	}
+	if ev.kind == editCommand && rt.textSelectionCommand(s, ev.text) {
+		rt.requestFrame()
 		return
 	}
 	s.editor.queue = append(s.editor.queue, ev)

@@ -823,30 +823,37 @@ func (e *Element) Password() *Element {
 	return e
 }
 
-// Selectable lets the user select the text of a Text element, by dragging
-// over it, double-clicking a word or triple-clicking a line, and copy it:
-// a click gives it the keyboard focus, for Shift with the arrows and
-// Cmd+C, and its context menu has Copy and Select All.
+// Selectable lets the user select and copy text by dragging, double-clicking
+// a word, triple-clicking a line, or using Shift with the arrows. Its context
+// menu has Copy and Select All; Cmd+C copies the selection.
+//
+// On a container, its Text and RichText descendants share one selection.
+// Copy joins their selected text with newlines, in the order they were built.
+// Nested Selectable containers have independent selections. Text inside
+// controls, such as buttons and text inputs, keeps the control's interaction.
+// Unselectable excludes a subtree. On a Text or RichText alone, the selection
+// stays within that paragraph. Inline elements share their paragraph's
+// selection; set Selectable on the paragraph.
 func (e *Element) Selectable() *Element {
-	if e.kind != kindText {
+	if e.isInline() {
 		return e
 	}
-	e.flags |= flagSelectable
-	st := e.st
-	ed := st.editor
-	if ed == nil {
-		ed = newEditor()
-		ed.readOnly, ed.multiline = true, true
-		st.editor = ed
+	if e.kind == kindText || e.kind == kindBox {
+		e.flags &^= flagUnselectable
+		e.flags |= flagSelectable
 	}
-	if ed.source != e.text {
-		ed.source = e.text
-		ed.setText(e.text)
-		ed.caret, ed.anchor = 0, 0
+	return e
+}
+
+// Unselectable excludes a paragraph or container subtree from a surrounding
+// Selectable container. A Selectable container nested inside it can provide
+// a selection of its own. For inline elements, set it on their paragraph.
+func (e *Element) Unselectable() *Element {
+	if e.isInline() {
+		return e
 	}
-	if e.c.rt.focused == e.id || len(ed.queue) > 0 {
-		ed.process(e.c, e)
-	}
+	e.flags &^= flagSelectable
+	e.flags |= flagUnselectable
 	return e
 }
 

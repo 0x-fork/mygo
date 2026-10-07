@@ -224,6 +224,9 @@ func (rt *engine) menuTarget(chain []uint64) *state {
 		if s.flags&(flagContextMenu|flagEditable|flagSelectable) != 0 {
 			return s
 		}
+		if s.flags&flagUnselectable != 0 {
+			return nil
+		}
 	}
 	return nil
 }
@@ -252,7 +255,13 @@ func (rt *engine) menuPress(chain []uint64, x, y float32) bool {
 	if s == nil {
 		return false
 	}
-	if s.flags&(flagEditable|flagSelectable) != 0 && s.editor != nil {
+	if s.flags&flagSelectable != 0 && s.editor == nil {
+		if p := rt.textSelectionAt(s.id, x, y); p.id != 0 {
+			s = rt.states[p.id]
+		}
+	}
+	// A right-click in any selected paragraph keeps the whole selection.
+	if !rt.textSelectionMenu(s, x, y) && s.flags&(flagEditable|flagSelectable) != 0 && s.editor != nil {
 		if rt.focused != s.id {
 			rt.focused = s.id
 			rt.focusVisible = false
@@ -357,7 +366,9 @@ func (rt *engine) menuChosen(p *shownMenu, id int) {
 	}
 	if p.commands != nil {
 		if s := rt.states[p.id]; s != nil && s.editor != nil {
-			s.editor.queue = append(s.editor.queue, editEvent{kind: editCommand, text: p.commands[id-1]})
+			if !rt.textSelectionCommand(s, p.commands[id-1]) {
+				s.editor.queue = append(s.editor.queue, editEvent{kind: editCommand, text: p.commands[id-1]})
+			}
 			rt.blinkStart = time.Now()
 		}
 	} else {
@@ -373,6 +384,9 @@ func (rt *engine) editMenu(s *state) {
 	ed := s.editor
 	a, b := ed.selection()
 	selected := a != b
+	if s.textScope != 0 && rt.selection.scope == s.textScope {
+		_, _, selected = rt.textSelectionBounds()
+	}
 	type command struct {
 		label, name string
 		on          bool

@@ -128,6 +128,8 @@ const (
 	// flagDividers marks an element drawing lines between its children,
 	// listed in Context.dividers.
 	flagDividers
+	// flagUnselectable excludes text from a surrounding Selectable container.
+	flagUnselectable
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY

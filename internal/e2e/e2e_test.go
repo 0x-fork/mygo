@@ -2213,6 +2213,51 @@ func deviceScale(w *mygo.Window) float64 {
 	return mygo.Screen.DisplayNearestPoint(mygo.Point{X: b.X + b.Width/2, Y: b.Y + b.Height/2}).ScaleFactor
 }
 
+// TestContentWindowTextSelection drags across independently laid-out
+// paragraphs and copies their selection through the native Edit menu.
+func TestContentWindowTextSelection(t *testing.T) {
+	var frames atomic.Int32
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Column(c).Fill().Padding(20).Gap(20).Selectable().Children(func() {
+			ui.Text(c, "First paragraph.").Height(30)
+			ui.Text(c, "Second paragraph.").Height(30)
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Text selection", Width: 400, Height: 200, Content: ui.View(view)})
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Role: mygo.RoleEditMenu}}))
+	defer mygo.App.SetMenu(nil)
+	clipboard := mygo.Clipboard.ReadText()
+	defer mygo.Clipboard.WriteText(clipboard)
+	w.Focus()
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	var copied string
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("last copied text: %q", copied)
+		}
+	})
+	for _, reverse := range []bool{false, true} {
+		points := [][2]float64{{20, 28}, {380, 78}}
+		if reverse {
+			slices.Reverse(points)
+		}
+		before := frames.Load()
+		if !drag(w, points) {
+			t.Skip("drag automation not available on this platform")
+		}
+		eventually(t, "a frame after the drag", func() bool { return frames.Load() > before })
+		mygo.Clipboard.WriteText("before copy")
+		if err := activateMenu(w, "Edit", "Copy"); err != nil {
+			t.Fatal(err)
+		}
+		eventually(t, "both paragraphs copied", func() bool {
+			copied = mygo.Clipboard.ReadText()
+			return copied == "First paragraph.\nSecond paragraph."
+		})
+	}
+}
+
 // TestContentWindowInputMethod checks that input methods see the text
 // around the caret of native UI and replace what was typed, as macOS's
 // press and hold does with the letter it accents.

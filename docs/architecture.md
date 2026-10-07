@@ -1441,6 +1441,18 @@ either.
   its offset the state's (`flagScrollY`, the content as high as its
   paragraphs), kept by the anchor as heights above the view are measured;
   an edit, a move of the caret or a press reveals the caret once.
+- **Text selection** (`ui/textselection.go`). `Selectable` on a text
+  selects that paragraph; on a container it gives its text descendants
+  one selection. The window keeps endpoints as stable element IDs and
+  rune offsets, and each frame collects participating paragraphs in
+  build order. After layout the shared range is projected onto their
+  editors, whose layouts paint the highlights. Pointer gestures,
+  keyboard extension, native editing commands and context menus use
+  the same endpoints. Nested containers have independent scopes;
+  controls and `Unselectable` subtrees do not participate. A drag near
+  a scroll edge asks for frames until scrolling stops. Inline children
+  contribute to their paragraph once, and preparation waits for their
+  final text so a rebuild preserves the selection.
 - **Tables** (`ui/table.go`, `ui/editable.go`). A table's rows are a
   `List`'s that scrolls both ways: the list lays its rows out at least as
   wide as the columns ask (`rowMinW`), and the header, outside the list,

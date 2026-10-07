@@ -122,10 +122,14 @@ type engine struct {
 	pointerIn          bool
 	hover              []uint64
 	// chain is a buffer for the elements under the pointer.
-	chain         []uint64
-	pressed       *state
-	pressButton   int
-	focused       uint64
+	chain       []uint64
+	pressed     *state
+	pressButton int
+	focused     uint64
+	// texts are selectable paragraphs in build order; selection spans those
+	// of one Selectable container (textselection.go).
+	texts         []*state
+	selection     textSelection
 	focusVisible  bool
 	windowFocused bool
 	keys          []keyEvent
@@ -321,6 +325,7 @@ func (rt *engine) runFrame() {
 		rt.drag.elem = nil
 		rt.dragScroll()
 	}
+	rt.scrollTextSelection()
 
 	if rt.exitsBuilt {
 		// The last frame's elements stay as they are while this one builds,
@@ -346,6 +351,7 @@ func (rt *engine) runFrame() {
 		if rt.insp.open {
 			rt.buildInspector(&rt.c, appW, w, h)
 		}
+		rt.prepareSelectable(rt.c.root)
 		rt.resolveMenu()
 		rt.endPass()
 		if !rt.consumed {
@@ -360,6 +366,10 @@ func (rt *engine) runFrame() {
 	root := rt.c.root
 	layoutTree(root, appW, h)
 	rt.commit(root, w, h)
+	clear(rt.texts)
+	rt.texts = rt.texts[:0]
+	rt.collectSelectable(root, false)
+	rt.syncTextSelection()
 	rt.stats.lap(phaseLayout)
 	rt.insp.lap(1)
 	if rt.insp.open {
@@ -687,7 +697,7 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	s.cursor, s.tip = e.cursor, e.tip
 	s.role = e.role
 	s.input, s.caret, s.takesText = e.inputFn, e.caret, e.takesText
-	if e.flags&(flagEditable|flagSelectable) != 0 && s.cursor == 0 {
+	if (e.flags&flagEditable != 0 || e.flags&flagSelectable != 0 && s.editor != nil) && s.cursor == 0 {
 		s.cursor = CursorText + 1
 	}
 	v := intersect(Rect{e.x, e.y, e.w, e.h}, clip)

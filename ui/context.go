@@ -436,6 +436,8 @@ type state struct {
 	hasDropped   bool
 	dropX, dropY float32
 	editor       *editor
+	// textScope is the Selectable container this paragraph belongs to.
+	textScope uint64
 	// spans keeps what a text made of its spans in the last frame.
 	spans     *spanCache
 	locals    map[any]any
