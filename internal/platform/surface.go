@@ -91,6 +91,9 @@ type TextInputState struct {
 	// of macOS's press and hold replace the letter they decorate.
 	Text       string
 	Start, End int
+	// Client supplies full text and geometry for a custom text element. The
+	// Text/Start/End snapshot remains the plain-widget and TextCaret fallback.
+	Client TextInputClient
 }
 
 // SurfaceNative holds the native objects of a Surface.

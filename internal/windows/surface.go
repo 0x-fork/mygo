@@ -82,6 +82,7 @@ const (
 	iaceDefault          = 0x0010
 	niCompositionStr     = 0x0015
 	cpsComplete          = 0x0001
+	cpsCancel            = 0x0004
 	rdwInvalidate        = 0x0001
 	rdwUpdateNow         = 0x0100
 	spiGetWheelScrollLns = 0x0068
@@ -111,8 +112,9 @@ type candidateForm struct {
 }
 
 type surface struct {
-	w    *window
-	hwnd uintptr
+	clientComposition platform.InputComposition
+	w                 *window
+	hwnd              uintptr
 
 	paintDC  uintptr
 	tracking bool
@@ -254,6 +256,14 @@ func cursorHandle(c platform.Cursor) uintptr {
 
 func (s *surface) SetTextInput(t platform.TextInputState) {
 	active, caret := t.Active, t.Caret
+	if s.input.Active && s.input.Client != t.Client {
+		s.clientComposition.Reset()
+		if himc, _, _ := procImmGetContext.Call(s.hwnd); himc != 0 {
+			procImmNotifyIME.Call(himc, niCompositionStr, cpsCancel, 0)
+			procImmReleaseContext.Call(s.hwnd, himc)
+		}
+		s.reconvert = nil
+	}
 	s.input = t
 	if active != s.ime {
 		s.ime = active
@@ -292,6 +302,9 @@ func (s *surface) placeIME() {
 }
 
 func (s *surface) send(ev platform.SurfaceEvent) bool {
+	if ev.Kind == platform.PointerDown || ev.Kind == platform.SurfaceBlur {
+		s.clientComposition.Reset()
+	}
 	if s.w.closed {
 		return false
 	}
@@ -445,6 +458,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		s.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
 		return 0, true
 	case wmKeyDown, wmSysKeyDown:
+		s.clientComposition.Reset()
 		s.keyTaken = false
 		if k := vkKey(wp); k != platform.KeyUnknown {
 			s.keyTaken = s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, Mods: mods(), Repeat: lp&(1<<30) != 0})
@@ -511,6 +525,10 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		return 0, true
 	case wmImeEndComp:
 		s.reconvert = nil
+		if c := s.input.Client; c != nil {
+			s.clientComposition.End(c)
+			return 0, true
+		}
 		s.send(platform.SurfaceEvent{Kind: platform.TextComposition})
 		return 0, true
 	case wmImeChar:

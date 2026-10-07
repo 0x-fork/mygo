@@ -1309,6 +1309,15 @@ either.
   it. `ui.Shape` lays out text without the cache of layouts, for widgets
   that keep their glyphs, and `Painter.Glyphs` draws them where they
   placed them.
+  `HandleTextInput` connects a custom element's application-owned
+  `TextInputClient` to the same platform services. A stable, focus-checked
+  adapter supplies absolute UTF-16 text ranges, selection, marked text,
+  mutation callbacks, range geometry and hit testing. It is invalidated on
+  replacement/disposal, and focus changes unmark the old client and reset
+  native composition. GTK and IMM32 use bounded surrounding context while
+  macOS can query arbitrary document ranges directly. `ShapeText` and
+  `ShapeRichText` retain per-paragraph `TextLayout` geometry; an application
+  owns its buffer, selections, rendering, editing and undo policy.
 - **Preferences.** `platform.Theme.Preferences` reads the settings of the
   desktop that controls follow: on macOS, `controlAccentColor` and
   `NSWorkspace`'s accessibility display options, with their notifications;

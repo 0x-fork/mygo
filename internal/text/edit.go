@@ -167,6 +167,70 @@ func (l *Layout) SelectionOn(start, end int, on bool) []Rect {
 	return out
 }
 
+// SelectionVisual returns separate rectangles for selected visual runs. At
+// bidi boundaries a logical range may cover disjoint areas on a line; taking
+// the minimum and maximum caret would highlight intervening unselected text.
+// on includes the paragraph's following newline, as SelectionOn does.
+func (l *Layout) SelectionVisual(start, end int, on bool) []Rect {
+	if start > end {
+		start, end = end, start
+	}
+	if on {
+		end = len(l.Runes) + 1
+	}
+	var out []Rect
+	for li := range l.Lines {
+		line := &l.Lines[li]
+		var pieces []Rect
+		for i := 0; i < len(line.Glyphs); {
+			first := line.Glyphs[i]
+			x0, x1 := first.X, first.X+first.Advance
+			i++
+			for i < len(line.Glyphs) && line.Glyphs[i].Cluster == first.Cluster && line.Glyphs[i].Runes == first.Runes {
+				x0, x1 = min(x0, line.Glyphs[i].X), max(x1, line.Glyphs[i].X+line.Glyphs[i].Advance)
+				i++
+			}
+			a, z := max(start, first.Cluster), min(end, first.Cluster+first.Runes)
+			if a >= z || first.Runes <= 0 {
+				continue
+			}
+			width := x1 - x0
+			left, right := float32(a-first.Cluster)/float32(first.Runes), float32(z-first.Cluster)/float32(first.Runes)
+			if first.RTL {
+				left, right = 1-right, 1-left
+			}
+			pieces = append(pieces, Rect{x0 + left*width, line.Y, (right - left) * width, line.Height})
+		}
+		if start <= line.End && end > line.End && (li < len(l.Lines)-1 && l.Lines[li+1].Start > line.End || li == len(l.Lines)-1 && on) {
+			x, width := line.X+line.Width, l.Params.Style.FontSize()/3
+			if line.RTL {
+				x = line.X - width
+			}
+			pieces = append(pieces, Rect{x, line.Y, width, line.Height})
+		}
+		slices.SortFunc(pieces, func(a, b Rect) int {
+			if a.X < b.X {
+				return -1
+			}
+			if a.X > b.X {
+				return 1
+			}
+			return 0
+		})
+		for _, r := range pieces {
+			if r.W <= 0 {
+				continue
+			}
+			if n := len(out); n > 0 && out[n-1].Y == r.Y && out[n-1].X+out[n-1].W >= r.X-0.01 {
+				out[n-1].W = max(out[n-1].X+out[n-1].W, r.X+r.W) - out[n-1].X
+			} else {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
+
 // Boundaries finds grapheme and word boundaries in text.
 type Boundaries struct {
 	seg   segmenter.Segmenter
@@ -186,6 +250,10 @@ func (b *Boundaries) Reset(runes []rune) {
 	}
 	b.graphemes = append(b.graphemes, len(runes))
 }
+
+// GraphemeOffsets returns a copy of the grapheme starts and text's end for
+// a retained shaped-text layout.
+func (b *Boundaries) GraphemeOffsets() []int { return slices.Clone(b.graphemes) }
 
 // NextGrapheme returns the end of the grapheme starting at or containing i.
 func (b *Boundaries) NextGrapheme(i int) int {

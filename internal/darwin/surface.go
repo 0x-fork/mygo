@@ -385,6 +385,10 @@ func (s *surface) SetCursor(c platform.Cursor) {
 }
 
 func (s *surface) SetTextInput(t platform.TextInputState) {
+	if s.input.Client != t.Client && s.input.Active {
+		s.marked = ""
+		send(send(s.view, "inputContext"), "discardMarkedText")
+	}
 	if s.input.Active && !t.Active && s.marked != "" {
 		s.marked = ""
 		send(send(s.view, "inputContext"), "discardMarkedText")
@@ -718,7 +722,7 @@ func registerSurfaceClass() {
 			// method's alone, as Enter choosing a candidate or Escape
 			// giving the composition up, as GTK's and IMM32's filtering
 			// keeps them on Linux and Windows.
-			if !ime || s.marked == "" {
+			if !ime || !s.hasMarkedText() {
 				s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat")})
 			}
 			// Input methods see the key while a text input has the focus;
@@ -745,7 +749,7 @@ func registerSurfaceClass() {
 		// NSTextInputClient
 		method("hasMarkedText", func(self id, _ objc.SEL) bool {
 			s := b().surfaceOf(self)
-			return s != nil && s.marked != ""
+			return s != nil && s.hasMarkedText()
 		}),
 		method("markedRange", func(self id, _ objc.SEL) nsRange {
 			if s := b().surfaceOf(self); s != nil {
@@ -765,9 +769,8 @@ func registerSurfaceClass() {
 			}
 		}),
 		method("unmarkText", func(self id, _ objc.SEL) {
-			if s := b().surfaceOf(self); s != nil && s.marked != "" {
-				s.marked = ""
-				s.send(platform.SurfaceEvent{Kind: platform.TextComposition})
+			if s := b().surfaceOf(self); s != nil {
+				s.unmarkText()
 			}
 		}),
 		method("validAttributesForMarkedText", func(self id, _ objc.SEL) id { return nsArray() }),
@@ -782,13 +785,37 @@ func registerSurfaceClass() {
 				s.insertText(stringOf(text), replacement)
 			}
 		}),
-		method("characterIndexForPoint:", func(self id, _ objc.SEL, p NSPoint) uint { return nsNotFound }),
+		method("characterIndexForPoint:", func(self id, _ objc.SEL, p NSPoint) uint {
+			s := b().surfaceOf(self)
+			if s != nil && s.input.Client != nil {
+				window := msgRectToRect(s.w.win, sel("convertRectFromScreen:"), NSRect{Origin: p})
+				local := msgConvertRectView(self, sel("convertRect:fromView:"), window, 0)
+				if index, ok := s.input.Client.IndexForPoint(local.Origin.X, local.Origin.Y); ok {
+					return uint(index)
+				}
+			}
+			return nsNotFound
+		}),
 		method("firstRectForCharacterRange:actualRange:", func(self id, _ objc.SEL, r nsRange, actual *nsRange) cgRect {
 			s := b().surfaceOf(self)
 			if s == nil {
 				return cgRect{}
 			}
 			c := s.input.Caret
+			if client := s.input.Client; client != nil {
+				rangeWanted := clientRange(r)
+				if rangeWanted == nil {
+					return cgRect{}
+				}
+				bounds, used, ok := client.BoundsForRange(*rangeWanted)
+				if !ok {
+					return cgRect{}
+				}
+				c = bounds
+				if actual != nil {
+					*actual = nsRange{Location: uint(used.Start), Length: uint(max(0, used.End-used.Start))}
+				}
+			}
 			inWindow := msgConvertRectView(self, sel("convertRect:toView:"), NSRect{Origin: NSPoint{c.X, c.Y}, Size: NSSize{max(c.W, 1), c.H}}, 0)
 			screen := msgRectToRect(s.w.win, sel("convertRectToScreen:"), inWindow)
 			return cgRect{X: screen.Origin.X, Y: screen.Origin.Y, W: screen.Size.Width, H: screen.Size.Height}

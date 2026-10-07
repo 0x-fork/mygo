@@ -419,7 +419,11 @@ func TestInputClient(handle uintptr) (selected [2]int, document string) {
 	withPool(func() {
 		doc, _, _ := w.surface.document()
 		var actual nsRange
-		document = stringOf(w.surface.substring(nsRange{Length: uint(units(doc))}, &actual))
+		length := uint(units(doc))
+		if w.surface.input.Client != nil {
+			length = 1<<31 - 1
+		}
+		document = stringOf(w.surface.substring(nsRange{Length: length}, &actual))
 	})
 	return [2]int{int(r.Location), int(r.Length)}, document
 }
