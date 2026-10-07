@@ -1039,8 +1039,10 @@ backend, which:
 - performs edit roles natively (first responder on macOS,
   `webkit_web_view_execute_editing_command` on Linux), or sends them to a
   window showing native UI as a `SurfaceCommand`, and reports everything
-  else through `AppHandler.MenuItemClicked`; the core toggles checkbox/radio
-  state, performs window and view roles and calls `Click`.
+  else through `WindowHandler.MenuItemClicked` for a window's menu, or
+  `AppHandler.MenuItemClicked` for menus without one; the core toggles
+  checkbox/radio state, performs window and view roles and calls `Click`
+  with the menu's window, even while a submenu has focus instead.
 
 macOS gets a default menu bar (App, File, Edit, View, Window), which is what
 makes Cmd+C/V/Q work; other platforms get none unless the app sets one.

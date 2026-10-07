@@ -334,7 +334,10 @@ func TestPopupMenu(t *testing.T) {
 	if _, ok := dismissPopups(); !ok {
 		t.Skip("popup automation not available on this platform")
 	}
-	menu := mygo.NewMenu([]*mygo.MenuItem{{Label: "One"}, {Label: "Two"}})
+	clicks := make(chan *mygo.Window, 1)
+	menu := mygo.NewMenu([]*mygo.MenuItem{{Label: "One", Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+		clicks <- win
+	}}, {Label: "Two"}})
 	popup := func(show func()) (shown int) {
 		t.Helper()
 		done := make(chan struct{})
@@ -357,6 +360,32 @@ func TestPopupMenu(t *testing.T) {
 	waitFor(t, w, "document.readyState === 'complete'")
 	if n := popup(func() { menu.PopupAt(w, 20, 20) }); n != 1 {
 		t.Errorf("PopupAt: %d menus shown", n)
+	}
+	if runtime.GOOS != "linux" {
+		return
+	}
+	done := make(chan struct{})
+	go func() { menu.PopupAt(w, 20, 20); close(done) }()
+	t.Cleanup(func() { dismissPopups() })
+	eventually(t, "the context menu", func() bool {
+		menus, _ := popupMenus()
+		return len(menus) == 1
+	})
+	if !choosePopupItem("One") {
+		t.Fatal("the context menu has no item One")
+	}
+	select {
+	case got := <-clicks:
+		if got != w {
+			t.Errorf("context menu window = %v, want window %d", got, w.ID())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the context menu click was not delivered")
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the context menu did not return after choosing an item")
 	}
 }
 
@@ -1870,6 +1899,69 @@ func TestMenuActivation(t *testing.T) {
 			t.Error("key equivalent not handled by the menu")
 		}
 		expectClick(t, clicks, "ping")
+	}
+}
+
+// A submenu may have focus instead of its window. Its callback must still
+// receive the window whose menu was chosen, including for shared menus.
+func TestMenuActivationWindow(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		t.Skip("menu bars belong to the application")
+	}
+	for _, ownMenu := range []bool{false, true} {
+		name := "application"
+		if ownMenu {
+			name = "window"
+		}
+		t.Run(name, func(t *testing.T) {
+			wins := []*mygo.Window{
+				newWindow(t, mygo.WindowOptions{Hidden: true, Width: 400, Height: 300}),
+				newWindow(t, mygo.WindowOptions{Hidden: true, Width: 400, Height: 300}),
+			}
+			if mygo.FocusedWindow() != nil {
+				t.Fatal("a window has focus before activating the menu")
+			}
+			clicks := make(chan *mygo.Window, 1)
+			menu := mygo.NewMenu([]*mygo.MenuItem{{Label: "Demo", Submenu: []*mygo.MenuItem{
+				{Label: "Sizes", Submenu: []*mygo.MenuItem{
+					{ID: "small", Label: "Small", Type: mygo.MenuItemRadio, Checked: true},
+					{ID: "large", Label: "Large", Type: mygo.MenuItemRadio, Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+						if win != nil {
+							win.SetSize(1000, 720)
+						}
+						clicks <- win
+					}},
+				}},
+			}}})
+			if ownMenu {
+				for _, w := range wins {
+					w.SetMenu(menu)
+				}
+			} else {
+				mygo.App.SetMenu(menu)
+				defer mygo.App.SetMenu(nil)
+			}
+			for _, w := range wins {
+				menu.ItemByID("small").SetChecked(true)
+				if err := activateMenu(w, "Demo", "Sizes", "Large"); err != nil {
+					t.Fatal(err)
+				}
+				select {
+				case got := <-clicks:
+					if got != w {
+						t.Fatalf("click window = %v, want window %d", got, w.ID())
+					}
+				case <-time.After(3 * time.Second):
+					t.Fatal("menu click was not delivered")
+				}
+				if width, height := w.Size(); width != 1000 || height != 720 {
+					t.Errorf("size after click = %dx%d, want 1000x720", width, height)
+				}
+				if !menu.ItemByID("large").IsChecked() || menu.ItemByID("small").IsChecked() {
+					t.Error("radio group was not updated")
+				}
+			}
+		})
 	}
 }
 

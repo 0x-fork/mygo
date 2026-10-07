@@ -582,7 +582,7 @@ func (appHandler) OpenFiles(paths []string) {
 		fire1(&App.onOpenFile, p)
 	}
 }
-func (appHandler) MenuItemClicked(id int)        { menuItemClicked(id) }
+func (appHandler) MenuItemClicked(id int)        { menuItemClicked(id, FocusedWindow()) }
 func (appHandler) ThemeChanged()                 { updateBackgrounds(); contentThemeChanged(); Theme.changed() }
 func (appHandler) DisplaysChanged()              { Screen.changed() }
 func (appHandler) PowerEvent(event string)       { Power.event(event) }

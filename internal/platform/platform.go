@@ -385,6 +385,9 @@ type WindowHandler interface {
 	Closed()
 	Focused()
 	Blurred()
+	// MenuItemClicked reports an item chosen from this window's menu bar
+	// or context menu, even while the menu has focus instead of the window.
+	MenuItemClicked(id int)
 	Resized()
 	Moved()
 	Minimized()

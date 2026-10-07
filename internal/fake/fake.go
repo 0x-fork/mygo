@@ -180,6 +180,9 @@ func (b *Backend) MenuUpdates() []*platform.MenuItem {
 // ClickMenuItem simulates choosing a menu item.
 func (b *Backend) ClickMenuItem(id int) { b.h.MenuItemClicked(id) }
 
+// ClickMenuItem simulates choosing an item of this window's menu.
+func (w *Window) ClickMenuItem(id int) { w.H.MenuItemClicked(id) }
+
 func (b *Backend) SetApplicationMenu(m *platform.Menu) {
 	b.mu.Lock()
 	b.appMenu = m

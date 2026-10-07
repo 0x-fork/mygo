@@ -35,7 +35,8 @@ A `MenuItem` has:
 - `Label`, and an `Accelerator`, its keyboard shortcut (see
   [accelerators](#accelerators));
 - `Click`, called on the main thread when the item is chosen, with the item
-  and the focused window, or nil;
+  and, on Linux and Windows, the window whose menu bar or context menu was
+  chosen. Other menus use the focused window, or nil;
 - `Type`: `MenuItemNormal`, `MenuItemCheckbox`, `MenuItemRadio`,
   `MenuItemSeparator` or `MenuItemSubmenu`; items with a `Submenu` are
   submenus, others normal items unless set. Adjacent radio items form a
