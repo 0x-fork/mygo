@@ -2,6 +2,7 @@ package ui
 
 import (
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -80,7 +81,12 @@ type editor struct {
 	// leaveEmptyBackspace leaves Backspace to shortcuts while the text is
 	// empty, as a token field's input does to take out a token.
 	leaveEmptyBackspace bool
-	placeholder         string
+	// lines are a text area's least and most lines (Lines), as high as its
+	// wrapped text between them; zero for the paragraphs, at least three.
+	lines       [2]int
+	placeholder string
+	// ranges style runs of the text (TextRanges), sorted by Start.
+	ranges []TextRange
 	// layout is what the last frame laid out of a single-line input or a
 	// selectable text; area lays out a text area (textarea.go).
 	layout *text.Layout
@@ -778,8 +784,11 @@ func textInputBase(c *Context, value *string, multiline bool) *Element {
 	if !focused {
 		ed.compose = ""
 	}
-	// ReadOnly says again for the next frame's input, as the frame builds.
-	ed.readOnly = false
+	// ReadOnly, Password and Lines say again for the next frame's input, as
+	// the frame builds.
+	ed.readOnly, ed.password = false, false
+	ed.ranges = ed.ranges[:0]
+	ed.lines = [2]int{}
 	return e
 }
 
@@ -805,6 +814,47 @@ func (e *Element) ReadOnly(on bool) *Element {
 	return e
 }
 
+// Lines makes a text area as high as its text, wrapped at its width, from
+// min lines up to max, past which it scrolls, as a message field grows with
+// what is typed: TextArea(c, &draft).Lines(1, 8). Without it, a text area is
+// as high as its paragraphs, three lines at least, unless given a height.
+func (e *Element) Lines(min, max int) *Element {
+	if ed := e.st.editor; ed != nil && ed.area != nil {
+		ed.lines = [2]int{min, max}
+	}
+	return e
+}
+
+// TextSelection returns the selection of a text input as offsets in runes
+// into its text, the caret where start equals end, as the app reads it to
+// complete the word being typed.
+func (e *Element) TextSelection() (start, end int) {
+	ed := e.st.editor
+	if ed == nil {
+		return 0, 0
+	}
+	return ed.selection()
+}
+
+// SetTextSelection selects the runes of a text input from start to end, or
+// puts the caret at start when they are equal, and scrolls it into view: the
+// caret after a word the app completed. The offsets are kept within the text.
+func (e *Element) SetTextSelection(start, end int) *Element {
+	ed := e.st.editor
+	if ed == nil {
+		return e
+	}
+	n := ed.buf.n
+	start, end = min(max(start, 0), n), min(max(end, 0), n)
+	ed.anchor, ed.caret = start, end
+	ed.hasDesired = false
+	if ed.area != nil {
+		ed.area.reveal = true
+	}
+	e.c.rt.requestFrame()
+	return e
+}
+
 // Composing reports whether an input method composes text in a text
 // input, as Pinyin before a candidate is chosen: its value holds the text
 // once composed. Keys typed meanwhile are the input method's, as Enter
@@ -814,8 +864,10 @@ func (e *Element) Composing() bool {
 	return ed != nil && ed.compose != ""
 }
 
-// Password hides what a text input holds. It does nothing to a text area:
-// as on every platform, only single-line fields hide their text.
+// Password hides what a text input holds, in the frames that call it: an
+// input that stops calling it shows its text again, as a field's eye
+// button does. It does nothing to a text area: as on every platform, only
+// single-line fields hide their text.
 func (e *Element) Password() *Element {
 	if ed := e.st.editor; ed != nil && !ed.multiline {
 		ed.password = true
@@ -873,7 +925,11 @@ func (ed *editor) displayText() string {
 
 func (e *Element) inputParams(width float32) text.Params {
 	p := e.textParams(width)
-	p.Text = e.st.editor.displayText()
+	ed := e.st.editor
+	p.Text = ed.displayText()
+	if !ed.password && ed.compose == "" {
+		p.Spans, _ = ed.rangeSpans(0, ed.buf.n)
+	}
 	p.KeepSpaces = true
 	p.MaxLines = 0
 	if !e.st.editor.multiline {
@@ -882,13 +938,19 @@ func (e *Element) inputParams(width float32) text.Params {
 	return p
 }
 
-func (e *Element) inputHeight() float32 {
+func (e *Element) inputHeight(cw float32) float32 {
 	ed := e.st.editor
 	if ed.area != nil {
-		// As high as its paragraphs unwrapped, without laying them out.
 		p := e.textParams(0)
 		p.Text = ""
 		line := textSystem().Layout(p).Lines[0].Height
+		if lo, hi := ed.lines[0], ed.lines[1]; hi > 0 {
+			// As high as its text wrapped at the width it gets, between its
+			// least and most lines.
+			h := ed.area.wrappedHeight(e, ed, cw)
+			return min(max(h, float32(lo)*line), float32(hi)*line)
+		}
+		// As high as its paragraphs unwrapped, without laying them out.
 		return float32(max(len(ed.buf.paras), 3)) * line
 	}
 	l := textSystem().Layout(e.inputParams(0))
@@ -912,14 +974,36 @@ func (e *Element) layoutInput(cw, ch float32) {
 	if len(l.Lines) > 0 {
 		ed.originY += max((ch-l.Lines[0].Height)/2, 0)
 	}
-	// Keep the caret in view.
-	x, _, _ := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret)
-	if x-ed.scrollX < 0 {
+	// Text narrower than the box goes where TextAlign puts it.
+	if room := cw - l.Width; room > 0 {
+		switch e.resolvedText().align {
+		case End:
+			ed.originX += room
+		case Center:
+			ed.originX += room / 2
+		}
+	}
+	// Keep the caret in view while the input has the focus. Without it, the
+	// input shows the start of its text, as fields do on macOS and the web.
+	if e.c.rt.focused != e.id {
+		ed.scrollX = 0
+	} else if x, _, _ := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret); x-ed.scrollX < 0 {
 		ed.scrollX = x
 	} else if x-ed.scrollX > cw-1 {
 		ed.scrollX = x - cw + 1
 	}
 	ed.scrollX = max(0, min(ed.scrollX, max(l.Width-cw+1, 0)))
+}
+
+// placeholderParams lays out the placeholder of an empty input in a
+// content box width wide: in the input's style, its line height too, fixed
+// or not. A text area's placeholder wraps; a single-line input's stays on
+// its line, cut off at the box.
+func (e *Element) placeholderParams(width float32) text.Params {
+	ed := e.st.editor
+	params := e.textParams(width)
+	params.Text, params.Spans, params.MaxLines, params.NoWrap, params.Ellipsis = ed.placeholder, "", 0, !ed.multiline, ""
+	return params
 }
 
 func (e *Element) paintInput(p *Painter) {
@@ -937,8 +1021,9 @@ func (e *Element) paintInput(p *Painter) {
 	focused := e.Focused()
 	ts := e.resolvedText()
 	if ed.buf.n == 0 && ed.compose == "" && ed.placeholder != "" {
-		pl := textSystem().Layout(text.Params{Text: ed.placeholder, Style: text.Style{Family: ts.family, Size: ts.size, Weight: ts.weight, LineHeight: ts.lineHeight}, Width: box.W})
-		p.textLayout(pl, ox, oy, t.TextMuted, ts, nil)
+		pl := textSystem().Layout(e.placeholderParams(box.W))
+		// The placeholder aligns itself in the content box, as its layout has the box's width.
+		p.textLayout(pl, e.x+e.contentX(), oy, t.TextMuted, ts, nil)
 	}
 	if ed.area != nil {
 		ed.area.paint(e, p, e.x+ed.originX, e.y+ed.originY)
@@ -951,7 +1036,11 @@ func (e *Element) paintInput(p *Painter) {
 			p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, t.Selection, 0)
 		}
 	}
-	p.textLayout(l, ox, oy, ts.color, ts, nil)
+	var sp *spanPaint
+	if !ed.password && ed.compose == "" {
+		_, sp = ed.rangeSpans(0, ed.buf.n)
+	}
+	p.textLayout(l, ox, oy, ts.color, ts, sp)
 	if ed.compose != "" {
 		start := ed.caret
 		end := start + utf8.RuneCountInString(ed.compose)
@@ -975,4 +1064,69 @@ func (e *Element) paintInput(p *Painter) {
 	}
 	p.popClip()
 	p.clip = saved
+}
+
+// TextRange styles runes Start up to End of a text input's text: their
+// color and, when Weight is set, their weight, as a message field shows
+// the mentions in what is typed.
+type TextRange struct {
+	Start, End int
+	Color      Color
+	Weight     int
+}
+
+// TextRanges styles runs of a text input's text, in the frames that call
+// it, with ranges that do not overlap. They follow the text as it is: an
+// app that finds them in the text finds them again as it changes. A
+// password shows none, nor a paragraph while an input method composes in
+// it.
+func (e *Element) TextRanges(ranges ...TextRange) *Element {
+	ed := e.st.editor
+	if ed == nil || e.flags&flagEditable == 0 {
+		return e
+	}
+	for _, r := range ranges {
+		if r.End > r.Start {
+			ed.ranges = append(ed.ranges, r)
+		}
+	}
+	slices.SortFunc(ed.ranges, func(a, b TextRange) int { return a.Start - b.Start })
+	return e
+}
+
+// rangeSpans returns the TextRanges in runes start up to end of the text,
+// from start: the spans of their weights for the layout ("" when none
+// sets one), and how to paint their colors (nil when none sets one).
+func (ed *editor) rangeSpans(start, end int) (string, *spanPaint) {
+	if len(ed.ranges) == 0 {
+		return "", nil
+	}
+	var styles []text.Span
+	var spans []Span
+	weighted, colored := false, false
+	at := start
+	for _, r := range ed.ranges {
+		from, to := max(r.Start, start), min(r.End, end)
+		if from >= to || from < at {
+			continue
+		}
+		if from > at {
+			styles = append(styles, text.Span{End: from - start})
+			spans = append(spans, Span{})
+		}
+		styles = append(styles, text.Span{End: to - start, Weight: r.Weight})
+		spans = append(spans, Span{Color: r.Color, Weight: r.Weight})
+		weighted = weighted || r.Weight > 0
+		colored = colored || r.Color.A > 0
+		at = to
+	}
+	key := ""
+	if weighted {
+		key = text.EncodeSpans(styles)
+	}
+	var sp *spanPaint
+	if colored {
+		sp = &spanPaint{spans: spans, styles: styles}
+	}
+	return key, sp
 }

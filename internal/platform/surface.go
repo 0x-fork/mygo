@@ -134,6 +134,9 @@ const (
 	// auto-repeat.
 	KeyPressed
 	KeyReleased
+	// ModifiersChanged reports the modifier keys held, Mods, as one of
+	// them goes down or up on its own.
+	ModifiersChanged
 	// TextInput inserts Text, typed or committed by an input method.
 	TextInput
 	// TextComposition shows Text as the input method's composition, its

@@ -32,7 +32,10 @@ type paragraph struct {
 	rune, byte int
 	layout     *text.Layout
 	compose    string
-	h          float32
+	// spans are the weights of the TextRanges in the paragraph, as its
+	// layout took them.
+	spans string
+	h     float32
 }
 
 func (b *buffer) set(s string) {

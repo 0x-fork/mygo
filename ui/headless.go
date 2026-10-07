@@ -344,6 +344,12 @@ func (t *Tester) Scroll(x, y, dx, dy float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: float64(x), Y: float64(y), DX: float64(dx), DY: float64(dy)})
 }
 
+// HoldModifiers presses or lets go of modifier keys on their own, as holding
+// Cmd does, leaving mods held.
+func (t *Tester) HoldModifiers(mods Modifiers) {
+	t.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: platform.Modifiers(mods)})
+}
+
 // Key presses a key with modifiers.
 func (t *Tester) Key(mods Modifiers, key Key) {
 	t.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.Key(key), Mods: platform.Modifiers(mods)})

@@ -738,6 +738,11 @@ func registerSurfaceClass() {
 				s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: eventKey(ev), Mods: eventMods(ev)})
 			}
 		}),
+		method("flagsChanged:", func(self id, _ objc.SEL, ev id) {
+			if s := b().surfaceOf(self); s != nil {
+				s.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: eventMods(ev)})
+			}
+		}),
 		command("copy"), command("cut"), command("paste"), command("selectAll"), command("undo"), command("redo"), command("delete"),
 		method("pasteAsPlainText:", func(self id, _ objc.SEL, sender id) {
 			if s := b().surfaceOf(self); s != nil {

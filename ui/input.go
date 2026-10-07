@@ -54,8 +54,12 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.pointerMove(x, y)
 		rt.scroll(float32(ev.DX), float32(ev.DY), Modifiers(ev.Mods), ev.Precise)
 	case platform.KeyPressed:
+		rt.modsChanged(Modifiers(ev.Mods))
 		taken = rt.keyDown(Modifiers(ev.Mods), Key(ev.Key), ev.Repeat)
+	case platform.ModifiersChanged:
+		rt.modsChanged(Modifiers(ev.Mods))
 	case platform.KeyReleased:
+		rt.modsChanged(Modifiers(ev.Mods))
 		if h := rt.focusHandler(); h != nil {
 			rt.deliver(h, InputEvent{Kind: InputKeyUp, Key: Key(ev.Key), Mods: Modifiers(ev.Mods)})
 		}
@@ -72,6 +76,8 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.SurfaceBlur:
 		rt.windowFocused = false
 		rt.selection.dragging = false
+		// Keys let go of elsewhere never come back up here.
+		rt.modsChanged(0)
 		if p := rt.pressed; p != nil {
 			// The release will not come: an element taking its input
 			// gets one now.
@@ -1045,3 +1051,17 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 	}
 	return false
 }
+
+// modsChanged takes the modifier keys held now, drawing a frame when they
+// changed, for views that show what a held key would do.
+func (rt *engine) modsChanged(mods Modifiers) {
+	if rt.mods != mods {
+		rt.mods = mods
+		rt.requestFrame()
+	}
+}
+
+// Modifiers returns the modifier keys held now, as the last key, pointer
+// or modifier event said: a view showing each row's shortcut while Cmd is
+// held reads it, and draws again as it changes.
+func (c *Context) Modifiers() Modifiers { return c.rt.mods }

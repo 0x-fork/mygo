@@ -18,7 +18,10 @@ if card.DoubleClicked() {
 `Hovered`, `Pressed`, `Clicked`, `DoubleClicked`, `RightClicked`, `Dragged`
 (how far the pointer moved since the last frame while pressing the
 element) and `PointerPosition`. `ClickModifiers` returns the modifier keys
-held for the last click, as Shift for a Shift-click. `PassThrough` lets the
+held for the last click, as Shift for a Shift-click. `c.Modifiers()` returns the modifier
+keys held now, as one goes down or up on its own too, and the view draws
+again as they change: a list showing each row's Cmd+1–9 while Cmd is held
+reads it. `PassThrough` lets the
 pointer through to what is below.
 
 Elements that take the pointer give it to the innermost under it: a button

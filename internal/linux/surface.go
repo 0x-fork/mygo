@@ -527,6 +527,22 @@ func gdkMods(state uint32) platform.Modifiers {
 	return m
 }
 
+// modifierKeyval is the modifier a GDK keyval presses: Shift_L/R, Control_L/R,
+// Alt_L/R and Meta_L/R, Super_L/R and Hyper_L/R; 0 for other keys.
+func modifierKeyval(keyval uint32) platform.Modifiers {
+	switch keyval {
+	case 0xffe1, 0xffe2:
+		return platform.ModShift
+	case 0xffe3, 0xffe4:
+		return platform.ModCtrl
+	case 0xffe9, 0xffea, 0xffe7, 0xffe8:
+		return platform.ModAlt
+	case 0xffeb, 0xffec, 0xffed, 0xffee:
+		return platform.ModSuper
+	}
+	return 0
+}
+
 var gdkKeys = map[uint32]platform.Key{
 	0xff0d: platform.KeyEnter, 0xff8d: platform.KeyEnter, 0xff1b: platform.KeyEscape, 0xff08: platform.KeyBackspace,
 	0xff09: platform.KeyTab, 0xfe20: platform.KeyTab, 0x20: platform.KeySpace, 0xffff: platform.KeyDelete,
@@ -752,6 +768,18 @@ func initSurfaceCallbacks() {
 		}
 		if s.textInput && gtkIMContextFilterKeypress(s.im, event) {
 			return true
+		}
+		// A modifier key on its own: the state is the one before the
+		// event, so the key's own bit goes in or out.
+		if bit := modifierKeyval(field[uint32](event, 28)); bit != 0 {
+			state := gdkMods(field[uint32](event, 24))
+			if kind == platform.KeyPressed {
+				state |= bit
+			} else {
+				state &^= bit
+			}
+			s.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: state})
+			return false
 		}
 		k := keyvalKey(field[uint32](event, 28))
 		if k == platform.KeyUnknown {
