@@ -242,6 +242,9 @@ func (e *Element) resolvedText() textStyle {
 		if take&setBackground != 0 {
 			out.background = t.background
 		}
+		if take&setSelection != 0 {
+			out.selection = t.selection
+		}
 		out.set |= take
 	}
 	return out

@@ -348,7 +348,7 @@ func (a *area) paint(e *Element, p *Painter, ox, oy float32) {
 		if focused && sa != sz && sa <= end && sz >= start && !(sz == start && i > 0 && sa < start) {
 			from, to := a.local(ed, i, max(sa, start)), a.local(ed, i, min(sz, end))
 			for _, r := range l.SelectionOn(from, to, sz > end && i < last) {
-				p.Fill(Rect{ox + r.X, y + r.Y, r.W, r.H}, t.Selection, 0)
+				p.Fill(Rect{ox + r.X, y + r.Y, r.W, r.H}, ts.selectionColor(t), 0)
 			}
 		}
 		var sp *spanPaint

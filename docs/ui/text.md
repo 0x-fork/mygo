@@ -54,6 +54,12 @@ Changing the selected text or removing an endpoint clears the shared
 selection. A virtualized list only includes the paragraphs it has built,
 so use a regular scroll container when selecting an entire document.
 
+The highlight is the theme's `Selection`; `SelectionColor` sets another
+for an element and the text inside it, as text on a colored bubble needs
+one that shows on it. A right-click on selectable text shows Copy and
+Select All; a `ContextMenu` on the text or its `Selectable` container
+replaces that menu, and `Menu.EditItems` puts Copy and Select All in it.
+
 ## Rich text
 
 `ui.RichText` mixes styles in one paragraph: each `ui.Span` sets what it

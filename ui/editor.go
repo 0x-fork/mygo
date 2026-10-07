@@ -1033,7 +1033,7 @@ func (e *Element) paintInput(p *Painter) {
 	}
 	if a, b := ed.selection(); a != b && focused {
 		for _, r := range l.Selection(ed.displayIndex(a), ed.displayIndex(b)) {
-			p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, t.Selection, 0)
+			p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, ts.selectionColor(t), 0)
 		}
 	}
 	var sp *spanPaint

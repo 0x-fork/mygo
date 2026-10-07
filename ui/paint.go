@@ -143,7 +143,7 @@ func (p *Painter) element(e *Element) {
 			if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 && p.rt.textSelectionVisible(e.st) {
 				if a, b := ed.selection(); a != b {
 					for _, r := range e.tl.Selection(a, b) {
-						p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, e.c.theme.Selection, 0)
+						p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, ts.selectionColor(e.c.theme), 0)
 					}
 				}
 			}
