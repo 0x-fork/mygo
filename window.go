@@ -1542,7 +1542,7 @@ func (h *windowHandler) TitleBarChanged() {
 // start; this keeps the current page, and later ones, up to date. Main
 // thread only.
 func (w *Window) sendTitleBar() {
-	if !w.hiddenTitleBar || w.native == nil {
+	if w.content != nil || !w.hiddenTitleBar || w.native == nil {
 		return
 	}
 	if msg, err := encodeEvent(bridge.TitleBarEvent, bridge.NewTitleBar(w.native.TitleBar(), w.native.Zoom())); err == nil {
