@@ -826,6 +826,9 @@ func abs32(v float32) float32 {
 // Clicked reports whether the element was clicked, with the primary
 // button or by Enter or Space while focused, since the last frame.
 func (e *Element) Clicked() bool {
+	if !e.hasState() {
+		return false
+	}
 	e.flags |= flagClickable
 	if e.disabled() || e.st.clicks == 0 {
 		return false
@@ -837,6 +840,9 @@ func (e *Element) Clicked() bool {
 // Clicks returns how many times the element was clicked since the last
 // frame.
 func (e *Element) Clicks() int {
+	if !e.hasState() {
+		return 0
+	}
 	e.flags |= flagClickable
 	if e.disabled() {
 		return 0
@@ -850,10 +856,18 @@ func (e *Element) Clicks() int {
 // ClickModifiers returns the modifier keys held as the element was last
 // clicked, none for a click by the keyboard: with Clicked, a click with
 // Shift or Cmd does something else, as extending a choice.
-func (e *Element) ClickModifiers() Modifiers { return e.st.clickMods }
+func (e *Element) ClickModifiers() Modifiers {
+	if !e.hasState() {
+		return 0
+	}
+	return e.st.clickMods
+}
 
 // DoubleClicked reports a double click on the element.
 func (e *Element) DoubleClicked() bool {
+	if !e.hasState() {
+		return false
+	}
 	e.flags |= flagClickable
 	if e.disabled() || e.st.doubleClicks == 0 {
 		return false
@@ -865,6 +879,9 @@ func (e *Element) DoubleClicked() bool {
 // RightClicked reports a click with the secondary button, as for a
 // context menu.
 func (e *Element) RightClicked() bool {
+	if !e.hasState() {
+		return false
+	}
 	e.flags |= flagClickable
 	if e.disabled() || e.st.rightClicks == 0 {
 		return false
@@ -880,6 +897,9 @@ func (e *Element) RightClicked() bool {
 // a row stays as it is pressed, and dragging over other elements does not
 // light them up.
 func (e *Element) Hovered() bool {
+	if !e.hasState() {
+		return false
+	}
 	e.flags |= flagHover
 	if e.IsDisabled() {
 		return false
@@ -916,13 +936,18 @@ func (rt *engine) pressMove(x0, y0, x1, y1 float32) {
 // Pressed reports whether the element is being pressed with the pointer,
 // unless it is disabled.
 func (e *Element) Pressed() bool {
+	if !e.hasState() {
+		return false
+	}
 	e.flags |= flagClickable | flagHover
 	s := e.st
 	return s.pressed && !e.disabled() && Rect{s.vx, s.vy, s.vw, s.vh}.Contains(e.c.rt.pointerX, e.c.rt.pointerY)
 }
 
 // Focused reports whether the element has the keyboard focus.
-func (e *Element) Focused() bool { return e.c.rt.focused == e.id && e.c.rt.windowFocused }
+func (e *Element) Focused() bool {
+	return e.hasState() && e.c.rt.focused == e.id && e.c.rt.windowFocused
+}
 
 // FocusVisible reports whether the element has the keyboard focus and
 // should show it, because it came from the keyboard.
@@ -931,6 +956,9 @@ func (e *Element) FocusVisible() bool { return e.Focused() && e.c.rt.focusVisibl
 // FocusWithin reports whether the element or one of its descendants has
 // the keyboard focus.
 func (e *Element) FocusWithin() bool {
+	if !e.hasState() {
+		return false
+	}
 	rt := e.c.rt
 	for s := rt.states[rt.focused]; s != nil; s = rt.states[s.parent] {
 		if s.id == e.id {
@@ -946,6 +974,9 @@ func (e *Element) FocusWithin() bool {
 // Focus gives the element the keyboard focus. Called in every frame, it
 // keeps it there; AutoFocus gives it once.
 func (e *Element) Focus() *Element {
+	if !e.hasState() {
+		return e
+	}
 	e.flags |= flagFocusable
 	rt := e.c.rt
 	if rt.focused != e.id {
@@ -958,7 +989,7 @@ func (e *Element) Focus() *Element {
 // AutoFocus gives the element the keyboard focus in the frame it appears,
 // as the first field of a dialog.
 func (e *Element) AutoFocus() *Element {
-	if e.st.born == e.c.rt.frame {
+	if e.hasState() && e.st.born == e.c.rt.frame {
 		e.Focus()
 	}
 	return e
@@ -978,6 +1009,9 @@ func (e *Element) Shortcut(mods Modifiers, key Key) bool {
 // element's box and whether it is over the element. Elements asking for it
 // get a frame whenever the pointer moves over them.
 func (e *Element) PointerPosition() (x, y float32, over bool) {
+	if !e.hasState() {
+		return 0, 0, false
+	}
 	e.flags |= flagTrackPointer
 	rt := e.c.rt
 	s := e.st
@@ -988,6 +1022,9 @@ func (e *Element) PointerPosition() (x, y float32, over bool) {
 // Dragged reports how far the pointer moved since the last frame while
 // pressing the element.
 func (e *Element) Dragged() (dx, dy float32, ok bool) {
+	if !e.hasState() {
+		return 0, 0, false
+	}
 	e.flags |= flagDraggable
 	s := e.st
 	if !s.pressed {
@@ -1000,10 +1037,10 @@ func (e *Element) Dragged() (dx, dy float32, ok bool) {
 }
 
 // Changed reports whether a widget's value changed since the last frame.
-func (e *Element) Changed() bool { return e.st.changed }
+func (e *Element) Changed() bool { return e.hasState() && e.st.changed }
 
 // Submitted reports whether Enter was pressed in a single-line text input.
-func (e *Element) Submitted() bool { return e.st.submitted }
+func (e *Element) Submitted() bool { return e.hasState() && e.st.submitted }
 
 // scrollbarPress starts dragging the thumb of the scroll container under
 // the pointer when the press is on its scroll bar, or pages toward the

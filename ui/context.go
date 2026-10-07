@@ -12,7 +12,8 @@ import (
 
 // Context builds a window's user interface for one frame. The window's
 // view function receives it on the main thread; it is only valid during
-// that call.
+// that call. A frame may rebuild the view in several passes; neither a
+// Context nor its Elements may be saved for a later call.
 type Context struct {
 	rt     *engine
 	parent *Element

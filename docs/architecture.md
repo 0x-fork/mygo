@@ -1234,7 +1234,12 @@ either.
   paints a `scene.Scene`; and presents it. Input between frames goes to the
   states of the last frame's elements. An element's identity hashes its
   parent's with its position or `Key`, so focus, scroll offsets, editors and
-  animations survive rebuilding. Scroll offsets move in the layout too
+  animations survive rebuilding. `Context` and `Element` are temporary
+  build objects, including between passes of the same frame; an old element
+  pointer may point at cleared or reused arena storage. `ListState` resolves
+  its focus owner only for the current context, frame and pass, exposing
+  focus and shortcuts without retaining an element in app state. Scroll
+  offsets move in the layout too
   (`ui/scroll.go`): elements that asked to `ScrollIntoView`, and the focus,
   come into view before the boxes are placed, and placing keeps each offset
   within its content; a `ScrollState` mirrors an offset both ways, and a

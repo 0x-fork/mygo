@@ -3,6 +3,12 @@
 Elements report what the user did to them since the last frame, as you
 build them: ask, and handle it where the element is built.
 
+The pointer and focus queries below, `Shortcut`, `Changed` and `Submitted`
+return false or zero for nil or cleared elements; `Focus` and `AutoFocus`
+do nothing. Element storage can also be reused, so keep element variables
+local to the current build. A [ListState](list.md#the-focus) gives access to
+its current list's focus and shortcuts without a saved element pointer.
+
 ```go
 card := ui.Column(c).Padding(12).Radius(8).Focusable()
 if card.Hovered() {
