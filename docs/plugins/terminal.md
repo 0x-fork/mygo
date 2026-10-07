@@ -269,13 +269,19 @@ A program not built by the CLI, as under `go run` and `go test`, downloads
 the library once into the user's cache (`<cache>/mygo/natives/`), where
 the CLI keeps those it downloads, and checks its SHA-256. Packaged apps
 never download it. `terminal.LibraryPath` returns the library a program
-loads, and `$MYGO_GHOSTTY_VT` names another, such as one you built:
+loads, and `$MYGO_GHOSTTY_VT` names another library.
+
+<!-- repository-only:start -->
+
+To build libghostty-vt from Ghostty's sources:
 
 ```sh
 git clone https://github.com/ghostty-org/ghostty && cd ghostty
 zig build -Demit-lib-vt -Doptimize=ReleaseFast
 MYGO_GHOSTTY_VT=$PWD/zig-out/lib/libghostty-vt.dylib go run ./examples/terminal
 ```
+
+<!-- repository-only:end -->
 
 `terminal.Load` loads the library, which `New` does too: call it first to
 report a missing library before showing a window.

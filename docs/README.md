@@ -118,6 +118,8 @@ components, from buttons to tables.
   with no CORS, any header, streamed bodies and cancellation.
 - [WebSocket](plugins/websocket.md): a `WebSocket` whose connections Go
   makes, with headers on the handshake.
+- [SQLite](plugins/sqlite.md): local databases with parameterized queries
+  and atomic transactions, without cgo.
 - [Updater](plugins/updater.md): an update window in the manner of
   Sparkle, which checks for updates and offers to install them.
 - [Terminal](plugins/terminal.md): a terminal for native UI, which runs

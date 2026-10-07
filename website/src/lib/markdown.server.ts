@@ -8,6 +8,7 @@ import type { KeyedTokensInfo } from "@shikijs/magic-move/types"
 import GithubSlugger from "github-slugger"
 import type { Element, ElementContent, Root, RootContent } from "hast"
 import { toString } from "hast-util-to-string"
+import type { Root as MarkdownRoot } from "mdast"
 import rehypeStringify from "rehype-stringify"
 import remarkGfm from "remark-gfm"
 import remarkParse from "remark-parse"
@@ -79,11 +80,27 @@ export async function renderMarkdown(source: string, file: string, links: LinkOp
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
+    .use(() => omitRepositoryOnly)
     .use(remarkRehype)
     .use(() => (tree: Root) => transform(tree, out, shiki, file, links))
     .use(rehypeStringify)
   out.html = String(await processor.process(source))
   return out
+}
+
+/** Repository-only blocks stay readable on GitHub, outside the site's HTML, TOC and search. */
+function omitRepositoryOnly(tree: MarkdownRoot) {
+  let hidden = false
+  tree.children = tree.children.filter((node) => {
+    if (node.type === "html") {
+      const marker = node.value.trim()
+      if (marker === "<!-- repository-only:start -->" || marker === "<!-- repository-only:end -->") {
+        hidden = marker === "<!-- repository-only:start -->"
+        return false
+      }
+    }
+    return !hidden
+  })
 }
 
 function transform(tree: Root, out: RenderedMarkdown, shiki: Highlighter, file: string, links: LinkOptions) {
