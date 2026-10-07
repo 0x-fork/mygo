@@ -984,6 +984,9 @@ func (r *renderer) glyphs(op *scene.Op) {
 		gx, gy := int(math.Round(float64(g.X))), int(math.Round(float64(g.Y)))
 		x0, y0 := max(gx, r.x0), max(gy, r.y0)
 		x1, y1 := min(gx+int(g.UW), r.x1), min(gy+int(g.VH), r.y1)
+		if x0 >= x1 || y0 >= y1 {
+			continue
+		}
 		tint := g.Color.Premul(1)
 		alpha := float32(g.Color.A) / 255
 		contrast, boost := text.Contrast, float32(0)
@@ -994,6 +997,10 @@ func (r *renderer) glyphs(op *scene.Op) {
 			boost = scene.ThinBoost
 		}
 		correct := contrast != 0 || boost != 0 || text.GammaRatios != [4]float32{}
+		if !g.Colored && !g.Subpixel && pt == nil && !correct && g.Color.A == 255 {
+			r.maskOpaque(atlas, g, gx, gy, image.Rect(x0, y0, x1, y1))
+			continue
+		}
 		for y := y0; y < y1; y++ {
 			row := r.dst.Pix[y*r.dst.Stride:]
 			cl, ch := r.clipSolid(y)
@@ -1043,6 +1050,43 @@ func (r *renderer) glyphs(op *scene.Op) {
 			}
 		}
 	}
+}
+
+// maskOpaque draws ordinary opaque text with 8-bit coverage. Integer
+// blending avoids converting every destination channel to and from
+// floats; rounded clip edges still use the general coverage calculation.
+func (r *renderer) maskOpaque(a *scene.Atlas, g scene.Glyph, gx, gy int, box image.Rectangle) {
+	c := g.Color
+	for y := box.Min.Y; y < box.Max.Y; y++ {
+		cl, ch := r.clipSolid(y)
+		at := (int(g.V)+y-gy)*a.W + int(g.U) + box.Min.X - gx
+		masks := a.Pix[at : at+box.Dx()]
+		row := r.dst.Pix[y*r.dst.Stride+4*box.Min.X:][:4*box.Dx()]
+		for i, m := range masks {
+			if m == 0 {
+				continue
+			}
+			p := row[4*i : 4*i+4]
+			if x := box.Min.X + i; x < cl || x >= ch {
+				blend(p, c.Premul(1), r.clipCoverage(x, y)*(float32(m)/255))
+				continue
+			}
+			if m == 255 {
+				p[0], p[1], p[2], p[3] = c.B, c.G, c.R, 255
+				continue
+			}
+			weight := uint32(m)
+			p[0] = mixMask(c.B, p[0], weight)
+			p[1] = mixMask(c.G, p[1], weight)
+			p[2] = mixMask(c.R, p[2], weight)
+			p[3] = over(m, p[3], 255-weight)
+		}
+	}
+}
+
+func mixMask(src, dst byte, coverage uint32) byte {
+	v := uint32(src)*coverage + uint32(dst)*(255-coverage) + 128
+	return byte((v + v>>8) >> 8)
 }
 
 func (r *renderer) image(op *scene.Op) {

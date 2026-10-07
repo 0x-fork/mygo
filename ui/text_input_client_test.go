@@ -226,3 +226,27 @@ func TestTextLayoutUTF16GraphemesAndBidiRanges(t *testing.T) {
 		}
 	}
 }
+
+func TestTextLayoutVisualCaretUTF16(t *testing.T) {
+	l := ShapeText("😀 abc אבג def", Font{Size: 18}, 0)
+	up := l.CaretAt(TextCaretPosition{Index: 7, Affinity: TextUpstream})
+	down := l.CaretAt(TextCaretPosition{Index: 7, Affinity: TextDownstream})
+	if up.X == down.X {
+		t.Fatal("lost secondary bidi caret")
+	}
+	p := TextCaretPosition{Index: 9}
+	for _, index := range []int{8, 7, 11} {
+		p = l.MoveCaret(p, 1)
+		if p.Index != index {
+			t.Fatalf("visual UTF-16 navigation %+v, want %d", p, index)
+		}
+	}
+	ranges := l.SelectionRanges(TextCaretPosition{Index: 9}, p)
+	if len(ranges) != 2 || ranges[0] != (TextInputRange{Start: 7, End: 9}) || ranges[1] != (TextInputRange{Start: 10, End: 11}) {
+		t.Fatal("visual UTF-16 ranges", ranges)
+	}
+	position := l.PositionAt(Point{X: up.X, Y: up.Y + up.H/2})
+	if got := l.CaretAt(position); got.X != up.X || got.Y != up.Y {
+		t.Fatalf("hit-test lost visual edge: %+v %+v", up, got)
+	}
+}

@@ -1434,20 +1434,57 @@ either.
   changes of each step (`undoStep`), not copies of the text; a text the app
   sets makes the last step one change from the text before it, which
   undoing takes back, so that a log the app keeps setting holds two texts
-  there, not one a frame. Grapheme boundaries come from the paragraph of
-  the caret. A text area lays its
+  there, not one a frame. Deleted fragments own their bytes, and
+  discarded history and input events give up their references, so a
+  one-character deletion does not retain an entire old document.
+  The paragraph index is allocated for the newline count up front;
+  scanning ASCII counts runes a word at a time, with the standard UTF-8
+  decoder for other text. A much smaller replacement releases the large
+  paragraph and height indexes. Grapheme boundaries come from the
+  paragraph of the caret. A text area lays its
   text out a paragraph at a time (`area`), as the text system breaks
   lines anyway, so that the lines are those of the text laid out whole:
   each paragraph keeps its layout until an edit changes it or the width
   does, those in view are laid out from the paragraph the view starts in
   (the anchor) down, those far from view give their layouts up and keep
-  their heights, and the heights not measured are estimated by those
-  measured. Two Fenwick trees, of the heights measured and of how many are
+  their heights, and layouts own their paragraphs' text rather than
+  keeping old document strings alive. The heights not measured are
+  estimated by those measured. Two Fenwick trees, of the heights measured and of how many are
   not, give the top of a paragraph and the paragraph at a height in
   O(log n) whatever the estimate. The area scrolls as a scroll container,
   its offset the state's (`flagScrollY`, the content as high as its
   paragraphs), kept by the anchor as heights above the view are measured;
   an edit, a move of the caret or a press reveals the caret once.
+- **Editing layers.** `ui/editor.go` holds the widget's editing state;
+  `editor_history.go` owns delta undo, `editor_selection.go` the visual
+  range set and caret affinity, `editor_navigation.go` keys and pointer
+  gestures, and `editor_layout.go` layout and painting. `textinput.go`
+  builds the public string widgets. They use the same `TextInputClient`
+  contract as custom controls through `editor_input.go`: native callbacks
+  query and mutate state synchronously, while the widget publishes its
+  bound string during its next build, preserving change propagation in
+  composed controls. Preedit is a virtual document insertion, and its
+  replacement and commit form one delta undo transaction. The paragraph
+  index carries rune, byte and UTF-16 starts; bounded native queries own
+  their bytes so they do not retain old document allocations.
+  Single-line controls retain their current layout themselves, keeping
+  changing input strings out of the system's cache of display text.
+  `internal/text/caret.go` keeps both logical edges of bidi boundaries and
+  wrapped lines, and moves between whole graphemes in visual order.
+  Selection gestures produce logical range sets: highlight, copy,
+  replacement and undo use the same ranges, preserving unselected gaps.
+- **Indexed text storage.** `ui/text_buffer.go` is a persistent AVL tree of
+  bounded, owned UTF-8 chunks, summarized by byte, rune, UTF-16 and newline
+  counts. Edits copy affected chunks and tree paths; snapshots share other
+  chunks, and export can stream them. `TextInputBuffer`/`TextAreaBuffer` in
+  `textbuffer_input.go` bind those roots to the existing editing client.
+  Native mutations publish a new root immediately, using a version check
+  to preserve concurrent program edits. External root changes refresh the
+  widget and clear stale history. The indexed buffer adapter derives line
+  starts from the text tree rather than moving every later paragraph's
+  absolute offsets. Paragraph layout and height caches remain with the
+  widget; newline-count changes update those indexes. Full text is produced
+  for explicit export/value queries, never as a binding update per edit.
 - **Text selection** (`ui/textselection.go`). `Selectable` on a text
   selects that paragraph; on a container it gives its text descendants
   one selection. The window keeps endpoints as stable element IDs and
@@ -1904,6 +1941,8 @@ either.
 
   `internal/raster` draws the same scene with the same formulas on the CPU,
   solid spans inside shapes and only the edges of shadows computed, and
+  blends ordinary opaque mask glyphs in integers, retaining the general
+  path for gradients, corrected/subpixel text and rounded clip edges. It
   redraws only what differs from the last scene (`raster.Renderer`), with
   the effects reading their backdrops that meets and those backdrops, in
   rectangles apart from each other (`addBackdrops`): it is

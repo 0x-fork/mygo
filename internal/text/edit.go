@@ -138,33 +138,7 @@ func (l *Layout) Selection(start, end int) []Rect { return l.SelectionOn(start, 
 // whose selection goes on past the newline after the paragraph when on
 // is set: the newline shows, as between the lines of a layout.
 func (l *Layout) SelectionOn(start, end int, on bool) []Rect {
-	if start > end {
-		start, end = end, start
-	}
-	if on {
-		end = len(l.Runes) + 1 // the newline
-	}
-	var out []Rect
-	for i := range l.Lines {
-		line := &l.Lines[i]
-		if end < line.Start || start > line.End || (start == end) {
-			continue
-		}
-		a, b := max(start, line.Start), min(end, line.End)
-		carets := line.lineCarets()
-		x0, x1 := carets[a-line.Start], carets[b-line.Start]
-		for k := a; k <= b; k++ {
-			x0, x1 = min(x0, carets[k-line.Start]), max(x1, carets[k-line.Start])
-		}
-		// A selected newline shows as a little room after the line.
-		if end > line.End && (i < len(l.Lines)-1 && l.Lines[i+1].Start > line.End || i == len(l.Lines)-1 && on) {
-			x1 += l.Params.Style.FontSize() / 3
-		}
-		if x1 > x0 {
-			out = append(out, Rect{x0, line.Y, x1 - x0, line.Height})
-		}
-	}
-	return out
+	return l.SelectionVisual(start, end, on)
 }
 
 // SelectionVisual returns separate rectangles for selected visual runs. At

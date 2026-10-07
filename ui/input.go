@@ -720,7 +720,7 @@ func (rt *engine) shortcut(id uint64, mods Modifiers, key Key) bool {
 }
 
 func (rt *engine) editEvent(ev editEvent) {
-	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocused && s.flags&flagDisabled == 0 {
+	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocused && s.flags&flagDisabled == 0 && (s.editor == nil || !s.editor.readOnly) {
 		if ev.kind == editInsert || ev.kind == editCompose {
 			var r *TextInputRange
 			if ev.replace {
@@ -768,7 +768,7 @@ const imeContext = 512
 func (rt *engine) updateTextInput() {
 	var t platform.TextInputState
 	base := 0
-	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocused && s.flags&flagDisabled == 0 {
+	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocused && s.flags&flagDisabled == 0 && (s.editor == nil || !s.editor.readOnly) {
 		t.Active, t.Client = true, s.textAdapter
 		sel := s.textAdapter.Selection()
 		caret := sel.Caret()
@@ -781,17 +781,6 @@ func (rt *engine) updateTextInput() {
 		// An element taking text itself: no text around the caret.
 		t.Active = true
 		t.Caret = platform.RectF{X: float64(s.x + s.caret.X), Y: float64(s.y + s.caret.Y), W: float64(s.caret.W), H: float64(s.caret.H)}
-	} else if s != nil && s.editor != nil && s.flags&flagEditable != 0 && !s.editor.readOnly && rt.windowFocused {
-		ed := s.editor
-		r := ed.caretRect(s)
-		t.Active = true
-		t.Caret = platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)}
-		if !ed.password {
-			a, z := ed.selection()
-			base = max(0, a-imeContext)
-			end := min(ed.buf.n, z+imeContext)
-			t.Text, t.Start, t.End = ed.buf.slice(base, end), a-base, z-base
-		}
 	}
 	if t != rt.ime.state {
 		if t.Client != rt.ime.state.Client {

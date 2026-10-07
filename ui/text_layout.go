@@ -22,6 +22,62 @@ type TextLayout struct {
 	spans      []Span
 }
 
+// TextAffinity chooses a caret's preceding or following logical edge. Bidi
+// boundaries and soft wraps can give the same index two visual positions.
+type TextAffinity = text.Affinity
+
+const (
+	TextDownstream = text.Downstream
+	TextUpstream   = text.Upstream
+)
+
+// TextCaretPosition retains a UTF-16 index and its visual affinity.
+type TextCaretPosition struct {
+	Index    int
+	Affinity TextAffinity
+}
+
+func (t *TextLayout) position(p TextCaretPosition) text.CaretPosition {
+	return text.CaretPosition{Index: t.runeAt(p.Index, false), Affinity: p.Affinity}
+}
+
+// CaretAt returns the rectangle of the requested visual edge.
+func (t *TextLayout) CaretAt(p TextCaretPosition) Rect {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	x, y, h := t.l.CaretAt(t.position(p))
+	return Rect{x, y, 1, h}
+}
+
+// PositionAt retains affinity while hit-testing whole graphemes.
+func (t *TextLayout) PositionAt(point Point) TextCaretPosition {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	p := t.l.PositionAt(point.X, point.Y)
+	return TextCaretPosition{Index: t.units[p.Index], Affinity: p.Affinity}
+}
+
+// MoveCaret moves one visual grapheme left (negative) or right (positive).
+func (t *TextLayout) MoveCaret(p TextCaretPosition, direction int) TextCaretPosition {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	next := t.l.MoveCaret(t.position(p), direction)
+	return TextCaretPosition{Index: t.units[next.Index], Affinity: next.Affinity}
+}
+
+// SelectionRanges maps a visual gesture to logical UTF-16 ranges, preserving
+// discontiguous selections through mixed-direction text. Supply these ranges
+// to SelectionRects and to your buffer's copy/replacement operations.
+func (t *TextLayout) SelectionRanges(anchor, caret TextCaretPosition) []TextInputRange {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var out []TextInputRange
+	for _, r := range t.l.SelectionRanges(t.position(anchor), t.position(caret)) {
+		out = append(out, TextInputRange{Start: t.units[r.Start], End: t.units[r.End]})
+	}
+	return out
+}
+
 // ShapeText shapes text with the system's fonts, fallback, bidi and line
 // breaking, wrapping at width DIPs (zero only breaks at newlines). It does not
 // retain a copy of an editor document or install keyboard/editing behavior.
@@ -100,23 +156,7 @@ func (t *TextLayout) NextBoundary(index int) int {
 }
 
 // IndexAt finds the nearest whole-grapheme caret in visual layout order.
-func (t *TextLayout) IndexAt(point Point) int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	i := t.l.IndexAt(point.X, point.Y)
-	lo, hi := t.runeAt(t.units[i], false), t.runeAt(t.units[i], true)
-	if lo != hi {
-		distance := func(index int) float32 {
-			x, y, h := t.l.Caret(index)
-			dx, dy := x-point.X, y+h/2-point.Y
-			return dx*dx + dy*dy
-		}
-		if distance(hi) < distance(lo) {
-			lo = hi
-		}
-	}
-	return t.units[lo]
-}
+func (t *TextLayout) IndexAt(point Point) int { return t.PositionAt(point).Index }
 
 // SelectionRects returns the visual rectangles of one or more logical
 // ranges, preserving gaps in bidi selections. An editor supplies its own

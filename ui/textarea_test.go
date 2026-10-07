@@ -17,6 +17,9 @@ func checkBuffer(t *testing.T, b *buffer, want []rune) {
 	if b.s != string(want) || b.n != len(want) {
 		t.Fatalf("buffer holds %q (%d runes), want %q", b.s, b.n, string(want))
 	}
+	if b.units != countUnits(b.s) {
+		t.Fatalf("UTF-16 length %d want %d", b.units, countUnits(b.s))
+	}
 	p := 0
 	for i := 0; i <= len(want); i++ {
 		if i == 0 || want[i-1] == '\n' {
@@ -30,6 +33,13 @@ func checkBuffer(t *testing.T, b *buffer, want []rune) {
 		}
 		if got := b.byteOf(i); got != len(string(want[:i])) {
 			t.Fatalf("rune %d starts at byte %d, want %d", i, got, len(string(want[:i])))
+		}
+		units := countUnits(string(want[:i]))
+		if b.utf16At(i) != units || b.runeAtUTF16(units) != i {
+			t.Fatalf("UTF-16 offset at rune %d", i)
+		}
+		if i < len(want) && want[i] > 0xffff && b.runeAtUTF16(units+1) != i {
+			t.Fatal("UTF-16 index split surrogate")
 		}
 	}
 	if p != len(b.paras) {
@@ -56,6 +66,35 @@ func TestBufferEdits(t *testing.T) {
 		b.replace(a, z, string(ins))
 		want = append(want[:a:a], append(ins, want[z:]...)...)
 		checkBuffer(t, &b, want)
+	}
+}
+
+func TestBufferSetUTF8(t *testing.T) {
+	for _, s := range []string{
+		"", "\n", "ascii\ncode\n", "long ASCII line without a newline",
+		"é\n日本語\n😀\r\n", "1234567é\n12345678😀tail",
+		"bad\xff\xfe\nutf8\xc0\xaf\n", "\xf0\x9f\n\x80\x00",
+	} {
+		var b buffer
+		b.set(s)
+		// Invalid UTF-8 preserves the source bytes but decodes to RuneError
+		// as range does; compare positions against the source independently.
+		if b.n != len([]rune(s)) {
+			t.Fatalf("%q: %d runes, want %d", s, b.n, len([]rune(s)))
+		}
+		p, runes := 1, 0
+		for at, r := range s {
+			runes++
+			if r == '\n' {
+				if b.paras[p].rune != runes || b.paras[p].byte != at+1 {
+					t.Fatalf("%q: paragraph %d starts at %+v", s, p, b.paras[p])
+				}
+				p++
+			}
+		}
+		if p != len(b.paras) {
+			t.Fatalf("%q: %d paragraphs, want %d", s, len(b.paras), p)
+		}
 	}
 }
 

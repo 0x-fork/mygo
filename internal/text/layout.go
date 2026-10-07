@@ -225,6 +225,7 @@ type Layout struct {
 	// Width is the width of the longest line, Height the sum of the line
 	// heights.
 	Width, Height float32
+	boundaries    []int // retained whole-grapheme offsets for visual navigation
 	// Truncated reports that MaxLines cut the text.
 	Truncated bool
 }
@@ -243,7 +244,9 @@ type Line struct {
 	RTL    bool
 	Glyphs []Glyph
 
-	carets []float32
+	carets   []float32
+	stops    []caretStop
+	upstream []float32
 }
 
 // Glyph is a positioned glyph.
