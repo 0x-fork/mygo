@@ -274,6 +274,15 @@ purego gives three primitives, used everywhere:
   report of the previous size was sent before the window manager took the
   request (openbox sends one when the size hints change); GTK would ask
   for that size again from it, so the backend asks for the new one again.
+- On Wayland, the configure event that activates a window can carry the
+  size of the last buffer it drew, from before a resize GTK already took
+  (Mutter sends one when native UI drawing with GL resizes from its first
+  frames), and GTK goes back to that size. So a window drawing with GL
+  keeps the latest bounds asked for while it is not focused, and once it
+  is, an idle callback asks for them again if the window went back to the
+  size it had, unless it is maximized, full screen or tiled. GTK skips a
+  request for the size it asked for last: the callback first takes the
+  configure and asks for the size the window has.
 - A window the user cannot resize is never smaller than its default size,
   which `SetBounds` sets too, and `SetResizable(false)` to the size it has,
   or than its natural size, which GTK makes 200x200 when the window's child
