@@ -23,11 +23,8 @@ element nil checks and zero assignments, moves fluent constructor keys into
 child callback signatures, ordinary model pointers and unrelated nil checks
 are preserved. Dot imports and keys on separately stored elements need
 manual review. It does not move arbitrary polling control flow into callbacks.
-It reports line-specific review notes for `Changed` and `Submitted` polling
-on controls whose constructors take a local variable by address, including
-controls stored in local element variables. Commit derived values with
-`OnChange` or `OnSubmit`, as described below. Indirect bindings, such as
-`ListState.Selected`, still need manual review.
+`Changed` and `Submitted` polling can commit local bound values in the same
+build pass, as described below.
 
 ## Element values and keys
 
@@ -63,10 +60,11 @@ before it initializes its state.
 
 ## Input and actions
 
-Bound-value input applies after controls and fluent configuration have been
-built. The following pass reads the updated model and its `Changed`/`Submitted`
-notices. The control's `Disabled`, `ReadOnly` and slider settings are applied
-before bound-value input is handled.
+`Changed` and `Submitted` apply pending input to controls built so far before
+returning, so the bound values can be read immediately. Set `Disabled`,
+`ReadOnly` and slider settings before querying responses. Controls whose
+responses are not queried apply input after construction. Configuration
+after a response query cannot undo input already applied.
 
 ```go
 ui.Button(c, "Save").Disabled(a.saving).OnClick(a.save)
@@ -82,15 +80,14 @@ when an action changes the collection being built. Keep I/O in workers and publi
 `Window.Update`.
 
 Bind controls directly to persistent model fields when possible. A local
-value recomputed on every build cannot preserve an edit until the next
-pass's `Changed` notice. When a control edits a derived value, commit it in
-`OnChange`, after bound input has updated that build's value:
+value recomputed on every build can be committed with `Changed` or
+`Submitted` immediately, or with a callback after construction:
 
 ```go
 viewed := a.isViewed(file)
-ui.Checkbox(c, &viewed, "Viewed").OnChange(func() {
+if ui.Checkbox(c, &viewed, "Viewed").Changed() {
     a.setViewed(file, viewed)
-})
+}
 ```
 
 The same rule applies to segmented controls whose selected value is derived

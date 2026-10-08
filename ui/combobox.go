@@ -422,12 +422,14 @@ func coreSearchField(c *context, query *string) *node {
 		return in
 	})
 	f.Padding(t.Space(1.5), t.Space(2))
-	if in.Changed() {
-		f.st.markChanged()
-	}
-	if in.Submitted() {
-		f.st.markSubmitted()
-	}
+	f.afterInput(func() {
+		if in.Changed() {
+			f.st.markChanged()
+		}
+		if in.Submitted() {
+			f.st.markSubmitted()
+		}
+	})
 	return f
 }
 

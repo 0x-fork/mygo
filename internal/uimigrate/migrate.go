@@ -112,7 +112,6 @@ func Files(sources map[string][]byte) (map[string]Result, error) {
 		}
 		m := newMigration(alias, groups[filepath.Dir(name)+"\x00"+f.Name.Name])
 		m.collect(f)
-		m.reviewBoundPolling(f, fs)
 		rewriteTypes(reflect.ValueOf(f), m)
 		ast.Walk(visitor{m: m}, f)
 		var out bytes.Buffer
@@ -617,89 +616,4 @@ func (m *migration) constructor(e ast.Expr) *ast.CallExpr {
 		return call
 	}
 	return m.constructor(sel.X)
-}
-
-// reviewBoundPolling flags values that can be reset when the next build
-// observes a polling notice. Moving the handler into a callback requires
-// manual review of its control flow and captured variables.
-func (m *migration) reviewBoundPolling(f *ast.File, fs *token.FileSet) {
-	ast.Inspect(f, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || m.kind(sel.X) != "Element" {
-			return true
-		}
-		callback := ""
-		switch sel.Sel.Name {
-		case "Changed":
-			callback = "OnChange"
-		case "Submitted":
-			callback = "OnSubmit"
-		default:
-			return true
-		}
-		root := m.boundConstructor(sel.X, 0)
-		if root == nil {
-			return true
-		}
-		for _, arg := range root.Args {
-			addr, ok := arg.(*ast.UnaryExpr)
-			if !ok || addr.Op != token.AND {
-				continue
-			}
-			local, ok := addr.X.(*ast.Ident)
-			if !ok || local.Obj == nil || local.Obj.Kind != ast.Var || f.Scope.Lookup(local.Name) == local.Obj {
-				continue
-			}
-			switch local.Obj.Decl.(type) {
-			case *ast.AssignStmt, *ast.ValueSpec:
-				m.notes = append(m.notes, fmt.Sprintf("line %d: review %s polling with local binding %q; notices arrive in the next build pass, so a recomputed value can lose input; use %s to commit derived values before rebuilding, or bind persistent model data",
-					fs.Position(call.Pos()).Line, sel.Sel.Name, local.Name, callback))
-			}
-		}
-		return true
-	})
-}
-
-// boundConstructor follows fluent chains and local element aliases without
-// requiring the old API to compile. Bound the walk to tolerate alias cycles.
-func (m *migration) boundConstructor(e ast.Expr, depth int) *ast.CallExpr {
-	if depth >= 16 {
-		return nil
-	}
-	if root := m.constructor(e); root != nil {
-		return root
-	}
-	if call, ok := e.(*ast.CallExpr); ok {
-		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-			return m.boundConstructor(sel.X, depth+1)
-		}
-	}
-	id, ok := e.(*ast.Ident)
-	if !ok || id.Obj == nil {
-		return nil
-	}
-	var names []*ast.Ident
-	var values []ast.Expr
-	switch decl := id.Obj.Decl.(type) {
-	case *ast.AssignStmt:
-		for _, lhs := range decl.Lhs {
-			name, _ := lhs.(*ast.Ident)
-			names = append(names, name)
-		}
-		values = decl.Rhs
-	case *ast.ValueSpec:
-		names, values = decl.Names, decl.Values
-	}
-	if len(names) == len(values) {
-		for i, name := range names {
-			if name != nil && name.Obj == id.Obj {
-				return m.boundConstructor(values[i], depth+1)
-			}
-		}
-	}
-	return nil
 }

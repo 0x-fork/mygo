@@ -1108,11 +1108,14 @@ identity without depending on construction order; focus requests wait for a
 hidden control. `Services` offers persistent clipboard, URL and redraw access.
 
 Constructors build and style controls eagerly. `Context.Key` supplies an ID
-before state initialization. Bound-value input runs after all configuration,
-between passes; its `Changed` and `Submitted` notices are observed by the
-following pass. `OnChange` and `OnSubmit` run after bound input, before the
-rebuild, so they can commit derived values local to that build. Callback
-actions consume input once and rebuild before paint.
+before state initialization. `Changed` and `Submitted` apply pending input
+to controls built so far, once per pass, before returning the response. This
+lets polling commit a local bound value immediately. Input options must be
+configured before response queries. Remaining input applies after
+construction. `OnChange` and `OnSubmit` run after construction and bound
+input, before rebuilding. Notices are cleared before another pass so an
+edit cannot be reported again on a fresh local binding. Callback actions
+consume input once and rebuild before paint.
 The private render tree uses `node` and `context`; `internal/uigen` generates
 the checked public facade. `FocusBind` binds desired focus to app data; `FocusedValue` reads actual focus independently of a hidden
 control's pending request.

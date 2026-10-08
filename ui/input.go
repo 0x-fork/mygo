@@ -1037,8 +1037,13 @@ func (e *node) Dragged() (dx, dy float32, ok bool) {
 	return s.dragX, s.dragY, true
 }
 
-// Changed reports whether a widget's value changed since the last frame.
+// Changed applies pending input to the controls built so far and reports
+// whether this widget's value changed in this build pass. Configure controls
+// before querying their response; the bound value is updated before returning.
 func (e *node) Changed() bool {
+	if e.hasState() {
+		e.c.rt.applyInputs()
+	}
 	if e.hasState() && e.st.changed {
 		e.c.rt.consumed = true
 		return true
@@ -1046,8 +1051,16 @@ func (e *node) Changed() bool {
 	return false
 }
 
-// Submitted reports whether Enter was pressed in a single-line text input.
-func (e *node) Submitted() bool { return e.hasState() && e.st.submitted }
+// Submitted applies pending input to the controls built so far and reports
+// whether Enter was pressed in a single-line text input. Configure controls
+// before querying their response; the bound value is updated before returning.
+func (e *node) Submitted() bool {
+	if !e.hasState() {
+		return false
+	}
+	e.c.rt.applyInputs()
+	return e.st.submitted
+}
 
 // scrollbarPress starts dragging the thumb of the scroll container under
 // the pointer when the press is on its scroll bar, or pages toward the

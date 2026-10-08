@@ -132,9 +132,11 @@ func coreSegmentedBase(c *context, selected *int, n int) segmentedParts {
 func (p segmentedParts) Segment(i int) *node {
 	s := coreRadioBase(p.c, p.selected, i).Center()
 	s.segment = true
-	if s.st.changed {
-		p.Track.st.markChanged()
-	}
+	s.afterInput(func() {
+		if s.Changed() {
+			p.Track.st.markChanged()
+		}
+	})
 	return s
 }
 

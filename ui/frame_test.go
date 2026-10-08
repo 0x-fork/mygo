@@ -360,7 +360,6 @@ func TestBoundInputRunsAfterAllConfiguration(t *testing.T) {
 	tt := NewTester(func(c *Context) {
 		building = true
 		e := Checkbox(c.Key("check"), &checked, "Check")
-		_ = e.Changed()
 		e.Children(func() { e.Disabled(disabled) })
 		e.OnChange(func() {
 			if building {
@@ -380,6 +379,162 @@ func TestBoundInputRunsAfterAllConfiguration(t *testing.T) {
 	tt.Click("Check")
 	if !checked || changes != 1 {
 		t.Fatal("input or notice was lost/repeated")
+	}
+}
+
+func TestChangedCommitsLocalValueBeforeReturning(t *testing.T) {
+	viewed := map[string]bool{"file": false}
+	disabled, notices, callbacks := false, 0, 0
+	tt := NewTester(func(c *Context) {
+		value := viewed["file"]
+		e := Checkbox(c.Key("file"), &value, "Viewed").Disabled(disabled)
+		if e.Changed() {
+			viewed["file"] = value
+			notices++
+			// Reading the response again must not toggle the binding twice.
+			if !e.Changed() || value != viewed["file"] {
+				t.Fatal("a repeated query changed the value or lost the response")
+			}
+		}
+		e.OnChange(func() { callbacks++ })
+		Textf(c, "Viewed: %v", viewed["file"])
+	}, 200, 100)
+	for i, want := range []bool{true, false} {
+		if err := tt.Click("Viewed"); err != nil {
+			t.Fatal(err)
+		}
+		if viewed["file"] != want || notices != i+1 || callbacks != i+1 || !tt.HasText(fmt.Sprintf("Viewed: %v", want)) {
+			t.Fatalf("value %v, notices %d, callbacks %d", viewed["file"], notices, callbacks)
+		}
+		tt.Frame()
+		if notices != i+1 || callbacks != i+1 {
+			t.Fatal("a new build repeated the edit")
+		}
+	}
+	disabled = true
+	tt.Frame()
+	tt.Click("Viewed")
+	if viewed["file"] || notices != 2 || callbacks != 2 {
+		t.Fatal("query ignored fluent Disabled configuration")
+	}
+}
+
+func TestResponseQueriesCommitLocalText(t *testing.T) {
+	for _, search := range []bool{false, true} {
+		t.Run(fmt.Sprintf("search=%v", search), func(t *testing.T) {
+			draft, sent := "", ""
+			readOnly, changes, submits := false, 0, 0
+			tt := NewTester(func(c *Context) {
+				value := draft
+				var input Element
+				if search {
+					input = SearchField(c.Key("input"), &value)
+				} else {
+					input = TextInput(c.Key("input"), &value)
+				}
+				input.Label("Draft")
+				if search {
+					input.Disabled(readOnly)
+				} else {
+					input.ReadOnly(readOnly)
+				}
+				if input.Changed() {
+					draft = value
+					changes++
+				}
+				if input.Submitted() {
+					sent = value
+					submits++
+					return
+				}
+			}, 200, 100)
+			tt.Click("Draft")
+			tt.Type("Hello")
+			if draft != "Hello" || changes != 1 {
+				t.Fatalf("draft %q, changes %d", draft, changes)
+			}
+			tt.Key(0, KeyEnter)
+			tt.Frame()
+			if sent != "Hello" || changes != 1 || submits != 1 {
+				t.Fatalf("sent %q, changes %d, submits %d", sent, changes, submits)
+			}
+			readOnly = true
+			tt.Frame()
+			tt.Type("x")
+			if draft != "Hello" || changes != 1 {
+				t.Fatal("query ignored fluent input configuration")
+			}
+		})
+	}
+}
+
+func TestResponseQueriesProcessLaterControls(t *testing.T) {
+	values := [2]bool{}
+	changes := [2]int{}
+	tt := NewTester(func(c *Context) {
+		for i, label := range []string{"First", "Second"} {
+			value := values[i]
+			if Checkbox(c.Key(label), &value, label).Changed() {
+				values[i] = value
+				changes[i]++
+			}
+		}
+	}, 200, 100)
+	tt.Click("Second")
+	if values != [2]bool{false, true} || changes != [2]int{0, 1} {
+		t.Fatalf("later input was skipped or replayed: %v, %v", values, changes)
+	}
+	tt.Click("First")
+	if values != [2]bool{true, true} || changes != [2]int{1, 1} {
+		t.Fatalf("input was skipped or replayed: %v, %v", values, changes)
+	}
+}
+
+func TestChangedCommitsLocalCompositeValues(t *testing.T) {
+	choice, number, changes := 0, 1.0, 0
+	tt := NewTester(func(c *Context) {
+		selected := choice
+		if Segmented(c.Key("choice"), &selected, "List", "Grid").Changed() {
+			choice = selected
+			changes++
+		}
+		value := number
+		if NumberInput(c.Key("number"), &value, 0, 10, 1).Changed() {
+			number = value
+			changes++
+		}
+	}, 300, 150)
+	tt.Click("Grid")
+	if choice != 1 || changes != 1 {
+		t.Fatalf("segment: choice %d, changes %d", choice, changes)
+	}
+	tt.Click("Increase")
+	if number != 2 || changes != 2 {
+		t.Fatalf("number: value %v, changes %d", number, changes)
+	}
+	tt.Frame()
+	if changes != 2 {
+		t.Fatal("composite changes repeated on rebuild")
+	}
+}
+
+func TestChangedAppliesSliderOptionsBeforeInput(t *testing.T) {
+	volume, changes := 0.0, 0
+	tt := NewTester(func(c *Context) {
+		value := volume
+		if Slider(c.Key("volume"), &value, 0, 1).Step(0.25).Label("Volume").Changed() {
+			volume = value
+			changes++
+		}
+	}, 300, 100)
+	tt.Key(0, KeyTab)
+	tt.Key(0, KeyRight)
+	if volume != 0.25 || changes != 1 {
+		t.Fatalf("value %v, changes %d", volume, changes)
+	}
+	tt.Frame()
+	if volume != 0.25 || changes != 1 {
+		t.Fatal("slider input repeated on rebuild")
 	}
 }
 

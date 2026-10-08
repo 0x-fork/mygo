@@ -285,9 +285,12 @@ func coreColorWell(c *context, color *Color) *node {
 	corePopoverBase(c, b, open, func(panel *node) {
 		stylePanel(c, panel)
 		panel.Padding(t.Space(3))
-		if coreColorPicker(c, color).Changed() {
-			b.st.markChanged()
-		}
+		picker := coreColorPicker(c, color)
+		picker.afterInput(func() {
+			if picker.Changed() {
+				b.st.markChanged()
+			}
+		})
 	})
 	return b
 }

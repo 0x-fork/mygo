@@ -1,7 +1,7 @@
 package ui
 
 // Input bindings are retained by ID. Each build updates their app pointers and
-// settings, then the engine applies input after all fluent configuration.
+// settings, then response queries or the end of construction apply input.
 // The function and queue are reused; steady frames do not allocate for them.
 func valueBinding[T any](n *node) *T {
 	p, ok := n.st.valueBinding.(*T)
@@ -19,9 +19,10 @@ func (n *node) onValueInput(fn func(*node)) {
 	n.valueInput = fn
 }
 
-func (rt *engine) applyInputs() {
-	// The view and notice callbacks have observed the preceding pass's
-	// changes. New notices below survive into the next build pass.
+func (rt *engine) beginInputs() {
+	rt.inputAt, rt.afterInputAt = 0, 0
+	// A rebuild must not report the same edit on a fresh local binding.
+	// Keep typed input until this pass's composite controls have handled it.
 	for _, s := range rt.notices {
 		if s.typing {
 			rt.typedInputs = append(rt.typedInputs, s)
@@ -31,7 +32,20 @@ func (rt *engine) applyInputs() {
 	}
 	clear(rt.notices)
 	rt.notices = rt.notices[:0]
-	for _, n := range rt.inputs {
+}
+
+// applyInputs finalizes the controls built so far. It can run more than once
+// as the view queries responses and then constructs additional controls.
+// Composite input actions may query their children without reentering it.
+func (rt *engine) applyInputs() {
+	if rt.applyingInputs {
+		return
+	}
+	rt.applyingInputs = true
+	defer func() { rt.applyingInputs = false }()
+	for rt.inputAt < len(rt.inputs) {
+		n := rt.inputs[rt.inputAt]
+		rt.inputAt++
 		if n.valueInput != nil {
 			if n.st.pendingSubmit {
 				n.st.pendingSubmit = false
@@ -42,19 +56,24 @@ func (rt *engine) applyInputs() {
 			n.valueInput(n)
 		}
 	}
-	for _, a := range rt.afterInputs {
+	for rt.afterInputAt < len(rt.afterInputs) {
+		a := rt.afterInputs[rt.afterInputAt]
+		rt.afterInputAt++
 		if a.node != nil && !a.node.disabled() {
 			a.fn()
 		}
 	}
+	if len(rt.notices) > 0 {
+		rt.consumed = true
+	}
+}
+
+func (rt *engine) finishInputs() {
 	for _, s := range rt.typedInputs {
 		s.typing = false
 	}
 	clear(rt.typedInputs)
 	rt.typedInputs = rt.typedInputs[:0]
-	if len(rt.notices) > 0 {
-		rt.consumed = true
-	}
 }
 
 func toggleInput(n *node) {
@@ -247,8 +266,8 @@ func (s *state) markSubmitted() {
 }
 func (s *state) markTyping() { s.typing = true; s.notice() }
 
-// Composite controls schedule small input actions after their children. No
-// constructor is replayed and fluent style is already final when they run.
+// Composite controls schedule small input actions after their children.
+// Queries apply them once, or they run after construction if not queried.
 type inputAction struct {
 	node *node
 	fn   func()

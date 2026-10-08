@@ -95,8 +95,10 @@ that input. MyGo rebuilds changed state before painting the frame.
 
 Widgets that change a value take a pointer to it, so they need no handler:
 `ui.Checkbox(c, &app.settings.Sync, "Sync")` binds the field to the control.
-Input updates it after construction, and the following pass sees `Changed`
-or `Submitted`. These queries let you respond to that update:
+`Changed` and `Submitted` apply pending input to the controls built so far
+before returning. Their bound values are available immediately in the same
+build pass. Set `Disabled`, `ReadOnly` and other input options before querying
+responses; configuration after a query cannot undo input already applied.
 
 ```go
 if ui.TextInput(c, &app.query).Placeholder("Search").Changed() {
@@ -104,8 +106,19 @@ if ui.TextInput(c, &app.query).Placeholder("Search").Changed() {
 }
 ```
 
-`OnChange` and `OnSubmit` run after bound input, before the rebuild. Use
-them to commit a derived value local to the current build:
+Local copies work too, including values read from a map:
+
+```go
+viewed := app.viewed[file.ID]
+if ui.Checkbox(c, &viewed, "Viewed").Changed() {
+    app.viewed[file.ID] = viewed
+}
+```
+
+`OnChange` and `OnSubmit` run after construction and bound input, before the
+rebuild. Use callbacks when an action should wait until the view has finished
+building, such as modifying the collection being rendered. They can also
+commit local copies:
 
 ```go
 viewed := app.viewed[file.ID]

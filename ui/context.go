@@ -95,6 +95,7 @@ func (c *context) reset(now time.Time, w, h float32) {
 		f.members = f.members[:0]
 	}
 	c.rt.epoch++
+	c.rt.beginInputs()
 	if uint32(c.rt.epoch) == 0 {
 		c.rt.arena.rt = nil
 		c.rt.arena = &elementOwner{rt: c.rt}
@@ -450,8 +451,7 @@ type state struct {
 	cx, cy, cw, ch float32
 
 	changed, submitted bool
-	// Callbacks can observe input in the pass that applied it; polling
-	// notices survive into the next pass without repeating those callbacks.
+	// Queries and callbacks observe input in the pass that applied it.
 	changeDelivered, submitDelivered bool
 	// submitMods are the modifiers held with the Enter submitting a text
 	// input, as Shift going back in a find bar.

@@ -92,9 +92,11 @@ func coreCollapsible(c *context, label string, open *bool, fn func()) *node {
 			disclosureArrow(c, 90*p.Progress())
 			coreText(c, label).SingleLine()
 		})
-		if tr.st.changed {
-			root.st.markChanged()
-		}
+		tr.afterInput(func() {
+			if tr.Changed() {
+				root.st.markChanged()
+			}
+		})
 		if panel := p.Panel(fn); panel != nil {
 			// Below the label.
 			panel.Padding(t.Space(1), 0, t.Space(1), t.Space(5.5)).Gap(t.Space(2))
@@ -191,9 +193,11 @@ func coreAccordionItem(c *context, title string, open *bool, fn func()) *node {
 			coreText(c, title).Grow(1).FontWeight(500)
 			disclosureArrow(c, 90+180*p.Progress())
 		})
-		if tr.st.changed {
-			item.st.markChanged()
-		}
+		tr.afterInput(func() {
+			if tr.Changed() {
+				item.st.markChanged()
+			}
+		})
 		if panel := p.Panel(fn); panel != nil {
 			panel.Padding(0, t.Space(3), t.Space(3)).Gap(t.Space(2))
 		}

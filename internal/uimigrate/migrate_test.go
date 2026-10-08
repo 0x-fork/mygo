@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestMigrationReviewsLocalValuePolling(t *testing.T) {
+func TestMigrationPreservesLocalValuePolling(t *testing.T) {
 	source := `package app
 import native "github.com/egoist/mygo/ui"
 var shared bool
@@ -45,17 +45,8 @@ func (a *app) view(c *native.Context, persistent *bool) {
 	if r.Changed || string(r.Source) != string(formatted) {
 		t.Fatalf("polling control flow was rewritten:\n%s", r.Source)
 	}
-	if len(r.Notes) != 3 {
-		t.Fatalf("want three local-binding notes, got %q", r.Notes)
-	}
-	for i, want := range []string{`Changed polling with local binding "checked"`, `Submitted polling with local binding "draft"`, `Changed polling with local binding "choice"`} {
-		callback := "OnChange"
-		if i == 1 {
-			callback = "OnSubmit"
-		}
-		if note := r.Notes[i]; !strings.HasPrefix(note, "line ") || !strings.Contains(note, want) || !strings.Contains(note, callback) {
-			t.Fatalf("unexpected note %q", note)
-		}
+	if len(r.Notes) != 0 {
+		t.Fatalf("same-pass local-value polling needs no review notes: %q", r.Notes)
 	}
 	again, err := File("app.go", r.Source)
 	if err != nil || again.Changed || strings.Join(again.Notes, "\n") != strings.Join(r.Notes, "\n") {

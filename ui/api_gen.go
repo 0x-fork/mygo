@@ -2359,7 +2359,9 @@ func (_handle Element) Center() Element {
 	return wrapElement(_node.Center())
 }
 
-// Changed reports whether a widget's value changed since the last frame.
+// Changed applies pending input to the controls built so far and reports
+// whether this widget's value changed in this build pass. Configure controls
+// before querying their response; the bound value is updated before returning.
 func (_handle Element) Changed() bool {
 	_node := _handle.node()
 	if _node == nil {
@@ -4087,7 +4089,9 @@ func (_handle Element) Stripes(c Color, width float32, gap float32, angle float3
 	return wrapElement(_node.Stripes(c, width, gap, angle))
 }
 
-// Submitted reports whether Enter was pressed in a single-line text input.
+// Submitted applies pending input to the controls built so far and reports
+// whether Enter was pressed in a single-line text input. Configure controls
+// before querying their response; the bound value is updated before returning.
 func (_handle Element) Submitted() bool {
 	_node := _handle.node()
 	if _node == nil {

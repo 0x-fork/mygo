@@ -366,9 +366,9 @@ func (g *gallery) toolbar(c *ui.Context) {
 			path = append(path, "Row "+row)
 		}
 		chosen := -1
-		ui.Breadcrumbs(c, path, &chosen).Label("Path").OnChange(func() {
+		if ui.Breadcrumbs(c, path, &chosen).Label("Path").Changed() {
 			g.router.Push(pagePath(page))
-		})
+		}
 	}).Label("Navigation").Padding(8, 24, 0)
 }
 
@@ -395,9 +395,9 @@ func (g *gallery) listRow(c *ui.Context, r *ui.Route) {
 			})
 		}
 		starred := g.starred[n]
-		ui.Checkbox(c, &starred, "Starred").OnChange(func() {
+		if ui.Checkbox(c, &starred, "Starred").Changed() {
 			g.starred[n] = starred
-		})
+		}
 	}).MaxWidth(420)
 	// Links to paths go there in the router, relative to the page as on
 	// the web.
@@ -420,7 +420,7 @@ func (g *gallery) sidebar(c *ui.Context) {
 		// The pages, in two sections that hide and show; the arrows choose
 		// among them while the sidebar has the focus.
 		page := pageOf(g.router.Path())
-		ui.Sidebar(c, &page, func() {
+		if ui.Sidebar(c, &page, func() {
 			for k, section := range []struct {
 				title string
 				pages []string
@@ -434,9 +434,9 @@ func (g *gallery) sidebar(c *ui.Context) {
 					}
 				})
 			}
-		}).Grow(1).Label("Pages").OnChange(func() {
+		}).Grow(1).Label("Pages").Changed() {
 			g.router.Push(pagePath(page))
-		})
+		}
 		ui.Text(c, g.now.Format("15:04:05")).FontSize(12).TextColor(t.TextMuted).Padding(0, 20)
 	})
 }
@@ -936,13 +936,12 @@ func (g *gallery) list(c *ui.Context) {
 			ui.Textf(c, "%d²  =  %d", n, n*n).Font("monospace").FontSize(12)
 		})
 	}).Height(420).Border(1, t.Border).Radius(8).Padding(4)
-	list.OnChange(func() {
+	if list.Changed() {
 		g.picked = rows[at]
-	}).OnSubmit(func() {
-		if at >= 0 {
-			open(rows[at])
-		}
-	})
+	}
+	if list.Submitted() && at >= 0 {
+		open(rows[at])
+	}
 	g.chatCard(c)
 	ui.Row(c).Gap(18).AlignItems(ui.Stretch).Height(260).Children(func() {
 		card(c, "Tree", func() {

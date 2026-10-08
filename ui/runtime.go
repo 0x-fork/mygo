@@ -59,6 +59,9 @@ type engine struct {
 	handleChecks    bool
 	afterInputs     []inputAction
 	inputs          []*node
+	inputAt         int
+	afterInputAt    int
+	applyingInputs  bool
 	notices         []*state
 	typedInputs     []*state
 	focusFields     map[any]*focusField
@@ -379,8 +382,8 @@ func (rt *engine) runFrame() {
 		if rt.insp.open {
 			rt.buildInspector(&rt.c, appW, w, h)
 		}
-		rt.runNoticeActions()
 		rt.applyInputs()
+		rt.finishInputs()
 		// Commit derived values while callbacks still hold this pass's
 		// bindings. Delivered callbacks do not repeat in the next pass.
 		rt.runNoticeActions()
