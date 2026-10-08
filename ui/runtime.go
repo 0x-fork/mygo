@@ -567,6 +567,7 @@ func (rt *engine) forgetInput() {
 			continue
 		}
 		s.clicks, s.rightClicks, s.doubleClicks = 0, 0, 0
+		s.pressPending = false
 		s.dragX, s.dragY = 0, 0
 		s.dropped = nil
 		s.droppedValue, s.hasDropped = nil, false
