@@ -2189,8 +2189,10 @@ renderer's (`gputest.Compare`).
   directory and renamed into place, so the running build keeps its files.
   - *Ready handshake.* The CLI listens on a Unix socket and passes it in
     `MYGO_READY_SOCKET`; the core connects once the first window is ready to
-    show or failed to load, right after launch when there is no window, and
-    at most 5 s after launch otherwise (`dev.go`). Nothing happens in
+    show (its page loaded, or its Content presented a first frame, which
+    package ui reports through `surface.Conn.Ready`) or failed to load,
+    right after launch when there is no window, and at most 5 s after launch
+    otherwise (`dev.go`). Nothing happens in
     production builds.
   - *Reload.* A change (polling every 250 ms, debounced) rebuilds;
     when the executable, Info.plist and icon are unchanged nothing restarts.
