@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -34,9 +33,8 @@ that mygo build embeds.
 
 Changes to the Go code, mygo.json or mygo.config.ts, the icon or the
 resources rebuild the app, regenerate the TypeScript client and relaunch
-it. The new build replaces the running one once it has started, so a build
-that fails or crashes keeps the previous one running. Frontend changes are
-left to the dev server. Quitting the app ends mygo dev.
+it. A build that fails to compile keeps the previous one running; the next
+change tries again. Frontend changes are left to the dev server. Quitting the app ends mygo dev.
 
 On a terminal, type r and Enter to rebuild and restart the app, c to clear
 the console, q to quit, h for help.`)
@@ -159,14 +157,11 @@ type devSession struct {
 	name string   // of the development app, for messages
 	env  []string // for the app
 
-	readyTimeout time.Duration // how long a launch may take (default 20s)
-
 	// Used by one build at a time.
-	iconKey  string
-	icns     []byte
-	mainFor  string // the Main that mainDir is the package directory of
-	mainDir  string
-	launches int
+	iconKey string
+	icns    []byte
+	mainFor string // the Main that mainDir is the package directory of
+	mainDir string
 
 	// Used by the run loop only.
 	app *devProcess // the running build
@@ -225,21 +220,27 @@ func (s *devSession) run(ctx context.Context, c *Config) error {
 	results := make(chan result, 1)
 	builds, cancel := context.WithCancel(ctx)
 	building, pending, restart := false, false, false
-	launched := false // a build has started
+	launched := false    // a build has started
+	var changed []string // the inputs that changed since the last build started
 	start := func() {
 		running := s.sum
-		title, verb := "Rebuilding ", "Reloaded "
+		title, verb := "Rebuilding ", "Rebuilt "
 		switch {
 		case !launched:
-			title, verb = "Building ", "Started "
+			title, verb = "Building ", "Built "
 		case restart:
 			running, title, verb = [32]byte{}, "Restarting ", "Restarted "
 		}
-		building, pending, restart = true, false, false
-		t := con.start(title + s.name)
+		// Why it builds: the step's title is plain, its line dims it.
+		why := ""
+		if len(changed) > 0 {
+			why = "(" + changeSummary(s.root, changed) + ")"
+		}
+		building, pending, restart, changed = true, false, false, nil
+		t := con.start(strings.TrimSpace(title + s.name + " " + why))
 		go func() {
-			p, sum, timing, err := s.buildAndLaunch(builds, t, running)
-			s.report(t, verb, timing, err)
+			p, sum, err := s.buildAndLaunch(builds, t, running)
+			s.report(t, verb, why, err)
 			// What the build reads may have changed, e.g. a new import.
 			var inputs *buildInputs
 			if c, cerr := loadConfig(s.root); cerr == nil {
@@ -289,20 +290,16 @@ func (s *devSession) run(ctx context.Context, c *Config) error {
 			var exit *exec.ExitError
 			if errors.As(err, &exit) && exit.ExitCode() == devRelaunchCode {
 				// mygo.App.Relaunch: start the same build again.
-				t := con.start("Relaunching " + s.name)
-				p, err := s.launch(ctx, exe)
-				switch {
-				case errors.Is(err, context.Canceled):
-					t.stop()
-				case err != nil:
-					t.fail()
+				p, err := s.launch(exe)
+				if err != nil {
+					con.println("  " + red(con.sym.fail) + " Relaunching " + s.name)
 					con.details(err)
 					s.hint("Save a change to start it again.")
 					s.sum = [32]byte{}
-				default:
-					t.done("Relaunched " + s.name)
-					s.setApp(p)
+					continue
 				}
+				logf("Relaunched %s", s.name)
+				s.setApp(p)
 				continue
 			}
 			s.sum = [32]byte{}
@@ -313,7 +310,11 @@ func (s *devSession) run(ctx context.Context, c *Config) error {
 			con.println("  " + red(con.sym.fail) + " " + s.name + " exited (" + err.Error() + ")")
 			s.hint("Save a change to start it again.")
 		case paths := <-changes:
-			con.println("  " + cyan(con.sym.change) + " " + changeSummary(s.root, paths) + "  " + dim(time.Now().Format("15:04:05")))
+			for _, p := range paths {
+				if !slices.Contains(changed, p) {
+					changed = append(changed, p)
+				}
+			}
 			if building {
 				pending = true
 			} else {
@@ -372,16 +373,16 @@ func (s *devSession) run(ctx context.Context, c *Config) error {
 	}
 }
 
-// devTiming is how long a development build took to build, and to start.
-type devTiming struct{ built, ready time.Duration }
-
-// report ends the step t of a build with how it went.
-func (s *devSession) report(t *task, verb string, timing devTiming, err error) {
+// report ends the step t of a build with how it went, and why it ran.
+func (s *devSession) report(t *task, verb, why string, err error) {
+	if why != "" {
+		why = " " + dim(why)
+	}
 	switch {
 	case err == nil:
-		t.doneAs(verb + s.name + "  " + dim("built in "+formatDuration(timing.built)+", ready in "+formatDuration(timing.ready)))
+		t.done(verb + s.name + why)
 	case errors.Is(err, errUnchanged):
-		t.done(dim(s.name + " did not change"))
+		t.done(dim("No change to "+s.name) + why)
 	case errors.Is(err, context.Canceled):
 		t.stop()
 	default:
@@ -470,20 +471,19 @@ func devConfig(c *Config) *Config {
 
 // buildAndLaunch builds the app and launches it once it differs from the
 // running build, whose fingerprint is running, showing its progress on t.
-// It returns the new process after it reported ready.
-func (s *devSession) buildAndLaunch(ctx context.Context, t *task, running [32]byte) (p *devProcess, sum [32]byte, timing devTiming, err error) {
+// It returns the new process.
+func (s *devSession) buildAndLaunch(ctx context.Context, t *task, running [32]byte) (p *devProcess, sum [32]byte, err error) {
 	c, err := loadConfig(s.root)
 	if err != nil {
-		return nil, sum, timing, err
+		return nil, sum, err
 	}
-	started := time.Now()
 	dir := filepath.Join(s.root, ".mygo", "dev", runtime.GOOS+"-"+runtime.GOARCH)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, sum, timing, err
+		return nil, sum, err
 	}
 	stage, err := os.MkdirTemp(dir, ".staging-")
 	if err != nil {
-		return nil, sum, timing, err
+		return nil, sum, err
 	}
 	defer os.RemoveAll(stage)
 
@@ -500,18 +500,18 @@ func (s *devSession) buildAndLaunch(ctx context.Context, t *task, running [32]by
 	cleanup := func() {}
 	if runtime.GOOS == "windows" {
 		if cleanup, err = s.windowsResources(c, dc); err != nil {
-			return nil, sum, timing, err
+			return nil, sum, err
 		}
 	}
 	err = goBuild(ctx, c, t, bin, nil, "-ldflags", strings.TrimSpace(packageFlags(dc)))
 	cleanup()
 	if err != nil {
-		return nil, sum, timing, err
+		return nil, sum, err
 	}
 
 	res, err := dc.appResources(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
-		return nil, sum, timing, err
+		return nil, sum, err
 	}
 
 	// Fingerprint what the app is made of, to skip relaunching when a
@@ -519,20 +519,20 @@ func (s *devSession) buildAndLaunch(ctx context.Context, t *task, running [32]by
 	h := sha256.New()
 	f, err := os.Open(bin)
 	if err != nil {
-		return nil, sum, timing, err
+		return nil, sum, err
 	}
 	_, err = io.Copy(h, f)
 	f.Close()
 	if err != nil {
-		return nil, sum, timing, err
+		return nil, sum, err
 	}
 	if err := hashResources(h, res); err != nil {
-		return nil, sum, timing, err
+		return nil, sum, err
 	}
 	var icns []byte
 	if runtime.GOOS == "darwin" {
 		if icns, err = s.icon(c); err != nil {
-			return nil, sum, timing, err
+			return nil, sum, err
 		}
 		iconFile := ""
 		if icns != nil {
@@ -541,18 +541,18 @@ func (s *devSession) buildAndLaunch(ctx context.Context, t *task, running [32]by
 		h.Write(icns)
 		h.Write(infoPlist(dc, name, iconFile))
 		if err := hashEntitlements(h, dc); err != nil {
-			return nil, sum, timing, err
+			return nil, sum, err
 		}
 	}
 	copy(sum[:], h.Sum(nil))
 	if sum == running {
-		return nil, sum, timing, errUnchanged
+		return nil, sum, errUnchanged
 	}
 
 	t.set("generating the TypeScript client")
 	changed, err := generateBindings(c, bin)
 	if err != nil {
-		return nil, sum, timing, err
+		return nil, sum, err
 	}
 	if changed {
 		logf("Wrote %s", cyan(relPathTo(c.root, c.path(c.Bindings))))
@@ -562,28 +562,24 @@ func (s *devSession) buildAndLaunch(ctx context.Context, t *task, running [32]by
 		t.set("signing")
 		app, err := writeBundle(dc, stage, bin, icns, res)
 		if err != nil {
-			return nil, sum, timing, err
+			return nil, sum, err
 		}
 		if err := codesign(dc, app, s.sign, false); err != nil {
-			return nil, sum, timing, err
+			return nil, sum, err
 		}
 		final := filepath.Join(dir, filepath.Base(app))
 		if err := replacePath(app, final); err != nil {
-			return nil, sum, timing, err
+			return nil, sum, err
 		}
 		exe = bundleExecutable(final)
 	} else if err := placeBuild(stage, dir, res); err != nil {
-		return nil, sum, timing, err
+		return nil, sum, err
 	}
-	timing.built = time.Since(started)
-
-	t.rename("Starting " + s.name)
 	s.stopLive()
-	if p, err = s.launch(ctx, exe); err != nil {
-		return nil, sum, timing, err
+	if p, err = s.launch(exe); err != nil {
+		return nil, sum, err
 	}
-	timing.ready = time.Since(started) - timing.built
-	return p, sum, timing, nil
+	return p, sum, nil
 }
 
 // hashEntitlements writes the entitlements that sign the app and code among
@@ -669,38 +665,9 @@ func (s *devSession) icon(c *Config) ([]byte, error) {
 	return s.icns, nil
 }
 
-// launch starts a build and waits until it reports ready: the app connects
-// to the Unix socket passed in MYGO_READY_SOCKET once its first window is
-// ready to show. A build that relaunches itself first is started again.
-func (s *devSession) launch(ctx context.Context, exe string) (*devProcess, error) {
-	for range 10 {
-		p, err := s.launchOnce(ctx, exe)
-		var exit *exec.ExitError
-		if !errors.As(err, &exit) || exit.ExitCode() != devRelaunchCode {
-			return p, err
-		}
-		logf("Relaunching %s", s.name) // mygo.App.Relaunch before the app was ready
-	}
-	return nil, errors.New("the app relaunched itself 10 times without getting ready")
-}
-
-func (s *devSession) launchOnce(ctx context.Context, exe string) (*devProcess, error) {
-	s.launches++
-	sock := readySocketPath(s.launches)
-	_ = os.Remove(sock)
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		return nil, err
-	}
-	defer ln.Close() // also removes the socket file
-	ready := make(chan struct{})
-	go func() {
-		if conn, err := ln.Accept(); err == nil {
-			conn.Close()
-			close(ready)
-		}
-	}()
-
+// launch starts a build. MYGO_DEV=1 tells it that mygo dev runs it, which
+// mygo.App.Relaunch asks to start it again.
+func (s *devSession) launch(exe string) (*devProcess, error) {
 	stdout, outDone, err := pipe(con.output("app", os.Stdout))
 	if err != nil {
 		return nil, err
@@ -713,7 +680,7 @@ func (s *devSession) launchOnce(ctx context.Context, exe string) (*devProcess, e
 	cmd := exec.Command(exe)
 	cmd.Dir = s.root
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	cmd.Env = append(append(os.Environ(), s.env...), "MYGO_READY_SOCKET="+sock)
+	cmd.Env = append(append(os.Environ(), s.env...), "MYGO_DEV=1")
 	setProcessGroup(cmd)
 	err = cmd.Start()
 	stdout.Close()
@@ -735,39 +702,7 @@ func (s *devSession) launchOnce(ctx context.Context, exe string) (*devProcess, e
 		}
 		close(p.done)
 	}()
-
-	wait := s.readyTimeout
-	if wait == 0 {
-		wait = 20 * time.Second
-	}
-	timeout := time.NewTimer(wait)
-	defer timeout.Stop()
-	select {
-	case <-ready:
-		return p, nil
-	case <-p.done:
-		if p.err == nil {
-			return nil, errors.New("the app exited before it was ready")
-		}
-		return nil, fmt.Errorf("the app exited before it was ready: %w", p.err)
-	case <-timeout.C:
-		p.stop()
-		return nil, fmt.Errorf("the app did not get ready within %v", wait)
-	case <-ctx.Done():
-		p.stop()
-		return nil, ctx.Err()
-	}
-}
-
-// readySocketPath returns a socket path short enough for Unix sockets
-// (about 100 bytes).
-func readySocketPath(n int) string {
-	name := fmt.Sprintf("mygo-ready-%d-%d.sock", os.Getpid(), n)
-	dir := os.TempDir()
-	if len(dir)+len(name) >= 100 {
-		dir = "/tmp"
-	}
-	return filepath.Join(dir, name)
+	return p, nil
 }
 
 // devProcess is a running development build.

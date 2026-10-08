@@ -43,15 +43,15 @@ type console struct {
 }
 
 type symbols struct {
-	ok, fail, warn, info, start, arrow, change, bar, ellipsis string
-	spinner                                                   []string
+	ok, fail, warn, info, start, arrow, bar, ellipsis string
+	spinner                                           []string
 }
 
 var (
-	unicodeSymbols = symbols{"✓", "✗", "▲", "•", "○", "➜", "↻", "│", "…", strings.Split("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", "")}
+	unicodeSymbols = symbols{"✓", "✗", "▲", "•", "○", "➜", "│", "…", strings.Split("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", "")}
 	// plainSymbols are for consoles whose fonts lack the others, as the
 	// Windows console's may.
-	plainSymbols = symbols{"√", "×", "!", "i", "o", ">", "~", "|", "...", []string{"-", "\\", "|", "/"}}
+	plainSymbols = symbols{"√", "×", "!", "i", "o", ">", "|", "...", []string{"-", "\\", "|", "/"}}
 )
 
 func newConsole(f *os.File) *console {

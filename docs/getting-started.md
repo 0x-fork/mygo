@@ -101,8 +101,8 @@ go tool mygo dev   # native UI
 
 `mygo dev` builds a development version of the app and starts it, then
 rebuilds and restarts it when you edit a `.go` file, the configuration, the
-icon or a resource. A build that fails, or crashes on start, keeps the
-previous one running. Quit the app, or press Ctrl+C, to stop.
+icon or a resource. A build that fails to compile keeps the previous one
+running. Quit the app, or press Ctrl+C, to stop.
 
 With a web frontend, it also writes `src/mygo.ts` and starts the Vite dev
 server, from which the development app loads its pages: edit `src/main.ts`

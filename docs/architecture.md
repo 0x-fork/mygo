@@ -2187,13 +2187,11 @@ renderer's (`gputest.Compare`).
   bundle-only features (notifications, URL schemes) work and its data stays
   apart from the production app's. Builds are assembled in a staging
   directory and renamed into place, so the running build keeps its files.
-  - *Ready handshake.* The CLI listens on a Unix socket and passes it in
-    `MYGO_READY_SOCKET`; the core connects once the first window is ready to
-    show (its page loaded, or its Content presented a first frame, which
-    package ui reports through `surface.Conn.Ready`) or failed to load,
-    right after launch when there is no window, and at most 5 s after launch
-    otherwise (`dev.go`). Nothing happens in
-    production builds.
+  - Builds run with `MYGO_DEV=1`, which the core takes out of its
+    environment (`dev.go`): `App.Relaunch` then exits with code 75, which
+    has `mygo dev` start the same build again. Production builds ignore it.
+    A build counts as started once its process is: one that crashes on
+    start is reported as it exits.
   - *Reload.* A change (polling every 250 ms, debounced) rebuilds;
     when the executable, Info.plist and icon are unchanged nothing restarts.
     Otherwise the running build is sent SIGTERM (quit sequence), then
@@ -2202,7 +2200,7 @@ renderer's (`gputest.Compare`).
     the app's files are free. Only the app gets the SIGTERM, which lets it
     end the processes it started; those left after it exits are killed. A
     build that fails to compile leaves the old one running; one that fails
-    to start or get ready within 20 s leaves none until the next change.
+    to start leaves none until the next change.
   - *Watching.* Exactly what the build reads, from `go list -deps` after
     every build: the directories of the compiled packages outside GOROOT and
     the module cache (so local `replace` modules too), embedded files,

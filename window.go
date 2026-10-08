@@ -1440,7 +1440,6 @@ func (w *Window) readyToShow() {
 	}
 	w.readyShow = true
 	fire(&w.onReadyToShow)
-	signalDevReady()
 }
 
 // windowHandler receives native window events.
@@ -1585,7 +1584,6 @@ func (h *windowHandler) LoadFinished() {
 
 func (h *windowHandler) LoadFailed(url string, code int, desc string) {
 	fire1(&h.w.onDidFailLoad, &LoadError{URL: url, Code: code, Description: desc})
-	signalDevReady()
 }
 
 func (h *windowHandler) TitleChanged(title string) {
