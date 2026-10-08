@@ -2157,7 +2157,9 @@ renderer's (`gputest.Compare`).
   `--experimental-strip-types` before 22.18 and 23.6), runs a loader that
   imports it, awaits its default export or calls it with `{ command }`, and
   writes JSON to a temporary file; either way the JSON goes through the same
-  checks. Errors name the file in use. `defineConfig` and the types of the
+  checks. The loader goes to the runtime's standard input, never its
+  command line: on Windows the runtime may be a batch file (npm's
+  `bun.cmd`), and cmd.exe cuts the command line at a line break. Errors name the file in use. `defineConfig` and the types of the
   configuration come from `packages/cli/index.d.ts`; `TestConfigTypes`
   keeps its interfaces in step with the `Config` struct.
 - `generate` builds the app for the host and runs it in generate mode
