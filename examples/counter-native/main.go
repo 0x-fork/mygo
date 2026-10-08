@@ -17,25 +17,15 @@ type counter struct{ n int }
 // view builds the interface from the state, on the main thread, whenever the
 // window needs a frame.
 func (s *counter) view(c *ui.Context) {
-	if c.Shortcut(0, ui.KeyUp) {
-		s.n++
-	}
-	if c.Shortcut(0, ui.KeyDown) {
-		s.n--
-	}
+	c.OnShortcut(0, ui.KeyUp, func() { s.n++ })
+	c.OnShortcut(0, ui.KeyDown, func() { s.n-- })
 	t := c.Theme()
 	ui.Column(c).Fill().Center().Gap(16).Children(func() {
 		ui.Textf(c, "%d", s.n).FontSize(56).Bold()
 		ui.Row(c).Gap(8).Children(func() {
-			if ui.Button(c, "−").Label("Decrement").Width(44).Clicked() {
-				s.n--
-			}
-			if ui.Button(c, "Reset").Disabled(s.n == 0).Clicked() {
-				s.n = 0
-			}
-			if ui.PrimaryButton(c, "+").Label("Increment").Width(44).Clicked() {
-				s.n++
-			}
+			ui.Button(c.Key("decrement"), "−").Label("Decrement").Width(44).OnClick(func() { s.n-- })
+			ui.Button(c.Key("reset"), "Reset").Disabled(s.n == 0).OnClick(func() { s.n = 0 })
+			ui.PrimaryButton(c.Key("increment"), "+").Label("Increment").Width(44).OnClick(func() { s.n++ })
 		})
 		ui.Text(c, "↑ and ↓ count too").FontSize(12).TextColor(t.TextMuted)
 	})

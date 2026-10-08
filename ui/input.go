@@ -550,7 +550,8 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 		}
 		if r, ok := typedRune(mods, key); ok && (r != ' ' || s.typed != "") {
 			s.typed += string(r)
-			s.typedAt, s.typing = now, true
+			s.typedAt = now
+			s.markTyping()
 			rt.requestFrame()
 			return false
 		}
@@ -825,7 +826,7 @@ func abs32(v float32) float32 {
 
 // Clicked reports whether the element was clicked, with the primary
 // button or by Enter or Space while focused, since the last frame.
-func (e *Element) Clicked() bool {
+func (e *node) Clicked() bool {
 	if !e.hasState() {
 		return false
 	}
@@ -839,7 +840,7 @@ func (e *Element) Clicked() bool {
 
 // Clicks returns how many times the element was clicked since the last
 // frame.
-func (e *Element) Clicks() int {
+func (e *node) Clicks() int {
 	if !e.hasState() {
 		return 0
 	}
@@ -856,7 +857,7 @@ func (e *Element) Clicks() int {
 // ClickModifiers returns the modifier keys held as the element was last
 // clicked, none for a click by the keyboard: with Clicked, a click with
 // Shift or Cmd does something else, as extending a choice.
-func (e *Element) ClickModifiers() Modifiers {
+func (e *node) ClickModifiers() Modifiers {
 	if !e.hasState() {
 		return 0
 	}
@@ -864,7 +865,7 @@ func (e *Element) ClickModifiers() Modifiers {
 }
 
 // DoubleClicked reports a double click on the element.
-func (e *Element) DoubleClicked() bool {
+func (e *node) DoubleClicked() bool {
 	if !e.hasState() {
 		return false
 	}
@@ -878,7 +879,7 @@ func (e *Element) DoubleClicked() bool {
 
 // RightClicked reports a click with the secondary button, as for a
 // context menu.
-func (e *Element) RightClicked() bool {
+func (e *node) RightClicked() bool {
 	if !e.hasState() {
 		return false
 	}
@@ -896,7 +897,7 @@ func (e *Element) RightClicked() bool {
 // them, as in CSS, and the others hover no more: a button that shows over
 // a row stays as it is pressed, and dragging over other elements does not
 // light them up.
-func (e *Element) Hovered() bool {
+func (e *node) Hovered() bool {
 	if !e.hasState() {
 		return false
 	}
@@ -935,7 +936,7 @@ func (rt *engine) pressMove(x0, y0, x1, y1 float32) {
 
 // Pressed reports whether the element is being pressed with the pointer,
 // unless it is disabled.
-func (e *Element) Pressed() bool {
+func (e *node) Pressed() bool {
 	if !e.hasState() {
 		return false
 	}
@@ -945,17 +946,17 @@ func (e *Element) Pressed() bool {
 }
 
 // Focused reports whether the element has the keyboard focus.
-func (e *Element) Focused() bool {
+func (e *node) Focused() bool {
 	return e.hasState() && e.c.rt.focused == e.id && e.c.rt.windowFocused
 }
 
 // FocusVisible reports whether the element has the keyboard focus and
 // should show it, because it came from the keyboard.
-func (e *Element) FocusVisible() bool { return e.Focused() && e.c.rt.focusVisible }
+func (e *node) FocusVisible() bool { return e.Focused() && e.c.rt.focusVisible }
 
 // FocusWithin reports whether the element or one of its descendants has
 // the keyboard focus.
-func (e *Element) FocusWithin() bool {
+func (e *node) FocusWithin() bool {
 	if !e.hasState() {
 		return false
 	}
@@ -973,7 +974,7 @@ func (e *Element) FocusWithin() bool {
 
 // Focus gives the element the keyboard focus. Called in every frame, it
 // keeps it there; AutoFocus gives it once.
-func (e *Element) Focus() *Element {
+func (e *node) Focus() *node {
 	if !e.hasState() {
 		return e
 	}
@@ -988,7 +989,7 @@ func (e *Element) Focus() *Element {
 
 // AutoFocus gives the element the keyboard focus in the frame it appears,
 // as the first field of a dialog.
-func (e *Element) AutoFocus() *Element {
+func (e *node) AutoFocus() *node {
 	if e.hasState() && e.st.born == e.c.rt.frame {
 		e.Focus()
 	}
@@ -998,7 +999,7 @@ func (e *Element) AutoFocus() *Element {
 // Shortcut reports whether the key with exactly the modifiers mods was
 // pressed while the element or one of its descendants had the focus. The
 // innermost element handling a key gets it; a disabled one handles none.
-func (e *Element) Shortcut(mods Modifiers, key Key) bool {
+func (e *node) Shortcut(mods Modifiers, key Key) bool {
 	if e.disabled() {
 		return false
 	}
@@ -1008,7 +1009,7 @@ func (e *Element) Shortcut(mods Modifiers, key Key) bool {
 // PointerPosition returns the pointer's position relative to the
 // element's box and whether it is over the element. Elements asking for it
 // get a frame whenever the pointer moves over them.
-func (e *Element) PointerPosition() (x, y float32, over bool) {
+func (e *node) PointerPosition() (x, y float32, over bool) {
 	if !e.hasState() {
 		return 0, 0, false
 	}
@@ -1021,7 +1022,7 @@ func (e *Element) PointerPosition() (x, y float32, over bool) {
 
 // Dragged reports how far the pointer moved since the last frame while
 // pressing the element.
-func (e *Element) Dragged() (dx, dy float32, ok bool) {
+func (e *node) Dragged() (dx, dy float32, ok bool) {
 	if !e.hasState() {
 		return 0, 0, false
 	}
@@ -1037,10 +1038,16 @@ func (e *Element) Dragged() (dx, dy float32, ok bool) {
 }
 
 // Changed reports whether a widget's value changed since the last frame.
-func (e *Element) Changed() bool { return e.hasState() && e.st.changed }
+func (e *node) Changed() bool {
+	if e.hasState() && e.st.changed {
+		e.c.rt.consumed = true
+		return true
+	}
+	return false
+}
 
 // Submitted reports whether Enter was pressed in a single-line text input.
-func (e *Element) Submitted() bool { return e.hasState() && e.st.submitted }
+func (e *node) Submitted() bool { return e.hasState() && e.st.submitted }
 
 // scrollbarPress starts dragging the thumb of the scroll container under
 // the pointer when the press is on its scroll bar, or pages toward the
@@ -1096,4 +1103,4 @@ func (rt *engine) modsChanged(mods Modifiers) {
 // Modifiers returns the modifier keys held now, as the last key, pointer
 // or modifier event said: a view showing each row's shortcut while Cmd is
 // held reads it, and draws again as it changes.
-func (c *Context) Modifiers() Modifiers { return c.rt.mods }
+func (c *context) Modifiers() Modifiers { return c.rt.mods }

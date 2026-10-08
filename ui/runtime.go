@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sync"
 	"time"
+	"weak"
 
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
@@ -50,10 +51,23 @@ type host interface {
 // the view function, lays them out, paints them and routes input to the
 // elements of the last frame. Main thread only, except where noted.
 type engine struct {
+	owner           weak.Pointer[engine]
+	epoch           uint64
+	parts           []any
+	public          *Context
+	arena           *elementOwner
+	handleChecks    bool
+	afterInputs     []inputAction
+	inputs          []*node
+	notices         []*state
+	typedInputs     []*state
+	focusFields     map[any]*focusField
+	refs            []*refState
+	actions         []action
 	textInputClosed bool
-	view            func(*Context)
+	view            func(*context)
 	host            host
-	c               Context
+	c               context
 	text            *text.System
 	scene           scene.Scene
 	painter         Painter
@@ -111,7 +125,7 @@ type engine struct {
 	trans        map[uint64]*transition
 	exitsBuilt   bool
 	laidW, laidH float32
-	byID         map[uint64]*Element
+	byID         map[uint64]*node
 	// insp is the inspector (inspector.go); dupKeys are the duplicate keys
 	// reported, and warnings what the inspector lists.
 	insp     inspector
@@ -272,9 +286,13 @@ type keyEvent struct {
 	key  Key
 }
 
-func newRuntime(view func(*Context), h host) *engine {
+func newRuntime(view func(*context), h host) *engine {
 	rt := &engine{view: view, host: h, text: textSystem(), states: map[uint64]*state{}, windowFocused: true}
 	rt.c.rt = rt
+	rt.owner = weak.Make(rt)
+	rt.arena = &elementOwner{rt: rt}
+	rt.public = &Context{rt: rt, services: Services{owner: rt.owner}}
+	rt.handleChecks = developmentHandles
 	if frameStatsOn {
 		rt.stats = newFrameStats(frameStatsThreshold)
 	}
@@ -361,6 +379,10 @@ func (rt *engine) runFrame() {
 		if rt.insp.open {
 			rt.buildInspector(&rt.c, appW, w, h)
 		}
+		rt.runNoticeActions()
+		rt.applyInputs()
+		rt.applyFocusRequests()
+		rt.runActions()
 		rt.prepareSelectable(rt.c.root)
 		rt.resolveMenu()
 		rt.endPass()
@@ -376,6 +398,7 @@ func (rt *engine) runFrame() {
 	root := rt.c.root
 	layoutTree(root, appW, h)
 	rt.commit(root, w, h)
+	rt.commitFocusBindings()
 	clear(rt.texts)
 	rt.texts = rt.texts[:0]
 	rt.collectSelectable(root, false)
@@ -539,7 +562,6 @@ func (rt *engine) forgetInput() {
 		}
 		s.clicks, s.rightClicks, s.doubleClicks = 0, 0, 0
 		s.dragX, s.dragY = 0, 0
-		s.changed, s.submitted, s.typing = false, false, false
 		s.dropped = nil
 		s.droppedValue, s.hasDropped = nil, false
 		s.dataDropped = nil
@@ -661,6 +683,28 @@ func (rt *engine) armTimer() {
 
 func (rt *engine) close() {
 	rt.closed = true
+	clear(rt.focusFields)
+	rt.focusFields = nil
+	for _, r := range rt.refs {
+		r.closed = true
+		r.requested = false
+	}
+	clear(rt.refs)
+	rt.refs = nil
+	clear(rt.parts)
+	rt.parts = nil
+	clear(rt.typedInputs)
+	rt.typedInputs = nil
+	clear(rt.notices)
+	rt.notices = nil
+	clear(rt.afterInputs)
+	rt.afterInputs = nil
+	clear(rt.inputs)
+	rt.inputs = nil
+	rt.arena.rt = nil
+	rt.public.rt = nil
+	clear(rt.actions)
+	rt.actions = nil
 	rt.textInputClosed = true
 	if rt.drag != nil && rt.drag.native {
 		rt.host.cancelDataDrag()
@@ -681,7 +725,7 @@ func (rt *engine) close() {
 
 // commit records the laid out frame in the elements' states: their
 // boxes, the hit list in paint order, the focus order.
-func (rt *engine) commit(root *Element, w, h float32) {
+func (rt *engine) commit(root *node, w, h float32) {
 	rt.hits = rt.hits[:0]
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
 	rt.modal, rt.modalLayer, rt.commitScope, rt.commitPage = 0, 0, focusScope{}, 0
@@ -697,7 +741,7 @@ func (rt *engine) commit(root *Element, w, h float32) {
 	rt.noteGroups()
 }
 
-func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
+func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	inline := e.isInline()
 	if e.kind == kindText && e.first != nil && !inline {
 		placeInline(e, e, 0)
