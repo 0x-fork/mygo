@@ -43,6 +43,9 @@ type headless struct {
 	// window shows.
 	hz     float32
 	hidden bool
+	// reading runs once as the clipboard is next read, as GTK's nested
+	// event loop may draw a frame then.
+	reading func()
 	// last is the scene of the last frame, which tests inspect.
 	last        *scene.Scene
 	dragData    transfer.Data
@@ -62,10 +65,17 @@ func (h *headless) requestFrame()                              { h.requested.Sto
 func (h *headless) setCursor(c Cursor)                         { h.cursor = c }
 func (h *headless) setTextInput(t platform.TextInputState)     { h.ime = t }
 func (h *headless) updateAccessibility(t *platform.AccessTree) { h.keepAccess(t) }
-func (h *headless) readClipboard() string                      { return h.clipboard }
 func (h *headless) writeClipboard(s string)                    { h.clipboard = s }
 func (h *headless) startDrag()                                 {}
 func (h *headless) setDropFormats([]transfer.Format)           {}
+func (h *headless) readClipboard() string {
+	if r := h.reading; r != nil {
+		h.reading = nil
+		r()
+	}
+	return h.clipboard
+}
+
 func (h *headless) startDataDrag(d transfer.Data, local any, o transfer.DragOptions, x, y float32) error {
 	h.dragData, h.dragLocal, h.dragOptions = d.Snapshot(), local, o
 	return nil
