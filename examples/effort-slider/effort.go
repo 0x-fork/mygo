@@ -195,6 +195,9 @@ func (s *slider) view(c *ui.Context) {
 			p.AnimationFrame()
 		}
 	})
+	// The title bar, under the window controls, drags the window.
+	bar := c.TitleBar()
+	ui.Box(c).Absolute().Left(0).Top(0).Size(w, max(bar.Height, 32)).DragWindow()
 	// The slider takes the keys, as assistive technology sees it, and
 	// the pointer across the track; its content box spans the thumb's
 	// travel. A drag moves the thumb with the pointer rather than from

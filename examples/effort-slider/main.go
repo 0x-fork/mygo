@@ -21,13 +21,18 @@ import (
 
 func main() {
 	s := newSlider()
+	// The demo is dark whatever the system's appearance, and so are the
+	// window controls over it: on Windows and Linux they draw light on
+	// the dark page.
+	mygo.Theme.SetSource(mygo.ThemeDark)
 	mygo.App.WhenReady(func() {
 		mygo.NewWindow(mygo.WindowOptions{
 			Title:  "Effort",
 			Width:  windowW,
 			Height: windowH,
-			// The card floats on the page's background, under the traffic
-			// lights.
+			// The card floats on the page's background, under the window
+			// controls: the traffic lights on macOS, minimize, maximize and
+			// close on Windows, the desktop's buttons on Linux.
 			TitleBarStyle:   mygo.TitleBarHidden,
 			BackgroundColor: "#101010",
 			Content:         ui.View(s.view),
