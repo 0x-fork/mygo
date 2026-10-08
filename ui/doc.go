@@ -22,9 +22,19 @@
 // input, such as Clicked, where they are built. What an element keeps
 // between frames (focus, scrolling, text being edited, animations) follows
 // its position among its siblings, or its Key.
-// Context and Element are temporary build objects: do not save them in
-// app state or use them from background goroutines. Lists expose their
-// current build's focus and shortcuts through the app's ListState.
+// Constructors return checked Element values that expire before the next
+// build pass; one frame can contain several passes. Keep elements and custom
+// parts out of app state and background goroutines. Handle provides persistent
+// control identity for focus, commands and committed bounds; FocusBind connects
+// desired focus to app data, and FocusedValue reads actual focus.
+//
+// Views receive a stable *Context for their window, with its parent scope
+// changing inside Children callbacks. Capture Services for persistent
+// clipboard/URL callbacks and background redraws instead of storing Context.
+// Bound-value input applies after construction and configuration; Changed and
+// Submitted notices appear in the following pass. OnClick and OnShortcut run
+// after construction and bound input, while OnChange and OnSubmit observe the
+// rebuilt view's notices. Input queries such as Clicked remain available.
 //
 // Widgets take the theme's look, whose Spacing sizes them all. Each is
 // built on a base without a look, such as ButtonBase, CheckboxBase,
