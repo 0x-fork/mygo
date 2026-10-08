@@ -1286,14 +1286,18 @@ either.
   paints the elements of the last frame again at its own time
   (`repaintFrame`), without building or laying out; elements out of view
   are not painted, so they ask for none. Such a frame is asked for with
-  `redraw` set, which anything else asking for a frame clears: every event
-  of the surface, `requestFrame`, `Conn.Changed` (`Window.Update`,
-  `Invalidate`, and `After`'s timer through them) and a change of the
-  appearance. A frame of another size, or after the text system forgot
-  its layouts (`text.System.Generation`, as it lets go of fonts the
-  elements' layouts hold), builds anew all the same. The timers the last
-  frame built armed stay; `Painter.After` has a timer of its own, which
-  posts to the main thread.
+  `redraw` set, which every event of the surface clears, so that the frame
+  builds anew in case the event changed what the view shows; anything
+  asking for a frame clears it too, and the frame `Painter.After` has due
+  with it, which the frame asked for replaces: `requestFrame`,
+  `Conn.Changed` (`Window.Update`, `Invalidate`, and `After`'s timer
+  through them) and a change of the appearance. An event that asks for no
+  frame, as the pointer moving over elements that do not look at it,
+  leaves that frame due. A frame of another size, or after the text
+  system forgot its layouts (`text.System.Generation`, as it lets go of
+  fonts the elements' layouts hold), builds anew all the same. The timers
+  the last frame built armed stay; `Painter.After` has a timer of its
+  own, which posts to the main thread.
   While nothing of the window shows (`platform.OccludableSurface`: a macOS
   window hidden, minimized or covered by other windows, whose display link
   still ticks, at the display's rate for half a minute, then at about 40
