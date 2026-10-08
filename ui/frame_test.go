@@ -643,3 +643,38 @@ func TestHandleBoundsBetweenBuilds(t *testing.T) {
 		t.Fatalf("closed bounds %+v", b)
 	}
 }
+
+// TestCloseWhileBuilding closes the window from its view and from a click's
+// callback, as a close button does: Window.Close destroys it at once on
+// Windows. The frame ends there, without building the view again for the
+// click.
+func TestCloseWhileBuilding(t *testing.T) {
+	for _, callback := range []bool{false, true} {
+		var tt *Tester
+		closed := false
+		close := func() {
+			tt.rt.close()
+			closed = true
+		}
+		tt = NewTester(func(f *Context) {
+			if closed {
+				t.Fatalf("callback %v: the view was built in a closed window", callback)
+			}
+			if f.Theme() == nil {
+				t.Fatal("no theme")
+			}
+			b := Button(f, "Close")
+			if callback {
+				b.OnClick(close)
+			} else if b.Clicked() {
+				close()
+			}
+		}, 200, 100)
+		if err := tt.Click("Close"); err != nil {
+			t.Fatal(err)
+		}
+		if !closed {
+			t.Fatalf("callback %v: the button was not clicked", callback)
+		}
+	}
+}

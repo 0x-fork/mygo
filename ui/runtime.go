@@ -339,7 +339,7 @@ func (rt *engine) themeChanged() {
 
 // runFrame builds, lays out, paints and presents a frame.
 func (rt *engine) runFrame() {
-	if rt.inFrame {
+	if rt.inFrame || rt.closed {
 		return
 	}
 	rt.inFrame = true
@@ -383,6 +383,11 @@ func (rt *engine) runFrame() {
 		clear(rt.kept)
 		rt.c.reset(now, appW, h)
 		rt.view(&rt.c)
+		if rt.closed {
+			// The view closed the window, as a close button does: the
+			// window is gone at once on Windows, and the frame with it.
+			return
+		}
 		rt.buildToasts(&rt.c)
 		if ov := rt.c.overlay; ov != nil {
 			rt.c.root.add(ov)
@@ -400,6 +405,9 @@ func (rt *engine) runFrame() {
 		rt.prepareSelectable(rt.c.root)
 		rt.resolveMenu()
 		rt.endPass()
+		if rt.closed {
+			return // an action closed it
+		}
 		if !rt.consumed {
 			break
 		}
