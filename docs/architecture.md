@@ -2212,6 +2212,31 @@ renderer's (`gputest.Compare`).
     directories sharing them for deletion (`openDir`), which `os.Open`
     does not, so that deleting or renaming one it lists does not fail.
   - Quitting the app ends `mygo dev`; a crash waits for the next change.
+    Ctrl+C stops the app as a change does; a second one kills it and the
+    dev server at once. The watcher reports the paths that changed, which
+    the rebuild names. Lines typed on the terminal are shortcuts (`r`
+    restarts even an unchanged build, `c`, `q`, `h`); on Unix, mygo
+    ignores SIGTTIN, so that reading them in the background fails rather
+    than stopping it.
+- *Output* (`console.go`), on standard error: a line per step of a
+  command. On a terminal (Windows: a console that takes VT sequences once
+  `enableVT` asks), the step in progress has a spinner, redrawn in place
+  at 12 fps and cut to the width (`termWidth`, autowrap off besides), with
+  its elapsed time and what it does: `goBuild` runs `go build -v` and
+  shows the import paths it prints, and modules it downloads, keeping
+  the other lines, the compiler's errors, for its error; downloads show
+  their bytes. Steps nest (signing inside a build). What the programs the
+  CLI runs print goes through `labeled` writers, which erase the spinner's
+  line, write whole lines with a label (`web │`, `app │`) and draw it
+  again; the app writes to an `os.Pipe`, not a writer of `exec.Cmd`,
+  whose `Wait` would wait for the web view's processes holding it, and
+  commands with writers get a `WaitDelay`. Without a terminal, each step
+  has a start line and an end line, without colors unless `FORCE_COLOR`
+  (`NO_COLOR` turns them off anyway). `dev` and `build` open with a
+  banner whose five exclamation marks are those of MyGO!!!!!, in its
+  members' colors, which light up one after the other on a terminal
+  (redrawn two lines up with the cursor saved, until a line moves it); a
+  failed dev build ends with the band's motto, 迷子でもいい、迷子でも進め。
 - `build` generates the client, runs `buildCommand`, then compiles each
   target with `-trimpath -ldflags "-s -w -X …production=1"` (`-H=windowsgui`
   on Windows) and `-tags mygo_noinspector`, which leaves the inspector of
@@ -2359,7 +2384,7 @@ shader generation commands are listed in [AGENTS.md](../AGENTS.md).
 |---|---|---|
 | core | `go test .` | lifecycle, quit, IPC, channels, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
-| CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, resources (platform directories, universal pairs, staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
+| CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, the console's output (replayed as a terminal shows it), resources (platform directories, universal pairs, staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime, `mygo-runtime` and the plugins' packages (against a fake Go side on the real runtime, `plugins/fake-go.ts`) |
 | plugins | `go test ./plugins/...` | the fetch plugin against `httptest` servers, the WebSocket client against a test server (ordering, fragments, pings, closing handshakes); the terminal's binding of libghostty-vt (layouts, rendering, encoders, selections), its pseudo-terminals, and its view through `Tester` with real shells: typing, keys as programs ask, input methods, mouse reports, selecting and copying, pasting, scrollback, exits (the library is downloaded, or named by `MYGO_GHOSTTY_VT`; `-short` skips them) |
 | native UI | `go test ./ui ./internal/text ./internal/scene ./internal/raster ./internal/svg ./internal/gpu/...` | the GPU renderers against the CPU renderer (Direct3D on Windows, Metal on macOS, OpenGL on Linux); views through `Tester`: input, focus, editing, lists, overlays, frames that fill the glyph atlas; text layout and caret geometry; atlas zones and repacking; the CPU renderer against its formulas; SVG parsing and drawing, with `FuzzParse`; `go test -run '^$' -bench . ./ui` times a frame |

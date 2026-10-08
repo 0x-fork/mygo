@@ -156,10 +156,11 @@ func TestWatcher(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	changes := w.watch(ctx, 20*time.Millisecond)
+	var reported []string // the paths of the last change
 	expect := func(changed bool, what string) {
 		t.Helper()
 		select {
-		case <-changes:
+		case reported = <-changes:
 			if !changed {
 				t.Fatalf("%s: change reported", what)
 			}
@@ -176,8 +177,14 @@ func TestWatcher(t *testing.T) {
 	expect(false, "files the build ignores")
 	put("main.go", "package main // edited")
 	expect(true, "edited source")
+	if want := []string{filepath.Join(dir, "main.go")}; !slices.Equal(reported, want) {
+		t.Errorf("edited source: reported %v, want %v", reported, want)
+	}
 	put("new.go", "package main")
 	expect(true, "new source")
+	if want := []string{filepath.Join(dir, "new.go")}; !slices.Equal(reported, want) {
+		t.Errorf("new source: reported %v, want %v", reported, want)
+	}
 
 	// An edit made while a build runs is not lost when the build hands
 	// over the same inputs.
