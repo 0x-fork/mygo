@@ -450,6 +450,9 @@ type state struct {
 	cx, cy, cw, ch float32
 
 	changed, submitted bool
+	// Callbacks can observe input in the pass that applied it; polling
+	// notices survive into the next pass without repeating those callbacks.
+	changeDelivered, submitDelivered bool
 	// submitMods are the modifiers held with the Enter submitting a text
 	// input, as Shift going back in a find bar.
 	submitMods Modifiers

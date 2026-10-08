@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"runtime"
 	"testing"
 	"weak"
@@ -379,6 +380,77 @@ func TestBoundInputRunsAfterAllConfiguration(t *testing.T) {
 	tt.Click("Check")
 	if !checked || changes != 1 {
 		t.Fatal("input or notice was lost/repeated")
+	}
+}
+
+func TestChangeActionsCommitDerivedValuesBeforeRebuild(t *testing.T) {
+	checked, disabled, building := false, false, false
+	changes, observers, notices := 0, 0, 0
+	tt := NewTester(func(c *Context) {
+		building = true
+		value := checked
+		e := Checkbox(c.Key("check"), &value, "Check").Disabled(disabled)
+		if e.Changed() {
+			notices++
+		}
+		e.OnChange(func() {
+			if building {
+				t.Fatal("callback ran during construction")
+			}
+			checked = value
+			changes++
+		}).OnChange(func() { observers++ })
+		Textf(c, "Checked: %v", checked)
+		building = false
+	}, 200, 100)
+	for _, want := range []bool{true, false} {
+		if err := tt.Click("Check"); err != nil {
+			t.Fatal(err)
+		}
+		if checked != want || !tt.HasText(fmt.Sprintf("Checked: %v", want)) {
+			t.Fatalf("derived value was lost: checked %v, want %v", checked, want)
+		}
+	}
+	if changes != 2 || observers != 2 || notices != 2 {
+		t.Fatalf("changes %d, observers %d, polling notices %d", changes, observers, notices)
+	}
+	disabled = true
+	tt.Frame()
+	tt.Click("Check")
+	if checked || changes != 2 || observers != 2 || notices != 2 {
+		t.Fatal("a rebuild or disabled click repeated the action")
+	}
+}
+
+func TestNoticeActionsCommitDerivedText(t *testing.T) {
+	draft, sent := "", ""
+	changes, submissions, notices := 0, 0, 0
+	tt := NewTester(func(c *Context) {
+		value := draft
+		input := TextInput(c, &value).Label("Draft")
+		if input.Submitted() {
+			notices++
+		}
+		input.OnChange(func() {
+			draft = value
+			changes++
+		}).OnSubmit(func() {
+			sent, draft = value, ""
+			submissions++
+		})
+	}, 200, 100)
+	if err := tt.Click("Draft"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("Hello")
+	if draft != "Hello" || changes != 1 {
+		t.Fatalf("draft %q, changes %d", draft, changes)
+	}
+	tt.Key(0, KeyEnter)
+	tt.Frame()
+	if sent != "Hello" || draft != "" || changes != 1 || submissions != 1 || notices != 1 {
+		t.Fatalf("sent %q, draft %q, changes %d, submissions %d, polling notices %d",
+			sent, draft, changes, submissions, notices)
 	}
 }
 

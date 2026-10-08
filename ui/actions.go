@@ -18,6 +18,7 @@ type action struct {
 	mods    Modifiers
 	key     Key
 	fn      func()
+	ready   bool
 }
 
 func (e Element) on(kind actionKind, mods Modifiers, key Key, fn func()) Element {
@@ -33,10 +34,12 @@ func (e Element) on(kind actionKind, mods Modifiers, key Key, fn func()) Element
 // OnClick runs after construction and bound-value input.
 func (e Element) OnClick(fn func()) Element { return e.on(actionClick, 0, 0, fn) }
 
-// OnChange runs when the rebuilt view observes a user change of its value.
+// OnChange runs after input changes the bound value, before rebuilding the
+// view. The callback can commit a derived value local to this build pass.
 func (e Element) OnChange(fn func()) Element { return e.on(actionChange, 0, 0, fn) }
 
-// OnSubmit runs when the rebuilt view observes a submission gesture.
+// OnSubmit runs after bound-value input handles a submission gesture,
+// before rebuilding the view.
 func (e Element) OnSubmit(fn func()) Element { return e.on(actionSubmit, 0, 0, fn) }
 
 // OnShortcut declares a key handler within the element's focus subtree.
@@ -65,18 +68,40 @@ func (rt *engine) actionNode(a action) *node {
 	return a.element.nodeFor(rt)
 }
 func (rt *engine) runNoticeActions() {
-	for _, a := range rt.actions {
+	// Select every observer before marking notices delivered, so several
+	// callbacks on one element all run once for the same input.
+	for i := range rt.actions {
+		a := &rt.actions[i]
+		a.ready = false
 		if rt.closed {
 			return
 		}
 		if a.kind != actionChange && a.kind != actionSubmit {
 			continue
 		}
-		n := rt.actionNode(a)
+		n := rt.actionNode(*a)
 		if n == nil || n.disabled() {
 			continue
 		}
-		if a.kind == actionChange && n.Changed() || a.kind == actionSubmit && n.Submitted() {
+		a.ready = a.kind == actionChange && n.st.changed && !n.st.changeDelivered ||
+			a.kind == actionSubmit && n.st.submitted && !n.st.submitDelivered
+	}
+	for _, a := range rt.actions {
+		if !a.ready {
+			continue
+		}
+		n := rt.actionNode(a)
+		if a.kind == actionChange {
+			n.st.changeDelivered = true
+		} else {
+			n.st.submitDelivered = true
+		}
+	}
+	for _, a := range rt.actions {
+		if rt.closed {
+			return
+		}
+		if a.ready {
 			rt.consumed = true
 			a.fn()
 		}

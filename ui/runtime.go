@@ -381,6 +381,9 @@ func (rt *engine) runFrame() {
 		}
 		rt.runNoticeActions()
 		rt.applyInputs()
+		// Commit derived values while callbacks still hold this pass's
+		// bindings. Delivered callbacks do not repeat in the next pass.
+		rt.runNoticeActions()
 		rt.applyFocusRequests()
 		rt.runActions()
 		rt.prepareSelectable(rt.c.root)

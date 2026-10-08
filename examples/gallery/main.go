@@ -366,9 +366,9 @@ func (g *gallery) toolbar(c *ui.Context) {
 			path = append(path, "Row "+row)
 		}
 		chosen := -1
-		if ui.Breadcrumbs(c, path, &chosen).Label("Path").Changed() {
+		ui.Breadcrumbs(c, path, &chosen).Label("Path").OnChange(func() {
 			g.router.Push(pagePath(page))
-		}
+		})
 	}).Label("Navigation").Padding(8, 24, 0)
 }
 
@@ -395,9 +395,9 @@ func (g *gallery) listRow(c *ui.Context, r *ui.Route) {
 			})
 		}
 		starred := g.starred[n]
-		if ui.Checkbox(c, &starred, "Starred").Changed() {
+		ui.Checkbox(c, &starred, "Starred").OnChange(func() {
 			g.starred[n] = starred
-		}
+		})
 	}).MaxWidth(420)
 	// Links to paths go there in the router, relative to the page as on
 	// the web.
@@ -420,7 +420,7 @@ func (g *gallery) sidebar(c *ui.Context) {
 		// The pages, in two sections that hide and show; the arrows choose
 		// among them while the sidebar has the focus.
 		page := pageOf(g.router.Path())
-		if ui.Sidebar(c, &page, func() {
+		ui.Sidebar(c, &page, func() {
 			for k, section := range []struct {
 				title string
 				pages []string
@@ -434,9 +434,9 @@ func (g *gallery) sidebar(c *ui.Context) {
 					}
 				})
 			}
-		}).Grow(1).Label("Pages").Changed() {
+		}).Grow(1).Label("Pages").OnChange(func() {
 			g.router.Push(pagePath(page))
-		}
+		})
 		ui.Text(c, g.now.Format("15:04:05")).FontSize(12).TextColor(t.TextMuted).Padding(0, 20)
 	})
 }
@@ -912,9 +912,6 @@ func (g *gallery) list(c *ui.Context) {
 	list := ui.List(c, &g.rows, len(rows), func(i int) {
 		n := rows[i]
 		row := ui.Row(c).Height(32).PaddingX(12).Gap(10)
-		if row.DoubleClicked() {
-			open(n)
-		}
 		row.ContextMenu(func(m *ui.Menu) {
 			if m.Item("Open").Chosen() {
 				open(n)
@@ -939,12 +936,13 @@ func (g *gallery) list(c *ui.Context) {
 			ui.Textf(c, "%d²  =  %d", n, n*n).Font("monospace").FontSize(12)
 		})
 	}).Height(420).Border(1, t.Border).Radius(8).Padding(4)
-	if list.Changed() {
+	list.OnChange(func() {
 		g.picked = rows[at]
-	}
-	if list.Shortcut(0, ui.KeyEnter) && at >= 0 {
-		open(g.picked)
-	}
+	}).OnSubmit(func() {
+		if at >= 0 {
+			open(rows[at])
+		}
+	})
 	g.chatCard(c)
 	ui.Row(c).Gap(18).AlignItems(ui.Stretch).Height(260).Children(func() {
 		card(c, "Tree", func() {

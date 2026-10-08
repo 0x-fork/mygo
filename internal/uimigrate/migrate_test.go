@@ -1,11 +1,67 @@
 package uimigrate
 
 import (
+	"go/format"
 	"go/parser"
 	"go/token"
 	"strings"
 	"testing"
 )
+
+func TestMigrationReviewsLocalValuePolling(t *testing.T) {
+	source := `package app
+import native "github.com/egoist/mygo/ui"
+var shared bool
+type app struct { checked bool }
+func (a *app) view(c *native.Context, persistent *bool) {
+ checked := a.checked
+ if native.Checkbox(c, &checked, "Derived").Disabled(false).Changed() {
+  a.checked = checked
+  return
+ }
+ var draft string
+ input := native.TextInput(c, &draft)
+ alias := input
+ if alias.Submitted() { a.send(draft) }
+ var choice = 0
+ element := native.Segmented[int](c, &choice)
+ if element.Changed() { a.choose(choice) }
+ native.Checkbox(c, &checked, "Callback").OnChange(func() { a.checked = checked })
+ if native.Checkbox(c, &a.checked, "Field").Changed() { a.save() }
+ if native.Checkbox(c, &shared, "Global").Changed() { a.save() }
+ if native.Checkbox(c, persistent, "Parameter").Changed() { a.save() }
+ other := foreign()
+ if other.Changed() { a.save() }
+}
+`
+	formatted, err := format.Source([]byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := File("app.go", formatted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Changed || string(r.Source) != string(formatted) {
+		t.Fatalf("polling control flow was rewritten:\n%s", r.Source)
+	}
+	if len(r.Notes) != 3 {
+		t.Fatalf("want three local-binding notes, got %q", r.Notes)
+	}
+	for i, want := range []string{`Changed polling with local binding "checked"`, `Submitted polling with local binding "draft"`, `Changed polling with local binding "choice"`} {
+		callback := "OnChange"
+		if i == 1 {
+			callback = "OnSubmit"
+		}
+		if note := r.Notes[i]; !strings.HasPrefix(note, "line ") || !strings.Contains(note, want) || !strings.Contains(note, callback) {
+			t.Fatalf("unexpected note %q", note)
+		}
+	}
+	again, err := File("app.go", r.Source)
+	if err != nil || again.Changed || strings.Join(again.Notes, "\n") != strings.Join(r.Notes, "\n") {
+		t.Fatal("review notes were not stable on a repeated migration", err)
+	}
+}
 
 func TestMigrationAliasesScopesAndNilValues(t *testing.T) {
 	source := `package app

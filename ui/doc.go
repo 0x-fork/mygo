@@ -33,8 +33,9 @@
 // clipboard/URL callbacks and background redraws instead of storing Context.
 // Bound-value input applies after construction and configuration; Changed and
 // Submitted notices appear in the following pass. OnClick and OnShortcut run
-// after construction and bound input, while OnChange and OnSubmit observe the
-// rebuilt view's notices. Input queries such as Clicked remain available.
+// after construction and bound input. OnChange and OnSubmit run before the
+// rebuild, so they can commit derived values local to the current build.
+// Input queries such as Clicked remain available.
 //
 // Widgets take the theme's look, whose Spacing sizes them all. Each is
 // built on a base without a look, such as ButtonBase, CheckboxBase,

@@ -27,6 +27,7 @@ func (rt *engine) applyInputs() {
 			rt.typedInputs = append(rt.typedInputs, s)
 		}
 		s.changed, s.submitted, s.noticeQueued = false, false, false
+		s.changeDelivered, s.submitDelivered = false, false
 	}
 	clear(rt.notices)
 	rt.notices = rt.notices[:0]
@@ -232,13 +233,16 @@ func (s *state) notice() {
 		s.noticeQueued = true
 	}
 }
-func (s *state) markChanged() { s.changed = true; s.notice() }
+func (s *state) markChanged() {
+	s.changed, s.changeDelivered = true, false
+	s.notice()
+}
 func (s *state) markSubmitted() {
 	if s.rt != nil && !s.rt.inFrame {
 		s.pendingSubmit = true
 		return
 	}
-	s.submitted = true
+	s.submitted, s.submitDelivered = true, false
 	s.notice()
 }
 func (s *state) markTyping() { s.typing = true; s.notice() }

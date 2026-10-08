@@ -96,13 +96,22 @@ that input. MyGo rebuilds changed state before painting the frame.
 Widgets that change a value take a pointer to it, so they need no handler:
 `ui.Checkbox(c, &app.settings.Sync, "Sync")` binds the field to the control.
 Input updates it after construction, and the following pass sees `Changed`
-or `Submitted`. These queries and the `OnChange`/`OnSubmit` callbacks let
-you respond to that update:
+or `Submitted`. These queries let you respond to that update:
 
 ```go
 if ui.TextInput(c, &app.query).Placeholder("Search").Changed() {
 	app.results = search(app.query)
 }
+```
+
+`OnChange` and `OnSubmit` run after bound input, before the rebuild. Use
+them to commit a derived value local to the current build:
+
+```go
+viewed := app.viewed[file.ID]
+ui.Checkbox(c, &viewed, "Viewed").OnChange(func() {
+    app.viewed[file.ID] = viewed
+})
 ```
 
 ## Keys

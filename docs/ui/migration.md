@@ -23,6 +23,11 @@ element nil checks and zero assignments, moves fluent constructor keys into
 child callback signatures, ordinary model pointers and unrelated nil checks
 are preserved. Dot imports and keys on separately stored elements need
 manual review. It does not move arbitrary polling control flow into callbacks.
+It reports line-specific review notes for `Changed` and `Submitted` polling
+on controls whose constructors take a local variable by address, including
+controls stored in local element variables. Commit derived values with
+`OnChange` or `OnSubmit`, as described below. Indirect bindings, such as
+`ListState.Selected`, still need manual review.
 
 ## Element values and keys
 
@@ -70,21 +75,20 @@ ui.TextInput(c.Key("draft"), &a.draft).OnSubmit(a.send)
 c.OnShortcut(ui.Cmd, ui.KeyS, a.save)
 ```
 
-Click and shortcut actions run after configuration and bound input. Change
-and submit actions run when the rebuilt view observes their notices. Handled
-input is consumed before another pass so actions do not repeat. Polling
-methods remain available; prefer callbacks when an action changes the
-collection being built. Keep I/O in workers and publish model results with
+Click, shortcut, change and submit actions run after configuration and bound
+input, before rebuilding. Handled input is consumed before another pass so
+actions do not repeat. Polling methods remain available; prefer callbacks
+when an action changes the collection being built. Keep I/O in workers and publish model results with
 `Window.Update`.
 
 Bind controls directly to persistent model fields when possible. A local
 value recomputed on every build cannot preserve an edit until the next
-pass's `Changed` notice. When a control edits a derived value, apply it in
-`OnClick`, after bound input has updated that build's value:
+pass's `Changed` notice. When a control edits a derived value, commit it in
+`OnChange`, after bound input has updated that build's value:
 
 ```go
 viewed := a.isViewed(file)
-ui.Checkbox(c, &viewed, "Viewed").OnClick(func() {
+ui.Checkbox(c, &viewed, "Viewed").OnChange(func() {
     a.setViewed(file, viewed)
 })
 ```
