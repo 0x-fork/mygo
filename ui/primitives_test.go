@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"image"
+	"math"
 	"testing"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -424,6 +425,43 @@ func TestPathsLookTheSameWhateverDrewBefore(t *testing.T) {
 		for x := 28; x < 60; x++ {
 			if a, b := alone.RGBAAt(x, y), after.RGBAAt(x, y); a != b {
 				t.Fatalf("(%d, %d) is %v alone, %v after another path", x, y, a, b)
+			}
+		}
+	}
+}
+
+// TestStrokesAreAsWideAsAsked strokes a circle and a square: their ink
+// is the area of the stroke, along curves too, where the stroke's pieces
+// meet at every point of the flattened curve.
+func TestStrokesAreAsWideAsAsked(t *testing.T) {
+	ink := func(path *Path, width, scale float32) float64 {
+		img := coreRender(func(c *context) {
+			coreBox(c).Fill().Background(RGB(0, 0, 0)).Draw(func(p *Painter, r Rect) {
+				p.StrokePath(path, width, RGB(255, 255, 255))
+			})
+		}, 50, 50, scale)
+		var sum float64
+		for i := 0; i < len(img.Pix); i += 4 {
+			sum += float64(img.Pix[i]) / 255
+		}
+		return sum / float64(scale*scale)
+	}
+	for _, scale := range []float32{1, 2} {
+		for _, w := range []float32{1, 2} {
+			var circle, square Path
+			circle.Circle(25.2, 25.3, 10)
+			square.MoveTo(10.3, 10.3).LineTo(40.3, 10.3).LineTo(40.3, 40.3).LineTo(10.3, 40.3).Close()
+			for _, c := range []struct {
+				name string
+				path *Path
+				area float64
+			}{
+				{"circle", &circle, 2 * math.Pi * 10 * float64(w)},
+				{"square", &square, 4*30*float64(w) - (4-math.Pi)*float64(w*w)/4},
+			} {
+				if got := ink(c.path, w, scale); math.Abs(got/c.area-1) > 0.02 {
+					t.Errorf("a %s stroked %v wide at scale %v has ink %.1f, want %.1f", c.name, w, scale, got, c.area)
+				}
 			}
 		}
 	}

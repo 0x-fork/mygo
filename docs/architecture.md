@@ -96,8 +96,8 @@ framework safely. Read it before changing anything under `internal/`.
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
-├── examples/           hello, todo, frameless, native; counter-native, vibrancy
-│                       and gallery (native UI)
+├── examples/           hello, todo, frameless, native; counter-native, vibrancy,
+│                       effort-slider and gallery (native UI)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
@@ -1841,7 +1841,10 @@ either.
     `text.Shade` of the text's color. `text.Thick`, for text a
     `ui.Font` thickens (the terminal's `Font.Thicken`, as Ghostty's
     font-thicken), smooths at the strongest step whatever the color and
-    the user's setting; other engines draw it as other text.
+    the user's setting, and `text.Flat`, for text a `ui.Font` draws
+    `Antialiased` (as browsers draw `-webkit-font-smoothing:
+    antialiased`), does not smooth; other engines draw both as other
+    text.
   - *Windows.* Glyphs take the rendering mode and grid fitting DirectWrite
     recommends for their font and size (`IDWriteFontFace3`'s, which from
     about 1.9 pixels a DIP downsamples natural symmetric rendering, as
