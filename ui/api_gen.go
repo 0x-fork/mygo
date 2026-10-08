@@ -57,6 +57,7 @@ func (_handle *ListState) Shortcut(c *Context, mods Modifiers, key Key) bool {
 	if _ctx == nil {
 		return false
 	}
+	_ctx.rt.applyInputs()
 	return _handle.coreShortcut(_ctx, mods, key)
 }
 
@@ -139,7 +140,8 @@ func (_handle CollapsibleParts) Progress() float32 {
 }
 
 // Chosen returns the option the user chose in this frame, by a click or
-// Enter: ask it after Popup.
+// Enter: ask it after Popup. It applies pending input to the controls built
+// so far, so the choice can be handled in the same build pass.
 func (_handle ComboboxParts) Chosen() (string, bool) {
 	_parts := _handle.resolve()
 	if _parts == nil {
@@ -383,6 +385,7 @@ func (_handle *Context) Shortcut(mods Modifiers, key Key) bool {
 	if _ctx == nil {
 		return false
 	}
+	_ctx.rt.applyInputs()
 	return _ctx.Shortcut(mods, key)
 }
 
@@ -2407,6 +2410,7 @@ func (_handle Element) Clicked() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_ctx.rt.applyInputs()
 	return _node.Clicked()
 }
 
@@ -2419,6 +2423,7 @@ func (_handle Element) Clicks() int {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_ctx.rt.applyInputs()
 	return _node.Clicks()
 }
 
@@ -2664,6 +2669,7 @@ func (_handle Element) DoubleClicked() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_ctx.rt.applyInputs()
 	return _node.DoubleClicked()
 }
 
@@ -3615,6 +3621,7 @@ func (_handle Element) OverlayShortcut(mods Modifiers, key Key) bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_ctx.rt.applyInputs()
 	return _node.OverlayShortcut(mods, key)
 }
 
@@ -3800,6 +3807,7 @@ func (_handle Element) RightClicked() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_ctx.rt.applyInputs()
 	return _node.RightClicked()
 }
 
@@ -4013,6 +4021,7 @@ func (_handle Element) Shortcut(mods Modifiers, key Key) bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_ctx.rt.applyInputs()
 	return _node.Shortcut(mods, key)
 }
 

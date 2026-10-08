@@ -1111,8 +1111,12 @@ Constructors build and style controls eagerly. `Context.Key` supplies an ID
 before state initialization. `Changed` and `Submitted` apply pending input
 to controls built so far, once per pass, before returning the response. This
 lets polling commit a local bound value immediately. Input options must be
-configured before response queries. Remaining input applies after
-construction. `OnChange` and `OnSubmit` run after construction and bound
+configured before response queries. Public click and shortcut queries also
+apply pending bound input before returning, so inline actions see the latest
+edits. `ComboboxParts.Chosen` applies input and reports a choice in the same
+pass; it is not carried into a later rebuild. Private widget queries do not
+finalize input during construction, before fluent configuration. Remaining
+input applies after construction. `OnChange` and `OnSubmit` run after construction and bound
 input, before rebuilding. Notices are cleared before another pass so an
 edit cannot be reported again on a fresh local binding. Callback actions
 consume input once and rebuild before paint.

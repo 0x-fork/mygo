@@ -367,6 +367,20 @@ func sourceResults(fs *token.FileSet, r *ast.FieldList) string {
 
 var special = map[string]bool{"Element.Children": true, "Element.Key": true, "Element.Material": true, "Context.Invalidate": true, "List": true}
 
+// Public action queries must see bound edits on controls already built.
+// Keep this at the facade: private widget queries can run in constructors,
+// before callers finish configuring the widget's input options.
+var inputQueries = map[string]bool{
+	"Element.Clicked":         true,
+	"Element.Clicks":          true,
+	"Element.DoubleClicked":   true,
+	"Element.RightClicked":    true,
+	"Element.Shortcut":        true,
+	"Element.OverlayShortcut": true,
+	"Context.Shortcut":        true,
+	"ListState.Shortcut":      true,
+}
+
 func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 	r := receiver(fn)
 	pubR := r
@@ -459,6 +473,9 @@ func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 				fmt.Fprintln(out, "_ctx := _handle.router.rtContext(); if _ctx == nil { return Element{} }")
 			}
 		}
+	}
+	if inputQueries[pubR+"."+name] {
+		fmt.Fprintln(out, "_ctx.rt.applyInputs()")
 	}
 	var args []string
 	if fn.Type.Params != nil {

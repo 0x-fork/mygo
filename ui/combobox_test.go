@@ -9,6 +9,51 @@ import (
 
 var fonts = []string{"Arial", "Helvetica", "Times", "Courier", "Optima"}
 
+func TestComboboxChosenRebuildsDependentUI(t *testing.T) {
+	for _, keyboard := range []bool{false, true} {
+		name := "pointer"
+		if keyboard {
+			name = "keyboard"
+		}
+		t.Run(name, func(t *testing.T) {
+			text, picked, choices := "", "none", 0
+			tt := NewTester(func(c *Context) {
+				Text(c, "Picked: "+picked)
+				p := ComboboxBase(c.Key("combo"), &text)
+				p.Input.Label("Combo").Width(180)
+				p.Popup(func(panel Element) {
+					panel.Children(func() {
+						for _, value := range []string{"Alpha", "Beta"} {
+							p.Item(value).Children(func() { Text(c, value) })
+						}
+					})
+				})
+				if value, ok := p.Chosen(); ok {
+					picked = value
+					choices++
+				}
+			}, 300, 300)
+			if err := tt.Click("Combo"); err != nil {
+				t.Fatal(err)
+			}
+			if keyboard {
+				tt.Key(0, KeyDown)
+				tt.Key(0, KeyDown)
+				tt.Key(0, KeyEnter)
+			} else if err := tt.Click("Beta"); err != nil {
+				t.Fatal(err)
+			}
+			if picked != "Beta" || choices != 1 || !tt.HasText("Picked: Beta") {
+				t.Fatalf("picked %q, choices %d, texts %q", picked, choices, tt.Texts())
+			}
+			tt.Frame()
+			if choices != 1 {
+				t.Fatal("another frame repeated the choice")
+			}
+		})
+	}
+}
+
 func TestCombobox(t *testing.T) {
 	font, changes := "Arial", 0
 	tt := coreNewTester(func(c *context) {

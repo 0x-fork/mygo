@@ -68,6 +68,10 @@ if ui.Button(c, "Save").Clicked() {
 }
 ```
 
+Click and shortcut queries apply pending bound input to controls built so
+far before returning, so an inline save sees the latest edits. Configure
+those controls before asking for an action response.
+
 `OnClick` schedules the action after the view finishes building and bound
 input has been applied:
 

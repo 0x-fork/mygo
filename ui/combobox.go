@@ -31,7 +31,6 @@ type comboboxParts struct {
 	typed     *bool
 	chosen    string
 	isChosen  bool
-	choice    *comboChoice
 }
 
 // ComboboxBase creates a combobox without a look: a text input editing
@@ -76,13 +75,8 @@ func comboboxBase(c *context, text *string, first bool) *comboboxParts {
 		pointer:   coreLocal(in, "pointer", func() [2]float32 { return [2]float32{} }),
 		typed:     coreLocal(in, "typed", func() bool { return false }),
 	}
-	p.choice = coreLocal(in, "choice", func() comboChoice { return comboChoice{} })
-	p.chosen, p.isChosen = p.choice.text, p.choice.ready
 	in.afterInput(func() {
 		p.chosen, p.isChosen = "", false
-		if p.choice.epoch < c.rt.epoch {
-			p.choice.ready = false
-		}
 		rt := c.rt
 		typedFirst := -1
 		if first {
@@ -140,14 +134,17 @@ func comboboxBase(c *context, text *string, first bool) *comboboxParts {
 func (p *comboboxParts) choose(v string) {
 	p.chosen, p.isChosen = v, true
 	p.Input.st.submitted = false
-	*p.choice = comboChoice{text: v, ready: true, epoch: p.c.rt.epoch}
 	*p.open, *p.typed, *p.highlight = false, false, -1
 	p.c.rt.consumed = true
 }
 
 // Chosen returns the option the user chose in this frame, by a click or
-// Enter: ask it after Popup.
-func (p *comboboxParts) Chosen() (string, bool) { return p.chosen, p.isChosen }
+// Enter: ask it after Popup. It applies pending input to the controls built
+// so far, so the choice can be handled in the same build pass.
+func (p *comboboxParts) Chosen() (string, bool) {
+	p.c.rt.applyInputs()
+	return p.chosen, p.isChosen
+}
 
 // Open reports whether the popup shows.
 func (p *comboboxParts) Open() bool { return *p.open }
@@ -551,10 +548,4 @@ func coreTokenField(c *context, tokens *[]string, suggestions []string) *node {
 		}
 	})
 	return f
-}
-
-type comboChoice struct {
-	text  string
-	ready bool
-	epoch uint64
 }
