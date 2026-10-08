@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/vec"
 )
 
 // These tests cover what widgets of your own are made of: the states and
@@ -430,19 +431,25 @@ func TestPathsLookTheSameWhateverDrewBefore(t *testing.T) {
 	}
 }
 
-// TestStrokesAreAsWideAsAsked strokes a circle and a square: their ink
-// is the area of the stroke, along curves too, where the stroke's pieces
-// meet at every point of the flattened curve.
+// TestStrokesAreAsWideAsAsked strokes a circle and a square: the ink of
+// their masks is the area of the stroke, along curves too, where the
+// stroke's pieces meet at every point of the flattened curve. (Windows
+// draws masks with the contrast of its text, so the rendered pixels are
+// darker there.)
 func TestStrokesAreAsWideAsAsked(t *testing.T) {
 	ink := func(path *Path, width, scale float32) float64 {
-		img := coreRender(func(c *context) {
-			coreBox(c).Fill().Background(RGB(0, 0, 0)).Draw(func(p *Painter, r Rect) {
-				p.StrokePath(path, width, RGB(255, 255, 255))
-			})
-		}, 50, 50, scale)
+		var f flatPath
+		path.flatten(&f, scale)
+		var z vec.Rasterizer
+		var loop [][2]float32
+		n := int(50 * scale)
+		z.Reset(n, n)
+		strokeInto(&z, &loop, &f, width*scale/2, 0, 0)
+		pix := make([]byte, n*n)
+		z.Mask(pix, n)
 		var sum float64
-		for i := 0; i < len(img.Pix); i += 4 {
-			sum += float64(img.Pix[i]) / 255
+		for _, v := range pix {
+			sum += float64(v) / 255
 		}
 		return sum / float64(scale*scale)
 	}
