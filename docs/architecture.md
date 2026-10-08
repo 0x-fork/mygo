@@ -96,7 +96,7 @@ framework safely. Read it before changing anything under `internal/`.
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
-├── examples/           hello, todo, frameless, native, vibrancy; counter-native
+├── examples/           hello, todo, frameless, native; counter-native, vibrancy
 │                       and gallery (native UI)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
@@ -426,7 +426,8 @@ purego gives three primitives, used everywhere:
   the z-order when it appears. A window without a caption has no room for
   its menu bar: Alt and F10 open a popup holding the bar's own submenus.
 - **Vibrancy** sets `DWMWA_SYSTEMBACKDROP_TYPE` (Windows 11 22H2) and
-  extends the frame over the client area, behind a transparent webview.
+  extends the frame over the client area, behind a transparent webview or
+  native UI.
   The material shows only in a window created without a redirection
   bitmap (`WS_EX_NOREDIRECTIONBITMAP`, which Windows neither adds nor
   removes later), whose opaque surface would cover it, so `SetVibrancy`
@@ -441,8 +442,15 @@ purego gives three primitives, used everywhere:
   goroutine), is made again, and every window's buttons draw again;
   buttons that could not draw retry on a timer of the application
   window, a second later and longer after each failure in a row. Without
-  DirectComposition, a window with a hidden title bar keeps its bitmap:
-  its buttons show, and the material does not.
+  DirectComposition, a window with a hidden title bar or native UI keeps
+  its bitmap: what it draws shows, and the material does not. Native UI
+  there draws on the GPU into a swap chain for composition, premultiplied
+  by its alpha (`d3d11.NewComposed`), on a DirectComposition device of the
+  renderer's own, and its frames drawn in memory show as the window
+  controls do. A renderer about to draw takes the surface's window over
+  from those (`Surface.Native`): a window has one DirectComposition target
+  at most. `ui.Context.Vibrancy` tells the view whether the material shows
+  (`platform.MaterialSurface`).
 - Message boxes are task dialogs (comctl32 v6, activated from shell32's
   manifest for executables without one); their structs are packed and laid
   out by hand. Notifications are notification-area balloons, which Windows
@@ -1840,7 +1848,9 @@ either.
     Direct2D draws), ClearType where the system smooths
     fonts with it (`SPI_GETFONTSMOOTHINGTYPE`, with the pixel geometry and
     ClearType level of the system's rendering parameters) and the glyph is
-    on an opaque background, and are aliased where the system does not
+    on an opaque background (the root's, or that of an element around it
+    holding all of it that shows, as a pane beside a sidebar over a
+    material), and are aliased where the system does not
     smooth fonts. Renderers blend them as Direct2D does, with the gamma
     and enhanced contrasts of the system's rendering parameters
     (`scene.TextParams`, Windows Terminal's reproduction of Direct2D's
@@ -1955,7 +1965,8 @@ either.
     endings aside (`gpu.SourceSum`), as Metal's does: bytecode older than
     `shader.hlsl` falls back to compiling that with the same DLL, which
     Windows has, and its test fails. It draws into a flip-model swap
-    chain on the surface's window, with WARP when no hardware device
+    chain on the surface's window, or, over a material, one for
+    DirectComposition shown on it, with WARP when no hardware device
     works. At most one frame waits ahead of the screen, not DXGI's three,
     so frames that follow each other, as when scrolling or animating,
     show their input two frames sooner. A frame of a new size is
@@ -2537,7 +2548,7 @@ which npm allows only for packages that exist: the first release uses an
 | global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
 | notifications | UserNotifications, packaged apps only; `Group` is the `threadIdentifier`; the delegate is attached at launch, for the click that launched the app | org.freedesktop.Notifications over D-Bus; no `Group` | notification-area balloons (toasts); no `Group` |
 | notification removal | `removeDeliveredNotificationsWithIdentifiers:`; `ClearNotifications` removes all, earlier runs' too | `CloseNotification` on the bus, for those of this run | hides the balloon, which goes away by itself anyway |
-| vibrancy | all materials | ignored | Windows 11 22H2 Mica, Acrylic, Tabbed, in windows created with a material, which have no menu bar |
+| vibrancy | all materials, behind pages and native UI | ignored | Windows 11 22H2 Mica, Acrylic, Tabbed, behind pages and native UI, in windows created with a material, which have no menu bar |
 | traffic lights, Dock | yes | ignored | ignored |
 | hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window, through DirectComposition over a material; snap layouts; a top edge that resizes |
 | progress bar | Dock tile content view (NSBoxes: NSProgressIndicator does not draw there), app-wide | Unity launcher API over D-Bus (`com.canonical.Unity.LauncherEntry`), app-wide | `ITaskbarList3`, per window |

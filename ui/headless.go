@@ -43,6 +43,8 @@ type headless struct {
 	// window shows.
 	hz     float32
 	hidden bool
+	// material tells that the window shows one (SetVibrancy).
+	material bool
 	// reading runs once as the clipboard is next read, as GTK's nested
 	// event loop may draw a frame then.
 	reading func()
@@ -92,6 +94,7 @@ func (h *headless) titleBarDoubleClicked()            {}
 func (h *headless) isDark() bool                      { return h.dark }
 func (h *headless) preferences() platform.Preferences { return h.prefs }
 func (h *headless) titleBar() TitleBar                { return h.bar }
+func (h *headless) vibrancy() bool                    { return h.material }
 func (h *headless) invalidate()                       { h.requested.Store(true) }
 
 // openURL notes the link, and gives done the error FailOpenURL set before
@@ -189,6 +192,13 @@ func (t *Tester) SetScale(scale float32) {
 // title bar take, which Context.TitleBar returns.
 func (t *Tester) SetTitleBar(bar TitleBar) {
 	t.h.bar = bar
+	t.Frame()
+}
+
+// SetVibrancy sets whether the window shows a material where the view
+// draws no background, which Context.Vibrancy returns.
+func (t *Tester) SetVibrancy(shows bool) {
+	t.h.material = shows
 	t.Frame()
 }
 
