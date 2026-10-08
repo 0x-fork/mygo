@@ -5,7 +5,7 @@ description: Maintain Go applications using github.com/egoist/mygo, including UI
 
 # MyGo app maintenance
 
-Check the app's pinned MyGo version and existing conventions before changing APIs. Locate its source with `go list -m -f '{{.Dir}}' github.com/egoist/mygo`; read `ui/doc.go`, relevant implementation comments, and `docs/ui/migration.md` when upgrading. Confirm API availability against that source.
+Check the app's pinned MyGo version and existing conventions before changing APIs. Locate its source with `go list -m -f '{{.Dir}}' github.com/egoist/mygo`; read `ui/doc.go` and relevant implementation comments. Read `docs/ui/migration.md` only for major-version upgrades, including minor-version bumps while on `0.x` (for example, `0.2.x` to `0.3.x`, or `1.x` to `2.x`). Confirm API availability against the pinned source.
 
 The native UI rules below apply where the app uses package `ui`; preserve a web app's frontend and typed Go/TypeScript bindings.
 
