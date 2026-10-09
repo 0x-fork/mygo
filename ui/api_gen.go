@@ -4253,6 +4253,17 @@ func (_handle Element) TopPercent(p float32) Element {
 	return wrapElement(_node.TopPercent(p))
 }
 
+// TrackLines keeps in l where the text area lays out its lines.
+func (_handle Element) TrackLines(l *TextLines) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.TrackLines(l))
+}
+
 // TrackScroll keeps the scrolling of a scroll container (Scroll,
 // ScrollHorizontal, ScrollBoth, List) in *s: the container shows its
 // content from s.X and s.Y, and writes there as the user scrolls it. The
