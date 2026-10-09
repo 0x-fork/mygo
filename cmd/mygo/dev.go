@@ -398,7 +398,7 @@ func (s *devSession) report(t *task, verb, why string, err error) {
 
 // hint tells what to do after a build failed, or the app crashed.
 func (s *devSession) hint(msg string) {
-	con.println("  " + con.motto() + " " + dim(msg))
+	con.println("  " + dim(msg))
 }
 
 // killLive kills the running build at once.

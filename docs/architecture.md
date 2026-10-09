@@ -2239,8 +2239,7 @@ renderer's (`gputest.Compare`).
   (`NO_COLOR` turns them off anyway). `dev` and `build` open with a
   banner whose five exclamation marks are those of MyGO!!!!!, in its
   members' colors, which light up one after the other on a terminal
-  (redrawn two lines up with the cursor saved, until a line moves it); a
-  failed dev build ends with the band's motto, 迷子でもいい、迷子でも進め。
+  (redrawn two lines up with the cursor saved, until a line moves it).
 - `build` generates the client, runs `buildCommand`, then compiles each
   target with `-trimpath -ldflags "-s -w -X …production=1"` (`-H=windowsgui`
   on Windows) and `-tags mygo_noinspector`, which leaves the inspector of

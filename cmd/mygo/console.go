@@ -110,22 +110,15 @@ func (c *console) fg(col termColor) string {
 	return fmt.Sprintf("38;5;%d", col.xterm)
 }
 
-var (
-	// bandColor is the color of MyGO!!!!!.
-	bandColor = termColor{0x33, 0x88, 0xbb, 67}
-	// memberColors are the colors of its members, in the band's lineup:
-	// Tomori, Anon, Rāna, Soyo and Taki.
-	memberColors = [5]termColor{
-		{0x77, 0xbb, 0xdd, 110},
-		{0xff, 0x88, 0x99, 210},
-		{0x77, 0xdd, 0x77, 114},
-		{0xff, 0xdd, 0x88, 222},
-		{0x77, 0x77, 0xaa, 103},
-	}
-)
-
-// band paints s in the color of MyGO!!!!!.
-func band(s string) string { return con.style(con.fg(bandColor), s) }
+// memberColors are the colors of MyGO!!!!!'s members, in the band's
+// lineup: Tomori, Anon, Rāna, Soyo and Taki.
+var memberColors = [5]termColor{
+	{0x77, 0xbb, 0xdd, 110},
+	{0xff, 0x88, 0x99, 210},
+	{0x77, 0xdd, 0x77, 114},
+	{0xff, 0xdd, 0x88, 222},
+	{0x77, 0x77, 0xaa, 103},
+}
 
 // bannerFrame is the interval at which the banner's members join.
 const bannerFrame = 110 * time.Millisecond
@@ -185,14 +178,6 @@ func (c *console) settle() {
 		c.paintBanner(len(memberColors))
 		c.bannerLive = false
 	}
-}
-
-// motto is MyGO!!!!!'s: it is fine to be lost; lost, go on all the same.
-func (c *console) motto() string {
-	if c.sym.ok != unicodeSymbols.ok {
-		return band("Lost? Keep going.")
-	}
-	return band("迷子でもいい、迷子でも進め。")
 }
 
 // println writes a line of the CLI's own.
