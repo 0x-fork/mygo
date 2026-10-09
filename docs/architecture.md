@@ -1277,7 +1277,11 @@ either.
   nothing.
 - **Frames.** The engine (`ui/runtime.go`) calls the view to build a frame,
   again (up to three times) when a handler changed the state while it built,
-  so the frame shows the outcome. Observing `Pressed` when a pointer press
+  so the frame shows the outcome. A window that closes during a frame (a
+  close button's click; backends report `Closed` at once) keeps its engine
+  until the frame ends: the rest of the view builds with a working
+  `Context`, no further callback runs, nothing is laid out or painted, and
+  the engine closes as the frame ends. Observing `Pressed` when a pointer press
   begins also rebuilds before painting, so selection made on press and its
   focus colors appear together; holding the pointer asks for no further
   build passes. The engine lays it out with flexbox (`layout.go`) or

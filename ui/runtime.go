@@ -215,6 +215,7 @@ type engine struct {
 	incoming    *platform.DataDragEvent
 	dataOver    uint64
 	closed      bool
+	closing     bool // the window closed during a frame, which closes the engine as it ends
 	dropFormats []transfer.Format
 	dropScratch []transfer.Format
 	// kept are the pages of the history that Routers keep, and commitPage
@@ -343,7 +344,7 @@ func (rt *engine) runFrame() {
 		return
 	}
 	rt.inFrame = true
-	defer func() { rt.inFrame = false }()
+	defer rt.endFrame()
 
 	rt.frame++
 	rt.stats.begin(rt)
@@ -383,9 +384,9 @@ func (rt *engine) runFrame() {
 		clear(rt.kept)
 		rt.c.reset(now, appW, h)
 		rt.view(&rt.c)
-		if rt.closed {
+		if rt.closing {
 			// The view closed the window, as a close button does: the
-			// window is gone at once on Windows, and the frame with it.
+			// window is gone at once, and the frame ends with the view.
 			return
 		}
 		rt.buildToasts(&rt.c)
@@ -405,7 +406,7 @@ func (rt *engine) runFrame() {
 		rt.prepareSelectable(rt.c.root)
 		rt.resolveMenu()
 		rt.endPass()
-		if rt.closed {
+		if rt.closing {
 			return // an action closed it
 		}
 		if !rt.consumed {
@@ -535,7 +536,7 @@ func (rt *engine) surfaceFrame() {
 // armed them.
 func (rt *engine) repaintFrame(w, h, scale float32) {
 	rt.inFrame = true
-	defer func() { rt.inFrame = false }()
+	defer rt.endFrame()
 	rt.stats.begin(rt)
 	start := time.Now()
 	rt.c.now = rt.now()
@@ -707,8 +708,16 @@ func (rt *engine) armTimer() {
 	}
 }
 
+// close lets the window's state go when the window closes. A window closed
+// during a frame, as a close button's click closes it, keeps it until the
+// frame ends: the rest of the view builds with a Context that still works,
+// and reads the theme, the size and its state as before.
 func (rt *engine) close() {
-	rt.closed = true
+	if rt.inFrame {
+		rt.closing = true
+		return
+	}
+	rt.closed, rt.closing = true, false
 	clear(rt.focusFields)
 	rt.focusFields = nil
 	for _, r := range rt.refs {
@@ -746,6 +755,15 @@ func (rt *engine) close() {
 	}
 	if rt.repaintTimer != nil {
 		rt.repaintTimer.Stop()
+	}
+}
+
+// endFrame ends a frame, and closes the engine when its window closed
+// during it.
+func (rt *engine) endFrame() {
+	rt.inFrame = false
+	if rt.closing {
+		rt.close()
 	}
 }
 

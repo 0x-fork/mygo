@@ -645,9 +645,10 @@ func TestHandleBoundsBetweenBuilds(t *testing.T) {
 }
 
 // TestCloseWhileBuilding closes the window from its view and from a click's
-// callback, as a close button does: Window.Close destroys it at once on
-// Windows. The frame ends there, without building the view again for the
-// click.
+// callback, as a close button does: Window.Close destroys it at once. The
+// rest of the view builds with a Context that still works, and the frame
+// ends there, without building the view again for the click. The engine
+// closes once the frame ends.
 func TestCloseWhileBuilding(t *testing.T) {
 	for _, callback := range []bool{false, true} {
 		var tt *Tester
@@ -668,6 +669,12 @@ func TestCloseWhileBuilding(t *testing.T) {
 				b.OnClick(close)
 			} else if b.Clicked() {
 				close()
+				// What follows the button builds as it would, in the
+				// theme's colors.
+				if !f.Valid() || f.Theme() == nil {
+					t.Fatal("the Context stopped working with the window")
+				}
+				Text(f, "After").TextColor(f.Theme().TextMuted)
 			}
 		}, 200, 100)
 		if err := tt.Click("Close"); err != nil {
@@ -675,6 +682,9 @@ func TestCloseWhileBuilding(t *testing.T) {
 		}
 		if !closed {
 			t.Fatalf("callback %v: the button was not clicked", callback)
+		}
+		if !tt.rt.closed {
+			t.Fatalf("callback %v: the engine did not close after the frame", callback)
 		}
 	}
 }
