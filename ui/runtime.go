@@ -910,15 +910,25 @@ func intersect(a, b Rect) Rect {
 	return Rect{x0, y0, x1 - x0, y1 - y0}
 }
 
-// updateCursor shows the cursor of the element under the pointer.
+// updateCursor shows the cursor of the element under the pointer: the
+// innermost one's that sets a cursor, up to the innermost element that
+// takes clicks, whose own cursor is the default unless it sets one, so a
+// button in a text field shows no I-beam.
 func (rt *engine) updateCursor() {
 	c := CursorDefault
 	if rt.pressed != nil && rt.pressed.cursor != 0 {
 		c = rt.pressed.cursor - 1
 	} else {
 		for _, id := range rt.hover {
-			if s := rt.states[id]; s != nil && s.cursor != 0 {
+			s := rt.states[id]
+			if s == nil {
+				continue
+			}
+			if s.cursor != 0 {
 				c = s.cursor - 1
+				break
+			}
+			if s.flags&flagClickable != 0 {
 				break
 			}
 		}
