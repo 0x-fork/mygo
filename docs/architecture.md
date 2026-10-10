@@ -2357,7 +2357,8 @@ renderer's (`gputest.Compare`).
   manifest, read with sed from the indented JSON `mygo build` writes.
   `--uninstall` removes only what points into its install, including the
   URL handler entry the app registers.
-- On a macOS host, macOS targets also get "<name> <version>.dmg"
+- On a macOS host, macOS targets also get "<name> <version> <arch>.dmg",
+  or "<name> <version>.dmg" for darwin/universal
   (`dmg.go`): the CLI puts a copy of the app (`ditto --noclone`, since a
   clone of a sparse file takes fewer blocks than its copy on HFS+ will),
   the `/Applications` link, the volume icon and a `.DS_Store` written in

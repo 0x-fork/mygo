@@ -93,9 +93,23 @@ func TestPackagingArgs(t *testing.T) {
 	if slices.Contains(args, "-size") {
 		t.Errorf("hdiutil create: %q", args)
 	}
+}
+
+// TestInstallerNames names each architecture's disk image and installer
+// apart, as its archive and its Debian package are, so that two targets of
+// one system, as darwin/arm64 and darwin/amd64, do not replace each other's
+// where they are uploaded. A universal disk image is for every Mac.
+func TestInstallerNames(t *testing.T) {
 	c := &Config{Name: "A/B: C", Version: "1.0"}
-	if got := dmgFileName(c); got != "A-B- C 1.0.dmg" {
-		t.Errorf("dmgFileName = %q", got)
+	for goarch, want := range map[string]string{"arm64": "A-B- C 1.0 arm64.dmg", "amd64": "A-B- C 1.0 amd64.dmg", "universal": "A-B- C 1.0.dmg"} {
+		if got := dmgFileName(c, goarch); got != want {
+			t.Errorf("dmgFileName(%s) = %q, want %q", goarch, got, want)
+		}
+	}
+	for goarch, want := range map[string]string{"amd64": "A-B- C Setup 1.0 amd64.exe", "arm64": "A-B- C Setup 1.0 arm64.exe"} {
+		if got := installerFileName(c, goarch); got != want {
+			t.Errorf("installerFileName(%s) = %q, want %q", goarch, got, want)
+		}
 	}
 }
 
@@ -131,11 +145,11 @@ func TestSetFinderFlagsUsesSystemXattr(t *testing.T) {
 // TestBuildDMG builds a disk image of a minimal app with hdiutil.
 func TestBuildDMG(t *testing.T) {
 	c, app, icns := dmgTestApp(t)
-	dmg, err := buildDMG(c, app, filepath.Dir(app), buildOptions{sign: "-"})
+	dmg, err := buildDMG(c, app, filepath.Dir(app), runtime.GOARCH, buildOptions{sign: "-"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Base(dmg) != "DMG Test 1.2.3.dmg" {
+	if filepath.Base(dmg) != "DMG Test 1.2.3 "+runtime.GOARCH+".dmg" {
 		t.Errorf("dmg = %s", dmg)
 	}
 	mnt := attachDMG(t, dmg)
@@ -202,7 +216,7 @@ func TestBuildDMGSize(t *testing.T) {
 	if err := errors.Join(err, f.Close()); err != nil {
 		t.Fatal(err)
 	}
-	dmg, err := buildDMG(c, app, filepath.Dir(app), buildOptions{sign: "-"})
+	dmg, err := buildDMG(c, app, filepath.Dir(app), runtime.GOARCH, buildOptions{sign: "-"})
 	if err != nil {
 		t.Fatal(err)
 	}

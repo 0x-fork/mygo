@@ -14,17 +14,24 @@ import (
 // finderHasCustomIcon is the Finder flag of folders with a custom icon.
 const finderHasCustomIcon = 0x0400
 
-// dmgFileName is "<Name> <Version>.dmg".
-func dmgFileName(c *Config) string {
-	return fsName(c.Name) + " " + fsName(c.Version) + ".dmg"
+// dmgFileName is "<Name> <Version> <arch>.dmg", as "My App 1.2.0
+// arm64.dmg", or "<Name> <Version>.dmg" for darwin/universal, which is for
+// every Mac: each architecture's disk image is named apart, so that the
+// builds of two, uploaded to one release or bucket, keep both.
+func dmgFileName(c *Config, goarch string) string {
+	if goarch == "universal" {
+		return fsName(c.Name) + " " + fsName(c.Version) + ".dmg"
+	}
+	return fsName(c.Name) + " " + fsName(c.Version) + " " + goarch + ".dmg"
 }
 
-// buildDMG packages app into a compressed, read-only disk image in dir and
-// returns its path. Opening the image shows the app next to a link to
-// /Applications; the Finder layout comes from a generated .DS_Store (see
-// dsstore.go). Only hdiutil, which ships with macOS, is needed.
-func buildDMG(c *Config, app, dir string, opts buildOptions) (_ string, err error) {
-	file := dmgFileName(c)
+// buildDMG packages app, built for goarch, into a compressed, read-only
+// disk image in dir and returns its path. Opening the image shows the app
+// next to a link to /Applications; the Finder layout comes from a generated
+// .DS_Store (see dsstore.go). Only hdiutil, which ships with macOS, is
+// needed.
+func buildDMG(c *Config, app, dir, goarch string, opts buildOptions) (_ string, err error) {
+	file := dmgFileName(c, goarch)
 	t := con.start("Creating " + file)
 	defer func() { t.end(err, "Created "+file) }()
 	work, err := os.MkdirTemp(dir, ".dmg-")
