@@ -83,7 +83,8 @@ The terminal does what terminal apps do:
   arrow keys, or as mouse reports when they take the mouse. Typing scrolls
   back to the bottom.
 - **Links**: Command+click (Control+click elsewhere) opens a hyperlink a
-  program printed (OSC 8).
+  program printed (OSC 8), or a URL printed as text, even while a program
+  takes the mouse; the pointer is a hand over them while Command is held.
 - Shortcuts of the app come first: Command shortcuts on macOS are never
   sent to the program, and keys that the window or an element around the
   terminal handles with `Shortcut` go there.
@@ -134,6 +135,14 @@ term, err := terminal.New(terminal.Options{
   for a desktop notification. `Done` is closed once the program exited,
   and `ExitCode` returns its code (-1 for a program that could not
   start); the terminal then shows "[Process exited]".
+- `OpenLink` takes the links Command+click opens, on the main thread,
+  and with it file paths printed as text too (`/abs/path`, `~/notes.md`,
+  `./a.go`, `src/app.go:12:3`, `main.go:250`), as printed: a relative
+  path is the program's, as of `Dir`. It reports whether it opened the
+  link; a hyperlink or a URL it leaves opens with the system, as every one
+  does without `OpenLink`. An app opens a remote shell's paths in a
+  preview of its own this way, rather than the system opening them
+  locally.
 
 ## Fonts
 
