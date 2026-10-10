@@ -138,6 +138,7 @@ const (
 type shadow struct {
 	x, y, blur, spread float32
 	color              Color
+	inset              bool
 }
 
 // textStyle is the text styling of an element; descendants inherit what is
@@ -864,7 +865,17 @@ func (e *node) Radius(r ...float32) *node {
 // spread DIPs. As CSS's box-shadow, it shows only outside the box: a
 // translucent background does not show it through.
 func (e *node) Shadow(x, y, blur, spread float32, c Color) *node {
-	e.shadows = append(e.shadows, shadow{x, y, blur, spread, c})
+	e.shadows = append(e.shadows, shadow{x, y, blur, spread, c, false})
+	return e
+}
+
+// InsetShadow adds an inner box shadow, as CSS's box-shadow: inset: offset
+// by x and y, blurred by blur and grown inward by spread DIPs. It shows
+// only inside the box's padding edge, within its border and rounded
+// corners, above the background and below the content. Inner shadows
+// stack in the order they are added, as outer ones do.
+func (e *node) InsetShadow(x, y, blur, spread float32, c Color) *node {
+	e.shadows = append(e.shadows, shadow{x, y, blur, spread, c, true})
 	return e
 }
 

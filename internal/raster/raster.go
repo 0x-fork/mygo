@@ -206,7 +206,11 @@ func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, boun
 		case scene.OpFill:
 			r.fill(op)
 		case scene.OpShadow:
-			r.shadow(op)
+			if op.Inset {
+				r.insetShadow(op)
+			} else {
+				r.shadow(op)
+			}
 		case scene.OpGlyphs:
 			r.glyphs(op)
 		case scene.OpImage:
@@ -934,6 +938,119 @@ func (r *renderer) shadow(op *scene.Op) {
 			if x >= kl && x < kh {
 				v *= outside(x, y)
 			}
+			if v <= 0.002 {
+				continue
+			}
+			if x < cl || x >= ch {
+				v *= r.clipCoverage(x, y)
+			}
+			blend(row[4*x:4*x+4], c, v)
+		}
+	}
+}
+
+// insetShadow draws an inner shadow: inside the box Cast, what the hole
+// Rect, blurred as shadow blurs a box, leaves uncovered.
+func (r *renderer) insetShadow(op *scene.Op) {
+	x0, y0, x1, y1 := r.pixelBounds(op.Cast)
+	if x0 >= x1 || y0 >= y1 {
+		return
+	}
+	opacity := op.Opacity
+	if opacity == 0 {
+		opacity = 1
+	}
+	c := op.Color.Premul(opacity)
+	box := newShape(op.Cast, scene.Corners(op.Cast, op.CastRadii, op.Continuous))
+	radii := scene.Corners(op.Rect, op.Radii, op.Continuous)
+	hole := newShape(op.Rect, radii)
+	empty := op.Rect.Empty()
+	sigma := op.Blur / 2
+	if sigma < 0.5 || empty {
+		for y := y0; y < y1; y++ {
+			row := r.dst.Pix[y*r.dst.Stride:]
+			// Nothing shows where the hole covers the row's pixels
+			// entirely, as it does most of a large box.
+			var sl, sh int
+			if !empty {
+				sl, sh = solidSpan(&hole, float32(y), float32(y+1))
+			}
+			for x := x0; x < x1; x++ {
+				if x >= sl && x < sh {
+					x = sh - 1
+					continue
+				}
+				px, py := float32(x)+0.5, float32(y)+0.5
+				v := coverage(&box, px, py)
+				if !empty {
+					v *= 1 - coverage(&hole, px, py)
+				}
+				if v > 0 {
+					blend(row[4*x:4*x+4], c, v*r.clipCoverage(x, y))
+				}
+			}
+		}
+		return
+	}
+	// The hole blurred as shadow blurs a box, four samples along y and
+	// exactly along x.
+	corner := max(abs(radii[0]), abs(radii[1]), abs(radii[2]), abs(radii[3]))
+	continuous := op.Continuous && corner > 0
+	var cc contCorner
+	if continuous {
+		cc = newContCorner(corner, corner, corner, op.Rect.W, op.Rect.H)
+	}
+	ext := 3 * sigma
+	cx, cy := op.Rect.X+op.Rect.W/2, op.Rect.Y+op.Rect.H/2
+	hx, hy := op.Rect.W/2, op.Rect.H/2
+	k := float32(math.Sqrt(0.5)) / sigma
+	far := 2.6 / k // where erf passes 0.9997
+	for y := y0; y < y1; y++ {
+		py := float32(y) + 0.5 - cy
+		low, high := py-hy, py+hy
+		start := min(max(-ext, low), high)
+		end := min(max(ext, low), high)
+		step := (end - start) / 4
+		var weight, half [4]float32
+		var sum float32
+		narrowest := hx
+		yy := start + step*0.5
+		for i := range 4 {
+			weight[i] = gaussian(yy, sigma) * step
+			sum += weight[i]
+			half[i] = hx
+			if v := hy - abs(py-yy); continuous {
+				if v < cc.e {
+					at, _ := cc.inset(v)
+					half[i] = hx - at
+					narrowest = min(narrowest, half[i])
+				}
+			} else if delta := min(hy-corner-abs(py-yy), 0); delta < 0 {
+				half[i] = hx - corner + float32(math.Sqrt(float64(max(0, corner*corner-delta*delta))))
+				narrowest = min(narrowest, half[i])
+			}
+			yy += step
+		}
+		row := r.dst.Pix[y*r.dst.Stride:]
+		cl, ch := r.clipSolid(y)
+		// In the middle of the row, far from the hole's edges, the hole
+		// covers sum of each pixel, and nothing shows where that is all.
+		ml, mh := x1, x1
+		if 1-sum <= 0.002 {
+			ml = max(int(math.Ceil(float64(cx-narrowest+far-0.5))), x0)
+			mh = min(int(math.Floor(float64(cx+narrowest-far-0.5)))+1, x1)
+		}
+		for x := x0; x < x1; x++ {
+			if x >= ml && x < mh {
+				x = mh - 1
+				continue
+			}
+			px := float32(x) + 0.5
+			var covered float32
+			for i := range 4 {
+				covered += weight[i] * 0.5 * (erf((px-cx+half[i])*k) - erf((px-cx-half[i])*k))
+			}
+			v := (1 - covered) * coverage(&box, px, float32(y)+0.5)
 			if v <= 0.002 {
 				continue
 			}

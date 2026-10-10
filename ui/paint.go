@@ -138,7 +138,9 @@ func (p *Painter) element(e *node) {
 	p.opaque = p.covered(intersect(box, p.clip))
 	margin := float32(0)
 	for _, sh := range e.shadows {
-		margin = max(margin, abs32(sh.x)+abs32(sh.y)+sh.blur+sh.spread)
+		if !sh.inset {
+			margin = max(margin, abs32(sh.x)+abs32(sh.y)+sh.blur+sh.spread)
+		}
 	}
 	clips := e.flags&(flagClipX|flagClipY|flagScrollX|flagScrollY) != 0
 	// What an element clips meets its border where both are smoothed, on
@@ -148,9 +150,16 @@ func (p *Painter) element(e *node) {
 	own := p.visible(box, margin+4)
 	if own {
 		for _, sh := range e.shadows {
-			p.shadow(box, e.radius, sh)
+			if !sh.inset {
+				p.shadow(box, e.radius, sh)
+			}
 		}
 		p.background(e, box, !borderOver)
+		for _, sh := range e.shadows {
+			if sh.inset {
+				p.insetShadow(box, e.radius, e.border, sh)
+			}
+		}
 		if e.paintFn != nil {
 			e.paintFn(p, box)
 		}
@@ -841,7 +850,7 @@ func (p *Painter) StrokeDashed(r Rect, c Color, radius, width float32) {
 // only outside the rectangle, so that it does not show through what is
 // drawn there.
 func (p *Painter) Shadow(r Rect, radius, x, y, blur, spread float32, c Color) {
-	p.shadow(r, [4]float32{radius, radius, radius, radius}, shadow{x, y, blur, spread, c})
+	p.shadow(r, [4]float32{radius, radius, radius, radius}, shadow{x, y, blur, spread, c, false})
 }
 
 // shadow paints the shadow sh of box, rounded by rad, outside box, as
@@ -856,6 +865,33 @@ func (p *Painter) shadow(box Rect, rad [4]float32, sh shadow) {
 	}
 	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpShadow, Rect: p.snap(r), Radii: p.radii(grown), Continuous: continuousCorners, Color: sh.color.scene(),
 		Wide: p.wide(sh.color, Color{}, Color{}), Blur: sh.blur * p.scale, Cast: p.snap(box), CastRadii: p.radii(rad), Opacity: p.opacity})
+}
+
+// insetShadow paints the inner shadow sh of box, rounded by rad, inside
+// its padding edge, within a border of widths bw, as CSS's box-shadow:
+// inset does.
+func (p *Painter) insetShadow(box Rect, rad, bw [4]float32, sh shadow) {
+	pad := p.snap(box)
+	padRadii := scene.FitRadii(pad, p.radii(rad))
+	if scene.HasBorder(bw) {
+		pad, padRadii = scene.InnerRadii(pad, padRadii, p.borders(bw))
+	}
+	if pad.Empty() {
+		return
+	}
+	// The hole the shadow leaves: the padding box offset and shrunk by
+	// the spread.
+	s := p.scale
+	spread := sh.spread * s
+	hole := scene.Rect{X: pad.X + round(sh.x*s) + spread, Y: pad.Y + round(sh.y*s) + spread, W: max(pad.W-2*spread, 0), H: max(pad.H-2*spread, 0)}
+	holeRadii := padRadii
+	for i := range holeRadii {
+		if holeRadii[i] > 0 {
+			holeRadii[i] = max(holeRadii[i]-spread, 0)
+		}
+	}
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpShadow, Inset: true, Rect: hole, Radii: holeRadii, Continuous: continuousCorners, Color: sh.color.scene(),
+		Wide: p.wide(sh.color, Color{}, Color{}), Blur: sh.blur * s, Cast: pad, CastRadii: padRadii, Opacity: p.opacity})
 }
 
 // Line paints a straight horizontal or vertical line between two points,

@@ -82,10 +82,11 @@ type Instance struct {
 	// Clip and ClipRadii are the innermost clip, which the shader cuts.
 	Clip, ClipRadii [4]float32
 	// Params is the kind (0 fill, 1 shadow, 2 mask glyph, 3 color glyph, 4
-	// image, 5 subpixel glyph, 6 effect); 1 for a dashed border or a
-	// grayscale image; the shadow's sigma (0 for none), the paint
-	// (scene.Paint) or the size of the squares an effect's backdrop
-	// averages; and the opacity.
+	// image, 5 subpixel glyph, 6 effect); 1 for a dashed border, a
+	// grayscale image or an inner shadow, whose box is in Rect and Radii
+	// and the hole it leaves in UV and Inner (none when empty); the
+	// shadow's sigma (0 for none), the paint (scene.Paint) or the size of
+	// the squares an effect's backdrop averages; and the opacity.
 	Params [4]float32
 }
 
@@ -226,6 +227,26 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 				Params: [4]float32{0, dashed, float32(op.Paint), opacity(op.Opacity)},
 			}, 0)
 		case scene.OpShadow:
+			if op.Inset {
+				// The box in Rect, the hole in UV and Inner, which an
+				// inner shadow's 1 in Params[1] tells.
+				if op.Cast.Empty() {
+					continue
+				}
+				sigma := op.Blur / 2
+				if sigma < 0.5 {
+					sigma = 0
+				}
+				in := Instance{
+					Rect: rect(op.Cast), Radii: scene.Corners(op.Cast, op.CastRadii, op.Continuous),
+					Color: wideColor(b.wideOf(s, op.Wide), scene.WideColor, op.Color), Params: [4]float32{1, 1, sigma, opacity(op.Opacity)},
+				}
+				if !op.Rect.Empty() {
+					in.UV, in.Inner = rect(op.Rect), scene.Corners(op.Rect, op.Radii, op.Continuous)
+				}
+				b.add(in, 0)
+				continue
+			}
 			if op.Rect.Empty() {
 				continue
 			}

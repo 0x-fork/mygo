@@ -72,7 +72,9 @@ const (
 	// Radii are the shadow's box, already offset and spread, Blur its blur
 	// radius and Color its color. Unless Cast is empty, the shadow shows
 	// only outside it, the box casting the shadow, as CSS's box-shadow
-	// does.
+	// does. An Inset shadow shows only inside Cast instead, where Rect,
+	// the hole it leaves, blurred, does not cover it, as CSS's box-shadow:
+	// inset does; Rect may then be empty, which leaves no hole.
 	OpShadow
 	// OpGlyphs paints Scene.Glyphs[Start:End]. With a gradient Paint, its
 	// mask glyphs take the gradient from Color to Color2, times Opacity,
@@ -126,7 +128,9 @@ type Op struct {
 	BorderColor Color
 	Dashed      bool
 
-	Blur float32
+	// Inset makes an OpShadow an inner shadow.
+	Inset bool
+	Blur  float32
 	// Cast is the box casting an OpShadow, with CastRadii.
 	Cast      Rect
 	CastRadii [4]float32
