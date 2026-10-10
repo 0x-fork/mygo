@@ -38,6 +38,7 @@ import (
 
 	"github.com/egoist/mygo/plugins/terminal/internal/pty"
 	"github.com/egoist/mygo/plugins/terminal/internal/vt"
+	"github.com/egoist/mygo/ui"
 )
 
 // Options configure a terminal.
@@ -106,6 +107,21 @@ type Options struct {
 	// opens with the system (Context.OpenURL), and a path it leaves does
 	// nothing.
 	OpenLink func(link string) bool
+	// OnPaste sees a paste (Command+V, Control+Shift+V elsewhere, or a
+	// Paste menu item) before the program gets it, on the main thread:
+	// text is the clipboard's text, empty when it holds none, as with an
+	// image. It reports whether it took the paste; a paste taken sends
+	// nothing, as when an app uploads the clipboard's files for a remote
+	// program and pastes their paths instead.
+	OnPaste func(text string) bool
+	// OnKey sees a key press before the terminal encodes it, on the main
+	// thread, and reports whether it took the key; a key taken sends
+	// nothing, neither the text it types nor its release. Unlike a
+	// shortcut of an element around the view, which runs with the next
+	// frame, it keeps its place among the keys typed after it, as does
+	// what it sends with Send. A key that only types text may come as its
+	// text alone, as on Linux, which OnKey does not see.
+	OnKey func(mods ui.Modifiers, key ui.Key) bool
 }
 
 // CursorStyle is the shape of the cursor.

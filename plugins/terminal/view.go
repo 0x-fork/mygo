@@ -114,6 +114,9 @@ type pendingKey struct {
 	unshifted rune
 	mods      ui.Modifiers
 	repeat    bool
+	// taken: Options.OnKey took the key, whose text and release are
+	// dropped.
+	taken bool
 }
 
 // build updates the view as a frame builds.
@@ -276,6 +279,11 @@ func (v *view) input(ev ui.InputEvent) bool {
 
 func (v *view) keyDown(ev ui.InputEvent) bool {
 	t := v.t
+	if on := t.opts.OnKey; on != nil && on(ev.Mods, ev.Key) {
+		k, _ := vtKey(ev.Key)
+		v.pending = &pendingKey{key: k, taken: true}
+		return true
+	}
 	mac := runtime.GOOS == "darwin"
 	mods, key := ev.Mods, ev.Key
 	copyMods := ui.Ctrl | ui.Shift
@@ -347,9 +355,12 @@ func (v *view) keyUp(ev ui.InputEvent) bool {
 		return false
 	}
 	if p := v.pending; p != nil && p.key == k {
+		v.pending = nil
+		if p.taken {
+			return true
+		}
 		// No text came, as for Control, Alt and a letter on Windows,
 		// where they may type one: the key alone.
-		v.pending = nil
 		action := vt.KeyPress
 		if p.repeat {
 			action = vt.KeyRepeat
@@ -371,6 +382,9 @@ func (v *view) typed(text string) {
 	v.preedit = ""
 	p := v.pending
 	v.pending = nil
+	if p != nil && p.taken {
+		return // the text of a key OnKey took
+	}
 	if p == nil {
 		// Text without a key: of an input method, or every key typing
 		// text on Linux.
@@ -464,7 +478,11 @@ func (v *view) copy() {
 }
 
 func (v *view) paste() {
-	if text := v.services.ReadClipboard(); text != "" {
+	text := v.services.ReadClipboard()
+	if on := v.t.opts.OnPaste; on != nil && on(text) {
+		return
+	}
+	if text != "" {
 		v.t.Paste(text)
 	}
 }

@@ -143,6 +143,17 @@ term, err := terminal.New(terminal.Options{
   does without `OpenLink`. An app opens a remote shell's paths in a
   preview of its own this way, rather than the system opening them
   locally.
+- `OnPaste` sees a paste, by the keys or a Paste menu item, on the main
+  thread, with the clipboard's text (empty when it holds none, as with an
+  image), and takes it by returning true: nothing is pasted. An app
+  driving a remote shell uploads the clipboard's files this way and
+  pastes their remote paths instead.
+- `OnKey` sees a key press on the main thread before the terminal sends
+  it, and takes it by returning true: neither the key nor the text it
+  types reaches the program. Unlike a `Shortcut` around the view, which
+  runs with the next frame, it keeps its place among the keys typed after
+  it, as does what it sends with `Send`. Keys that only type text may come
+  as their text alone, as on Linux, and `OnKey` does not see those.
 
 ## Fonts
 
