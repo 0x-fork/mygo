@@ -94,7 +94,11 @@ func (rt *engine) showPose(e *node, r *poseRec) {
 	now := rt.c.now
 	var v [5]float32
 	for i := range r.ch {
-		r.ch[i].advance(now)
+		// A channel at rest stays where it is until headFor moves it on,
+		// which advances it first.
+		if ch := &r.ch[i]; ch.moving || ch.pending {
+			ch.advance(now)
+		}
 		v[i] = float32(r.ch[i].value)
 	}
 	e.poseM = scene.Affine{}
@@ -108,14 +112,38 @@ func (rt *engine) showPose(e *node, r *poseRec) {
 }
 
 // repose moves the posed elements of the last frame built on to the time
-// of a frame that only paints, with what is inside them.
+// of a frame that only paints, with what is inside them. It moves every
+// pose first, and then sets the transforms to the window again from the
+// outermost elements that moved, once for what is inside them: poses
+// nested in moving poses would otherwise set those inside again and again.
 func (rt *engine) repose() {
 	for _, e := range rt.posed {
+		e.reposed = false
 		if r := e.st.pose; r != nil && r.moving() {
 			rt.showPose(e, r)
+			e.reposed = true
+		}
+	}
+	for _, e := range rt.posed {
+		if e.reposed && !e.insideReposed() {
 			e.updateWorld()
 		}
 	}
+}
+
+// insideReposed reports whether an element around e moved its pose in
+// this frame.
+func (e *node) insideReposed() bool {
+	for p := e.parent; p != nil; p = p.parent {
+		if p.reposed {
+			return true
+		}
+		if p == e.c.overlay {
+			// The overlay's place does not follow those around it.
+			return false
+		}
+	}
+	return false
 }
 
 // updateWorld sets the transform from e to the window again, and those of

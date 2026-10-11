@@ -86,6 +86,15 @@ turns by `Rotate` degrees, and fades by `Fade`, from 0, opaque, to 1, gone.
 The pointer, carets and overlays follow the element as it moves, and
 `Transitioning()` reports whether its pose was moving.
 
+Poses nest: each acts after those of the elements around it, so an
+element inside another adds its own motion, along its own curve. In the
+[confetti example](../../examples/confetti), a burst falls and fades, each
+piece in it bursts out along a curve that slows down, and spins inside:
+hundreds of pieces fly without building the view again. Each element
+posed still costs every frame that paints it, so share a pose among the
+elements that move alike, as the burst's fall, rather than giving each
+its own.
+
 ## Delays and staggering
 
 `Delay` keeps the value going as it was for a while after its target

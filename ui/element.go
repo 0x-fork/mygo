@@ -249,12 +249,14 @@ type node struct {
 	content    ContentTransition
 	contentSet bool
 	// pose is where AnimatePose moves it, as poseAnim says, when poseSet;
-	// poseM and poseFade are where it shows now.
+	// poseM and poseFade are where it shows now. reposed tells, in a frame
+	// that only paints, that its pose moved.
 	pose     Pose
 	poseAnim Animation
 	poseSet  bool
 	poseM    scene.Affine
 	poseFade float32
+	reposed  bool
 	// backface hides it while its 3D transform turns its back to the
 	// viewer (BackfaceHidden).
 	backface bool

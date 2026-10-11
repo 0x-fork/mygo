@@ -69,3 +69,40 @@ func TestPoseWithoutMotion(t *testing.T) {
 		t.Errorf("without motion, the card shows as %+v, faded %v", w, card.poseFade)
 	}
 }
+
+// Poses nest, in frames that only paint as in those that build: what is
+// inside moving poses follows them, whether its own pose moves or rests.
+func TestNestedPosesInFramesThatOnlyPaint(t *testing.T) {
+	moved := false
+	var leaf, still *node
+	tt := newRepaintTester(func(c *context) {
+		outer, inner := Pose{}, Pose{}
+		if moved {
+			outer, inner = Pose{X: 100}, Pose{Y: 60}
+		}
+		a := Animation{Duration: 100 * time.Millisecond, Ease: Linear}
+		coreBox(c).Size(40, 40).AnimatePose(outer, a).Children(func() {
+			// A pose at rest inside a moving one, and a moving one inside it.
+			coreBox(c).Size(40, 40).AnimatePose(Pose{X: 10}, a).Children(func() {
+				coreBox(c).Size(40, 40).AnimatePose(inner, a).Children(func() {
+					leaf = coreBox(c).Size(10, 10)
+				})
+				still = coreBox(c).Size(10, 10)
+			})
+		})
+	})
+	moved = true
+	tt.rt.requestFrame()
+	tt.frame(0)
+	builds := tt.builds
+	tt.frame(50 * time.Millisecond)
+	if tt.builds != builds {
+		t.Fatal("moving poses built the view")
+	}
+	if w := leaf.st.world; w.X < 59 || w.X > 61 || w.Y < 29 || w.Y > 31 {
+		t.Errorf("halfway, the innermost element shows at %+v, want 60, 30", w)
+	}
+	if w := still.st.world; w.X < 59 || w.X > 61 || w.Y != 0 {
+		t.Errorf("halfway, the element under the resting pose shows at %+v, want 60, 0", w)
+	}
+}
