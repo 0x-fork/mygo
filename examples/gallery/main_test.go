@@ -118,3 +118,16 @@ func TestListDerivedSelection(t *testing.T) {
 		t.Fatalf("Enter went to %q", got)
 	}
 }
+
+func TestOverviewCounter(t *testing.T) {
+	g := &gallery{router: ui.NewRouter("/overview")}
+	tt := ui.NewTester(g.overview, 980, 720)
+	for _, step := range []struct{ click, want string }{{"Increment", "1"}, {"Increment", "2"}, {"−", "1"}} {
+		if err := tt.Click(step.click); err != nil {
+			t.Fatal(err)
+		}
+		if !tt.HasText(step.want) {
+			t.Fatalf("after %s, want %s, texts %q", step.click, step.want, tt.Texts())
+		}
+	}
+}

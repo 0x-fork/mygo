@@ -549,7 +549,7 @@ func (g *gallery) overview(c *ui.Context) {
 		"The view is a Go function of the app's state that runs again after every event.").TextColor(t.TextMuted)
 	ui.Row(c).Gap(16).Wrap().AlignItems(ui.Start).Children(func() {
 		card(c, "Counter", func() {
-			ui.Text(c, fmt.Sprint(g.counter)).FontSize(40).Bold()
+			ui.Text(c, fmt.Sprint(g.count)).FontSize(40).Bold()
 			ui.Row(c).Gap(8).Children(func() {
 				if ui.Button(c, "−").Width(44).Clicked() {
 					g.count--
