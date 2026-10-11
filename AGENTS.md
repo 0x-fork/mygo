@@ -21,8 +21,10 @@ wire protocol, TypeScript generation, and the checklist for adding features.
   (Vite, the mygo-cli package). Nothing in an app may need Bun at run time.
 - **Scope:** system webview on macOS, Linux and Windows (WebView2), and
   native UI that MyGo draws itself (`WindowOptions.Content`, package `ui`;
-  see "Native UI" in the architecture guide). The bundled CEF option is out
-  of scope until asked. Other platforms must keep compiling through
+  see "Native UI" in the architecture guide), which also runs in browsers
+  (`GOOS=js GOARCH=wasm`, `internal/web`, drawn with WebGL 2 by the GL
+  renderer; see "Browsers"). The bundled CEF option is out of scope until
+  asked. Other platforms must keep compiling through
   `internal/unsupported`.
 - **Great DX over Electron parity.** Keep the familiar feel (app lifecycle,
   windows, menus) but design Go-first APIs: typed IPC via `mygo.Bind` and
@@ -39,6 +41,7 @@ wire protocol, TypeScript generation, and the checklist for adding features.
 go build ./... && GOOS=linux go build ./... && GOOS=windows go build ./...  # all must pass
 go vet ./... && GOOS=linux go vet ./... && GOOS=windows go vet ./...
 go vet -tags mygo_noinspector ./...        # production builds, without the inspector of native UI
+GOOS=js GOARCH=wasm go vet $(GOOS=js GOARCH=wasm go list ./... | grep -v /cmd/mygo)  # browsers, all but the CLI
 go test ./...                              # core (fake backend), tsgen, CLI, accelerator
 MYGO_E2E=1 go test ./internal/e2e          # real GUI tests (macOS desktop session)
 bun install && bun run test && bun run typecheck   # the workspace, from the root
@@ -70,7 +73,7 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   benchmarks branch's commits say it.
 - New behavior goes into `package mygo` first; backends only translate
   `internal/platform` calls to native ones. Implement every platform method in
-  `darwin`, `linux`, `windows`, `fake` and `unsupported`.
+  `darwin`, `linux`, `windows`, `web`, `fake` and `unsupported`.
 - Objective-C: `alloc`/`init` objects are owned and must be released; wrap
   temporary objects in `withPool`; copy blocks you call later.
 - Official plugins live in `plugins/<name>`: the Go package and its npm

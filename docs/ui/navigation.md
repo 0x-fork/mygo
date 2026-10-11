@@ -89,6 +89,13 @@ whose right click lists the pages to go back or forward to, by their
 titles. The keys go to the router holding the keyboard focus, else to the
 first of the window.
 
+In a [browser](browsers.md), the first router a window shows follows the
+tab's history, in the URL's fragment (`#/notes/42`): going to a page adds
+an entry to the browser's history, its back and forward buttons go through
+the router's pages, and a URL with a fragment, opened or reloaded, shows
+its page. After a reload, the router learns the pages before and after
+the one shown as the browser goes to them.
+
 ## Layouts
 
 Anything built around `View`, as a sidebar or a toolbar, stays as pages
