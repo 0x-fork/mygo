@@ -68,9 +68,25 @@ type gallery struct {
 	eased              bool
 	// The items of the Motion page's list, the next one's number, and
 	// whether its panel is open.
-	items     []motionItem
-	nextItem  int
-	panelOpen bool
+	items                          []motionItem
+	nextItem                       int
+	panelOpen                      bool
+	motionTarget, transformPopover bool
+	motionRun                      uint64
+	motionText                     string
+	// The card thrown on the Motion page: where it is, which side it
+	// rests on, and the spring it lands with; and the tile open, 1 + its
+	// index, 0 for none.
+	flingX     float32
+	flingRight bool
+	flingStyle int
+	tileOpen   int
+	// The card turned over, the counter, and the task done on the Motion
+	// page.
+	cardFlipped bool
+	counter     int
+	countDown   bool
+	taskDone    bool
 	// The disclosure, the sections of the accordion, and their choices.
 	advanced, verbose, share, news bool
 	sections                       [3]bool
@@ -528,7 +544,7 @@ func (g *gallery) overview(c *ui.Context) {
 		"The view is a Go function of the app's state that runs again after every event.").TextColor(t.TextMuted)
 	ui.Row(c).Gap(16).Wrap().AlignItems(ui.Start).Children(func() {
 		card(c, "Counter", func() {
-			ui.Text(c, fmt.Sprint(g.count)).FontSize(40).Bold()
+			ui.Text(c, fmt.Sprint(g.counter)).FontSize(40).Bold()
 			ui.Row(c).Gap(8).Children(func() {
 				if ui.Button(c, "−").Width(44).Clicked() {
 					g.count--
@@ -1415,12 +1431,193 @@ var motionColors = []ui.Color{ui.Hex("#2563eb"), ui.Hex("#16a34a"), ui.Hex("#d97
 var itemMotion = ui.ElementTransition{
 	Duration: 250 * time.Millisecond,
 	Ease:     ui.EaseInOut,
-	Enter:    &ui.Motion{Collapse: true},
-	Exit:     &ui.Motion{Collapse: true},
+	Enter:    &ui.Motion{Collapse: true, Scale: 0.9},
+	Exit:     &ui.Motion{Collapse: true, Scale: 0.9},
 }
+
+// flingStyles are the springs the thrown card can land with.
+var flingStyles = []ui.Animation{ui.Smooth, ui.Snappy, ui.Bouncy}
+
+// tileMatch is the identity a tile of the Motion page shares with its
+// detail view.
+type tileMatch struct{ i int }
+
+// tileMotion moves the tiles into their detail view and back.
+var tileMotion = ui.ElementTransition{Animation: &ui.Animation{Spring: ui.SpringOptions{Duration: 450 * time.Millisecond, Bounce: 0.12}}}
 
 func (g *gallery) motion(c *ui.Context) {
 	t := c.Theme()
+	ui.Grid(c).Columns(2).Gap(16).Children(func() {
+		card(c, "Transforms and interruptible springs", func() {
+			ui.Text(c, "Click repeatedly while moving. Edit the transformed field or open its anchored panel.").FontSize(12).TextColor(t.TextMuted)
+			if ui.Button(c, "Retarget the spring").Clicked() {
+				g.motionTarget = !g.motionTarget
+			}
+			stage := ui.Box(c).Key("transform-stage").Height(220).Radius(10).Border(1, t.Border).Clip()
+			target := float32(0)
+			if g.motionTarget {
+				target = 1
+			}
+			pose := stage.Spring("pose", target, ui.SpringOptions{Damping: 14})
+			stage.Children(func() {
+				ui.Column(c).Key("transformed-card").Absolute().Left(35).Top(45).Size(185, 125).Padding(12).Gap(8).
+					Background(t.Surface).Radius(10).Border(1, t.Border).Scale(0.95+0.1*pose, 1).Rotate(-8+16*pose).Translate(65*pose, 0).Children(func() {
+					ui.Text(c, "Nested interactive content").Bold().FontSize(12)
+					ui.TextInput(c, &g.motionText).Width(155).Placeholder("Type here")
+					anchor := ui.Button(c, "Open a popover")
+					if anchor.Clicked() {
+						g.transformPopover = !g.transformPopover
+					}
+					ui.Popover(c, anchor, &g.transformPopover, func() { ui.Text(c, "I follow the transformed anchor.") })
+				})
+			})
+		})
+		card(c, "Keyframe sequences", func() {
+			ui.Text(c, "Replay during a sequence to interrupt it continuously. Motion follows the desktop preference.").FontSize(12).TextColor(t.TextMuted)
+			if ui.Button(c, "Replay the sequence").Clicked() {
+				g.motionRun++
+			}
+			stage := ui.Box(c).Key("sequence-stage").Height(220).Radius(10).Border(1, t.Border).Clip()
+			progress := stage.Keyframes("pose", []ui.Keyframe{
+				{Value: 0}, {At: 250 * time.Millisecond, Value: 1, Ease: ui.EaseOut},
+				{At: 650 * time.Millisecond, Value: 0.4, Ease: ui.EaseInOut}, {At: time.Second, Value: 0, Ease: ui.EaseInOut},
+			}, ui.KeyframeOptions{Run: g.motionRun})
+			stage.Children(func() {
+				ui.Row(c).Absolute().Left(40).Top(80).Size(160, 55).Center().Radius(8).Background(t.Accent).
+					Scale(1+0.08*progress, 1+0.08*progress).Rotate(12*progress).Translate(80*progress, 0).Children(func() {
+					ui.Text(c, "Four timed keyframes").TextColor(t.AccentText).FontSize(12).Bold()
+				})
+			})
+		})
+	})
+
+	ui.Grid(c).Columns(2).Gap(16).Children(func() {
+		card(c, "Flings that land", func() {
+			ui.Text(c, "Throw the card: a spring takes over at the pointer's velocity, to the side the throw carries it to.").FontSize(12).TextColor(t.TextMuted)
+			ui.Segmented(c, &g.flingStyle, "Smooth", "Snappy", "Bouncy")
+			const travel = 200
+			ui.Box(c).Key("fling-track").Height(110).Radius(10).Border(1, t.Border).Clip().Children(func() {
+				thrown := ui.Box(c).Key("fling-card").Absolute().Left(16).Top(24).Size(90, 60).Center().Radius(10).Background(t.Accent)
+				var x float32
+				if dx, _, ok := thrown.Dragged(); ok {
+					// Under the pointer, and a little past either end.
+					g.flingX = max(-30, min(g.flingX+dx, travel+30))
+					x = thrown.Jump("x", g.flingX)
+				} else {
+					a := flingStyles[g.flingStyle]
+					if vx, _, ok := thrown.DragEnded(); ok {
+						// Where the throw would carry the card, as iOS
+						// projects a fling's end.
+						g.flingRight = g.flingX+vx*0.2 > travel/2
+						a.Spring.Velocity = vx
+					}
+					target := float32(0)
+					if g.flingRight {
+						target = travel
+					}
+					x = thrown.AnimateTo("x", target, a)
+					g.flingX = x
+				}
+				thrown.Translate(x, 0).Children(func() {
+					ui.Text(c, "Throw me").TextColor(t.AccentText).FontSize(12).Bold()
+				})
+			})
+		})
+		card(c, "Shared elements", func() {
+			ui.Text(c, "A tile opens into its detail view from where it was, and goes back to its place.").FontSize(12).TextColor(t.TextMuted)
+			ui.Box(c).Key("tile-stage").Height(190).Radius(10).Border(1, t.Border).Clip().Padding(12).Children(func() {
+				if g.tileOpen == 0 {
+					ui.Row(c).Gap(12).Children(func() {
+						for i, col := range motionColors[:3] {
+							tr := tileMotion
+							tr.Match = tileMatch{i}
+							if ui.Box(c.Key(i)).Size(64, 64).Radius(12).Background(col).Cursor(ui.CursorPointer).Transition(tr).Clicked() {
+								g.tileOpen = i + 1
+							}
+						}
+					})
+					return
+				}
+				i := g.tileOpen - 1
+				ui.Column(c).Gap(10).Children(func() {
+					tr := tileMotion
+					tr.Match = tileMatch{i}
+					ui.Box(c.Key("hero")).Size(240, 120).Radius(16).Background(motionColors[i]).Transition(tr)
+					ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, fmt.Sprintf("Tile %d", i+1)).Bold().Grow(1)
+						if ui.Button(c, "Back").Clicked() {
+							g.tileOpen = 0
+						}
+					})
+				})
+			})
+		})
+	})
+
+	ui.Grid(c).Columns(2).Gap(16).Children(func() {
+		card(c, "Cards that turn over", func() {
+			ui.Text(c, "Turned in 3D and seen in perspective, each face hides while it is turned away.").FontSize(12).TextColor(t.TextMuted)
+			stage := ui.Box(c).Key("flip-stage").Height(150).Center()
+			turn := float32(0)
+			if g.cardFlipped {
+				turn = 180
+			}
+			turn = stage.AnimateTo("turn", turn, ui.Animation{Spring: ui.SpringOptions{Duration: 600 * time.Millisecond, Bounce: 0.15}})
+			stage.Children(func() {
+				ui.Box(c).Key("flip-card").Size(200, 120).Children(func() {
+					front := ui.Column(c).Key("front").Absolute().Fill().Center().Gap(4).Radius(14).Background(t.Surface).Border(1, t.Border).Shadow(0, 4, 16, 0, ui.RGBA(0, 0, 0, 0.12))
+					front.RotateY(turn).Perspective(800).BackfaceHidden().Children(func() {
+						ui.Text(c, "Front").Bold()
+						ui.Text(c, "Click to turn over").FontSize(12).TextColor(t.TextMuted)
+					})
+					back := ui.Column(c).Key("back").Absolute().Fill().Center().Radius(14).Background(t.Accent)
+					back.RotateY(turn + 180).Perspective(800).BackfaceHidden().Children(func() {
+						ui.Text(c, "Back").Bold().TextColor(t.AccentText)
+					})
+					if front.Clicked() || back.Clicked() {
+						g.cardFlipped = !g.cardFlipped
+					}
+				})
+			})
+		})
+		card(c, "Counters, check marks and lifts", func() {
+			ui.Text(c, "Digits roll as they change, a check mark draws itself in, and tiles lift in frames that only paint.").FontSize(12).TextColor(t.TextMuted)
+			ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
+				if ui.Button(c, "−").Clicked() {
+					g.counter, g.countDown = g.counter-1, true
+				}
+				ui.Text(c, fmt.Sprint(g.counter)).FontSize(32).Bold().Width(80).TextAlign(ui.Center).
+					ContentTransition(ui.ContentTransition{Numeric: true, Down: g.countDown})
+				if ui.Button(c, "+").Clicked() {
+					g.counter, g.countDown = g.counter+1, false
+				}
+				check := ui.Box(c).Key("check").Size(36, 36).Radius(8).Border(2, t.Border).Cursor(ui.CursorPointer)
+				drawn := float32(0)
+				if g.taskDone {
+					drawn = 1
+				}
+				drawn = check.AnimateTo("drawn", drawn, ui.Smooth)
+				check.Draw(func(p *ui.Painter, r ui.Rect) {
+					mark := (&ui.Path{}).MoveTo(r.X+9, r.Y+19).LineTo(r.X+15, r.Y+25).LineTo(r.X+27, r.Y+11)
+					p.StrokePath(mark.Trim(0, drawn), 3, t.Accent)
+				})
+				if check.Clicked() {
+					g.taskDone = !g.taskDone
+				}
+			})
+			ui.Row(c).Gap(10).Children(func() {
+				for i, col := range motionColors[:4] {
+					tile := ui.Box(c.Key(i)).Size(56, 40).Radius(8).Background(col)
+					lift := ui.Pose{}
+					if tile.Hovered() {
+						lift = ui.Pose{Y: -6, Scale: 1.06}
+					}
+					tile.AnimatePose(lift, ui.Snappy)
+				}
+			})
+		})
+	})
+
 	ui.Text(c, "Transitions move elements where the layout puts them, and in and out as they come and go. "+
 		"F12 (Alt+Cmd+I) opens the inspector of the window's elements.").TextColor(t.TextMuted)
 	ui.Grid(c).Columns(2).Gap(16).Children(func() {

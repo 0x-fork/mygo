@@ -56,7 +56,7 @@ type InputEvent struct {
 	// middle.
 	Button int
 	Clicks int
-	// DX and DY are what InputScroll scrolls by; positive DY moves the view
+	// DX and DY are what InputScroll scrolls by, in local axes; positive DY moves the view
 	// down the content.
 	DX, DY  float32
 	Precise bool
@@ -105,7 +105,10 @@ func (rt *engine) deliver(s *state, ev InputEvent) bool {
 	if s == nil || s.input == nil {
 		return false
 	}
-	ev.X, ev.Y = rt.pointerX-s.x, rt.pointerY-s.y
+	ev.X, ev.Y = s.local(rt.pointerX, rt.pointerY)
+	if ev.Kind == InputScroll {
+		ev.DX, ev.DY = s.vector(rt.pointerX, rt.pointerY, ev.DX, ev.DY)
+	}
 	if !s.input(ev) {
 		return false
 	}

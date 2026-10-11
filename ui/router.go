@@ -62,8 +62,11 @@ import (
 type Router struct {
 	Handle
 
-	// Transition is how pages replace each other.
+	// Transition is how pages replace each other, and Animation, if set,
+	// how they move then: as a spring (Snappy, …) or a curve, rather than
+	// easing out over 250 ms as they slide, 150 ms as they fade.
 	Transition Transition
+	Animation  *Animation
 
 	entries []*routeEntry
 	at      int
@@ -105,6 +108,8 @@ type routeView struct {
 	dir                  int
 	start                time.Time
 	focusing, announcing bool
+	// progress goes from 0 to 1 as the page comes in.
+	progress channel
 }
 
 // Transition is how a Router's pages replace each other.
@@ -524,12 +529,9 @@ func (r *Router) build(c *context, box *node, v *routeView, parent *Route, fn fu
 	}
 	progress := float32(1)
 	if v.leaving != nil {
-		d := slideTime
-		if v.dir == 0 {
-			d = fadeTime
-		}
-		if t := c.now.Sub(v.start); t < d {
-			progress = EaseOut(float32(t) / float32(d))
+		v.progress.advance(c.now)
+		if v.progress.moving || v.progress.pending {
+			progress = max(0, min(float32(v.progress.value), 1))
 			c.AnimationFrame()
 		} else {
 			v.leaving = nil
@@ -620,10 +622,14 @@ func (r *Router) show(c *context, box *node, v *routeView, parent *Route, cur *r
 		v.focusing, v.announcing = false, true
 	}
 	v.leaving, v.dir, v.start = nil, 0, c.now
-	if r.Transition == TransitionNone {
+	if r.Transition == TransitionNone || rt.instant() {
 		return
 	}
 	v.leaving = old
+	defer func() {
+		v.progress = channel{at: c.now}
+		headFor(&v.progress, 1, r.animation(v.dir), c.now)
+	}()
 	if r.Transition == TransitionAuto && !rt.preferences().ReduceMotion {
 		from, to := segmentsOf(old.loc), segmentsOf(cur.loc)
 		from, to = from[min(offset, len(from)):], to[min(offset, len(to)):]
@@ -634,6 +640,17 @@ func (r *Router) show(c *context, box *node, v *routeView, parent *Route, cur *r
 			v.dir = -1
 		}
 	}
+}
+
+// animation returns how pages go in direction dir (0 fading).
+func (r *Router) animation(dir int) Animation {
+	if r.Animation != nil {
+		return *r.Animation
+	}
+	if dir == 0 {
+		return Animation{Duration: fadeTime, Ease: EaseOut}
+	}
+	return Animation{Duration: slideTime, Ease: EaseOut}
 }
 
 // page builds the page of entry e with fn, in a view of the router or

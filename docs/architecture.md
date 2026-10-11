@@ -1537,6 +1537,50 @@ either.
   `MYGO_FRAME_STATS` set, frames slower than its threshold log how long
   each part took, which path drew them, what the process allocated and
   whether the collector ran (`ui/framestats.go`).
+- **Visual transforms and motion** (`ui/transform.go`, `ui/motion.go`). An
+  element's transform, 2D, or 3D in a 4×4 matrix (`mat4`) that it flattens
+  into its parent's plane as CSS's flat transform-style does, composes
+  with its ancestors after layout as a projective map
+  (`scene.Affine`, with G and H in perspective); boxes keep their original
+  layout space. Painting stores the composed transform on scene
+  operations and clips, and committing keeps it on the state for
+  inverse-mapped pointer input, carets, accessibility bounds, and overlays
+  attached to visual bounds. The CPU renderer inverse maps pixels for
+  transformed primitives and clips, and leaves what a projective map puts
+  behind the viewer. GPU builders retain local geometry and send three
+  transform rows with every instance; the vertex shaders project the quad
+  in homogeneous coordinates, so that local coordinates interpolate in
+  perspective, and fragment shaders integrate coverage in device space:
+  from screen derivatives for affine maps, and, in perspective, at the
+  CPU renderer's sample points, mapped back from the pixel's center
+  through the inverse. Nested
+  transformed or rounded clips use cached masks, independent of content
+  moving within them; hard clips in the drawing's coordinates evaluate on
+  the GPU. Backdrop effects map local samples into the frame. With a GPU,
+  every frame draws there, including resting changes to transformed content.
+  Metal retains wide colors under transforms. See
+  [Transforms](ui/transforms.md#rendering) for rendering details.
+- **Motion** (`ui/motion.go`): every animated value of an element
+  (`AnimateTo`, `Animate`, `AnimateWith`, `Spring`, `Jump`) is a `channel`
+  by key, with a value, a velocity and the time they hold for, moving
+  along a curve or a spring. Springs solve damped oscillators analytically
+  (`solveSpring`), so frames however far apart follow one path; a channel
+  samples its path at the frame's time before taking a new target or kind
+  of animation, so position and velocity survive interruptions (a curve's
+  velocity is its easing's slope). A delayed target waits in the channel
+  while the old path goes on. `Jump` sets values and derives a velocity
+  from successive ones; presses keep their last moves (`dragTrack`) for
+  `DragVelocity` and `DragEnded`. Keyframe sequences keep one sequence per
+  key with an explicit replay token. All ask for frames only while moving,
+  and end at their targets under reduced motion. Poses (`ui/pose.go`,
+  `AnimatePose`) are channels sampled as frames commit, into a transform
+  after the element's own (`poseM`) and a fade; frames that only paint
+  (`repaintFrame`) move the posed elements of the last frame built on
+  (`repose`) and set their subtrees' transforms again (`updateWorld`), so
+  they move without the view running. Content transitions (`ui/content.go`)
+  keep what an element showed, and fade or roll it into what it shows as
+  it paints, counting paintings (`engine.paints`) rather than frames
+  built, so frames that only paint move them on too.
 - **Transitions** (`ui/transition.go`) animate elements FLIP-style, after
   the layout of each frame and before `place` turns boxes into window
   coordinates: an element given a `Transition` keeps, by its ID, where the
@@ -1544,8 +1588,15 @@ either.
   goes from what it showed to a new place or size over the transition
   (parents first, as one resizing lays out its content anew at each size,
   which then moves itself). Moving with a parent or a scroll offset is no
-  change; resizing the window and reduced motion animate nothing. Colors
-  move as elements paint, after their `styleFn`. An element appears with
+  change; resizing the window animates nothing, and reduced motion only
+  fades and colors. Each moving component (position, size, opacity, and a
+  `Motion`'s scale and rotation) is a motion `channel`, so a spring keeps
+  its velocity through changes and a delay holds them. Colors move as
+  elements paint, after their `styleFn`. A `Match` moves an element
+  appearing where another of the same identity showed the frame before
+  (`rt.matched`, in window coordinates) after `place` (`animateMatches`),
+  laying it out anew at each box on the way, across parents and scroll
+  offsets. An element appears with
   its `Enter` only in a parent the frame before had. One no longer built,
   whose parent still is, goes with its `Exit` as an inert copy, laid out
   and painted under its siblings without taking room: frames that built
@@ -2255,8 +2306,8 @@ either.
   inside the box, so lines thinner than a pixel cover as much as they
   should, as text decorations need. A fill's border widths travel in its
   texture rectangle, which fills do not use, and a glyph's gamma ratios
-  and contrast in its radii, so every instance stays eleven float4s. The
-  shader writes a second color, the source's alpha of each channel, and
+  and contrast in its radii. Each instance is thirteen float4s, including
+  its two affine rows. The shader writes a second color, the source's alpha of each channel, and
   renderers blend with it (dual-source blending): it is the color's alpha
   but for subpixel glyphs, whose subpixels cover each channel by its own.
   OpenGL ES without `EXT_blend_func_extended` blends the mean of their
@@ -2268,7 +2319,9 @@ either.
     generated file records the SHA-256 of the source it came from, line
     endings aside (`gpu.SourceSum`), as Metal's does: bytecode older than
     `shader.hlsl` falls back to compiling that with the same DLL, which
-    Windows has, and its test fails. It draws into a flip-model swap
+    Windows has, and its test fails. Both compilation paths enable IEEE
+    strictness with optimization, avoiding a native compiler optimizer crash
+    on transformed coverage sampling. It draws into a flip-model swap
     chain on the surface's window, or, over a material, one for
     DirectComposition shown on it, with WARP when no hardware device
     works. At most one frame waits ahead of the screen, not DXGI's three,

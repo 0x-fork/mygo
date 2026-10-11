@@ -722,6 +722,13 @@ func (r *Renderer) imageTexture(img *scene.Image) uintptr {
 		}
 		t = &texture{tex: tex, w: img.W, h: img.H, ver: img.Version()}
 		r.images[img.ID()] = t
+	} else if t.w != img.W || t.h != img.H {
+		tex := r.newTexture(img.W, img.H, pixelFormatRGBA8Unorm, usageShaderRead, img.Pix, img.W*4)
+		if tex == 0 {
+			return 0
+		}
+		release(&t.tex)
+		t.tex, t.w, t.h, t.ver = tex, img.W, img.H, img.Version()
 	} else if t.ver != img.Version() {
 		msgReplaceRegion(t.tex, sel("replaceRegion:mipmapLevel:withBytes:bytesPerRow:"), mtlRegion{W: uint(img.W), H: uint(img.H), D: 1}, 0, unsafe.Pointer(&img.Pix[0]), uint(img.W*4))
 		t.ver = img.Version()
@@ -762,7 +769,7 @@ func (r *Renderer) encode(s *scene.Scene, target id) (id, error) {
 		return 0, err
 	}
 	r.b.Wide = r.cur.format == pixelFormatRGBA16Float
-	r.b.Build(s, r.imageTexture)
+	s = r.b.Build(s, r.imageTexture)
 	if n := len(r.b.Instances); n > r.instCap {
 		release(&r.instBuf)
 		capacity := max(n*3/2, 1024)
@@ -827,6 +834,7 @@ func (r *Renderer) encode(s *scene.Scene, target id) (id, error) {
 			bound = b.Image
 			send(enc, "setFragmentTexture:atIndex:", bound, 2)
 		}
+		send(enc, "setFragmentTexture:atIndex:", or(id(b.ClipMask), r.empty), 4)
 		offset := uintptr(b.Start * gpu.InstanceSize)
 		send(enc, "setVertexBuffer:offset:atIndex:", r.instBuf, offset, 0)
 		send(enc, "setFragmentBuffer:offset:atIndex:", r.instBuf, offset, 0)
@@ -1025,6 +1033,7 @@ func (r *Renderer) releaseTextures() {
 			r.formats[i].backdrop[j] = texture{}
 		}
 	}
+	r.b.Release()
 	r.b = gpu.Builder{}
 }
 
@@ -1120,6 +1129,7 @@ func (r *Renderer) renderOffscreen(s *scene.Scene) (pix []byte, err error) {
 
 // Release frees the renderer's GPU objects and takes its layer out.
 func (r *Renderer) Release() {
+	r.b.Release()
 	if r.trimTimer != 0 {
 		purego.SyscallN(cfRunLoopTimerInvalidate, r.trimTimer)
 		purego.SyscallN(cfRelease, r.trimTimer)
