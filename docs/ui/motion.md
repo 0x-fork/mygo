@@ -111,33 +111,121 @@ for i, it := range app.items {
 
 ## Gestures
 
-A value can follow the pointer and then be let go. `Jump` sets it at once,
-following the pointer, and keeps track of how fast it moves; the spring
-that takes over when the pointer lets go starts at that speed.
-`DragEnded` reports the pointer's velocity as it let go, which
-`SpringOptions.Velocity` hands to the spring, to throw things:
+`Draggable` lets the pointer move an element and throw it, as motion.dev's
+`drag` does: the element follows the pointer, and once let go, the
+pointer's velocity carries it to where it comes to rest, with a spring:
 
 ```go
-card := ui.Box(c).Size(90, 60)
-var x float32
-if dx, _, ok := card.Dragged(); ok {
-	app.x += dx
-	x = card.Jump("x", app.x)
+card := ui.Box(c).Size(90, 60).Radius(10).Background(t.Accent)
+card.Draggable(&app.card, ui.DraggableOptions{
+	Axis:   ui.Horizontal,
+	Bounds: &ui.Rect{W: 200},
+	Snap:   ui.Nearest(ui.Point{}, ui.Point{X: 200}),
+})
+```
+
+`app.card` is a `ui.Point`, the element's offset from its place in the
+layout. As the pointer drags the element, it follows the pointer; once the
+pointer lets go, it is where the element comes to rest; and setting it
+moves the element there, as a button turning a page does. A nil offset is
+kept in the element. The options say how it moves:
+
+- **`Axis`**, `ui.Horizontal` or `ui.Vertical`, is the direction it moves
+  in; both when zero.
+- **`Bounds`** hold the offset within a rectangle at rest, from `X` to
+  `X+W` and from `Y` to `Y+H`. The pointer pulls the element past them less
+  and less far, as iOS holds content pulled past its edges, and it springs
+  back within them once let go. `Rigid` stops it at them.
+- **`Snap`** chooses where it comes to rest, from where the throw would
+  carry it (`ui.Project`, held within the bounds), so that a flick goes
+  on to the next page or height: `ui.Nearest(points...)` chooses the
+  nearest of points. A `Snap` returning its point lets the
+  element glide where the throw carries it. Without `Snap`, it rests where
+  the pointer lets it go, as an item placed on a canvas.
+- **`Animation`** is how it goes to rest, and to an offset the app sets:
+  `ui.Smooth` when zero. A spring starts at the pointer's velocity.
+
+The pointer drags the element once it moved a few DIPs, and that press is
+no click; a press on the element as it moves catches it. The element moves
+after its own transform and its pose, along its parent's axes, so it
+stays under the pointer as it scales or turns, and it goes to rest in
+frames that only paint, without building the view, as `AnimatePose`
+moves it. `Dragging()` reports that the pointer drags it, to lift it as
+it does:
+
+```go
+lift := ui.Pose{}
+if card.Dragging() {
+	lift = ui.Pose{Scale: 1.05}
+}
+card.AnimatePose(lift, ui.Snappy)
+```
+
+`Transitioning()` is false once it is at rest, for the view to go on, as
+removing a row swiped away:
+
+```go
+for i := range app.rows {
+	r := &app.rows[i]
+	row := ui.Row(c).Key(r.ID)
+	row.Draggable(&r.swipe, ui.DraggableOptions{
+		Axis: ui.Horizontal,
+		Snap: func(p ui.Point) ui.Point {
+			if p.X < -160 {
+				return ui.Point{X: -400} // away to the left
+			}
+			return ui.Point{}
+		},
+	})
+	if r.swipe.X == -400 && !row.Transitioning() {
+		app.remove(r.ID)
+	}
+}
+```
+
+`DragOffset()` returns where the element shows in this frame, following
+the pointer or on its way to rest, for what follows it, as a backdrop
+fading as a sheet goes down. Reading it builds the view in every frame
+the element moves in, as `AnimateTo` does; call it after `Draggable`:
+
+```go
+backdrop := ui.Box(c).Absolute().Fill().Background(ui.RGBA(0, 0, 0, 0.4))
+sheet := ui.Column(c).Draggable(&app.sheet, ui.DraggableOptions{
+	Axis:   ui.Vertical,
+	Bounds: &ui.Rect{H: 400},
+	Snap:   ui.Nearest(ui.Point{}, ui.Point{Y: 400}),
+})
+backdrop.Opacity(1 - sheet.DragOffset().Y/400)
+```
+
+While the desktop asks for less motion, the element follows the pointer,
+and goes to rest at once.
+
+### By hand
+
+For a value other than an offset that follows the pointer, as the angle
+of a dial, build the gesture from smaller pieces. `Jump` sets a value
+at once, following the pointer, and keeps track of how fast it moves; the
+spring that takes over when the pointer lets go starts at that speed.
+`DragEnded` reports the pointer's velocity as it let go, which
+`SpringOptions.Velocity` hands to the spring:
+
+```go
+dial := ui.Box(c).Size(80, 80)
+var turn float32
+if dx, _, ok := dial.Dragged(); ok {
+	app.turn += dx
+	turn = dial.Jump("turn", app.turn)
 } else {
 	a := ui.Snappy
-	if vx, _, ok := card.DragEnded(); ok {
-		// Where the throw would carry it decides where it lands.
-		app.right = app.x+vx*0.2 > 100
+	if vx, _, ok := dial.DragEnded(); ok {
+		// Where the throw would carry it decides the notch it lands on.
+		app.turn = float32(math.Round(float64(ui.Project(app.turn, vx)/45))) * 45
 		a.Spring.Velocity = vx
 	}
-	target := float32(0)
-	if app.right {
-		target = 200
-	}
-	x = card.AnimateTo("x", target, a)
-	app.x = x
+	turn = dial.AnimateTo("turn", app.turn, a)
 }
-card.Translate(x, 0)
+dial.Transform(ui.Rotation(turn))
 ```
 
 `DragVelocity` is the pointer's velocity while it presses, in DIPs per

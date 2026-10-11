@@ -488,11 +488,15 @@ type state struct {
 	dragX, dragY   float32
 	pressed        bool
 	// drag follows the press's moves; released tells that it ended since
-	// the last frame, going at releaseVX and releaseVY.
+	// the last frame, going at releaseVX and releaseVY in the element's
+	// axes, releaseWX and releaseWY in the window's.
 	drag                 dragTrack
 	released             bool
 	releaseVX, releaseVY float32
+	releaseWX, releaseWY float32
 	pressPending         bool // the press began since the last build pass
+	// dragRec is what Draggable keeps of the element from frame to frame.
+	dragRec *dragRec
 
 	// scrollX and scrollY are float64, as the content a List scrolls
 	// may be taller than float32 counts to a fraction of a DIP.

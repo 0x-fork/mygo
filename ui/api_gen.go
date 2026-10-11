@@ -2929,6 +2929,22 @@ func (_handle Element) DragEnded() (float32, float32, bool) {
 	return _node.DragEnded()
 }
 
+// DragOffset returns where Draggable shows the element in this frame,
+// from its place in the layout: following the pointer, or on its way to
+// rest. Reading it builds the view in every frame the element moves in,
+// as AnimateTo does, which the element otherwise moves in without: for
+// what follows the element, as a backdrop fading as a sheet goes down.
+// Call it after Draggable.
+func (_handle Element) DragOffset() Point {
+	_node := _handle.node()
+	if _node == nil {
+		return *new(Point)
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.DragOffset()
+}
+
 // DragVelocity returns how fast, in DIPs per second along the element's
 // local axes, the pointer pressing the element moves now: zero once it
 // stops for a moment, or while nothing presses the element.
@@ -2955,6 +2971,36 @@ func (_handle Element) DragWindow() Element {
 	return wrapElement(_node.DragWindow())
 }
 
+// Draggable lets the pointer move the element from its place in the
+// layout, by *offset, and returns the element. As the pointer drags it,
+// the element follows the pointer, along its parent's axes, and *offset
+// with it; once the pointer lets go, *offset is where the element comes to
+// rest, as o says, and it goes there. Setting *offset moves the element
+// there as well, as o.Animation says. A nil offset is kept in the element.
+//
+// The element moves after its own transform (Transform) and its pose
+// (AnimatePose), and goes to rest in frames that only paint, without
+// building the view, as AnimatePose moves it. Dragging reports that the
+// pointer drags it, once the pointer moved a few DIPs, Transitioning that
+// it moves, and DragOffset where it shows. A press dragging it is no
+// click; a press catches it as it moves. While the desktop asks for less
+// motion (Preferences.ReduceMotion), it goes to rest at once.
+//
+//	sheet.Draggable(&app.sheet, ui.DraggableOptions{
+//		Axis:   ui.Vertical,
+//		Bounds: &ui.Rect{H: 400},
+//		Snap:   ui.Nearest(ui.Point{}, ui.Point{Y: 200}, ui.Point{Y: 400}),
+//	})
+func (_handle Element) Draggable(offset *Point, o DraggableOptions) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Draggable(offset, o))
+}
+
 // Dragged reports how far the pointer moved in the element's local axes
 // since the last frame while pressing it.
 func (_handle Element) Dragged() (float32, float32, bool) {
@@ -2967,7 +3013,8 @@ func (_handle Element) Dragged() (float32, float32, bool) {
 	return _node.Dragged()
 }
 
-// Dragging reports whether the element is dragging its value (Drag).
+// Dragging reports whether the element is dragging its value (Drag), or
+// the pointer is dragging the element (Draggable).
 func (_handle Element) Dragging() bool {
 	_node := _handle.node()
 	if _node == nil {
@@ -4766,8 +4813,8 @@ func (_handle Element) Transition(t ElementTransition) Element {
 }
 
 // Transitioning reports whether the element's Transition was moving it,
-// or changing its colors, or its pose (AnimatePose) was moving it, in the
-// frame before: false once it is where it goes.
+// or changing its colors, or its pose (AnimatePose) or Draggable was
+// moving it, in the frame before: false once it is where it goes.
 func (_handle Element) Transitioning() bool {
 	_node := _handle.node()
 	if _node == nil {

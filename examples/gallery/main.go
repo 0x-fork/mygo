@@ -74,11 +74,9 @@ type gallery struct {
 	motionTarget, transformPopover bool
 	motionRun                      uint64
 	motionText                     string
-	// The card thrown on the Motion page: where it is, which side it
-	// rests on, and the spring it lands with; and the tile open, 1 + its
-	// index, 0 for none.
-	flingX     float32
-	flingRight bool
+	// The card thrown on the Motion page: where it rests, and the spring
+	// it lands with; and the tile open, 1 + its index, 0 for none.
+	fling      ui.Point
 	flingStyle int
 	tileOpen   int
 	// The card turned over, the counter, and the task done on the Motion
@@ -1498,32 +1496,24 @@ func (g *gallery) motion(c *ui.Context) {
 
 	ui.Grid(c).Columns(2).Gap(16).Children(func() {
 		card(c, "Flings that land", func() {
-			ui.Text(c, "Throw the card: a spring takes over at the pointer's velocity, to the side the throw carries it to.").FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, "Throw the card (Draggable): a spring takes over at the pointer's velocity, to the side the throw carries it to.").FontSize(12).TextColor(t.TextMuted)
 			ui.Segmented(c, &g.flingStyle, "Smooth", "Snappy", "Bouncy")
 			const travel = 200
 			ui.Box(c).Key("fling-track").Height(110).Radius(10).Border(1, t.Border).Clip().Children(func() {
 				thrown := ui.Box(c).Key("fling-card").Absolute().Left(16).Top(24).Size(90, 60).Center().Radius(10).Background(t.Accent)
-				var x float32
-				if dx, _, ok := thrown.Dragged(); ok {
-					// Under the pointer, and a little past either end.
-					g.flingX = max(-30, min(g.flingX+dx, travel+30))
-					x = thrown.Jump("x", g.flingX)
-				} else {
-					a := flingStyles[g.flingStyle]
-					if vx, _, ok := thrown.DragEnded(); ok {
-						// Where the throw would carry the card, as iOS
-						// projects a fling's end.
-						g.flingRight = g.flingX+vx*0.2 > travel/2
-						a.Spring.Velocity = vx
-					}
-					target := float32(0)
-					if g.flingRight {
-						target = travel
-					}
-					x = thrown.AnimateTo("x", target, a)
-					g.flingX = x
+				// Under the pointer, a little past either end, and to the
+				// side the throw carries it to once let go.
+				thrown.Draggable(&g.fling, ui.DraggableOptions{
+					Axis:      ui.Horizontal,
+					Bounds:    &ui.Rect{W: travel},
+					Snap:      ui.Nearest(ui.Point{}, ui.Point{X: travel}),
+					Animation: flingStyles[g.flingStyle],
+				})
+				lift, cursor := ui.Pose{}, ui.CursorGrab
+				if thrown.Dragging() {
+					lift, cursor = ui.Pose{Scale: 1.06}, ui.CursorGrabbing
 				}
-				thrown.Translate(x, 0).Children(func() {
+				thrown.AnimatePose(lift, ui.Snappy).Cursor(cursor).Children(func() {
 					ui.Text(c, "Throw me").TextColor(t.AccentText).FontSize(12).Bold()
 				})
 			})

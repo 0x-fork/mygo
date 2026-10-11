@@ -90,14 +90,17 @@ func (e *node) Transition(t ElementTransition) *node {
 }
 
 // Transitioning reports whether the element's Transition was moving it,
-// or changing its colors, or its pose (AnimatePose) was moving it, in the
-// frame before: false once it is where it goes.
+// or changing its colors, or its pose (AnimatePose) or Draggable was
+// moving it, in the frame before: false once it is where it goes.
 func (e *node) Transitioning() bool {
 	if !e.hasState() {
 		return false
 	}
 	frame := e.c.rt.frame
 	if p := e.st.pose; p != nil && p.frame+1 >= frame && p.moving() {
+		return true
+	}
+	if d := e.st.dragRec; d != nil && d.frame+1 >= frame && d.moving() {
 		return true
 	}
 	r := e.st.trec

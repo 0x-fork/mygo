@@ -198,7 +198,7 @@ func (rt *engine) pointerMove(x, y float32) {
 		dx, dy := rt.pressed.vector(rt.pointerX, rt.pointerY, x-rt.pointerX, y-rt.pointerY)
 		rt.pressed.dragX += dx
 		rt.pressed.dragY += dy
-		rt.pressed.drag.move(rt.now(), dx, dy)
+		rt.pressed.drag.move(rt.now(), dx, dy, x-rt.pointerX, y-rt.pointerY)
 		if rt.pressed.flags&(flagTrackPointer|flagDraggable|flagEditable|flagSelectable) != 0 {
 			rt.requestFrame()
 		} else {
@@ -289,7 +289,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 		h.pressed = true
 		h.pressPending = true
 		h.pressX, h.pressY = h.local(x, y)
-		h.drag.reset(rt.now())
+		h.drag.reset(rt.now(), x, y)
 		return
 	}
 	if button == 1 && rt.menuPress(chain, x, y) {
@@ -325,7 +325,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 	target.pressed, target.pressMods = true, mods
 	target.pressPending = true
 	target.pressX, target.pressY = target.local(x, y)
-	target.drag.reset(rt.now())
+	target.drag.reset(rt.now(), x, y)
 	if button == 0 && rt.pressTextSelection(target, x, y, mods, clicks) {
 		return
 	}
@@ -369,7 +369,8 @@ func (rt *engine) pointerUp(button, clicks int) {
 	s.pressed = false
 	// A press that moved ends a drag; a click does not.
 	s.released = s.drag.n > 1
-	s.releaseVX, s.releaseVY = s.drag.velocity(rt.now())
+	v := s.drag.velocities(rt.now())
+	s.releaseVX, s.releaseVY, s.releaseWX, s.releaseWY = v[0], v[1], v[2], v[3]
 	if s.editor != nil {
 		s.editor.release()
 	}
@@ -377,6 +378,9 @@ func (rt *engine) pointerUp(button, clicks int) {
 	if inside && s.flags&flagDisabled == 0 {
 		switch button {
 		case 0:
+			if s.dragRec.dragged(rt, s) {
+				break // it moved the element (Draggable): no click
+			}
 			s.clicks++
 			s.clickMods = s.pressMods
 		case 1:
@@ -1133,48 +1137,73 @@ func (e *node) DragEnded() (vx, vy float32, ok bool) {
 	return s.releaseVX, s.releaseVY, true
 }
 
-// dragTrack keeps the last moves of a press, to tell how fast it goes.
+// dragTrack keeps the last moves of a press, to tell how fast it goes: in
+// the element's axes (x, y), and in the window's (wx, wy, from where the
+// press began, ox and oy). far tells that the press went dragStart DIPs
+// from there.
 type dragTrack struct {
 	x, y    float32
+	ox, oy  float32
+	wx, wy  float32
+	far     bool
 	samples [8]dragSample
 	n, last int
 }
 
 type dragSample struct {
-	at   time.Time
-	x, y float32
+	at           time.Time
+	x, y, wx, wy float32
 }
 
-func (d *dragTrack) reset(now time.Time) {
-	*d = dragTrack{}
+// reset starts tracking a press at the window's point (x, y).
+func (d *dragTrack) reset(now time.Time, x, y float32) {
+	*d = dragTrack{ox: x, oy: y}
 	d.add(now)
 }
 
 func (d *dragTrack) add(now time.Time) {
 	d.last = (d.last + 1) % len(d.samples)
-	d.samples[d.last] = dragSample{now, d.x, d.y}
+	d.samples[d.last] = dragSample{now, d.x, d.y, d.wx, d.wy}
 	d.n = min(d.n+1, len(d.samples))
 }
 
-// move adds a move by dx, dy at now.
-func (d *dragTrack) move(now time.Time, dx, dy float32) {
-	if dx == 0 && dy == 0 {
+// move adds a move by dx, dy in the element's axes, wdx, wdy in the
+// window's, at now.
+func (d *dragTrack) move(now time.Time, dx, dy, wdx, wdy float32) {
+	if wdx == 0 && wdy == 0 {
 		return // as with the release's position
 	}
 	d.x += dx
 	d.y += dy
+	d.wx += wdx
+	d.wy += wdy
+	d.far = d.far || d.wx*d.wx+d.wy*d.wy >= dragStart*dragStart
 	d.add(now)
 }
 
-// velocity returns how fast the press went over its last 100 ms, zero
-// once it has not moved for 50 ms.
+// velocity returns how fast the press went over its last 100 ms in the
+// element's axes, zero once it has not moved for 50 ms.
 func (d *dragTrack) velocity(now time.Time) (float32, float32) {
+	v := d.velocities(now)
+	return v[0], v[1]
+}
+
+// windowVelocity returns how fast the press went, as velocity does, in
+// the window's axes.
+func (d *dragTrack) windowVelocity(now time.Time) (float32, float32) {
+	v := d.velocities(now)
+	return v[2], v[3]
+}
+
+// velocities returns how fast the press went in the element's axes and
+// in the window's.
+func (d *dragTrack) velocities(now time.Time) [4]float32 {
 	if d.n < 2 {
-		return 0, 0
+		return [4]float32{}
 	}
 	newest := d.samples[d.last]
 	if now.Sub(newest.at) > 50*time.Millisecond {
-		return 0, 0
+		return [4]float32{}
 	}
 	oldest := newest
 	for i := 1; i < d.n; i++ {
@@ -1186,9 +1215,9 @@ func (d *dragTrack) velocity(now time.Time) (float32, float32) {
 	}
 	dt := float32(newest.at.Sub(oldest.at).Seconds())
 	if dt <= 0 {
-		return 0, 0
+		return [4]float32{}
 	}
-	return (newest.x - oldest.x) / dt, (newest.y - oldest.y) / dt
+	return [4]float32{(newest.x - oldest.x) / dt, (newest.y - oldest.y) / dt, (newest.wx - oldest.wx) / dt, (newest.wy - oldest.wy) / dt}
 }
 
 // Changed applies pending input to the controls built so far and reports

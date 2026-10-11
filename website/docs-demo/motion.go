@@ -14,35 +14,29 @@ type tileMatch struct{ i int }
 func init() {
 	// A card thrown by the pointer, which a spring lands on the side the
 	// throw carries it to.
-	var x float32
-	right, style := false, 1
+	var thrown ui.Point
+	style := 1
 	styles := []ui.Animation{ui.Smooth, ui.Snappy, ui.Bouncy}
 	demo("motion", func(c *ui.Context) {
 		t := c.Theme()
 		ui.Segmented(c, &style, "Smooth", "Snappy", "Bouncy")
 		const travel = 180
 		ui.Box(c).Key("track").Size(300, 90).Radius(12).Border(1, t.Border).Clip().Children(func() {
-			card := ui.Box(c).Key("card").Absolute().Left(12).Top(15).Size(96, 60).Center().Radius(10).Background(t.Accent).Cursor(ui.CursorPointer)
-			var shown float32
-			if dx, _, ok := card.Dragged(); ok {
-				x = max(-24, min(x+dx, travel+24))
-				shown = card.Jump("x", x)
-			} else {
-				a := styles[style]
-				if vx, _, ok := card.DragEnded(); ok {
-					right = x+vx*0.2 > travel/2
-					a.Spring.Velocity = vx
-				} else if card.Clicked() {
-					right = !right
-				}
-				target := float32(0)
-				if right {
-					target = travel
-				}
-				shown = card.AnimateTo("x", target, a)
-				x = shown
+			card := ui.Box(c).Key("card").Absolute().Left(12).Top(15).Size(96, 60).Center().Radius(10).Background(t.Accent)
+			card.Draggable(&thrown, ui.DraggableOptions{
+				Axis:      ui.Horizontal,
+				Bounds:    &ui.Rect{W: travel},
+				Snap:      ui.Nearest(ui.Point{}, ui.Point{X: travel}),
+				Animation: styles[style],
+			})
+			if card.Clicked() {
+				thrown.X = travel - thrown.X
 			}
-			card.Translate(shown, 0).Children(func() {
+			lift, cursor := ui.Pose{}, ui.CursorGrab
+			if card.Dragging() {
+				lift, cursor = ui.Pose{Scale: 1.06}, ui.CursorGrabbing
+			}
+			card.AnimatePose(lift, ui.Snappy).Cursor(cursor).Children(func() {
 				ui.Text(c, "Throw me").Bold().FontSize(12).TextColor(t.AccentText)
 			})
 		})

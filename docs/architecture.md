@@ -1572,15 +1572,24 @@ either.
   of animation, so position and velocity survive interruptions (a curve's
   velocity is its easing's slope). A delayed target waits in the channel
   while the old path goes on. `Jump` sets values and derives a velocity
-  from successive ones; presses keep their last moves (`dragTrack`) for
-  `DragVelocity` and `DragEnded`. Keyframe sequences keep one sequence per
+  from successive ones; presses keep their last moves (`dragTrack`), in
+  the element's axes and the window's, for `DragVelocity` and
+  `DragEnded`. Keyframe sequences keep one sequence per
   key with an explicit replay token. All ask for frames only while moving,
   and end at their targets under reduced motion. Poses (`ui/pose.go`,
   `AnimatePose`) are channels sampled as frames commit, into a transform
   after the element's own (`poseM`) and a fade; frames that only paint
   (`repaintFrame`) move the posed elements of the last frame built on
   (`repose`) and set their subtrees' transforms again (`updateWorld`), so
-  they move without the view running. Content transitions (`ui/content.go`)
+  they move without the view running. `Draggable` (`ui/draggable.go`)
+  keeps two channels of an offset (`dragRec`) that `showPose` adds to the
+  pose's translation: as the pointer drags the element, they hold where
+  the press's move in the window (`dragTrack`), mapped into the parent's
+  axes through the inverse of its last world transform, takes the offset
+  from where the press caught it, so they are the same in every build
+  pass of a frame; once let go, a spring starts at the release's velocity
+  for where `Snap` chooses from the projected throw, and goes on in frames
+  that only paint, the view building once more when it comes to rest. Content transitions (`ui/content.go`)
   keep what an element showed, and fade or roll it into what it shows as
   it paints, counting paintings (`engine.paints`) rather than frames
   built, so frames that only paint move them on too.

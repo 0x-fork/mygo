@@ -59,10 +59,16 @@ func (e *node) dragFrom(value func() any) *node {
 	return e
 }
 
-// Dragging reports whether the element is dragging its value (Drag).
+// Dragging reports whether the element is dragging its value (Drag), or
+// the pointer is dragging the element (Draggable).
 func (e *node) Dragging() bool {
-	d := e.c.rt.drag
-	return d != nil && d.src == e.id && !d.canceled
+	if !e.hasState() {
+		return false
+	}
+	if d := e.c.rt.drag; d != nil && d.src == e.id && !d.canceled {
+		return true
+	}
+	return e.st.pressed && !e.disabled() && e.st.dragRec.dragged(e.c.rt, e.st)
 }
 
 // Drop makes e take values of type T dragged within the window (Element.Drag)

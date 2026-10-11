@@ -101,12 +101,26 @@ func (rt *engine) showPose(e *node, r *poseRec) {
 		}
 		v[i] = float32(r.ch[i].value)
 	}
+	// Draggable moves it along with its pose.
+	d := e.st.dragRec
+	if d.current(rt) {
+		moving := d.moving()
+		d.advance(now)
+		if moving && !d.moving() {
+			// It came to rest in a frame that only paints: the view
+			// builds again, to see it there (Transitioning).
+			rt.animating = true
+		}
+		p := d.shown()
+		v[0] += p.X
+		v[1] += p.Y
+	}
 	e.poseM = scene.Affine{}
 	if v[0] != 0 || v[1] != 0 || v[2] != 1 || v[3] != 0 {
 		e.poseM = scene.Translation(v[0], v[1]).Mul(scene.Rotation(v[3])).Mul(scene.Scaling(v[2], v[2]))
 	}
 	e.poseFade = max(0, min(v[4], 1))
-	if r.moving() {
+	if r.moving() || d.current(rt) && d.moving() {
 		rt.repainting = true
 	}
 }
@@ -119,7 +133,8 @@ func (rt *engine) showPose(e *node, r *poseRec) {
 func (rt *engine) repose() {
 	for _, e := range rt.posed {
 		e.reposed = false
-		if r := e.st.pose; r != nil && r.moving() {
+		d := e.st.dragRec
+		if r := e.st.pose; r != nil && (r.moving() || d.current(rt) && d.moving()) {
 			rt.showPose(e, r)
 			e.reposed = true
 		}
