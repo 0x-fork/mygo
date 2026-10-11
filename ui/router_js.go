@@ -32,8 +32,9 @@ func (h *tabHistory) claim(r *Router) {
 	if h.r == r {
 		return
 	}
-	// A Tester's routers leave the page's history alone.
-	if _, ok := r.rt.host.(*windowHost); !ok {
+	// A Tester's routers leave the page's history alone, as do those of
+	// an app in a frame of another page, whose history the tab's is too.
+	if _, ok := r.rt.host.(*windowHost); !ok || !js.Global().Get("top").Equal(js.Global().Get("self")) {
 		return
 	}
 	if h.r != nil && h.r.rt != nil && !h.r.rt.closed {

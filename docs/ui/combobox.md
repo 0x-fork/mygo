@@ -1,5 +1,7 @@
 # Combobox
 
+<!-- preview combobox 280 -->
+
 `ui.Combobox` creates a combobox choosing a `*string` among options: a
 field showing the choice, whose text filters the options below it as the
 user types, those starting with it first, while a click or Down shows them

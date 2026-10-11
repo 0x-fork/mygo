@@ -77,17 +77,21 @@ func (b *Backend) Init(h platform.AppHandler, _ platform.AppOptions) error {
 	}
 	b.h = h
 	b.mainID = goroutineID()
+	installFiles()
 	nav := js.Global().Get("navigator")
 	platformName := nav.Get("platform")
 	b.mac = !platformName.IsUndefined() && len(platformName.String()) >= 3 && platformName.String()[:3] == "Mac"
+	changed := b.funcOf(func(js.Value, []js.Value) any {
+		b.sync(func() { b.h.ThemeChanged() })
+		return nil
+	})
 	for _, q := range []string{"(prefers-color-scheme: dark)", "(prefers-reduced-motion: reduce)", "(prefers-contrast: more)"} {
-		mq := js.Global().Call("matchMedia", q)
-		fn := b.funcOf(func(js.Value, []js.Value) any {
-			b.sync(func() { b.h.ThemeChanged() })
-			return nil
-		})
-		mq.Call("addEventListener", "change", fn)
+		js.Global().Call("matchMedia", q).Call("addEventListener", "change", changed)
 	}
+	// The page's own choice of appearance (themeAttr), as a page framing
+	// the app sets it, since frames take the media's.
+	js.Global().Get("MutationObserver").New(changed).Call("observe", js.Global().Get("document").Get("documentElement"),
+		map[string]any{"attributes": true, "attributeFilter": []any{themeAttr}})
 	return nil
 }
 
@@ -370,11 +374,23 @@ func matches(query string) bool {
 
 type theme struct{ b *Backend }
 
+// themeAttr is the attribute of the page's root element that chooses the
+// appearance, "dark" or "light", over the browser's: a page framing the
+// app sets it to its own, which the frame's prefers-color-scheme does not
+// follow in Chrome.
+const themeAttr = "data-mygo-theme"
+
 func (t theme) IsDark() bool {
 	t.b.mu.Lock()
 	source := t.b.source
 	t.b.mu.Unlock()
 	switch source {
+	case "dark":
+		return true
+	case "light":
+		return false
+	}
+	switch js.Global().Get("document").Get("documentElement").Call("getAttribute", themeAttr).String() {
 	case "dark":
 		return true
 	case "light":

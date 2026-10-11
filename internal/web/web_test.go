@@ -3,6 +3,12 @@
 package web
 
 import (
+	"errors"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -68,5 +74,64 @@ func TestUnpremul(t *testing.T) {
 		if got := unpremul(tc.c, tc.a); got != tc.want {
 			t.Errorf("unpremul(%d, %d) = %d, want %d", tc.c, tc.a, got, tc.want)
 		}
+	}
+}
+
+// TestDroppedFiles reads files dropped through os, as apps do with the
+// paths of FileDrop, and leaves other paths to the fs object (Node's, in
+// tests).
+func TestDroppedFiles(t *testing.T) {
+	installFiles()
+	paths := drops.add([]string{"notes.txt", "notes.txt", "a/b.png"}, [][]byte{[]byte("hello"), []byte("again"), {1, 2, 3}})
+	dir := path.Dir(paths[0])
+	want := []string{dir + "/notes.txt", dir + "/2-notes.txt", dir + "/a_b.png"}
+	if !slices.Equal(paths, want) {
+		t.Fatalf("paths %v, want %v", paths, want)
+	}
+	for i, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil || len(b) == 0 {
+			t.Fatalf("ReadFile(%s) = %q, %v", p, b, err)
+		}
+		if i == 0 && string(b) != "hello" {
+			t.Errorf("ReadFile(%s) = %q", p, b)
+		}
+	}
+	if st, err := os.Stat(paths[2]); err != nil || st.Size() != 3 || st.IsDir() {
+		t.Errorf("Stat(%s) = %v, %v", paths[2], st, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 3 {
+		t.Fatalf("ReadDir(%s) = %v, %v", dir, entries, err)
+	}
+	f, err := os.Open(paths[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 3)
+	if n, err := f.ReadAt(buf, 2); err != nil || string(buf[:n]) != "llo" {
+		t.Errorf("ReadAt = %q, %v", buf[:n], err)
+	}
+	f.Close()
+	if err := os.WriteFile(paths[0], []byte("x"), 0o644); err == nil {
+		t.Error("a file dropped was written")
+	}
+	if _, err := os.ReadFile(dir + "/missing"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a missing file: %v", err)
+	}
+	// Other paths are the fs object's.
+	other := filepath.Join(t.TempDir(), "x")
+	if err := os.WriteFile(other, []byte("node"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(other); err != nil || string(b) != "node" {
+		t.Errorf("ReadFile(%s) = %q, %v", other, b, err)
+	}
+	// The oldest drops go.
+	for range keptDrops {
+		drops.add([]string{"x"}, [][]byte{{0}})
+	}
+	if _, err := os.Stat(paths[0]); err == nil {
+		t.Error("the files of the oldest drop stay")
 	}
 }

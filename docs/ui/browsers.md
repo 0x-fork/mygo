@@ -68,16 +68,25 @@ the title of the window opened last is the page's.
   the tab's history, in the URL's fragment, as `#/notes/42`: the browser's
   back and forward buttons go through its pages, and a link to a page, or
   a reload, opens the app there.
+- **Files dropped** on a window: `DroppedFiles`, `FileDragOver` and
+  `OnFileDrop` work as on desktops. Browsers give no paths, so the
+  backend reads the files as they drop and keeps them at paths of its own,
+  as `/mygo-drop/3/photo.png`, which `os.Open`, `os.ReadFile`, `os.Stat`
+  and `os.ReadDir` read; the files of the last 16 drops stay.
 - **Context menus** show as menus of HTML on the page.
 - **Dark mode**, reduced motion and more contrast follow the browser's
-  settings, and change with them.
+  settings, and change with them. A page can choose the appearance itself
+  with `data-mygo-theme="dark"` or `"light"` on its root element, as one
+  framing the app does to give it its own theme (a frame's
+  `prefers-color-scheme` follows the browser, not the page around it).
 - `Dialog.Message` asks with the browser's `alert` and `confirm`, and
   `Shell.OpenExternal` opens a tab.
 
 ## What does not
 
 Windows of web pages, application and Dock menus, trays, notifications,
-global shortcuts, file dialogs and the drag and drop of data have nothing
+global shortcuts, file dialogs and the drag and drop of data other than
+files have nothing
 in a browser to stand for them, and report so. Assistive technology does
 not see the content yet. Of a style's OpenType features, canvases apply
 `kern` only. A font added with `ui.RegisterFont` needs its family, and

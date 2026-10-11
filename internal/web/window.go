@@ -131,9 +131,14 @@ func (w *window) StartDrag()                                 {}
 func (w *window) TitleBarDoubleClicked()                     {}
 func (w *window) PlaceFlyout(platform.Flyout, platform.Size) {}
 
+// Show shows the window and gives it the keyboard, unless the app is in a
+// frame of another page: that page keeps the keyboard until the window is
+// clicked, as frames loading do not take it from the page scrolling them.
 func (w *window) Show() {
 	w.ShowInactive()
-	w.Focus()
+	if js.Global().Get("top").Equal(js.Global().Get("self")) {
+		w.Focus()
+	}
 }
 
 func (w *window) ShowInactive() {

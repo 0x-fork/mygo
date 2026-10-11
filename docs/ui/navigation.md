@@ -94,7 +94,8 @@ tab's history, in the URL's fragment (`#/notes/42`): going to a page adds
 an entry to the browser's history, its back and forward buttons go through
 the router's pages, and a URL with a fragment, opened or reloaded, shows
 its page. After a reload, the router learns the pages before and after
-the one shown as the browser goes to them.
+the one shown as the browser goes to them. An app in a frame of another
+page leaves the tab's history alone.
 
 ## Layouts
 

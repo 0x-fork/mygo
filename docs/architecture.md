@@ -560,11 +560,22 @@ gained one field, `SurfaceNative.Canvas`.
   `paste`, which then sends the paste command. On a Mac, Command is
   `ModCtrl` and Control `ModSuper`, as package ui takes browsers for
   another system than macOS.
+- **Files dropped** (`files.go`): `dragover` on the canvas, with files,
+  is `FileDragOver`, whose answer is the `dropEffect`, and the browser's
+  default (opening the file, leaving the app) is always prevented; a
+  `drop` reads the files' bytes (`arrayBuffer`, settled together; folders
+  have none) before `FileDrop` gives their paths, `/mygo-drop/<n>/<name>`.
+  Go's syscall package calls the `fs` object of `wasm_exec.js`, whose
+  functions fail in browsers: the backend wraps `open`, `read`, `fstat`,
+  `close`, `stat`, `lstat` and `readdir` to answer for those paths,
+  synchronously, as an app reads a drop in its handler, while the browser
+  waits on the callback that sent the drop, and passes other paths on.
 - **Context menus** (`PopupMenu`) are HTML, styled as macOS's, in a nested
   loop until an item is chosen, a press lands elsewhere, Escape is pressed
   or the page loses focus; the choice goes to `MenuItemClicked`.
 - **Themes**: `IsDark` and `Preferences` read `matchMedia`, whose changes
-  call `ThemeChanged`. `ShowMessageBox` uses `alert` and `confirm`.
+  call `ThemeChanged`; the root's `data-mygo-theme` (watched by a
+  `MutationObserver`) chooses the appearance over the media's. `ShowMessageBox` uses `alert` and `confirm`.
 - **History** (`ui/router_js.go`): the first `ui.Router` a window (not a
   `Tester`) shows claims the tab's history, through hooks the router calls
   (`browserHistory`, nil elsewhere). Its location goes in the URL's

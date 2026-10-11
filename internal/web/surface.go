@@ -207,6 +207,79 @@ func (s *surface) listen() {
 		s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: dx, DY: dy, Precise: precise, Mods: s.mods(e)})
 	})
 
+	// Files dragged over the canvas, and dropped: their bytes are read, as
+	// browsers give them, before the drop goes to the content (files.go).
+	// The browser opens no file dropped on the window, which would leave
+	// the app, whether the content takes it or not.
+	files := func(e js.Value) bool {
+		types := e.Get("dataTransfer").Get("types")
+		return !types.IsNull() && !types.IsUndefined() && types.Call("includes", "Files").Bool()
+	}
+	over := func(e js.Value) {
+		if !files(e) {
+			return
+		}
+		e.Call("preventDefault")
+		x, y := s.point(e)
+		effect := "none"
+		if s.send(platform.SurfaceEvent{Kind: platform.FileDragOver, X: x, Y: y}) {
+			effect = "copy"
+		}
+		e.Get("dataTransfer").Set("dropEffect", effect)
+	}
+	s.on(c, "dragenter", false, over)
+	s.on(c, "dragover", false, over)
+	s.on(c, "dragleave", true, func(e js.Value) {
+		if files(e) {
+			s.send(platform.SurfaceEvent{Kind: platform.FileDragLeave})
+		}
+	})
+	s.on(c, "drop", false, func(e js.Value) {
+		if !files(e) {
+			return
+		}
+		e.Call("preventDefault")
+		x, y := s.point(e)
+		list := e.Get("dataTransfer").Get("files")
+		names := make([]string, list.Length())
+		reads := make([]any, list.Length())
+		for i := range names {
+			f := list.Index(i)
+			names[i] = f.Get("name").String()
+			reads[i] = f.Call("arrayBuffer")
+		}
+		var done js.Func
+		done = js.FuncOf(func(_ js.Value, args []js.Value) any {
+			done.Release()
+			results := args[0]
+			s.w.b.sync(func() {
+				// Folders have no bytes to read: they are left out.
+				var kept []string
+				var data [][]byte
+				for i, name := range names {
+					r := results.Index(i)
+					if r.Get("status").String() != "fulfilled" {
+						continue
+					}
+					buf := js.Global().Get("Uint8Array").New(r.Get("value"))
+					b := make([]byte, buf.Length())
+					js.CopyBytesToGo(b, buf)
+					kept, data = append(kept, name), append(data, b)
+				}
+				if s.closed {
+					return
+				}
+				if len(kept) == 0 {
+					s.send(platform.SurfaceEvent{Kind: platform.FileDragLeave})
+					return
+				}
+				s.send(platform.SurfaceEvent{Kind: platform.FileDrop, X: x, Y: y, Files: drops.add(kept, data)})
+			})
+			return nil
+		})
+		js.Global().Get("Promise").Call("allSettled", reads).Call("then", done)
+	})
+
 	s.on(in, "focus", true, func(js.Value) {
 		s.w.focused = true
 		s.w.h.Focused()
