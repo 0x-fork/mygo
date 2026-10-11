@@ -16,7 +16,19 @@ func main() {
 }
 ```
 
-Build it for `js/wasm`, with Go's loader of WebAssembly beside it:
+`mygo dev -web` develops it in the browser: it compiles the app to
+WebAssembly, serves it at `http://localhost:5174`, opens it, and rebuilds it
+as you edit, which reloads the page. `mygo build -platform web` builds it
+into `<out>/web`, a static site to serve from anywhere: `index.html`, Go's
+`wasm_exec.js` and the app's WebAssembly (see [the CLI](../cli.md#mygo-build)).
+
+```sh
+mygo dev -web
+mygo build -platform web
+```
+
+Without the CLI, build it for `js/wasm`, with Go's loader of WebAssembly
+beside it:
 
 ```sh
 GOOS=js GOARCH=wasm go build -o app.wasm .
@@ -96,12 +108,19 @@ the app copied last.
 
 ## Size
 
-The counter example is 19 MB of WebAssembly, 4.5 MB compressed with gzip.
-Most of it is package `mygo`'s for desktops (its HTTP server, cryptography
-and the TypeScript generator), which the browser does not use; the toolkit
-alone, with the gallery's views, is 2.7 MB compressed. Building for
-browsers adds nothing to apps for desktops: the browser's code is only in
-`js/wasm` builds.
+The counter example is 8.2 MB of WebAssembly, 2.2 MB compressed with
+gzip, and the previews of these docs, with every component, 9.8 MB
+(2.6 MB). Builds for browsers leave out what package `mygo` has for web
+pages, which they do not show: its IPC, custom schemes and their HTTP, the
+TypeScript generator, the updater, with the JSON and the cryptography
+they take. Their API stays, doing nothing: `Bind` binds nothing, events
+reach no page, `Updater.Check` reports `ErrUpdatesDisabled`. Only
+`Protocol.Handle`, `HandleFunc` and `FileServer`, which take net/http's
+types, are missing, so that code using them is for desktops
+(`//go:build !js`). The tag `mygo_noinspector`, which `mygo build` sets
+for production, leaves out the inspector of native UI too, some 350 KB.
+Building for browsers adds nothing to apps for desktops: the browser's
+code is only in `js/wasm` builds.
 
 ## Under the hood
 

@@ -486,6 +486,28 @@ for them. Building for browsers adds nothing to desktop builds: the
 backend, `load_js.go` and `canvas_js.go` are `js` only, and the contract
 gained one field, `SurfaceNative.Canvas`.
 
+- **Size.** What only web pages use would make most of a build for
+  browsers, which servers send whole (Cloudflare's static files are at
+  most 25 MiB): the root's files for pages leave it out. `ipc.go`,
+  `channel.go`, `bridge.go` (what windows say to the bridge: its script,
+  messages, `Eval`), `protocol.go` (custom schemes, the frontend's, their
+  downloads), `typescript.go`, `updater.go` (and `relaunchNow`),
+  `single_instance.go`, `window_state.go` and `random.go` have twins
+  (`_js.go`) that keep their API and do nothing, or report that there is
+  no page, without the packages they need: net/http, net, crypto,
+  encoding/json, internal/tsgen with go/parser, internal/update. Only
+  `Protocol.Handle`, `HandleFunc` and `FileServer`, which take net/http's
+  types, are missing there. `Bind` binds nothing, so nothing calls
+  `reflect.Value.Method`, which would make the linker keep every exported
+  method of every type in an interface. `internal/platform` takes an
+  `http.Header` as its type, `map[string][]string`, so that ui does not
+  import net/http either (importing it alone adds 2.3 MB), and
+  `gpu.SourceSum`, for shaders compiled ahead of time, is not built for
+  browsers, with crypto/sha256. The root's tests and `internal/e2e` are
+  for desktops. What stays is mostly the runtime, ui and its packages,
+  and the image codecs (`ui.Image`): `website/docs-demo` comes to about
+  9.8 MB (2.6 MB with gzip).
+
 - **Threading.** Go's main goroutine, which calls `Run`, is the main
   thread, told by its goroutine ID as `internal/fake` does. JavaScript
   calls Go's functions (`js.FuncOf`) on goroutines of their own, while
@@ -2420,6 +2442,15 @@ renderer's (`gputest.Compare`).
 
 ## CLI (`cmd/mygo`)
 
+- Browsers (`web.go`): `build -platform web` (or `js/wasm`) compiles the
+  app with `GOOS=js GOARCH=wasm` and the production flags into `<out>/web`,
+  with a page of its own (`webPage`: a spinner while the WebAssembly loads)
+  and the `wasm_exec.js` of the Go that compiled it, which must match.
+  `dev -web` serves the page, the loader and the last build that compiled
+  from memory (`webDev`), rebuilds on the watcher's changes as the desktop
+  loop does, and tells pages through server-sent events (`/__mygo/events`):
+  `reload` after a build, `build-error` with the compiler's output, which
+  the page shows over the app until a build compiles.
 - `init` renders `cmd/mygo/template`: a Go module and a TypeScript frontend
   built with Vite, side by side at the project root like the examples, draws
   a default icon at `resources/icon.png`, fetches modules, installs the
