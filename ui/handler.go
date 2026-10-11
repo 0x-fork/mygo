@@ -38,10 +38,14 @@ const (
 
 // InputEvent is input an element takes as it comes (HandleInput).
 type InputEvent struct {
-	Kind   InputKind
-	Key    Key
-	Mods   Modifiers
-	Repeat bool
+	Kind InputKind
+	Key  Key
+	// PhysicalKey is Key by position on an ANSI US keyboard, whatever the
+	// layout types: the S key is KeyS on a Cyrillic layout too, where Key
+	// is KeyUnknown. KeyUnknown where the platform does not report it.
+	PhysicalKey Key
+	Mods        Modifiers
+	Repeat      bool
 	// Text of InputText, InputCompose and InputCommand, and Caret the
 	// rune of an InputCompose's caret.
 	Text  string

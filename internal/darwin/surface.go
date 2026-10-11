@@ -51,6 +51,11 @@ var (
 	cgProviderCreate   uintptr
 	cgProviderRelease  uintptr
 	cfDataCreate       uintptr
+	// Read the keyboard type from each event, so an external ISO keyboard
+	// does not inherit the built-in keyboard's ANSI mapping.
+	cgEventGetIntegerValueField func(event uintptr, field uint32) int64
+	kbGetLayoutType             func(keyboardType int16) uint32
+	lmGetKbdType                func() uint8
 
 	// caPass counts the passes of the main run loop, past Core Animation's
 	// commit of each: frames drawn in the same pass go into the same
@@ -80,6 +85,9 @@ func loadSurface() {
 		cgProviderCreate = mustDlsym(libCG, "CGDataProviderCreateWithCFData")
 		cgProviderRelease = mustDlsym(libCG, "CGDataProviderRelease")
 		cfDataCreate = mustDlsym(libCF, "CFDataCreate")
+		purego.RegisterLibFunc(&cgEventGetIntegerValueField, libCG, "CGEventGetIntegerValueField")
+		purego.RegisterLibFunc(&kbGetLayoutType, libCarbon, "KBGetLayoutType")
+		purego.RegisterLibFunc(&lmGetKbdType, libCarbon, "LMGetKbdType")
 		p := mustDlsym(libCG, "kCGColorSpaceSRGB")
 		name := **(**uintptr)(unsafe.Pointer(&p))
 		cgColorSpaceSRGB, _, _ = purego.SyscallN(mustDlsym(libCG, "CGColorSpaceCreateWithName"), name)
@@ -513,6 +521,72 @@ func eventKey(ev id) platform.Key {
 	return platform.KeyUnknown
 }
 
+// ansiKeys maps virtual key codes (Carbon's kVK_ANSI_*) to the key at that
+// position of an ANSI US keyboard.
+var ansiKeys = map[uint16]platform.Key{
+	0x00: platform.KeyA, 0x01: platform.KeyS, 0x02: platform.KeyD, 0x03: platform.KeyF,
+	0x04: platform.KeyH, 0x05: platform.KeyG, 0x06: platform.KeyZ, 0x07: platform.KeyX,
+	0x08: platform.KeyC, 0x09: platform.KeyV, 0x0B: platform.KeyB, 0x0C: platform.KeyQ,
+	0x0D: platform.KeyW, 0x0E: platform.KeyE, 0x0F: platform.KeyR, 0x10: platform.KeyY,
+	0x11: platform.KeyT, 0x1F: platform.KeyO, 0x20: platform.KeyU, 0x22: platform.KeyI,
+	0x23: platform.KeyP, 0x25: platform.KeyL, 0x26: platform.KeyJ, 0x28: platform.KeyK,
+	0x2D: platform.KeyN, 0x2E: platform.KeyM,
+	0x12: platform.Key1, 0x13: platform.Key2, 0x14: platform.Key3, 0x15: platform.Key4,
+	0x16: platform.Key6, 0x17: platform.Key5, 0x19: platform.Key9, 0x1A: platform.Key7,
+	0x1C: platform.Key8, 0x1D: platform.Key0,
+	0x18: platform.KeyEqual, 0x1B: platform.KeyMinus, 0x1E: platform.KeyBracketRight,
+	0x21: platform.KeyBracketLeft, 0x27: platform.KeyQuote, 0x29: platform.KeySemicolon,
+	0x2A: platform.KeyBackslash, 0x2B: platform.KeyComma, 0x2C: platform.KeySlash,
+	0x2F: platform.KeyPeriod, 0x32: platform.KeyBackquote,
+}
+
+// keyAtCode returns the key a virtual key code stands for by position:
+// the non-text keys of macKeys, then the ANSI US letter, digit and
+// punctuation keys.
+func keyAtCode(code uint16) platform.Key {
+	if k, ok := macKeys[code]; ok {
+		return k
+	}
+	return ansiKeys[code]
+}
+
+const (
+	macISOSectionCode = 0x0A
+	macANSIGraveCode  = 0x32
+	macISOLayoutType  = 0x49534F20 // Carbon's kKeyboardISO ('ISO ')
+)
+
+func keyAtCodeForLayout(code uint16, layoutType uint32) platform.Key {
+	if layoutType == macISOLayoutType {
+		// On ISO keyboards the key left of 1 is kVK_ISO_Section, while
+		// kVK_ANSI_Grave is the extra key beside the left Shift.
+		switch code {
+		case macISOSectionCode:
+			return platform.KeyBackquote
+		case macANSIGraveCode:
+			return platform.KeyUnknown // No key for ISO's extra key in platform.Key.
+		}
+	}
+	return keyAtCode(code)
+}
+
+// physicalKey returns the ANSI US key at the event's physical position,
+// independent of the current input source. Only the grave key differs on ISO.
+func physicalKey(ev id) platform.Key {
+	code := uint16(send(ev, "keyCode"))
+	if code != macISOSectionCode && code != macANSIGraveCode {
+		return keyAtCode(code)
+	}
+	var keyboardType int16
+	if cgEvent := send(ev, "CGEvent"); cgEvent != 0 {
+		keyboardType = int16(cgEventGetIntegerValueField(uintptr(cgEvent), 10)) // kCGKeyboardEventKeyboardType
+	}
+	if keyboardType == 0 { // Synthetic NSEvents can lack a keyboard type.
+		keyboardType = int16(lmGetKbdType())
+	}
+	return keyAtCodeForLayout(code, kbGetLayoutType(keyboardType))
+}
+
 // stringOf returns the text of an NSString or NSAttributedString.
 func stringOf(obj id) string {
 	if obj == 0 {
@@ -751,7 +825,7 @@ func registerSurfaceClass() {
 			// giving the composition up, as GTK's and IMM32's filtering
 			// keeps them on Linux and Windows.
 			if !ime || !s.hasMarkedText() {
-				s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat")})
+				s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), PhysicalKey: physicalKey(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat")})
 			}
 			// Input methods see the key while a text input has the focus;
 			// they answer with insertText: or setMarkedText:.
@@ -763,7 +837,7 @@ func registerSurfaceClass() {
 		}),
 		method("keyUp:", func(self id, _ objc.SEL, ev id) {
 			if s := b().surfaceOf(self); s != nil {
-				s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: eventKey(ev), Mods: eventMods(ev)})
+				s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: eventKey(ev), PhysicalKey: physicalKey(ev), Mods: eventMods(ev)})
 			}
 		}),
 		method("flagsChanged:", func(self id, _ objc.SEL, ev id) {

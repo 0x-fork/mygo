@@ -64,6 +64,9 @@ type host interface {
 // the view function, lays them out, paints them and routes input to the
 // elements of the last frame. Main thread only, except where noted.
 type engine struct {
+	// byPosition holds the keys whose press stood for its physical key
+	// (keyDownPhysical), until their release does the same.
+	byPosition      map[Key]bool
 	owner           weak.Pointer[engine]
 	epoch           uint64
 	parts           []any

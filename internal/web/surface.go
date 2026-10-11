@@ -416,7 +416,8 @@ func (s *surface) key(e js.Value, down bool) {
 	case "Dead", "Process", "Unidentified", "Compose":
 		return
 	}
-	k := keyOf(name, e.Get("code").String())
+	code := e.Get("code").String()
+	k, physical := keyOf(name, code), codeKey(code)
 	primary := mods&platform.ModCtrl != 0
 	if down && primary && mods&(platform.ModAlt|platform.ModShift) == 0 {
 		switch k {
@@ -426,7 +427,7 @@ func (s *surface) key(e js.Value, down bool) {
 		case platform.KeyC, platform.KeyX:
 			// The content copies now, and the copy event that follows
 			// gives the browser the text.
-			s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, Mods: mods, Repeat: e.Get("repeat").Bool()})
+			s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, PhysicalKey: physical, Mods: mods, Repeat: e.Get("repeat").Bool()})
 			s.copied = true
 			return
 		}
@@ -435,7 +436,7 @@ func (s *surface) key(e js.Value, down bool) {
 	if down {
 		kind = platform.KeyPressed
 	}
-	s.send(platform.SurfaceEvent{Kind: kind, Key: k, Mods: mods, Repeat: e.Get("repeat").Bool()})
+	s.send(platform.SurfaceEvent{Kind: kind, Key: k, PhysicalKey: physical, Mods: mods, Repeat: e.Get("repeat").Bool()})
 	if !down {
 		return
 	}
@@ -458,6 +459,12 @@ func keyOf(name, code string) platform.Key {
 	if k, ok := named[name]; ok {
 		return k
 	}
+	return codeKey(code)
+}
+
+// codeKey returns the key at a KeyboardEvent's code: its position on an
+// ANSI US keyboard (SurfaceEvent.PhysicalKey).
+func codeKey(code string) platform.Key {
 	switch {
 	case len(code) == 4 && code[:3] == "Key":
 		return platform.KeyA + platform.Key(code[3]-'A')
