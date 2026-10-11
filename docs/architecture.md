@@ -1225,7 +1225,11 @@ as in Tauri:
   panel resigns key (macOS), on a press outside it or a broken grab, or
   as the compositor dismisses the popup (GTK, as `GtkMenu`), and as
   another window is activated (Windows), whose activating click its
-  owner eats (`MA_ACTIVATEANDEAT`), as menus' and WinUI's flyouts'. An
+  owner eats (`MA_ACTIVATEANDEAT`), as menus' and WinUI's flyouts'. On
+  macOS a local monitor eats a press on a panel's anchor, which only
+  closes it, as `NSPopover` eats one on its positioning rect: the press
+  would make the parent key, which closes the flyout before the release
+  clicks the anchor and opens it again. An
   Escape the content leaves closes a flyout too: native UI reports one
   no shortcut took (`routeKeys`, `surface.Conn.Escape`), and the bridge
   one no handler of the page cancelled (an `escape` message). `Flyout.Popover` shows one in an
