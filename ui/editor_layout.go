@@ -168,6 +168,11 @@ func (e *node) paintInput(p *Painter) {
 		p.clip = saved
 		return
 	}
+	var sp *spanPaint
+	if !ed.password {
+		_, sp = ed.rangeSpans(0, ed.buf.n)
+	}
+	p.textBackgrounds(l, ox, oy, ts, sp)
 	if focused {
 		for _, selected := range ed.selectedRanges() {
 			for _, r := range l.SelectionVisual(ed.displayIndex(selected.Start), ed.displayIndex(selected.End), false) {
@@ -175,11 +180,7 @@ func (e *node) paintInput(p *Painter) {
 			}
 		}
 	}
-	var sp *spanPaint
-	if !ed.password {
-		_, sp = ed.rangeSpans(0, ed.buf.n)
-	}
-	p.textLayout(l, ox, oy, ts.color, ts, sp)
+	p.textForeground(l, ox, oy, ts.color, ts, sp)
 	if ed.compose != "" {
 		start := ed.caret
 		end := start + utf8.RuneCountInString(ed.compose)

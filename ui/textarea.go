@@ -394,6 +394,8 @@ func (a *area) paint(e *node, p *Painter, ox, oy float32) {
 		l := a.paraLayout(ed, i)
 		y := oy + float32(a.hs.top(i)-a.scroll)
 		start, end := b.start(i), b.end(i)
+		_, sp := ed.rangeSpans(start, end)
+		p.textBackgrounds(l, ox, y, ts, sp)
 		if focused {
 			for _, selected := range ed.selectedRanges() {
 				sa, sz := selected.Start, selected.End
@@ -406,8 +408,7 @@ func (a *area) paint(e *node, p *Painter, ox, oy float32) {
 				}
 			}
 		}
-		_, sp := ed.rangeSpans(start, end)
-		p.textLayout(l, ox, y, ts.color, ts, sp)
+		p.textForeground(l, ox, y, ts.color, ts, sp)
 		if ed.compose != "" && b.para(ed.caret) == i {
 			c := ed.caret - start
 			for _, r := range l.Selection(c, c+utf8.RuneCountInString(ed.compose)) {

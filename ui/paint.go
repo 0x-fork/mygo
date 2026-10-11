@@ -199,13 +199,6 @@ func (p *Painter) element(e *node) {
 		case kindText:
 			ts := e.resolvedText()
 			ox, oy := e.x+e.contentX(), e.y+e.contentY()
-			if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 && p.rt.textSelectionVisible(e.st) {
-				if a, b := ed.selection(); a != b {
-					for _, r := range e.tl.Selection(a, b) {
-						p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, ts.selectionColor(e.c.theme), 0)
-					}
-				}
-			}
 			var sp spanPaint
 			p.inline = e
 			if spans := e.paintSpans(&sp); !e.contentSet || !p.contentText(e, ox, oy, ts, spans) {
@@ -538,6 +531,43 @@ func (p *Painter) popClip() {
 // background, underline or strikethrough of ts, and the colors, backgrounds
 // and lines of the spans of sp, if any.
 func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textStyle, sp *spanPaint) {
+	p.textBackgrounds(l, x, y, ts, sp)
+	// Content transitions also paint the old layout; only the current text
+	// carries its selection, in the same position, clip and opacity as its glyphs.
+	if e := p.inline; e != nil && e.tl == l {
+		if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 && p.rt.textSelectionVisible(e.st) {
+			if a, b := ed.selection(); a != b {
+				for _, r := range l.Selection(a, b) {
+					p.Fill(Rect{x + r.X, y + r.Y, r.W, r.H}, ts.selectionColor(e.c.theme), 0)
+				}
+			}
+		}
+	}
+	p.textForeground(l, x, y, color, ts, sp)
+}
+
+// textBackgrounds paints all backgrounds before the foreground, so a
+// selection can sit above them and below the glyphs and decorations.
+func (p *Painter) textBackgrounds(l *text.Layout, x, y float32, ts textStyle, sp *spanPaint) {
+	if l == nil || ts.background.A == 0 && sp == nil {
+		return
+	}
+	for li := range l.Lines {
+		line := &l.Lines[li]
+		if !p.transform.Set && !p.inlineTransforms() && (y+line.Y > p.clip.Y+p.clip.H || y+line.Y+line.Height < p.clip.Y) {
+			continue
+		}
+		if ts.background.A > 0 && line.Width > 0 {
+			p.Fill(Rect{x + line.X, y + line.Y, line.Width, line.Height}, ts.background, 0)
+		}
+		if sp != nil {
+			sp.backgrounds(p, line, x, y)
+		}
+	}
+}
+
+// textForeground paints glyphs and decorations over backgrounds and selection.
+func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts textStyle, sp *spanPaint) {
 	if l == nil {
 		return
 	}
@@ -556,12 +586,6 @@ func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textS
 		line := &l.Lines[li]
 		if !p.transform.Set && !p.inlineTransforms() && (y+line.Y > p.clip.Y+p.clip.H || y+line.Y+line.Height < p.clip.Y) {
 			continue
-		}
-		if ts.background.A > 0 && line.Width > 0 {
-			p.Fill(Rect{x + line.X, y + line.Y, line.Width, line.Height}, ts.background, 0)
-		}
-		if sp != nil {
-			sp.backgrounds(p, line, x, y)
 		}
 		baseline := sys.Baseline((y + line.Baseline) * s)
 		for _, g := range line.Glyphs {
