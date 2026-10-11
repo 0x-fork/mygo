@@ -98,7 +98,7 @@ func (_handle *Route) View(c *Context, fn func(r *Route)) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(_handle.coreView(_ctx, func(r *Route) { fn(r) }))
+	return wrapElement(_handle.coreView(_ctx, fn))
 }
 
 // View builds the page shown with fn, in a column taking the room it is
@@ -109,7 +109,7 @@ func (_handle *Router) View(c *Context, fn func(r *Route)) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(_handle.coreView(_ctx, func(r *Route) { fn(r) }))
+	return wrapElement(_handle.coreView(_ctx, fn))
 }
 
 // Panel builds fn in the panel of the collapsible while it is open, and as
@@ -123,7 +123,7 @@ func (_handle CollapsibleParts) Panel(fn func()) Element {
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.Panel(func() { fn() }))
+	return wrapElement(_parts.Panel(fn))
 }
 
 // Progress returns how far the collapsible is open, from 0 closed to 1
@@ -347,7 +347,7 @@ func (_handle *Context) OpenURLThen(url string, done func(err error)) {
 	if _ctx == nil {
 		return
 	}
-	_ctx.OpenURLThen(url, func(err error) { done(err) })
+	_ctx.OpenURLThen(url, done)
 }
 
 // Preferences returns the settings of the desktop that controls follow.
@@ -472,7 +472,7 @@ func (_handle *Context) ToastAction(message string, label string, action func())
 	if _ctx == nil {
 		return
 	}
-	_ctx.ToastAction(message, label, func() { action() })
+	_ctx.ToastAction(message, label, action)
 }
 
 // Vibrancy reports whether the window shows its material
@@ -534,7 +534,7 @@ func Accordion(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreAccordion(_ctx, func() { fn() }))
+	return wrapElement(coreAccordion(_ctx, fn))
 }
 
 // AccordionItem creates a section of an Accordion: a header showing title,
@@ -545,7 +545,7 @@ func AccordionItem(c *Context, title string, open *bool, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreAccordionItem(_ctx, title, open, func() { fn() }))
+	return wrapElement(coreAccordionItem(_ctx, title, open, fn))
 }
 
 // AlertDialog shows an alert over the window while *open is true, as
@@ -720,7 +720,7 @@ func CheckboxGroup(c *Context, label string, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreCheckboxGroup(_ctx, label, func() { fn() }))
+	return wrapElement(coreCheckboxGroup(_ctx, label, fn))
 }
 
 // Collapsible creates a disclosure, as SwiftUI's DisclosureGroup: label
@@ -736,7 +736,7 @@ func Collapsible(c *Context, label string, open *bool, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreCollapsible(_ctx, label, open, func() { fn() }))
+	return wrapElement(coreCollapsible(_ctx, label, open, fn))
 }
 
 // CollapsibleBase creates a collapsible without a look, open while *open:
@@ -971,7 +971,7 @@ func Field(c *Context, label string, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreField(_ctx, label, func() { fn() }))
+	return wrapElement(coreField(_ctx, label, fn))
 }
 
 // Fieldset creates a group of the fields that fn builds, under legend,
@@ -986,7 +986,7 @@ func Fieldset(c *Context, legend string, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreFieldset(_ctx, legend, func() { fn() }))
+	return wrapElement(coreFieldset(_ctx, legend, fn))
 }
 
 // FindBar creates a bar for finding text while *open is true, as Safari's
@@ -1021,7 +1021,7 @@ func Form(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreForm(_ctx, func() { fn() }))
+	return wrapElement(coreForm(_ctx, fn))
 }
 
 // ForwardButton creates a button going forward in r's history, as
@@ -1072,7 +1072,7 @@ func GridView(c *Context, s *GridState, n int, minWidth float32, height float32,
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreGridView(_ctx, s, n, minWidth, height, func(i int) { item(i) }))
+	return wrapElement(coreGridView(_ctx, s, n, minWidth, height, item))
 }
 
 // Icon creates an element showing an SVG as an icon: its shapes in the
@@ -1128,7 +1128,7 @@ func Local[T any](e Element, key any, init func() T) *T {
 	}
 	_ctx := _node.c
 	_ = _ctx
-	return coreLocal[T](e.nodeFor(_ctx.rt), key, func() T { return init() })
+	return coreLocal[T](e.nodeFor(_ctx.rt), key, init)
 }
 
 // MenuButton creates a button showing label and an arrow, which opens a
@@ -1147,7 +1147,7 @@ func MenuButton(c *Context, label string, build func(m *Menu)) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreMenuButton(_ctx, label, func(m *Menu) { build(m) }))
+	return wrapElement(coreMenuButton(_ctx, label, build))
 }
 
 // Meter creates a bar showing value between lo and hi, as AppKit's level
@@ -1172,7 +1172,7 @@ func Modal(c *Context, open *bool, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreModal(_ctx, open, func() { fn() }))
+	return wrapElement(coreModal(_ctx, open, fn))
 }
 
 // NewTester starts testing view in a window of width×height DIPs. Two
@@ -1222,7 +1222,7 @@ func Outline[K comparable](c *Context, s *OutlineState[K], roots []K, children f
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreOutline[K](_ctx, s, roots, func(a0 K) []K { return children(a0) }, func(item K) { row(item) }))
+	return wrapElement(coreOutline[K](_ctx, s, roots, children, row))
 }
 
 // OutlineTable creates an outline whose rows are a Table's, as AppKit's
@@ -1243,7 +1243,7 @@ func OutlineTable[K comparable](c *Context, s *OutlineState[K], columns []TableC
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreOutlineTable[K](_ctx, s, columns, roots, func(a0 K) []K { return children(a0) }, func(item K, col int) { cell(item, col) }))
+	return wrapElement(coreOutlineTable[K](_ctx, s, columns, roots, children, cell))
 }
 
 // Overlay builds fn's elements above the rest of the window. Place them
@@ -1255,7 +1255,7 @@ func Overlay(c *Context, fn func()) {
 	if _ctx == nil {
 		return
 	}
-	coreOverlay(_ctx, func() { fn() })
+	coreOverlay(_ctx, fn)
 }
 
 // Popover shows fn's elements in a panel below anchor while *open is
@@ -1266,7 +1266,7 @@ func Popover(c *Context, anchor Element, open *bool, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(corePopover(_ctx, anchor.nodeFor(_ctx.rt), open, func() { fn() }))
+	return wrapElement(corePopover(_ctx, anchor.nodeFor(_ctx.rt), open, fn))
 }
 
 // PopoverBase shows a panel without a look below anchor while *open is
@@ -1348,7 +1348,7 @@ func RadioGroup(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreRadioGroup(_ctx, func() { fn() }))
+	return wrapElement(coreRadioGroup(_ctx, fn))
 }
 
 // RangeSlider creates a slider of two knobs setting *low and *high between
@@ -1566,7 +1566,7 @@ func Sidebar(c *Context, selected *string, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSidebar(_ctx, selected, func() { fn() }))
+	return wrapElement(coreSidebar(_ctx, selected, fn))
 }
 
 // SidebarItem creates an item of a Sidebar choosing id, showing label
@@ -1588,7 +1588,7 @@ func SidebarSection(c *Context, title string, open *bool, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSidebarSection(_ctx, title, open, func() { fn() }))
+	return wrapElement(coreSidebarSection(_ctx, title, open, fn))
 }
 
 // Slider creates a slider setting *value between lo and hi.
@@ -1659,7 +1659,7 @@ func Split(c *Context, size *float32, first func(), second func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSplit(_ctx, size, func() { first() }, func() { second() }))
+	return wrapElement(coreSplit(_ctx, size, first, second))
 }
 
 // SplitVertical is Split with first above second, *size its height.
@@ -1668,7 +1668,7 @@ func SplitVertical(c *Context, size *float32, first func(), second func()) Eleme
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSplitVertical(_ctx, size, func() { first() }, func() { second() }))
+	return wrapElement(coreSplitVertical(_ctx, size, first, second))
 }
 
 // StepSlider creates a slider setting *value to lo or a multiple of step
@@ -1751,7 +1751,7 @@ func Table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTable(_ctx, s, columns, n, func(row int, col int) { cell(row, col) }))
+	return wrapElement(coreTable(_ctx, s, columns, n, cell))
 }
 
 // Tabs creates a row of tabs showing labels, of which *selected is the
@@ -1994,7 +1994,7 @@ func ToggleGroup(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreToggleGroup(_ctx, func() { fn() }))
+	return wrapElement(coreToggleGroup(_ctx, fn))
 }
 
 // TokenField creates a field of tokens, as of tags or the recipients of a
@@ -2038,7 +2038,7 @@ func Toolbar(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreToolbar(_ctx, func() { fn() }))
+	return wrapElement(coreToolbar(_ctx, fn))
 }
 
 // TooltipBase shows a tip without a look by anchor: fn styles the tip and
@@ -2087,7 +2087,7 @@ func Tree(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTree(_ctx, func() { fn() }))
+	return wrapElement(coreTree(_ctx, fn))
 }
 
 // TreeItem creates an item of a Tree showing label, inside the item it is
@@ -2100,7 +2100,7 @@ func TreeItem(c *Context, label string, open *bool, children func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTreeItem(_ctx, label, open, func() { children() }))
+	return wrapElement(coreTreeItem(_ctx, label, open, children))
 }
 
 // View returns the content of a window whose user interface view builds,
@@ -2752,7 +2752,7 @@ func (_handle Element) ContextMenu(build func(m *Menu)) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
-	return wrapElement(_node.ContextMenu(func(m *Menu) { build(m) }))
+	return wrapElement(_node.ContextMenu(build))
 }
 
 // Cursor sets the pointer's shape over the element.
@@ -2912,7 +2912,7 @@ func (_handle Element) DragDataFrom(data func() transfer.Data, options ...transf
 	}
 	_ctx := _node.c
 	_ = _ctx
-	return wrapElement(_node.DragDataFrom(func() transfer.Data { return data() }, options...))
+	return wrapElement(_node.DragDataFrom(data, options...))
 }
 
 // DragEnded reports whether the pointer pressing the element, and moving,
@@ -2988,7 +2988,7 @@ func (_handle Element) Draw(fn func(p *Painter, r Rect)) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
-	return wrapElement(_node.Draw(func(p *Painter, r Rect) { fn(p, r) }))
+	return wrapElement(_node.Draw(fn))
 }
 
 // DrawOver paints on the element with p after its children.
@@ -2999,7 +2999,7 @@ func (_handle Element) DrawOver(fn func(p *Painter, r Rect)) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
-	return wrapElement(_node.DrawOver(func(p *Painter, r Rect) { fn(p, r) }))
+	return wrapElement(_node.DrawOver(fn))
 }
 
 // DroppedFiles returns the paths of the files dropped on the element since
@@ -3369,7 +3369,7 @@ func (_handle Element) HandleInput(fn func(ev InputEvent) bool) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
-	return wrapElement(_node.HandleInput(func(ev InputEvent) bool { return fn(ev) }))
+	return wrapElement(_node.HandleInput(fn))
 }
 
 // HandleTextInput connects an element to the system's text-input services.
@@ -3816,7 +3816,7 @@ func (_handle Element) Menu(build func(m *Menu)) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
-	return wrapElement(_node.Menu(func(m *Menu) { build(m) }))
+	return wrapElement(_node.Menu(build))
 }
 
 func (_handle Element) MinHeight(v float32) Element {
@@ -3916,7 +3916,7 @@ func (_handle Element) OnPaste(fn func(text string) bool) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
-	return wrapElement(_node.OnPaste(func(text string) bool { return fn(text) }))
+	return wrapElement(_node.OnPaste(fn))
 }
 
 // Opacity makes the element and its children translucent.
