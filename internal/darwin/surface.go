@@ -113,10 +113,12 @@ type surface struct {
 	// and due is whether its next tick draws one. Without a display link,
 	// a timer paces frames at the display's rate: timing is true while
 	// one is due. lastFrame is when the last frame began, and framePass
-	// the pass of the run loop that drew it (caPass).
+	// the pass of the run loop that drew it (caPass); resized tells that
+	// the view changed size or scale since.
 	linkRunning bool
 	due         bool
 	timing      bool
+	resized     bool
 	lastFrame   time.Time
 	framePass   uint64
 	cursor      platform.Cursor
@@ -249,6 +251,21 @@ func (s *surface) RequestFrame() {
 		t := msgTimer(class("NSTimer"), sel("timerWithTimeInterval:target:selector:userInfo:repeats:"), delay.Seconds(), s.view, sel("mygoTimer:"), 0, false)
 		send(send(class("NSRunLoop"), "mainRunLoop"), "addTimer:forMode:", uintptr(t), kCFRunLoopCommonModes)
 	})
+}
+
+// presentsWithTransaction reports whether the GPU renderer's CAMetalLayer
+// presents with Core Animation's transaction (internal/gpu/metal), as it
+// does the frames that change it: the frame drawn last then takes a
+// drawable until the transaction commits.
+func (s *surface) presentsWithTransaction() bool {
+	sublayers := send(send(s.view, "layer"), "sublayers")
+	metalLayer := uintptr(class("CAMetalLayer"))
+	for i := range sendInt(sublayers, "count") {
+		if l := send(sublayers, "objectAtIndex:", uintptr(i)); sendBool(l, "isKindOfClass:", metalLayer) {
+			return sendBool(l, "presentsWithTransaction")
+		}
+	}
+	return false
 }
 
 // Occluded reports whether nothing of the window shows on screen: hidden,
@@ -709,20 +726,24 @@ func registerSurfaceClass() {
 			if s == nil {
 				return
 			}
-			if s.framePass == caPass && send(self, "inLiveResize") == 0 {
+			if s.framePass == caPass && send(self, "inLiveResize") == 0 && (!s.resized || s.presentsWithTransaction()) {
 				// AppKit displays the view again before Core Animation
 				// commits the frame drawn in this pass, as while the
-				// trackpad scrolls: the frame would wait a second for a
+				// trackpad scrolls. The next refresh draws it: as one just
+				// drew, not at once; and after a frame presented with the
+				// transaction, the frame would wait a second for a
 				// drawable, the layer's two being taken until the commit.
-				// The next refresh draws it: as one just drew, not at once.
-				// A window that resizes, as zooming animates it, displays
-				// the view for each of its sizes within one pass of the
-				// run loop, committing each: those frames draw at once, or
-				// the layer would stretch the last one to the new sizes.
+				// A frame for a new size after one presented at once, as
+				// those of the display link's ticks are, draws at once, or
+				// the layer would stretch the last one meanwhile. A window
+				// that resizes, as zooming animates it, displays the view
+				// for each of its sizes within one pass of the run loop,
+				// committing each: those frames draw at once too.
 				s.lastFrame = time.Now()
 				s.RequestFrame()
 				return
 			}
+			s.resized = false
 			s.framePass = caPass
 			s.lastFrame = time.Now()
 			s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame})
@@ -738,7 +759,21 @@ func registerSurfaceClass() {
 				return
 			}
 			s.due = false
-			send(self, "setNeedsDisplay:", 1)
+			if sendBool(send(self, "layer"), "needsDisplay") {
+				// AppKit displays the view in this pass, as after a
+				// resize (the view's needsDisplay tells nothing): the
+				// frame shows with the window's changes then.
+				return
+			}
+			// The frame draws now, rather than when AppKit displays the
+			// view, which would cost a pass of its display cycle and a
+			// commit of Core Animation's transaction for each frame: the
+			// renderer presents frames that change nothing else as soon
+			// as drawn.
+			s.resized = false
+			s.framePass = caPass
+			s.lastFrame = time.Now()
+			s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame})
 		}),
 		method("mygoTimer:", func(self id, _ objc.SEL, timer id) {
 			// A closed window's view lives until its timer fires.
@@ -750,12 +785,14 @@ func registerSurfaceClass() {
 		method("setFrameSize:", func(self id, cmd objc.SEL, size NSSize) {
 			sendSuperSize(self, "MyGoSurfaceView", cmd, size)
 			if s := b().surfaceOf(self); s != nil {
+				s.resized = true
 				s.send(platform.SurfaceEvent{Kind: platform.SurfaceResize})
 				send(self, "setNeedsDisplay:", 1)
 			}
 		}),
 		method("viewDidChangeBackingProperties", func(self id, _ objc.SEL) {
 			if s := b().surfaceOf(self); s != nil {
+				s.resized = true
 				s.send(platform.SurfaceEvent{Kind: platform.SurfaceResize})
 				send(self, "setNeedsDisplay:", 1)
 			}
