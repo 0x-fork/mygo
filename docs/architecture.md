@@ -98,7 +98,8 @@ framework safely. Read it before changing anything under `internal/`.
 │                       a web page or native UI (updater/native), and
 │                       terminal, a view of native UI running programs with
 │                       libghostty-vt
-├── ui/                 native UI: views, layout, widgets, text editing, Tester
+├── ui/                 native UI: views, layout, widgets, text editing, Tester;
+│                       ui/chart: charts without a look, on ui's public API
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native; counter-native, vibrancy,

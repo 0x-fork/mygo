@@ -210,6 +210,12 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
 - [Meter](meter.md): a value in a range, colored by its level.
 - [Badge](badge.md): a short text in a pill, as a count.
 
+## Charts
+
+- [Charts](chart.md): scales, axes and marks without a look, for bars,
+  lines, areas, stacks and donuts, and a selection the pointer and the
+  keyboard move.
+
 ## Images
 
 - [Image](image.md): bitmaps and SVGs in their own colors.

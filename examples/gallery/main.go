@@ -1,9 +1,9 @@
 // Gallery tours MyGo's own user interface toolkit: a window drawn on the
 // GPU from Go, without a web page. It shows layout, the widgets, text
 // editing, a list of ten thousand rows with context menus, a chat of
-// messages of every height, styling (grids, borders, gradients, text
-// decorations, motion), custom drawing, overlays, file drops and updates
-// from other goroutines. Its pages are paths of a router, with a history.
+// messages of every height, charts, styling (grids, borders, gradients,
+// text decorations, motion), custom drawing, overlays, file drops and
+// updates from other goroutines. Its pages are paths of a router, with a history.
 //
 //	go run ./examples/gallery
 package main
@@ -132,6 +132,8 @@ type gallery struct {
 	table    ui.ListState
 	messages []message
 	draft    string
+	// chart is the state of the Charts page.
+	chart galleryCharts
 }
 
 // galleryTask is a task of the Drag and drop card.
@@ -266,7 +268,7 @@ func makeMessage(id int) message {
 	return message{id: id, text: strings.Join(lines, " "), mine: r%3 == 0}
 }
 
-var pages = []string{"Overview", "Controls", "Text", "List", "Styling", "Drawing", "Glass", "Overlays", "Motion"}
+var pages = []string{"Overview", "Controls", "Text", "List", "Charts", "Styling", "Drawing", "Glass", "Overlays", "Motion"}
 
 // icon parses the shapes of a 24×24 stroked icon, drawn in currentColor
 // as icon sets draw them.
@@ -281,6 +283,7 @@ var (
 		"Controls": icon(`<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>`),
 		"Text":     icon(`<path d="M5 6V5h14v1M12 5v14M9 19h6"/>`),
 		"List":     icon(`<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>`),
+		"Charts":   icon(`<path d="M3 3v18h18"/><path d="M8 17v-5M13 17V8M18 17v-8"/>`),
 		"Styling":  icon(`<path d="M12 21a9 9 0 1 1 9-9c0 2.5-2 3.5-3.5 3.5H16a2 2 0 0 0-1.5 3.3c.4.5.4 2.2-2.5 2.2z"/><circle cx="7.5" cy="11" r="1"/><circle cx="11" cy="7" r="1"/><circle cx="16" cy="8.5" r="1"/>`),
 		"Drawing":  icon(`<path d="M15 5l4 4M4 20l1-4.5L16.5 4a2.1 2.1 0 0 1 3 3L8 18.5z"/>`),
 		"Glass":    icon(`<rect x="3" y="6" width="18" height="12" rx="6"/><path d="M7 10.5a3 3 0 0 1 2.5-1.5"/>`),
@@ -347,6 +350,8 @@ func (g *gallery) view(c *ui.Context) {
 						g.text(c)
 					case "List":
 						g.list(c)
+					case "Charts":
+						g.charts(c)
 					case "Styling":
 						g.styling(c)
 					case "Drawing":
@@ -362,8 +367,8 @@ func (g *gallery) view(c *ui.Context) {
 			})
 		})
 	})
-	// Ctrl+1…7 (Cmd on macOS) switch pages.
-	for i, p := range pages {
+	// Ctrl+1…9 (Cmd on macOS) switch to the first nine pages.
+	for i, p := range pages[:min(len(pages), 9)] {
 		if c.Shortcut(ui.Cmd, ui.Key1+ui.Key(i)) {
 			g.router.Push(pagePath(p))
 		}
@@ -441,7 +446,7 @@ func (g *gallery) sidebar(c *ui.Context) {
 			for k, section := range []struct {
 				title string
 				pages []string
-			}{{"Widgets", pages[:4]}, {"Look", pages[4:]}} {
+			}{{"Widgets", pages[:5]}, {"Look", pages[5:]}} {
 				ui.SidebarSection(c, section.title, &g.sectionsOpen[k], func() {
 					for _, p := range section.pages {
 						item := ui.SidebarItem(c, p, pageIcons[p], p)
@@ -1776,7 +1781,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{router: ui.NewRouter("/overview"), items: []motionItem{{1, "Item 1"}, {2, "Item 2"}, {3, "Item 3"}}, nextItem: 3, size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), lens: [2]float32{110, 190}, glassEdge: 1, notes: 12, notifyMail: true, pathDepth: 4}
+	g := &gallery{router: ui.NewRouter("/overview"), items: []motionItem{{1, "Item 1"}, {2, "Item 2"}, {3, "Item 3"}}, nextItem: 3, size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), lens: [2]float32{110, 190}, glassEdge: 1, notes: 12, notifyMail: true, pathDepth: 4, chart: newCharts()}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

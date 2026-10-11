@@ -56,7 +56,7 @@ func TestSidebarNavigation(t *testing.T) {
 	g.router.Push("/list/42")
 	tt.Frame()
 	tt.Key(0, ui.KeyDown)
-	check("/styling")
+	check("/charts")
 }
 
 func TestRowStarAndBreadcrumb(t *testing.T) {
