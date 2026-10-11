@@ -242,10 +242,10 @@ func (_handle *Context) After(d time.Duration) {
 	_ctx.After(d)
 }
 
-// AnimationContext asks for another frame as soon as the display can show
+// AnimationFrame asks for another frame as soon as the display can show
 // it, for something moving. Call it in every frame while it moves. A
 // drawing that moves while the layout stays asks with
-// Painter.AnimationContext instead, whose frames do not build the view.
+// Painter.AnimationFrame instead, whose frames do not build the view.
 func (_handle *Context) AnimationFrame() {
 	_ctx := _handle.build()
 	if _ctx == nil {
@@ -5022,7 +5022,7 @@ func (_handle ToastParts) CloseButton() Element {
 
 // Left returns how long the toast shows still, to count down, or 0 for one
 // that shows until it is closed. It does not move while the time of the
-// toasts stops; ask for frames with Context.AnimationContext to draw it
+// toasts stops; ask for frames with Context.AnimationFrame to draw it
 // moving.
 func (_handle ToastParts) Left() time.Duration {
 	_parts := _handle.resolve()

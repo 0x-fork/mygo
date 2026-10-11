@@ -404,7 +404,6 @@ func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 	if fn.Doc != nil {
 		for _, comment := range fn.Doc.List {
 			v := comment.Text
-			v = strings.ReplaceAll(v, "Frame", "Context")
 			v = strings.ReplaceAll(v, "*Element", "Element")
 			for pub, priv := range parts {
 				v = strings.ReplaceAll(v, priv, pub)
