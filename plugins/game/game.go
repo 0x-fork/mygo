@@ -61,6 +61,7 @@ type Input struct {
 	buttons, bPressed, bReleased [3]bool
 	wheelX, wheelY               float32
 	w, h                         float32
+	focused                      bool
 }
 
 func newInput() *Input {
@@ -98,6 +99,11 @@ func (in *Input) Wheel() (dx, dy float32) { return in.wheelX, in.wheelY }
 
 // Size returns the view's size.
 func (in *Input) Size() (w, h float32) { return in.w, in.h }
+
+// Focused reports whether the view has the keyboard, which it loses with
+// its window or to another element: a game pauses without it, as the
+// player is elsewhere.
+func (in *Input) Focused() bool { return in.focused }
 
 // step forgets what happened before this step.
 func (in *Input) step() {
@@ -224,7 +230,8 @@ func View(c *ui.Context, g Game) ui.Element {
 		l.wantFocus = false
 		e.Focus()
 	}
-	if !e.Focused() {
+	l.in.focused = e.Focused()
+	if !l.in.focused {
 		l.in.releaseAll()
 	}
 	return e.HandleInput(l.input).Draw(l.draw)

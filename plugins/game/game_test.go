@@ -16,6 +16,7 @@ type stepper struct {
 	spacePressed    int
 	wReleased       int
 	clicks          int
+	focused         bool
 	alpha           float64
 	draws           int
 }
@@ -33,6 +34,7 @@ func (s *stepper) Update(in *Input) {
 	if in.PointerPressed(0) {
 		s.clicks++
 	}
+	s.focused = in.Focused()
 }
 
 func (s *stepper) Draw(p *ui.Painter, r ui.Rect, alpha float64) {
@@ -60,8 +62,8 @@ func TestView(t *testing.T) {
 	// 100 ms are 6 steps, and a third of the next.
 	now = now.Add(105 * time.Millisecond)
 	tt.Frame()
-	if g.steps != 6 {
-		t.Errorf("%d steps in 105 ms", g.steps)
+	if g.steps != 6 || !g.focused {
+		t.Errorf("%d steps in 105 ms, focused %v", g.steps, g.focused)
 	}
 	if math.Abs(g.alpha-0.3) > 0.01 {
 		t.Errorf("alpha %v", g.alpha)
@@ -90,6 +92,9 @@ func TestView(t *testing.T) {
 	tt.SetFocused(false)
 	now = now.Add(20 * time.Millisecond)
 	tt.Frame()
+	if g.focused {
+		t.Error("focused without the keyboard")
+	}
 	if g.wReleased != 1 || g.wDown[len(g.wDown)-1] {
 		t.Errorf("W after losing the keyboard: released %d, down %v", g.wReleased, g.wDown[len(g.wDown)-1])
 	}

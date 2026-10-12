@@ -7,8 +7,18 @@ own. It is all Go. Native UI draws a game as it draws the rest: package
 camera, package `game/gamepad` reads its controllers, and core packages
 draw its pixel art ([Pixelated bitmaps](../ui/image.md) and
 [parts of them](../ui/drawing.md#parts-of-bitmaps)) and play its sound
-([`audio`](../audio.md)). [examples/farm](../../examples/farm) is a little
-farming game made of all of them.
+([`audio`](../audio.md)).
+
+[examples/mayoi](../../examples/mayoi), a little survivor game after the
+anime MyGO!!!!!, which MyGo is named after, is made of all of them, and
+plays here, compiled to WebAssembly. Click it, then walk with WASD or the
+arrows: Tomori sings on her own at stage fright, picks up stones, and at
+each level a bandmate may join her, and the music.
+
+<!-- app mayoi 480 -->
+
+[examples/farm](../../examples/farm) is a calmer one, a farm to till and
+water.
 
 ## The game loop
 
@@ -67,6 +77,7 @@ steps catch up on a quarter of a second at most.
 | `PointerDown(b)`, `PointerPressed(b)`, `PointerReleased(b)` | pointer button `b` (0 the primary) |
 | `Wheel()` | how far the wheel scrolled since the step before |
 | `Size()` | the view's size |
+| `Focused()` | the view has the keyboard: a game pauses without it |
 
 Keys are by position: `KeyW` is the key in W's place on any layout, as
 WASD wants. The view takes the keyboard focus as it appears and when
