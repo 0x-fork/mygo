@@ -151,7 +151,7 @@ func (r *renderer) transformed(op *scene.Op, px scene.EffectPixels, b *scene.Bac
 					blend(p, border, bc*clip)
 				}
 			case scene.OpImage:
-				if op.Image == nil || op.Image.W == 0 || op.Image.H == 0 || op.Src.Empty() {
+				if op.Image == nil || op.Image.W == 0 || op.Image.H == 0 || unflipped(op.Src).Empty() {
 					continue
 				}
 				// How far a pixel of the frame reaches in the image's,
@@ -161,10 +161,6 @@ func (r *renderer) transformed(op *scene.Op, px scene.EffectPixels, b *scene.Bac
 				bx, by := inv.VectorAt(wx, wy, 0, 1)
 				c := sampleOp(op, op.Src.X+(lx-op.Rect.X)*sx, op.Src.Y+(ly-op.Rect.Y)*sy,
 					(abs32(ax)+abs32(bx))*abs32(sx), (abs32(ay)+abs32(by))*abs32(sy))
-				if op.Grayscale {
-					l := 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]
-					c[0], c[1], c[2] = l, l, l
-				}
 				blend(p, c, cov*clip*opacityOf(op.Opacity))
 			case scene.OpEffect:
 				if px != nil {

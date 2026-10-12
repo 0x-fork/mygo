@@ -33,7 +33,9 @@ ui.Box(c).Size(200, 40).Draw(func(p *ui.Painter, r ui.Rect) {
 ```
 
 Draw functions only paint: MyGo may call them more than once a frame.
-`Painter.Icon` and `Painter.Image` draw SVGs and bitmaps, and
+`Painter.Icon` and `Painter.Image` draw SVGs and bitmaps,
+`Painter.ImageRegion` parts of bitmaps (see [Parts of
+bitmaps](#parts-of-bitmaps)), and
 `Painter.FocusRing` the ring of the keyboard focus, for widgets that draw
 their own.
 
@@ -52,6 +54,29 @@ box.Draw(func(p *ui.Painter, r ui.Rect) {
 	p.StrokePath(check.Trim(0, drawn), 2, c.Theme().Accent)
 })
 ```
+
+## Parts of bitmaps
+
+A bitmap can hold many pictures: the icons of a sheet, the frames of an
+animation, the cells of a contact sheet. `Painter.ImageRegion` draws one
+part of it, `src` in the bitmap's pixels, into a rectangle; nothing of the
+bitmap around the part shows, smooth or pixelated. Its `ImageOptions`
+mirror the part (`FlipX`, `FlipY`) and tint it (`Tint` multiplies its
+colors and alpha):
+
+```go
+icons, _ := ui.DecodeBitmap(iconsPNG) // 16×16 icons in a row
+icon := func(i int) ui.Rect { return ui.Rect{X: float32(i * 16), W: 16, H: 16} }
+
+box.Draw(func(p *ui.Painter, r ui.Rect) {
+	p.ImageRegion(icons, icon(3), ui.Rect{X: r.X, Y: r.Y, W: 24, H: 24},
+		ui.ImageOptions{Tint: c.Theme().TextMuted})
+})
+```
+
+A part outside what the painter shows draws nothing, so a view of many
+can draw them all without culling them itself, as games draw their
+sprites and tiles.
 
 ## Shaping text
 

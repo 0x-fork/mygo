@@ -1020,6 +1020,48 @@ func (p *Painter) Image(src ImageSource, r Rect, fit Fit) {
 	}
 }
 
+// ImageOptions are how Painter.ImageRegion draws a part of a bitmap.
+type ImageOptions struct {
+	// FlipX mirrors the part left to right, FlipY top to bottom.
+	FlipX, FlipY bool
+	// Tint multiplies its colors and alpha, as a colored filter would;
+	// zero for none.
+	Tint Color
+}
+
+// ImageRegion draws the part src of bitmap b, in its pixels (empty for all
+// of it), stretched into dst, as Image draws a bitmap (pixelated if it
+// is), unless dst is outside what the painter shows. Nothing of the bitmap
+// around src shows, so that the parts of a bitmap holding many, as the
+// icons of a sheet or the frames of an animation, draw on their own:
+//
+//	p.ImageRegion(icons, ui.Rect{X: 32, W: 16, H: 16}, box, ui.ImageOptions{})
+func (p *Painter) ImageRegion(b *Bitmap, src, dst Rect, o ImageOptions) {
+	if b == nil || b.w == 0 || b.h == 0 || dst.W <= 0 || dst.H <= 0 || !p.visible(dst, 1) {
+		return
+	}
+	if src.W <= 0 || src.H <= 0 {
+		src = Rect{W: float32(b.w), H: float32(b.h)}
+	}
+	// Far smaller than its pixels, a level of the bitmap, as smooth.
+	shrink := min(src.W/(dst.W*p.scale), src.H/(dst.H*p.scale))
+	shown := b.smaller(shrink)
+	kx, ky := float32(shown.W)/float32(b.w), float32(shown.H)/float32(b.h)
+	sr := scene.Rect{X: src.X * kx, Y: src.Y * ky, W: src.W * kx, H: src.H * ky}
+	if o.FlipX {
+		sr.X, sr.W = sr.X+sr.W, -sr.W
+	}
+	if o.FlipY {
+		sr.Y, sr.H = sr.Y+sr.H, -sr.H
+	}
+	var tint scene.Color
+	if o.Tint != (Color{}) {
+		tint = o.Tint.scene()
+	}
+	p.add(scene.Op{Kind: scene.OpImage, Rect: p.snap(dst), Image: shown, Src: sr, Opacity: p.opacity, Color: tint,
+		Pixelated: b.pixelated && shrink <= 1})
+}
+
 // FocusRing draws the ring that shows the keyboard focus around r.
 func (p *Painter) FocusRing(r Rect, radius [4]float32) {
 	const w = 2

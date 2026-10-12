@@ -218,24 +218,30 @@ float4 sampleLocal(Texture2D t, float2 uv, float4 src, float affine) {
 	return t.Sample(samp, uv);
 }
 
-// sampleImage samples an image held inside src; where pixelated is set,
-// as pixel art draws, each texel a square of its color whose edges blend
-// with the next only across the pixel they cross (Ebitengine's
-// FilterPixelated): nearest where it shows at whole multiples of its size,
-// and texels of even widths with smooth edges at any other. dtex is the
-// fwidth of uv, taken where every fragment of the quad takes it.
-float4 sampleImage(Texture2D t, float2 uv, float4 src, float affine, float pixelated, float2 dtex) {
-	if (pixelated < 0.5) {
-		return sampleLocal(t, uv, src, affine);
-	}
+// sampleImage samples an image held inside src, which is reversed along
+// an axis it flips, so that a part of a sheet shows none of its
+// neighbors; where pixelated is set, as pixel art draws, each texel a
+// square of its color whose edges blend with the next only across the
+// pixel they cross (Ebitengine's FilterPixelated): nearest where it shows
+// at whole multiples of its size, and texels of even widths with smooth
+// edges at any other. dtex is the fwidth of uv, taken where every
+// fragment of the quad takes it.
+float4 sampleImage(Texture2D t, float2 uv, float4 src, float pixelated, float2 dtex) {
 	uint w, h;
 	t.GetDimensions(w, h);
 	float2 size = float2(w, h);
-	float2 tc = uv * size - 0.5;
-	float2 i = floor(tc);
-	float2 f = saturate((tc - i - 0.5) / clamp(dtex * size, 1e-5, 1.0) + 0.5);
-	return t.Sample(samp, clamp(i + f + 0.5, src.xy * size + 0.5, src.zw * size - 0.5) / size);
+	float2 lo = min(src.xy, src.zw), hi = max(src.xy, src.zw);
+	if (pixelated > 0.5) {
+		float2 tc = uv * size - 0.5;
+		float2 i = floor(tc);
+		float2 f = saturate((tc - i - 0.5) / clamp(dtex * size, 1e-5, 1.0) + 0.5);
+		uv = (i + f + 0.5) / size;
+	}
+	return t.Sample(samp, clamp(uv, lo + 0.5 / size, hi - 0.5 / size));
 }
+
+// tint multiplies premultiplied c by straight color t.
+float4 tint(float4 c, float4 t) { return c * float4(t.rgb * t.a, t.a); }
 
 float4 premul(float4 c) { return float4(c.rgb * c.a, c.a); }
 
@@ -435,11 +441,11 @@ PSOut ps(VSOut i) {
 	} else if (kind < 3.5) {
 		res = sampleLocal(colorTex, i.pt.zw, i.widths, i.transform0.w) * i.color.a * glyphCov;
 	} else if (kind < 4.5) {
-		res = sampleImage(imageTex, i.pt.zw, i.widths, i.transform0.w, i.params.z, dtex) *
-			  localCoverage(i.pt.xy, i.rect, i.radii, i.transform0.w, fr);
+		res = sampleImage(imageTex, i.pt.zw, i.widths, i.params.z, dtex);
 		if (i.params.y > 0.5) {
 			res.rgb = dot(res.rgb, float3(0.2126, 0.7152, 0.0722));
 		}
+		res = tint(res, i.color) * localCoverage(i.pt.xy, i.rect, i.radii, i.transform0.w, fr);
 	} else {
 		float4 c = paint(i.pt.xy, i.params.z, i.rect, i.color, i.color2, i.grad);
 		float3 straight = unpremul(c);

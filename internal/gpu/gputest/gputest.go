@@ -114,6 +114,11 @@ func Scene() *scene.Scene {
 	// none.
 	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 256, Y: 118, W: 20, H: 20}, Image: img, Src: scene.Rect{W: 8, H: 8}, Pixelated: true})
 	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 284, Y: 120, W: 16, H: 16}, Image: img, Src: scene.Rect{X: 2, Y: 3, W: 4, H: 4}, Pixelated: true})
+	// Sprites: a part flipped across both axes and tinted, pixelated, and
+	// one flipped across one, smooth, showing none of the pixels around.
+	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 284, Y: 60, W: 16, H: 16}, Image: img, Src: scene.Rect{X: 6, Y: 7, W: -4, H: -4}, Pixelated: true,
+		Color: scene.Color{R: 255, G: 200, B: 80, A: 220}})
+	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 284, Y: 80, W: 20, H: 20}, Image: img, Src: scene.Rect{X: 7, Y: 1, W: -5, H: 5}})
 
 	// Borders of different widths, dashed ones, Oklab gradients, stripes,
 	// glyphs in gradients and a gray image.

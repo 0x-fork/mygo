@@ -61,7 +61,8 @@ type Instance struct {
 	// box casting a shadow, or a glyph's contrast and thin boost in Inner[0]
 	// and Inner[1].
 	Rect, Radii, Inner [4]float32
-	// Color and Color2 (a gradient's end) and Border are straight RGBA.
+	// Color and Color2 (a gradient's end) and Border are straight RGBA;
+	// Color tints an image (white for none).
 	Color, Color2, Border [4]float32
 	// Grad holds a gradient's start and end points, or the stripes' unit
 	// vector across them, width and period; UV the texture rectangle,
@@ -367,9 +368,14 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 			if op.Pixelated {
 				nearest = 1
 			}
+			tint := [4]float32{1, 1, 1, 1}
+			if op.Color != (scene.Color{}) {
+				tint = straight(op.Color)
+			}
 			b.add(Instance{
 				Rect:   rect(op.Rect),
 				Radii:  scene.Corners(op.Rect, op.Radii, op.Continuous),
+				Color:  tint,
 				UV:     [4]float32{op.Src.X / iw, op.Src.Y / ih, (op.Src.X + op.Src.W) / iw, (op.Src.Y + op.Src.H) / ih},
 				Params: [4]float32{4, gray, nearest, opacity(op.Opacity)},
 			}, tex, op.Transform)

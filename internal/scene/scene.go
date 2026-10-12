@@ -81,7 +81,10 @@ const (
 	// instead of their own colors.
 	OpGlyphs
 	// OpImage paints Src of Image into Rect, clipped to Radii, with
-	// Opacity, in shades of gray if Grayscale.
+	// Opacity, in shades of gray if Grayscale, tinted by Color unless it
+	// is zero (its pixels times its straight color and alpha). A negative
+	// Src.W or Src.H flips the image along that axis, Src.X or Src.Y then
+	// being its right or bottom edge; nothing outside Src shows.
 	OpImage
 	// OpPushClip clips the following ops to Rect with Radii, intersected
 	// with the clip in effect, until the matching OpPopClip.

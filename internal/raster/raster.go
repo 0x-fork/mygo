@@ -1307,7 +1307,7 @@ func mixMask(src, dst byte, coverage uint32) byte {
 
 func (r *renderer) image(op *scene.Op) {
 	img := op.Image
-	if img == nil || img.W == 0 || img.H == 0 || op.Rect.Empty() || op.Src.Empty() {
+	if img == nil || img.W == 0 || img.H == 0 || op.Rect.Empty() || unflipped(op.Src).Empty() {
 		return
 	}
 	opacity := op.Opacity
@@ -1337,22 +1337,42 @@ func (r *renderer) image(op *scene.Op) {
 				continue
 			}
 			c := sampleOp(op, op.Src.X+(px-op.Rect.X)*sx, op.Src.Y+(py-op.Rect.Y)*sy, abs32(sx), abs32(sy))
-			if op.Grayscale {
-				l := 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]
-				c[0], c[1], c[2] = l, l, l
-			}
 			blend(row[4*x:4*x+4], c, cov)
 		}
 	}
 }
 
-// sampleOp reads op's image at (u, v), as op samples it, where a pixel
-// spans du by dv of its pixels.
+// sampleOp reads op's image at (u, v), where a pixel spans du by dv of
+// its pixels, as op samples, grays and tints it.
 func sampleOp(op *scene.Op, u, v, du, dv float32) [4]float32 {
 	if op.Pixelated {
 		u, v = pixelated(u, du), pixelated(v, dv)
 	}
-	return sample(op.Image, u, v, op.Src)
+	c := sample(op.Image, u, v, unflipped(op.Src))
+	if op.Grayscale {
+		l := 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]
+		c[0], c[1], c[2] = l, l, l
+	}
+	if t := op.Color; t != (scene.Color{}) {
+		a := float32(t.A) / 255
+		c[0] *= float32(t.R) / 255 * a
+		c[1] *= float32(t.G) / 255 * a
+		c[2] *= float32(t.B) / 255 * a
+		c[3] *= a
+	}
+	return c
+}
+
+// unflipped returns the rectangle a source rectangle covers, which has a
+// negative width or height along an axis it flips.
+func unflipped(r scene.Rect) scene.Rect {
+	if r.W < 0 {
+		r.X, r.W = r.X+r.W, -r.W
+	}
+	if r.H < 0 {
+		r.Y, r.H = r.Y+r.H, -r.H
+	}
+	return r
 }
 
 // pixelated moves t, a coordinate in an image's pixels, so that sampling
