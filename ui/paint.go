@@ -799,10 +799,12 @@ func (p *Painter) drawBitmap(img *Bitmap, box Rect, fit Fit, radius [4]float32, 
 		return
 	}
 	// Far smaller than its pixels, a level of it, as smooth.
-	shown := img.smaller(min(frac.W*iw/(dst.W*p.scale), frac.H*ih/(dst.H*p.scale)))
+	shrink := min(frac.W*iw/(dst.W*p.scale), frac.H*ih/(dst.H*p.scale))
+	shown := img.smaller(shrink)
 	sw, sh := float32(shown.W), float32(shown.H)
 	src := scene.Rect{X: frac.X * sw, Y: frac.Y * sh, W: frac.W * sw, H: frac.H * sh}
-	p.add(scene.Op{Kind: scene.OpImage, Rect: p.snap(dst), Radii: p.radii(radius), Continuous: continuousCorners, Image: shown, Src: src, Opacity: p.opacity, Grayscale: gray})
+	p.add(scene.Op{Kind: scene.OpImage, Rect: p.snap(dst), Radii: p.radii(radius), Continuous: continuousCorners, Image: shown, Src: src, Opacity: p.opacity, Grayscale: gray,
+		Pixelated: img.pixelated && shrink <= 1})
 }
 
 // scrollbars draws the thumbs of a scroll container whose content

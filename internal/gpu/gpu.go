@@ -79,8 +79,9 @@ type Instance struct {
 	// image, 5 subpixel glyph, 6 effect); 1 for a dashed border, a
 	// grayscale image or an inner shadow, whose box is in Rect and Radii
 	// and the hole it leaves in UV and Inner (none when empty); the
-	// shadow's sigma (0 for none), the paint (scene.Paint) or the size of
-	// the squares an effect's backdrop averages; and the opacity.
+	// shadow's sigma (0 for none), the paint (scene.Paint), 1 for an image
+	// sampled at its nearest texel, or the size of the squares an effect's
+	// backdrop averages; and the opacity.
 	Params [4]float32
 	// Transform rows map local pixels to the frame. Transform0.w enables
 	// transformed antialiasing, Transform1.w selects a cached clip mask.
@@ -359,15 +360,18 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 				continue
 			}
 			iw, ih := float32(img.W), float32(img.H)
-			gray := float32(0)
+			gray, nearest := float32(0), float32(0)
 			if op.Grayscale {
 				gray = 1
+			}
+			if op.Pixelated {
+				nearest = 1
 			}
 			b.add(Instance{
 				Rect:   rect(op.Rect),
 				Radii:  scene.Corners(op.Rect, op.Radii, op.Continuous),
 				UV:     [4]float32{op.Src.X / iw, op.Src.Y / ih, (op.Src.X + op.Src.W) / iw, (op.Src.Y + op.Src.H) / ih},
-				Params: [4]float32{4, gray, 0, opacity(op.Opacity)},
+				Params: [4]float32{4, gray, nearest, opacity(op.Opacity)},
 			}, tex, op.Transform)
 		}
 	}

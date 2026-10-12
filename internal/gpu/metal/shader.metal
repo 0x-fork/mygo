@@ -328,6 +328,23 @@ float4 sampleLocal(texture2d<float> t, sampler samp, float2 uv, float4 src, floa
 	return t.sample(samp, uv);
 }
 
+// sampleImage samples an image held inside src; where pixelated is set,
+// as pixel art draws, each texel a square of its color whose edges blend
+// with the next only across the pixel they cross (Ebitengine's
+// FilterPixelated): nearest where it shows at whole multiples of its size,
+// and texels of even widths with smooth edges at any other. dtex is the
+// fwidth of uv, taken where every fragment of the quad takes it.
+float4 sampleImage(texture2d<float> t, sampler samp, float2 uv, float4 src, float affine, float pixelated, float2 dtex) {
+	if (pixelated < 0.5f) {
+		return sampleLocal(t, samp, uv, src, affine);
+	}
+	float2 size = float2(t.get_width(), t.get_height());
+	float2 tc = uv * size - 0.5f;
+	float2 i = floor(tc);
+	float2 f = saturate((tc - i - 0.5f) / clamp(dtex * size, 1e-5f, 1.0f) + 0.5f);
+	return t.sample(samp, clamp(i + f + 0.5f, src.xy * size + 0.5f, src.zw * size - 0.5f) / size);
+}
+
 float4 premul(float4 c) { return float4(c.rgb * c.a, c.a); }
 
 float3 unpremul(float4 c) { return c.a > 0.0f ? c.rgb / c.a : float3(0.0f); }
@@ -513,6 +530,7 @@ fragment PSOut ps(VSOut v [[stage_in]], const device Inst *insts [[buffer(0)]],
 				  texture2d<float> clipTex [[texture(4)]], sampler samp [[sampler(0)]]) {
 	Inst i = insts[v.inst];
 	Frame fr = frameOf(v, i);
+	float2 dtex = fwidth(v.tex);
 	float kind = i.params.x;
 	bool wide = globals.z > 0.5f;
 	float4 res;
@@ -558,7 +576,7 @@ fragment PSOut ps(VSOut v [[stage_in]], const device Inst *insts [[buffer(0)]],
 	} else if (kind < 3.5f) {
 		res = sampleLocal(colorTex, samp, v.tex, i.uv, i.transform0.w) * i.color.a * glyphCov;
 	} else if (kind < 4.5f) {
-		res = sampleLocal(imageTex, samp, v.tex, i.uv, i.transform0.w) *
+		res = sampleImage(imageTex, samp, v.tex, i.uv, i.transform0.w, i.params.z, dtex) *
 			  localCoverage(v.p, i.rect, i.radii, i.transform0.w, fr);
 		if (i.params.y > 0.5f) {
 			res.rgb = float3(dot(res.rgb, float3(0.2126f, 0.7152f, 0.0722f)));

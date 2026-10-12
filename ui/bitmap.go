@@ -27,6 +27,21 @@ type Bitmap struct {
 	// fresh counts the levels made from the current picture; Update
 	// keeps the others to redo in place, so their textures stay too.
 	fresh int
+	// pixelated draws each pixel as a square of its color.
+	pixelated bool
+}
+
+// Pixelated draws the bitmap's pixels as squares of their colors where it
+// shows larger than its size, as pixel art draws, instead of blending
+// neighbors smoothly. At whole multiples of its size, each pixel is a
+// square of whole pixels of the screen; at others, squares of even sizes
+// whose edges blend across one pixel of the screen, so that none is wider
+// than the next and they glide when they move, as Ebitengine's
+// FilterPixelated. Where it shows smaller, it is as smooth as any. It
+// returns the bitmap.
+func (b *Bitmap) Pixelated() *Bitmap {
+	b.pixelated = true
+	return b
 }
 
 // NewBitmap converts img.

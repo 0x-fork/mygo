@@ -150,6 +150,9 @@ type Op struct {
 	Image     *Image
 	Src       Rect
 	Grayscale bool
+	// Pixelated samples an OpImage's nearest pixel, as pixel art draws,
+	// where it would interpolate between pixels.
+	Pixelated bool
 	// Opacity multiplies the op's colors; 0 means 1.
 	Opacity float32
 }

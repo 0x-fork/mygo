@@ -236,6 +236,23 @@ vec4 sampleLocal(sampler2D t, vec2 uv, vec4 src, float affine) {
 	return texture(t, uv);
 }
 
+// sampleImage samples an image held inside src; where pixelated is set,
+// as pixel art draws, each texel a square of its color whose edges blend
+// with the next only across the pixel they cross (Ebitengine's
+// FilterPixelated): nearest where it shows at whole multiples of its size,
+// and texels of even widths with smooth edges at any other. dtex is the
+// fwidth of uv, taken where every fragment of the quad takes it.
+vec4 sampleImage(sampler2D t, vec2 uv, vec4 src, float affine, float pixelated, vec2 dtex) {
+	if (pixelated < 0.5) {
+		return sampleLocal(t, uv, src, affine);
+	}
+	vec2 size = vec2(textureSize(t, 0));
+	vec2 tc = uv * size - 0.5;
+	vec2 i = floor(tc);
+	vec2 f = clamp((tc - i - 0.5) / clamp(dtex * size, 1e-5, 1.0) + 0.5, 0.0, 1.0);
+	return texture(t, clamp(i + f + 0.5, src.xy * size + 0.5, src.zw * size - 0.5) / size);
+}
+
 vec4 premul(vec4 c) { return vec4(c.rgb * c.a, c.a); }
 
 vec3 unpremul(vec4 c) { return c.a > 0.0 ? c.rgb / c.a : vec3(0.0); }
@@ -404,6 +421,7 @@ void main() {
 	Frame fr = frameOf();
 	vec2 p = vPoint.xy;
 	vec2 tex = vPoint.zw;
+	vec2 dtex = fwidth(tex);
 	float kind = vParams.x;
 	vec4 res;
 	float glyphCov = vTransform0.w > 0.5 ? localCoverage(p, vRect, vec4(0.0), 1.0, fr) : 1.0;
@@ -449,7 +467,7 @@ void main() {
 		res = sampleLocal(uColor, tex, vWidths, vTransform0.w) * vColor.a * glyphCov;
 	} else if (kind < 4.5) {
 		res =
-			sampleLocal(uImage, tex, vWidths, vTransform0.w) * localCoverage(p, vRect, vRadii, vTransform0.w, fr);
+			sampleImage(uImage, tex, vWidths, vTransform0.w, vParams.z, dtex) * localCoverage(p, vRect, vRadii, vTransform0.w, fr);
 		if (vParams.y > 0.5) {
 			res.rgb = vec3(dot(res.rgb, vec3(0.2126, 0.7152, 0.0722)));
 		}

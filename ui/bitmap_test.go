@@ -57,6 +57,36 @@ func TestBitmapShowsSmallerSmoothly(t *testing.T) {
 	}
 }
 
+func TestBitmapPixelated(t *testing.T) {
+	// Stripes of one pixel, 8 times as large: a pixelated bitmap shows
+	// stripes of 8 pixels, black or white, a smooth one ramps between.
+	for _, pixelated := range []bool{false, true} {
+		bm := NewBitmap(stripedImage(4, 4, 1, 0))
+		if pixelated {
+			bm.Pixelated()
+		}
+		tt := coreNewTester(func(c *context) {
+			coreImage(c, bm).Size(32, 32).Fit(FillBox)
+		}, 40, 40)
+		img := tt.Image()
+		grays := 0
+		for x := range 32 {
+			if v := img.RGBAAt(x, 16).R; v > 10 && v < 245 {
+				grays++
+			}
+		}
+		if pixelated && grays != 0 {
+			t.Errorf("a pixelated bitmap shows %d grays between its pixels", grays)
+		}
+		if !pixelated && grays < 8 {
+			t.Errorf("a smooth bitmap shows %d grays between its pixels", grays)
+		}
+		if pixelated && (img.RGBAAt(4, 16).R != 0 || img.RGBAAt(12, 16).R != 255) {
+			t.Errorf("pixels %d and %d", img.RGBAAt(4, 16).R, img.RGBAAt(12, 16).R)
+		}
+	}
+}
+
 func TestHalve(t *testing.T) {
 	// 3×3 of values 0, 40, 80 by column: an odd column counts twice.
 	img := image.NewRGBA(image.Rect(0, 0, 3, 3))

@@ -109,6 +109,11 @@ func Scene() *scene.Scene {
 	add(scene.Op{Kind: scene.OpPopClip})
 	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 240, Y: 120, W: 8, H: 8}, Image: img, Src: scene.Rect{W: 8, H: 8}})
 	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 240, Y: 140, W: 64, H: 64}, Radii: r4(10), Image: img, Src: scene.Rect{W: 8, H: 8}})
+	// Pixel art: the whole image 2.5 times as large, each pixel a square of
+	// its own color with smooth edges, and a part of it four times, with
+	// none.
+	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 256, Y: 118, W: 20, H: 20}, Image: img, Src: scene.Rect{W: 8, H: 8}, Pixelated: true})
+	add(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 284, Y: 120, W: 16, H: 16}, Image: img, Src: scene.Rect{X: 2, Y: 3, W: 4, H: 4}, Pixelated: true})
 
 	// Borders of different widths, dashed ones, Oklab gradients, stripes,
 	// glyphs in gradients and a gray image.

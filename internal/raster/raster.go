@@ -1336,7 +1336,7 @@ func (r *renderer) image(op *scene.Op) {
 			if cov <= 0 {
 				continue
 			}
-			c := sample(img, op.Src.X+(px-op.Rect.X)*sx, op.Src.Y+(py-op.Rect.Y)*sy, op.Src)
+			c := sampleOp(op, op.Src.X+(px-op.Rect.X)*sx, op.Src.Y+(py-op.Rect.Y)*sy, abs32(sx), abs32(sy))
 			if op.Grayscale {
 				l := 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]
 				c[0], c[1], c[2] = l, l, l
@@ -1345,6 +1345,29 @@ func (r *renderer) image(op *scene.Op) {
 		}
 	}
 }
+
+// sampleOp reads op's image at (u, v), as op samples it, where a pixel
+// spans du by dv of its pixels.
+func sampleOp(op *scene.Op, u, v, du, dv float32) [4]float32 {
+	if op.Pixelated {
+		u, v = pixelated(u, du), pixelated(v, dv)
+	}
+	return sample(op.Image, u, v, op.Src)
+}
+
+// pixelated moves t, a coordinate in an image's pixels, so that sampling
+// it bilinearly draws each pixel as a square of its color, blended with
+// the next only across the pixel of the frame, d of the image's pixels
+// wide, that their edge crosses, as the GPU renderers do (Ebitengine's
+// FilterPixelated).
+func pixelated(t, d float32) float32 {
+	c := t - 0.5
+	i := float32(math.Floor(float64(c)))
+	f := (c-i-0.5)/min(max(d, 1e-5), 1) + 0.5
+	return i + min(max(f, 0), 1) + 0.5
+}
+
+func abs32(v float32) float32 { return float32(math.Abs(float64(v))) }
 
 // sample reads a premultiplied pixel at (u, v) with bilinear filtering,
 // clamped to src.
