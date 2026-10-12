@@ -75,6 +75,8 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── surface/        the connection between a window and its native UI
 │   ├── scene/          display lists and glyph atlases, what renderers draw
 │   ├── text/           fonts, shaping, line breaking, editing, glyph rasterization
+│   ├── rope/           the persistent tree of text chunks text buffers keep
+│   ├── diff/           line and word diffs: histogram, Myers, git's indent heuristic
 │   ├── vec/            the coverage rasterizer of glyphs and paths
 │   ├── raster/         the CPU renderer of scenes
 │   ├── gpu/            the instances GPU renderers draw, and gputest/ for their tests
@@ -100,15 +102,16 @@ framework safely. Read it before changing anything under `internal/`.
 │                       libghostty-vt, glass, and game, what games need
 │                       beyond what apps do (game/gamepad)
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester;
-│                       ui/chart: charts without a look, on ui's public API
+│                       ui/chart: charts without a look, on ui's public API;
+│                       ui/editor: the code editor and the diff viewer
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── audio/              sound: players, the mixer, the output of each platform, WAV;
 │                       audio/vorbis and audio/mp3 decode Ogg Vorbis and MP3
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native; counter-native, vibrancy,
 │                       effort-slider, flyout, menubar-flyout, piano, farm
-│                       and mayoi (games) and gallery (native UI); webview
-│                       (web views in native UI)
+│                       and mayoi (games), code-editor and gallery (native
+│                       UI); webview (web views in native UI)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
@@ -1917,10 +1920,13 @@ either.
   wrapped lines, and moves between whole graphemes in visual order.
   Selection gestures produce logical range sets: highlight, copy,
   replacement and undo use the same ranges, preserving unselected gaps.
-- **Indexed text storage.** `ui/text_buffer.go` is a persistent AVL tree of
+- **Indexed text storage.** `internal/rope` is a persistent AVL tree of
   bounded, owned UTF-8 chunks, summarized by byte, rune, UTF-16 and newline
-  counts. Edits copy affected chunks and tree paths; snapshots share other
-  chunks, and export can stream them. `TextInputBuffer`/`TextAreaBuffer` in
+  counts, and `rope.Text` the value reading lines, offsets and UTF-16
+  ranges from it, and lines a batch at a time; `ui/text_buffer.go` and the
+  code editor's buffers keep their texts in it. Edits copy affected chunks
+  and tree paths; snapshots share other chunks, and export can stream
+  them. `TextInputBuffer`/`TextAreaBuffer` in
   `textbuffer_input.go` bind those roots to the existing editing client.
   Native mutations publish a new root immediately, using a version check
   to preserve concurrent program edits. External root changes refresh the
@@ -1929,6 +1935,64 @@ either.
   absolute offsets. Paragraph layout and height caches remain with the
   widget; newline-count changes update those indexes. Full text is produced
   for explicit export/value queries, never as a binding update per edit.
+- **Code editor and diff viewer** (`ui/editor`, `internal/diff`). Package
+  `editor` is built on ui's public API, as `ui/chart` is, with four hooks
+  for it: `Painter.TextLine` paints a shaped line with a color per
+  cluster, `Painter.Visible` gives the clip to cull rows, `KeepFocus`
+  keeps the focus in the editor while its completions and find bar are
+  pressed, and `Access` describes its text to assistive technology only
+  while it reads the window. Its design follows Zed's:
+  - *Buffers* (`buffer.go`) keep a `rope.Text` and a log of the changes
+    of each version, in bytes and lines, old and new. Editors, the
+    highlighter and the diff follow a buffer by the versions they last
+    saw (`sync`): selections, folds, diagnostics and caches move through
+    the changes since, with a bias at insertions, so that one buffer is
+    shown by several editors and both sides of a diff. Undo keeps the
+    texts before and after each step, grouped while typing of one kind
+    by one editor goes on within 300 ms, and each step the selections of
+    the editor that made it.
+  - *Display* (`display.go`, `view.go`). Every line is a row, several
+    when it wraps, none when folded or collapsed by a diff; blocks are
+    rows between lines (a diff's deleted lines, spacers, separators,
+    annotations). A line's top is arithmetic on sparse sums: the extra
+    rows of wrapped lines in a Fenwick tree, and the heights of blocks
+    and hidden lines with their prefix sums; lines are found at a height
+    by bisection. Only the lines in view are laid out and shaped, kept
+    for two frames as Zed's line layout cache is. Wraps are measured with
+    cached advances of characters (monospaced ASCII is arithmetic) near
+    the view first, a frame's budget at a time, and estimated elsewhere.
+  - *Highlighting* (`syntax.go`). A `Highlighter` follows the buffer's
+    edits and gives tokens per line; the default tokenizes lines from the
+    state the line above ended in (`lexer.go`, `lexers.go`), keeping the
+    states, and after an edit goes on below it only until a line starts
+    as it did before. Optional interfaces give a parser's structure to
+    Select Larger, folding, brackets and indentation, so that tree-sitter
+    can plug in as a `Language.Highlighter` without the editor changing.
+    Brackets are matched by scanning lines a batch at a time
+    (`rope.Text.EachLine`), skipping strings and comments by their tokens,
+    and only lines holding brackets are tokenized for it.
+  - *Diffs* (`internal/diff`, `diffmodel.go`). Lines are interned and
+    compared with git's histogram algorithm, falling back to Myers' with
+    xdiff's cost limit, then slid by git's indent heuristic; changed
+    lines are paired by similarity and their words diffed, words one
+    character apart joined (Pierre's word-alt). An edit re-diffs only the
+    region of the hunks it touched, extended to the unchanged lines
+    around. The split view is two editors sharing their scroll, their
+    lines aligned by spacer blocks; the unified view one editor of the
+    new text, with blocks painting the deleted lines from a view of the
+    old one. Unchanged runs collapse into hidden spans under separator
+    blocks.
+  - *Parts* (`parts.go`, `diffparts.go`). The bars and popups around the
+    text (find, go to line, completions, hovers) and a diff's separators,
+    actions on changes and gutter button are elements the editor places
+    with the behavior they need, as ui's bases are: `shield` hands presses
+    on to what is inside them rather than to the editor's handler, and
+    `KeepFocus` keeps the typing in the editor. The app's render function
+    fills each, else the exported default, given a handle to the part's
+    state and actions (`FindBar`, `DiffSeparator`, ...), whose values
+    the editor reads back after the build, as a query typed. Separators
+    are built by the diff view across both sides, over the room their
+    blocks leave.
 - **Text selection** (`ui/textselection.go`). `Selectable` on a text
   selects that paragraph; on a container it gives its text descendants
   one selection. The window keeps endpoints as stable element IDs and

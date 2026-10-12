@@ -459,6 +459,9 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 			n.SelStart, n.SelEnd = ed.selection()
 		}
 	}
+	if e.accFill != nil {
+		e.accFill(n)
+	}
 }
 
 // accessibilityOn starts describing frames for assistive technology,
