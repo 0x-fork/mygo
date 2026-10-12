@@ -138,6 +138,7 @@ type Builder struct {
 	clipShapes   []scene.ClipShape
 	maskSlots    []clipMaskSlot
 	maskUsed     int
+	frame        uint64
 	imageTexture func(*scene.Image) uintptr
 	preparedMask uintptr
 }
@@ -205,6 +206,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 	b.markEnclosing(s)
 	b.imageTexture = image
 	b.maskUsed = 0
+	b.frame++
 	b.clipShapes = b.clipShapes[:0]
 	b.Instances = b.Instances[:0]
 	b.Batches = b.Batches[:0]
@@ -370,10 +372,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 		}
 	}
 
-	if b.maskUsed < len(b.maskSlots) {
-		clear(b.maskSlots[b.maskUsed:])
-		b.maskSlots = b.maskSlots[:b.maskUsed]
-	}
+	b.dropIdleMasks(idleMaskBytes)
 	b.imageTexture = nil
 	return s
 }
