@@ -131,7 +131,8 @@ components, from buttons to tables.
 - [Glass](plugins/glass.md): Liquid Glass for native UI, as macOS draws
   it, on every platform, with macOS's scroll edges and backdrop blurs.
 - [Game](plugins/game.md): what games need beyond what apps do, opt-in:
-  gamepads in one standard layout.
+  a game loop in fixed steps with its input, a camera, and gamepads in
+  one standard layout.
 
 ## Reference
 

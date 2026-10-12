@@ -89,7 +89,8 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   shader in Metal, HLSL and GLSL with a CPU twin that must draw the same
   pixels, compiled ahead of time by `go generate` on macOS and Windows.
   The game plugin is Go only too, what games need beyond what apps do,
-  opt-in, kept out of core `ui`: `plugins/game/gamepad` reads controllers.
+  opt-in, kept out of core `ui`: a game loop and a camera for native UI,
+  and `plugins/game/gamepad`, which reads controllers.
 - The `dist/` of npm packages is not committed: run `bun run build` after
   `bun install` (CI and releases do). Commit `internal/bridge/bridge.js`
   whenever its sources change, and keep the generated clients of examples

@@ -22,7 +22,8 @@ JavaScript package whose functions call them. The app uses the Go half with
   it, on every platform, with macOS's scroll edges and backdrop blurs. It
   is all Go, with shaders of its own.
 - [Game](plugins/game.md): what games need beyond what apps do, opt-in:
-  gamepads in one standard layout. It is all Go.
+  a game loop in fixed steps with its input, a camera, and gamepads in
+  one standard layout. It is all Go.
 
 ## Using plugins
 

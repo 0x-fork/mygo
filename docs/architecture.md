@@ -980,7 +980,13 @@ build` like mygo-runtime and released with the same version.
     (see the CLI's resources); other programs download theirs into the
     user's cache once, which packaged apps never do.
 - **game** has what games need beyond what apps do, opt-in, out of core
-  `ui`.
+  `ui`, on its public API only. `View` is a focusable box that keeps its
+  loop in `ui.Local`: its input handler gathers keys (by `PhysicalKey`),
+  buttons and wheel into the `Input` of the next step, and its draw
+  function asks for the next frame (`AnimationFrame`), adds the time since
+  the last frame (`Painter.Now`, at most a quarter of a second) and runs
+  the steps it covers before `Draw`. `Camera` is a `ui.Transform`, snapped
+  to device pixels when unturned.
   Its package `gamepad`, like `audio`, stands apart from windows and the
   main thread. One mutex guards the pads. `Pads` asks the platform's `scan` for
   the devices connected at most once a second, handing it the devices it

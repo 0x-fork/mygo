@@ -2,7 +2,9 @@ package main
 
 import (
 	"testing"
+	"time"
 
+	"github.com/egoist/mygo/plugins/game"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -54,7 +56,7 @@ func TestFarming(t *testing.T) {
 func TestWalking(t *testing.T) {
 	w := newWorld()
 	w.held[right] = true
-	for range 5 * 120 {
+	for range 5 * game.Rate {
 		w.step(stepTime)
 	}
 	if w.facing != right || w.x <= 21 {
@@ -64,7 +66,7 @@ func TestWalking(t *testing.T) {
 		t.Errorf("walked into the trees: %v", w.x)
 	}
 	w.held = [4]bool{up: true}
-	for range 20 * 120 {
+	for range 20 * game.Rate {
 		w.step(stepTime)
 	}
 	if w.y < 2 {
@@ -80,7 +82,7 @@ func TestStickWalks(t *testing.T) {
 	w := newWorld()
 	x, y := w.x, w.y
 	w.stick = [2]float64{-0.5, 0.2}
-	for range 60 {
+	for range game.Rate / 2 {
 		w.step(stepTime)
 	}
 	if w.facing != left || w.x >= x || w.y <= y {
@@ -95,23 +97,28 @@ func TestStickWalks(t *testing.T) {
 // The game's view draws, takes keys, and walks the farmer while they are
 // held.
 func TestView(t *testing.T) {
-	g := newGame(false)
+	g := newFarm(false)
 	tt := ui.NewTester(g.view, 960, 640)
-	x := g.w.x
+	// Keys act in the game's next step.
+	step := func() {
+		time.Sleep(3 * time.Second / game.Rate)
+		tt.Frame()
+	}
 	tt.Key(0, ui.Key3)
+	step()
 	if g.w.tool != can {
 		t.Errorf("key 3 chose %v", g.w.tool)
 	}
 	tt.Key(0, ui.KeyEqual)
+	step()
 	if g.zoom != 3 {
 		t.Errorf("zoom %d after +", g.zoom)
 	}
-	g.w.held[right] = true
-	for range 30 {
-		g.w.step(stepTime)
-	}
+	x := g.w.x
+	tt.KeyDown(ui.KeyD)
+	time.Sleep(200 * time.Millisecond)
 	tt.Frame()
-	if g.w.x <= x {
-		t.Error("the farmer did not walk")
+	if g.w.x <= x || g.w.facing != right {
+		t.Errorf("D held: at %v facing %v", g.w.x, g.w.facing)
 	}
 }

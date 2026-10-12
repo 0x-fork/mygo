@@ -2,7 +2,111 @@
 
 The game plugin (`plugins/game`) has what games need beyond what apps do:
 MyGo is an app framework, and these are opt-in, in a package of their
-own. It is all Go.
+own. It is all Go. Native UI draws a game as it draws the rest: package
+`game` runs its loop in an element and looks at its world through a
+camera, package `game/gamepad` reads its controllers, and core packages
+draw its pixel art ([Pixelated bitmaps](../ui/image.md) and
+[parts of them](../ui/drawing.md#parts-of-bitmaps)) and play its sound
+([`audio`](../audio.md)). [examples/farm](../../examples/farm) is a little
+farming game made of all of them.
+
+## The game loop
+
+A `game.Game` has two methods: `Update` advances its world one step with
+the player's input, and `Draw` draws it. `game.View` runs it in an
+element:
+
+```go
+import "github.com/egoist/mygo/plugins/game"
+
+type farm struct {
+	x, y   float32 // the player, in the world
+	px, py float32 // where they were a step before
+}
+
+func (f *farm) Update(in *game.Input) {
+	f.px, f.py = f.x, f.y
+	if in.Down(ui.KeyD) {
+		f.x += 2
+	}
+	if in.Pressed(ui.KeySpace) {
+		f.jump()
+	}
+}
+
+func (f *farm) Draw(p *ui.Painter, r ui.Rect, alpha float64) {
+	// Between the last two steps, as far as the frame is into the next.
+	x := f.px + (f.x-f.px)*float32(alpha)
+	y := f.py + (f.y-f.py)*float32(alpha)
+	p.ImageRegion(sheet, hero, ui.Rect{X: r.X + x, Y: r.Y + y, W: 48, H: 48}, ui.ImageOptions{})
+}
+
+mygo.NewWindow(mygo.WindowOptions{
+	Title:   "Farm",
+	Content: ui.View(func(c *ui.Context) { game.View(c, f).Fill() }),
+})
+```
+
+Steps are fixed, `game.Rate` (60) a second, or what a `Rate() int` method
+of the game says, whatever the display's rate, as Ebitengine and MonoGame
+run games: a game plays alike on a display of 60 Hz and one of 120, and
+its physics stay stable. `Draw` runs every frame; its `alpha`, from 0 to 1,
+is how far the frame is into the next step, for drawing what moves
+between its last two places. After a pause, as a window out of sight,
+steps catch up on a quarter of a second at most.
+
+### Input
+
+`game.Input` is the player's input as a step sees it:
+
+| method | reports |
+|---|---|
+| `Down(k)` | key `k` held |
+| `Pressed(k)`, `Released(k)` | `k` pressed or released since the step before, even between two steps |
+| `Pointer()` | where the pointer is, from the view's corner, and whether it is over it |
+| `PointerDown(b)`, `PointerPressed(b)`, `PointerReleased(b)` | pointer button `b` (0 the primary) |
+| `Wheel()` | how far the wheel scrolled since the step before |
+| `Size()` | the view's size |
+
+Keys are by position: `KeyW` is the key in W's place on any layout, as
+WASD wants. The view takes the keyboard focus as it appears and when
+clicked, leaves keys with ⌘, Ctrl or Alt to the menus' shortcuts, and lets
+go of everything held when the window loses the keyboard, whose releases
+never come.
+
+### Testing
+
+A game's `Update` is plain Go: test its world without a window. The view
+runs in a `ui.Tester`, as any element: `KeyDown` and `KeyUp` hold a key
+between frames, and a step runs once a frame comes a step's time after
+the last.
+
+## The camera
+
+A `game.Camera` looks at the world's point `X, Y`, which shows at the
+middle of the view, `Zoom` times as large, turned `Rotation` degrees, as
+raylib's `Camera2D`. `Draw` draws a world in its own coordinates through
+it, clipped to the view:
+
+```go
+cam := game.Camera{X: player.x, Y: player.y, Zoom: 3}
+cam.Draw(p, r, func() {
+	for _, t := range tiles {
+		p.ImageRegion(sheet, t.src, t.box, ui.ImageOptions{}) // culled where the camera does not look
+	}
+})
+wx, wy := cam.ToWorld(r, px, py) // the pointer, in the world
+```
+
+Unturned, the world moves by whole pixels of the screen, so that tiles
+drawn at whole units keep their edges on them, while parts of bitmaps,
+placed where they are under a transform, glide. `Visible` returns the
+world's part in view, for a game that iterates its tiles itself, and
+`Transform` the camera's transform, for `Painter.Transform`.
+
+Zooms that are whole numbers give each of a `Pixelated` bitmap's pixels
+the same whole number of the screen's; others keep them square, with
+edges blended across one screen pixel.
 
 ## Gamepads
 

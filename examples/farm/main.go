@@ -1,9 +1,10 @@
 // Farm is a little farming game in native UI: walk a farm with the
 // keyboard, till the grass, plant seeds, water them and harvest what
 // grows, through a camera that follows you, as days turn to night, with
-// sound and music. Everything it draws and plays is made by its code:
-// pixel art in a pixelated sheet drawn with Painter.ImageRegion, under
-// Painter.Transform, and sounds synthesized for package audio.
+// sound and music. The game plugin runs it, in fixed steps (game.View),
+// and its camera follows the farmer (game.Camera). Everything it draws
+// and plays is made by its code: pixel art in a pixelated sheet drawn
+// with Painter.ImageRegion, and sounds synthesized for package audio.
 //
 //	go run ./examples/farm
 //	go run ./cmd/mygo dev -web examples/farm
@@ -19,41 +20,38 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/game"
 	"github.com/egoist/mygo/plugins/game/gamepad"
 	"github.com/egoist/mygo/ui"
 )
 
-// stepTime is the world's fixed step: 120 a second, whatever the frame
-// rate, so that the game plays the same on every display.
-const stepTime = 1.0 / 120
+// stepTime is the world's fixed step, as game.View runs it: 60 a second,
+// whatever the display's rate, so that the game plays the same on every
+// display.
+const stepTime = 1.0 / game.Rate
 
 // zooms are the camera's zooms: pixels of the screen per pixel of art, in
 // DIPs. Not all are whole numbers: pixelated sampling keeps the art's
 // pixels square at any.
-var zooms = []float64{2, 2.5, 3, 4, 5}
+var zooms = []float32{2, 2.5, 3, 4, 5}
 
-type game struct {
+// farm is the game game.View runs: Update steps the world with the
+// input, Draw draws it.
+type farm struct {
 	w     *world
 	art   sprites
 	snd   *sounds // nil in tests
 	zoom  int
 	music bool
-	// keys are the keys held, by position, which hold the directions.
-	keys map[ui.Key]bool
-	// last is when the world last advanced, and lag the time it owes the
-	// fixed steps.
-	last time.Time
-	lag  float64
 	// pad is the last state of the first gamepad, to tell the buttons
 	// pressed since.
 	pad gamepad.State
 }
 
-func newGame(withSound bool) *game {
-	g := &game{w: newWorld(), art: newSprites(), zoom: 2, keys: map[ui.Key]bool{}}
+func newFarm(withSound bool) *farm {
+	g := &farm{w: newWorld(), art: newSprites(), zoom: 2}
 	if withSound {
 		g.snd = newSounds()
 		g.setMusic(true)
@@ -61,7 +59,7 @@ func newGame(withSound bool) *game {
 	return g
 }
 
-func (g *game) setMusic(on bool) {
+func (g *farm) setMusic(on bool) {
 	g.music = on
 	if g.snd == nil {
 		return
@@ -73,93 +71,49 @@ func (g *game) setMusic(on bool) {
 	}
 }
 
-func (g *game) view(c *ui.Context) {
-	board := ui.Box(c).Fill().Background(ui.Hex("#4b9a2a")).
-		Focusable().Focus().Label("Farm").
-		HandleInput(g.input).
-		Draw(g.draw)
-	// Keys released while the window is in the background never come.
-	if !board.Focused() {
-		clear(g.keys)
-		g.w.held = [4]bool{}
-	}
+func (g *farm) view(c *ui.Context) {
+	game.View(c, g).Fill().Background(ui.Hex("#4b9a2a")).Label("Farm")
 }
 
-// directions maps the keys that walk to their directions.
-var directions = map[ui.Key]dir{
-	ui.KeyUp: up, ui.KeyW: up, ui.KeyDown: down, ui.KeyS: down,
-	ui.KeyLeft: left, ui.KeyA: left, ui.KeyRight: right, ui.KeyD: right,
-}
-
-func (g *game) input(ev ui.InputEvent) bool {
-	if ev.Kind != ui.InputKeyDown && ev.Kind != ui.InputKeyUp {
-		return false
+// Update steps the world: the keys and the gamepad walk and act, then
+// what happened sounds.
+func (g *farm) Update(in *game.Input) {
+	w := g.w
+	w.held = [4]bool{
+		up:    in.Down(ui.KeyUp) || in.Down(ui.KeyW),
+		down:  in.Down(ui.KeyDown) || in.Down(ui.KeyS),
+		left:  in.Down(ui.KeyLeft) || in.Down(ui.KeyA),
+		right: in.Down(ui.KeyRight) || in.Down(ui.KeyD),
 	}
-	if ev.Mods&(ui.Super|ui.Ctrl|ui.Alt) != 0 {
-		return false // the menus' shortcuts
-	}
-	k := ev.PhysicalKey
-	if k == ui.KeyUnknown {
-		k = ev.Key
-	}
-	pressed := ev.Kind == ui.InputKeyDown
-	if _, ok := directions[k]; ok {
-		g.keys[k] = pressed
-		g.w.held = [4]bool{}
-		for key, held := range g.keys {
-			if held {
-				g.w.held[directions[key]] = true
-			}
-		}
-		return true
-	}
-	if !pressed || ev.Repeat {
-		return false
-	}
-	switch k {
-	case ui.KeySpace, ui.KeyE, ui.KeyEnter:
-		g.w.use()
-	case ui.Key1, ui.Key2, ui.Key3:
-		g.w.tool = tool(k - ui.Key1)
-	case ui.KeyQ, ui.KeyTab:
-		g.w.tool = (g.w.tool + 1) % 3
-	case ui.KeyEqual:
+	switch {
+	case in.Pressed(ui.KeySpace), in.Pressed(ui.KeyE), in.Pressed(ui.KeyEnter):
+		w.use()
+	case in.Pressed(ui.Key1):
+		w.tool = hoe
+	case in.Pressed(ui.Key2):
+		w.tool = seeds
+	case in.Pressed(ui.Key3):
+		w.tool = can
+	case in.Pressed(ui.KeyQ), in.Pressed(ui.KeyTab):
+		w.tool = (w.tool + 1) % 3
+	case in.Pressed(ui.KeyEqual):
 		g.zoom = min(g.zoom+1, len(zooms)-1)
-	case ui.KeyMinus:
+	case in.Pressed(ui.KeyMinus):
 		g.zoom = max(g.zoom-1, 0)
-	case ui.KeyM:
+	case in.Pressed(ui.KeyM):
 		g.setMusic(!g.music)
-	default:
-		return false
 	}
-	return true
-}
-
-// advance runs the world's fixed steps up to now, and plays what happened.
-// Draw functions may run more than once a frame: a second time at the same
-// now runs none.
-func (g *game) advance(now time.Time) {
-	if !g.last.IsZero() {
-		// After a pause, as a window out of sight, not all of it.
-		g.lag += min(now.Sub(g.last).Seconds(), 0.25)
+	g.readPad()
+	w.step(stepTime)
+	if g.snd != nil && len(w.events) > 0 {
+		g.snd.play(w.events, 0)
 	}
-	g.last = now
-	if g.lag >= stepTime {
-		g.readPad()
-	}
-	for g.lag >= stepTime {
-		g.w.step(stepTime)
-		g.lag -= stepTime
-	}
-	if g.snd != nil && len(g.w.events) > 0 {
-		g.snd.play(g.w.events, 0)
-	}
-	g.w.events = g.w.events[:0]
+	w.events = w.events[:0]
 }
 
 // readPad reads the first gamepad: its stick or d-pad walks, and its
 // buttons act as the keys do when just pressed.
-func (g *game) readPad() {
+func (g *farm) readPad() {
 	pads := gamepad.Pads()
 	if len(pads) == 0 {
 		g.w.stick, g.pad = [2]float64{}, gamepad.State{}
@@ -196,50 +150,45 @@ func (g *game) readPad() {
 
 // tint is the color the world takes at the light of the hour: the night
 // is blue.
-func (g *game) tint() ui.Color {
+func (g *farm) tint() ui.Color {
 	light, _ := g.w.daylight()
 	mix := func(night, day float64) uint8 { return uint8(night + (day-night)*light) }
 	return ui.RGB(mix(80, 255), mix(95, 255), mix(160, 255))
 }
 
-func (g *game) draw(p *ui.Painter, r ui.Rect) {
-	p.AnimationFrame()
-	g.advance(p.Now())
+// Draw draws the world through a camera that follows the farmer, within
+// the map, and the HUD over it. alpha places the farmer between their last
+// two steps, for motion as smooth as the display's frames.
+func (g *farm) Draw(p *ui.Painter, r ui.Rect, alpha float64) {
 	w := g.w
-	zoom := zooms[g.zoom]
-	// The camera follows the farmer, within the map, and moves by whole
-	// pixels of the screen so that the tiles' edges stay on them.
-	viewW, viewH := float64(r.W)/zoom, float64(r.H)/zoom
-	camX := clampCamera(w.x*cell-viewW/2, mapW*cell, viewW)
-	camY := clampCamera(w.y*cell-viewH/2, mapH*cell, viewH)
-	px := zoom * float64(p.Scale())
-	camX, camY = math.Round(camX*px)/px, math.Round(camY*px)/px
-	cam := ui.Translation(float32(-camX), float32(-camY)).Then(ui.Scaling(float32(zoom), float32(zoom)))
+	fx := float32(w.px + (w.x-w.px)*alpha)
+	fy := float32(w.py + (w.y-w.py)*alpha)
+	cam := game.Camera{Zoom: zooms[g.zoom]}
+	cam.X = follow(fx*cell, mapW*cell, r.W/cam.Zoom)
+	cam.Y = follow(fy*cell, mapH*cell, r.H/cam.Zoom)
 	tint := g.tint()
-	p.Clip(r, 0, func() {
-		p.Transform(cam, r.X, r.Y, func() {
-			g.drawWorld(p, r, tint)
-		})
-	})
+	cam.Draw(p, r, func() { g.drawWorld(p, tint, fx, fy) })
 	g.drawHUD(p, r)
 }
 
-func clampCamera(c, world, view float64) float64 {
+// follow returns where the camera looks along an axis to follow a point at
+// at, within a world as long as world in a view as long as view.
+func follow(at, world, view float32) float32 {
 	if world <= view {
-		return (world - view) / 2
+		return world / 2
 	}
-	return min(max(c, 0), world-view)
+	return min(max(at, view/2), world-view/2)
 }
 
-// drawWorld draws the map in the art's pixels from r's corner: the ground,
-// crops, then what stands, row by row with the farmer among them, so that
+// drawWorld draws the map in the art's pixels: the ground, crops, then
+// what stands, row by row with the farmer among them, at fx, fy, so that
 // what stands south of another covers it.
-func (g *game) drawWorld(p *ui.Painter, r ui.Rect, tint ui.Color) {
+func (g *farm) drawWorld(p *ui.Painter, tint ui.Color, fx, fy float32) {
 	w := g.w
 	put := func(i int, x, y float32) {
 		s := g.art.cell(i)
 		s.tint = tint
-		g.art.draw(p, s, ui.Rect{X: r.X + x, Y: r.Y + y, W: cell, H: cell})
+		g.art.draw(p, s, ui.Rect{X: x, Y: y, W: cell, H: cell})
 	}
 	waterFrame := cWater0
 	if int(w.now*2)%2 == 1 {
@@ -248,23 +197,23 @@ func (g *game) drawWorld(p *ui.Painter, r ui.Rect, tint ui.Color) {
 	for y := range mapH {
 		for x := range mapW {
 			t := &w.tiles[y][x]
-			fx, fy := float32(x*cell), float32(y*cell)
+			tx, ty := float32(x*cell), float32(y*cell)
 			switch t.ground {
 			case grass:
-				put([]int{cGrass, cGrass2, cFlowers}[t.variant], fx, fy)
+				put([]int{cGrass, cGrass2, cFlowers}[t.variant], tx, ty)
 			case path:
-				put(cPath, fx, fy)
+				put(cPath, tx, ty)
 			case soil:
 				if t.wet {
-					put(cWetSoil, fx, fy)
+					put(cWetSoil, tx, ty)
 				} else {
-					put(cSoil, fx, fy)
+					put(cSoil, tx, ty)
 				}
 			case water:
-				put(waterFrame, fx, fy)
+				put(waterFrame, tx, ty)
 			}
 			if t.crop >= 0 {
-				put(cSeed+int(t.crop), fx, fy)
+				put(cSeed+int(t.crop), tx, ty)
 			}
 		}
 	}
@@ -272,24 +221,24 @@ func (g *game) drawWorld(p *ui.Painter, r ui.Rect, tint ui.Color) {
 	if tx, ty := w.target(); tx >= 0 && ty >= 0 && tx < mapW && ty < mapH {
 		put(cFrame, float32(tx*cell), float32(ty*cell))
 	}
-	feet := int(math.Floor(w.y))
+	feet := int(math.Floor(float64(fy)))
 	for y := range mapH {
 		for x := range mapW {
-			fx, fy := float32(x*cell), float32(y*cell)
+			tx, ty := float32(x*cell), float32(y*cell)
 			switch w.tiles[y][x].object {
 			case tree:
-				put(cTreeTrunk, fx, fy)
-				put(cTreeTop, fx, fy-cell+4)
+				put(cTreeTrunk, tx, ty)
+				put(cTreeTop, tx, ty-cell+4)
 			case bush:
-				put(cBush, fx, fy)
+				put(cBush, tx, ty)
 			case rock:
-				put(cRock, fx, fy)
+				put(cRock, tx, ty)
 			case fence:
-				put(cFence, fx, fy)
+				put(cFence, tx, ty)
 			}
 		}
 		if y == feet {
-			g.art.draw(p, g.farmer(tint), ui.Rect{X: r.X + float32(w.x*cell) - cell/2, Y: r.Y + float32(w.y*cell) - cell + 2, W: cell, H: cell})
+			g.art.draw(p, g.farmer(tint), ui.Rect{X: fx*cell - cell/2, Y: fy*cell - cell + 2, W: cell, H: cell})
 		}
 	}
 }
@@ -297,7 +246,7 @@ func (g *game) drawWorld(p *ui.Painter, r ui.Rect, tint ui.Color) {
 // farmer returns the farmer's sprite: their frame of walking, facing
 // where they go, flipped to face left. They move smoothly: under the
 // camera's transform, sprites are where they are, not on whole pixels.
-func (g *game) farmer(tint ui.Color) sprite {
+func (g *farm) farmer(tint ui.Color) sprite {
 	w := g.w
 	frame := 0
 	if w.moving {
@@ -318,7 +267,7 @@ func (g *game) farmer(tint ui.Color) sprite {
 }
 
 // drawHUD draws, over the world, the coins and the hour, and the toolbar.
-func (g *game) drawHUD(p *ui.Painter, r ui.Rect) {
+func (g *farm) drawHUD(p *ui.Painter, r ui.Rect) {
 	w := g.w
 	panel := ui.RGBA(20, 18, 30, 0.75)
 	white, muted := ui.RGB(255, 255, 255), ui.RGB(200, 200, 215)
@@ -350,7 +299,7 @@ func (g *game) drawHUD(p *ui.Painter, r ui.Rect) {
 }
 
 func main() {
-	g := newGame(true)
+	g := newFarm(true)
 	mygo.App.WhenReady(func() {
 		mygo.NewWindow(mygo.WindowOptions{
 			Title:   "Farm",

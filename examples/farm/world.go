@@ -68,8 +68,10 @@ var toolNames = [...]string{"Hoe", "Seeds", "Watering can"}
 // A world is the game's state, advanced in fixed steps of simulated time.
 type world struct {
 	tiles [mapH][mapW]tile
-	// The farmer, by the middle of their feet, in tiles.
+	// The farmer, by the middle of their feet, in tiles, and where they
+	// were a step before.
 	x, y   float64
+	px, py float64
 	facing dir
 	moving bool
 	walked float64 // distance walked, for the frames and the footsteps
@@ -99,7 +101,7 @@ const (
 // newWorld lays out a farm: a field of grass with a pond, a path, trees
 // around it and some bushes and rocks, and the farmer by the house.
 func newWorld() *world {
-	w := &world{x: 20.5, y: 15.8, facing: down}
+	w := &world{x: 20.5, y: 15.8, px: 20.5, py: 15.8, facing: down}
 	rng := rand.New(rand.NewPCG(7, 11))
 	for y := range mapH {
 		for x := range mapW {
@@ -170,6 +172,7 @@ const speed = 4.5
 // step advances the world by dt seconds.
 func (w *world) step(dt float64) {
 	w.now += dt
+	w.px, w.py = w.x, w.y
 	var dx, dy float64
 	if w.held[left] {
 		dx--
