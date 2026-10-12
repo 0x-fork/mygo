@@ -78,6 +78,35 @@ A part outside what the painter shows draws nothing, so a view of many
 can draw them all without culling them itself, as games draw their
 sprites and tiles.
 
+## Canvases
+
+A `ui.Canvas` is a bitmap a painter draws, on the GPU where the window
+draws there: render to texture, as Skia's `SkSurface` and LÖVE's
+`Canvas`. `Draw` draws it anew during a frame, with a painter in its
+pixels, and it keeps what it holds, showing anywhere a bitmap does through
+`Bitmap`:
+
+```go
+grid := ui.NewCanvas(800, 400)
+drawn := false
+
+box.Draw(func(p *ui.Painter, r ui.Rect) {
+	if !drawn { // once, then every frame for the price of an image
+		drawn = true
+		grid.Draw(p, func(cp *ui.Painter) { drawGrid(cp, 800, 400) })
+	}
+	p.Image(grid.Bitmap(), r, ui.FillBox)
+	drawSeries(p, r)
+})
+```
+
+A canvas drawn with a tint or an opacity fades or colors a whole layer at
+once. Canvases show other canvases, and text. A canvas's pixels are its
+units: draw it at the window's scale (`Painter.Scale`) for one as sharp as
+the window, or smaller and make its bitmap `Pixelated` to scale pixel art
+up crisp (the [game plugin](../plugins/game.md#pixel-perfect-scaling)
+shows one at whole multiples).
+
 ## Transforms
 
 `Painter.Transform(t, ox, oy, fn)` transforms what `fn` draws by `t`, a

@@ -174,6 +174,23 @@ func TestCamera(t *testing.T) {
 	}
 }
 
+func TestIntegerFit(t *testing.T) {
+	var dst, small ui.Rect
+	var k, smallK int
+	paint(2, func(p *ui.Painter, r ui.Rect) {
+		// 1000×600 DIPs at 2×: 2000×1200 pixels, for 480×270: 4 times (1920×1080).
+		dst, k = IntegerFit(p, 480, 270, ui.Rect{X: 10, Y: 20, W: 1000, H: 600})
+		// Smaller than the canvas: one pixel each, overflowing.
+		small, smallK = IntegerFit(p, 480, 270, ui.Rect{W: 100, H: 100})
+	})
+	if k != 4 || dst != (ui.Rect{X: 30, Y: 50, W: 960, H: 540}) {
+		t.Errorf("fit %v, k %d", dst, k)
+	}
+	if smallK != 1 || small.W != 240 {
+		t.Errorf("fit %v, k %d in a small view", small, smallK)
+	}
+}
+
 // Through an unturned camera, the world moves by whole pixels: a tile at
 // whole world units has no edge pixel partly covered.
 func TestCameraSnaps(t *testing.T) {

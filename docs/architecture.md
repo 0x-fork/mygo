@@ -2406,6 +2406,21 @@ either.
   backdrop bound for the effect. Each renderer draws scenes offscreen for
   the tests of packages defining effects (`RenderOffscreen`,
   `NewOffscreen`).
+- **Canvases** (`scene.NewCanvas`, `ui.Canvas`) are images drawn from a
+  scene of their own. `Canvas.Draw` paints into its scene with a painter
+  of scale 1 sharing the window's atlases, and lists it in the frame's
+  `Scene.Canvases`, inner canvases first as they finish. Before a frame,
+  each renderer draws the canvases it lists or shows whose version its
+  texture does not hold (`Scene.EachCanvas`, those a canvas shows before
+  it), each with a builder of its own, into a texture in the frame's
+  format before effects: Metal into a BGRA8 render target in the frame's
+  command buffer, Direct3D 11 into a BGRA render target view (the dynamic
+  instance buffer, mapped with discard, serves all), OpenGL into a
+  framebuffer object, whose rows go up, so that image instances showing
+  it flip their texture coordinates (the samplers take source rectangles
+  either way round). A canvas's texture lives as long as the canvas
+  (`weak.Pointer`), not drawn again when shown. The CPU renderer draws
+  canvases into their `Pix` (`PixVersion`).
   Near square corners, coverage is exact, the area of a pixel
   inside the box, so lines thinner than a pixel cover as much as they
   should, as text decorations need. A fill's border widths travel in its

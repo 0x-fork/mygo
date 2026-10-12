@@ -106,7 +106,30 @@ world's part in view, for a game that iterates its tiles itself, and
 
 Zooms that are whole numbers give each of a `Pixelated` bitmap's pixels
 the same whole number of the screen's; others keep them square, with
-edges blended across one screen pixel.
+edges blended across one screen pixel. For a whole number at any window
+size, draw into a canvas (below).
+
+## Pixel-perfect scaling
+
+For pixel art that is pixel-perfect at any window size, as Godot's
+viewport stretch and Stardew Valley draw it, a game draws its world into a
+[`ui.Canvas`](../ui/drawing.md#canvases) of a logical size and shows it at
+the largest whole multiple of that size that fits, letterboxed
+(`game.IntegerFit`):
+
+```go
+world := ui.NewCanvas(480, 270)
+world.Bitmap().Pixelated()
+
+func (f *farm) Draw(p *ui.Painter, r ui.Rect, alpha float64) {
+	world.Draw(p, func(cp *ui.Painter) {
+		cam := game.Camera{X: f.x, Y: f.y}
+		cam.Draw(cp, ui.Rect{W: 480, H: 270}, f.drawWorld)
+	})
+	dst, _ := game.IntegerFit(p, 480, 270, r)
+	p.Image(world.Bitmap(), dst, ui.FillBox)
+}
+```
 
 ## Gamepads
 

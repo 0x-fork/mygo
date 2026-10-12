@@ -1,7 +1,8 @@
 // Package game has what games need beyond what apps do, opt-in, out of
 // MyGo's core ui: a game loop that updates a world in fixed steps with
 // the player's input and draws it every frame (View), and a camera that
-// looks at a 2D world (Camera). Its package gamepad reads controllers.
+// looks at a 2D world (Camera), shown pixel-perfect at any size through
+// a ui.Canvas (IntegerFit). Its package gamepad reads controllers.
 //
 //	type farm struct{ x, y float32 }
 //
@@ -227,6 +228,31 @@ func View(c *ui.Context, g Game) ui.Element {
 		l.in.releaseAll()
 	}
 	return e.HandleInput(l.input).Draw(l.draw)
+}
+
+// IntegerFit returns where a canvas of w×h pixels shows in r as large as
+// it can with a whole number of the screen's pixels for each of its own,
+// at least one, centered (letterboxed): pixel-perfect scaling, for p's
+// screen, as Godot's viewport stretch and Stardew Valley draw pixel art.
+// k is that number. A game draws its world into a ui.Canvas of a logical
+// size, as 480×270, and shows it there:
+//
+//	dst, _ := game.IntegerFit(p, 480, 270, r)
+//	p.Image(world.Bitmap(), dst, ui.FillBox)
+//
+// The pointer at x, y of the view is at ((x+r.X-dst.X)*480/dst.W,
+// (y+r.Y-dst.Y)*270/dst.H) of the canvas.
+func IntegerFit(p *ui.Painter, w, h int, r ui.Rect) (dst ui.Rect, k int) {
+	if w <= 0 || h <= 0 {
+		return ui.Rect{}, 0
+	}
+	s := p.Scale()
+	k = max(int(min(r.W*s/float32(w), r.H*s/float32(h))), 1)
+	dw, dh := float32(w*k)/s, float32(h*k)/s
+	// On whole pixels of the screen, as the snapped image is.
+	x := float32(int((r.X+(r.W-dw)/2)*s+0.5)) / s
+	y := float32(int((r.Y+(r.H-dh)/2)*s+0.5)) / s
+	return ui.Rect{X: x, Y: y, W: dw, H: dh}, k
 }
 
 // A Camera looks at a 2D world: the world's point X, Y shows at the middle
