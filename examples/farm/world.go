@@ -75,8 +75,10 @@ type world struct {
 	walked float64 // distance walked, for the frames and the footsteps
 	tool   tool
 	coins  int
-	// held are the directions held, from the keys.
-	held [4]bool
+	// held are the directions held, from the keys, and stick where a
+	// gamepad's stick leans, each from -1 to 1.
+	held  [4]bool
+	stick [2]float64
 	// now is the simulated time, in seconds.
 	now float64
 	// events are what happened in the last steps, for sounds.
@@ -181,20 +183,24 @@ func (w *world) step(dt float64) {
 	if w.held[down] {
 		dy++
 	}
+	if dx != 0 && dy != 0 {
+		dx, dy = dx*math.Sqrt2/2, dy*math.Sqrt2/2
+	}
+	if dx == 0 && dy == 0 {
+		// A gamepad's stick, as far as it leans.
+		dx, dy = w.stick[0], w.stick[1]
+	}
 	w.moving = dx != 0 || dy != 0
 	if w.moving {
 		switch {
-		case dy > 0:
+		case math.Abs(dy) >= math.Abs(dx) && dy > 0:
 			w.facing = down
-		case dy < 0:
+		case math.Abs(dy) >= math.Abs(dx):
 			w.facing = up
 		case dx < 0:
 			w.facing = left
 		default:
 			w.facing = right
-		}
-		if dx != 0 && dy != 0 {
-			dx, dy = dx*math.Sqrt2/2, dy*math.Sqrt2/2
 		}
 		// Each axis on its own, so that the farmer slides along walls.
 		before := w.walked

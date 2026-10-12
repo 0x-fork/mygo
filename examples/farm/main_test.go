@@ -75,6 +75,23 @@ func TestWalking(t *testing.T) {
 	}
 }
 
+// A gamepad's stick walks as far as it leans, facing where it leans most.
+func TestStickWalks(t *testing.T) {
+	w := newWorld()
+	x, y := w.x, w.y
+	w.stick = [2]float64{-0.5, 0.2}
+	for range 60 {
+		w.step(stepTime)
+	}
+	if w.facing != left || w.x >= x || w.y <= y {
+		t.Errorf("at %v, %v facing %v", w.x, w.y, w.facing)
+	}
+	// Half way leaned, half as fast as the keys.
+	if d := x - w.x; d < 0.5*speed*0.5*0.9 || d > 0.5*speed*0.5*1.1 {
+		t.Errorf("walked %v in half a second", d)
+	}
+}
+
 // The game's view draws, takes keys, and walks the farmer while they are
 // held.
 func TestView(t *testing.T) {

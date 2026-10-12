@@ -95,9 +95,10 @@ framework safely. Read it before changing anything under `internal/`.
 ├── plugins/            official plugins, each a Go package and its npm
 │                       package (@mygo-plugins/<name>) side by side: fetch,
 │                       websocket, sqlite; and Go only: updater, the update window,
-│                       a web page or native UI (updater/native), and
+│                       a web page or native UI (updater/native),
 │                       terminal, a view of native UI running programs with
-│                       libghostty-vt
+│                       libghostty-vt, glass, and game, what games need
+│                       beyond what apps do (game/gamepad)
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester;
 │                       ui/chart: charts without a look, on ui's public API
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
@@ -978,6 +979,33 @@ build` like mygo-runtime and released with the same version.
     The CLI puts them into apps
     (see the CLI's resources); other programs download theirs into the
     user's cache once, which packaged apps never do.
+- **game** has what games need beyond what apps do, opt-in, out of core
+  `ui`.
+  Its package `gamepad`, like `audio`, stands apart from windows and the
+  main thread. One mutex guards the pads. `Pads` asks the platform's `scan` for
+  the devices connected at most once a second, handing it the devices it
+  has so that it reuses them, and a device that is gone, from a scan or
+  when read, disconnects its pad. `State` reads a device on the calling
+  goroutine into the standard layout (`State.Buttons` in the W3C's order,
+  `Axes` with y down):
+  - macOS: GameController.framework through purego's objc: `GCController`
+    `controllers` with an `extendedGamepad`, each element's `value` read
+    inside an autorelease pool, after `respondsToSelector:` for the buttons
+    older systems lack. The framework finds controllers on the main run
+    loop.
+  - Linux: evdev, opened non-blocking where `EVIOCGBIT` shows `BTN_SOUTH`;
+    reading drains the events waiting into key and axis arrays, with axes
+    scaled by `EVIOCGABS`'s range. Xbox controllers (Microsoft's and Valve's
+    vendor IDs, or the `xpad` driver) report X and Y under BTN_NORTH's and
+    BTN_WEST's codes, which are swapped back.
+  - Windows: XInput's four slots, through `XInputGetStateEx` (ordinal 100)
+    for the Guide button where it exists. Empty slots, slow to ask, are
+    asked only by scans.
+  - Browsers: `navigator.getGamepads()` by index, the standard mapping
+    matching the package's order.
+  Tests replace `scanDevices` with fake devices; on Linux, `TestEvdev`
+  (`MYGO_UINPUT=1`) makes uinput pads in the test container, and on macOS
+  `TestGameController` reads a controller from `controllerWithExtendedGamepad`.
 - **glass** is Liquid Glass for native UI, as macOS 26 and later draw it:
   `glass.Glass`, a `ui.Material` (interactive glass builds with its
   element, following its press with `Animate`, and paints itself grown
@@ -3065,3 +3093,4 @@ which npm allows only for packages that exist: the first release uses an
 | native UI rendering | Metal, into a CAMetalLayer presenting as soon as drawn, or with the Core Animation transaction for frames that resize it or show web views | OpenGL 3.3 or ES 3.0 in the GtkGLArea's render signal; on the CPU, painted with cairo, where OpenGL runs on the CPU | Direct3D 11 (WARP without a GPU), flip-model swap chain |
 | web views in native UI | WKWebView in a clip view under the surface; `hitTest:` lets the pointer through | WebKitWebView in a `GtkLayout` under the area in a `GtkOverlay`; an input shape lets the pointer through | WebView2 composition controller in a DirectComposition target under the frames'; the surface sends it the mouse |
 | audio output | Audio Queue on the default output | PulseAudio simple API (PipeWire too), else ALSA `default` | WASAPI shared mode, reopened when the default output changes |
+| gamepads | GameController.framework, extended gamepad profile | evdev, the kernel's gamepad layout, Xbox's X and Y swapped back | XInput, four slots, Guide by `XInputGetStateEx` |

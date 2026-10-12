@@ -10,7 +10,9 @@
 //
 // Arrows or WASD walk, Space or E uses the tool (or harvests what is
 // ripe), 1 2 3 or Q choose the tool, + and - zoom, and M plays or stops
-// the music.
+// the music. With a gamepad: the left stick or the d-pad walks, A uses the
+// tool, the shoulder buttons choose it, and Start plays or stops the
+// music.
 package main
 
 import (
@@ -20,6 +22,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/game/gamepad"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -44,6 +47,9 @@ type game struct {
 	// fixed steps.
 	last time.Time
 	lag  float64
+	// pad is the last state of the first gamepad, to tell the buttons
+	// pressed since.
+	pad gamepad.State
 }
 
 func newGame(withSound bool) *game {
@@ -138,6 +144,9 @@ func (g *game) advance(now time.Time) {
 		g.lag += min(now.Sub(g.last).Seconds(), 0.25)
 	}
 	g.last = now
+	if g.lag >= stepTime {
+		g.readPad()
+	}
 	for g.lag >= stepTime {
 		g.w.step(stepTime)
 		g.lag -= stepTime
@@ -146,6 +155,43 @@ func (g *game) advance(now time.Time) {
 		g.snd.play(g.w.events, 0)
 	}
 	g.w.events = g.w.events[:0]
+}
+
+// readPad reads the first gamepad: its stick or d-pad walks, and its
+// buttons act as the keys do when just pressed.
+func (g *game) readPad() {
+	pads := gamepad.Pads()
+	if len(pads) == 0 {
+		g.w.stick, g.pad = [2]float64{}, gamepad.State{}
+		return
+	}
+	s := pads[0].State()
+	x, y := s.LeftStick()
+	if s.Pressed(gamepad.Left) {
+		x = -1
+	} else if s.Pressed(gamepad.Right) {
+		x = 1
+	}
+	if s.Pressed(gamepad.Up) {
+		y = -1
+	} else if s.Pressed(gamepad.Down) {
+		y = 1
+	}
+	if m := math.Hypot(float64(x), float64(y)); m > 1 {
+		x, y = float32(float64(x)/m), float32(float64(y)/m)
+	}
+	g.w.stick = [2]float64{float64(x), float64(y)}
+	switch {
+	case s.JustPressed(g.pad, gamepad.South):
+		g.w.use()
+	case s.JustPressed(g.pad, gamepad.RightShoulder):
+		g.w.tool = (g.w.tool + 1) % 3
+	case s.JustPressed(g.pad, gamepad.LeftShoulder):
+		g.w.tool = (g.w.tool + 2) % 3
+	case s.JustPressed(g.pad, gamepad.Start):
+		g.setMusic(!g.music)
+	}
+	g.pad = s
 }
 
 // tint is the color the world takes at the light of the hour: the night
