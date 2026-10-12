@@ -101,10 +101,12 @@ framework safely. Read it before changing anything under `internal/`.
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester;
 │                       ui/chart: charts without a look, on ui's public API
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
+├── audio/              sound: players, the mixer, the output of each platform, WAV;
+│                       audio/vorbis and audio/mp3 decode Ogg Vorbis and MP3
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native; counter-native, vibrancy,
-│                       effort-slider, flyout, menubar-flyout and gallery
-│                       (native UI); webview (web views in native UI)
+│                       effort-slider, flyout, menubar-flyout, piano and
+│                       gallery (native UI); webview (web views in native UI)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
@@ -1314,6 +1316,45 @@ clipboard lock. Callback signatures are allocated once and routed by native
 object or user data. Native reads copy bytes so application data outlives
 native handles. See [Clipboard and drag data](data-transfer.md) for API and
 format mappings.
+
+## Audio (`audio`)
+
+Package `audio` is independent of windows and the main thread: it neither
+goes through `internal/platform` nor needs the app running. Players are
+voices (`audio/mixer.go`) under one mutex. Each reads frames from a source,
+an in-memory sound or a stream that a goroutine of its own decodes about a
+second ahead into a ring (`audio/source.go`); the mixer never waits on a
+stream, playing silence for one that is late. Voices resample to 48 kHz
+stereo with a Catmull-Rom spline at their rate times their speed, and ramp
+their gains (a 2×2 matrix of volume and pan) over 5 ms on every change,
+pause and resume. Looping happens in the source, so a loop has no gap; the
+voice counts frames past it modulo the length for `Position`.
+
+The output (`audio/output.go`) is a goroutine locked to one thread that
+opens the device when a voice starts, mixes 10 to 21 ms at a time and
+writes it with a call that blocks while the device holds enough, and
+closes the device after five idle seconds. Each platform gives one
+`openDevice`:
+
+- macOS: an Audio Queue of four buffers of 512 frames, started once all
+  hold audio; its callback, created once, hands buffers back over a channel.
+- Linux: `pa_simple_write` of PulseAudio's simple API (`libpulse-simple`,
+  which PipeWire serves too) with a 40 ms target, else ALSA's
+  `snd_pcm_writei` on `default`, both through purego.
+- Windows: WASAPI in shared mode, event driven, with a 40 ms buffer,
+  `AUTOCONVERTPCM` and the default-quality resampler; it compares the
+  default endpoint's ID every 500 ms and fails the write when it changed,
+  which reopens the device.
+- Browsers: an AudioWorklet from a Blob URL that queues three chunks and
+  posts a request whenever it used one; the output waits for a request
+  before mixing the next. One AudioContext serves the page; closing
+  suspends it, and the first pointer or key input resumes it.
+
+Where `openDevice` fails, a null device takes the frames on the wall
+clock and fails after two seconds, so the output tries the device again;
+`audio.Err` reports the failure. Formats register a magic prefix and a
+constructor as `image` does: WAV is built in, `audio/vorbis` and
+`audio/mp3` wrap pure Go decoders.
 
 ## Native UI (`ui`)
 
@@ -3022,3 +3063,4 @@ which npm allows only for packages that exist: the first release uses an
 | native UI accessibility | `NSAccessibilityElement` subclasses | ATK objects (GObject types registered through purego), bridged to AT-SPI by GTK | UI Automation fragments (COM objects; assembly thunks for the methods taking doubles) |
 | native UI rendering | Metal, into a CAMetalLayer presenting as soon as drawn, or with the Core Animation transaction for frames that resize it or show web views | OpenGL 3.3 or ES 3.0 in the GtkGLArea's render signal; on the CPU, painted with cairo, where OpenGL runs on the CPU | Direct3D 11 (WARP without a GPU), flip-model swap chain |
 | web views in native UI | WKWebView in a clip view under the surface; `hitTest:` lets the pointer through | WebKitWebView in a `GtkLayout` under the area in a `GtkOverlay`; an input shape lets the pointer through | WebView2 composition controller in a DirectComposition target under the frames'; the surface sends it the mouse |
+| audio output | Audio Queue on the default output | PulseAudio simple API (PipeWire too), else ALSA `default` | WASAPI shared mode, reopened when the default output changes |

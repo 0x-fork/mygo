@@ -89,6 +89,8 @@ that must start instantly.
   shell, displays, dark mode, power and global shortcuts.
 - [Clipboard and drag data](data-transfer.md): multiple representations,
   file lists, custom formats, lazy providers, and clipboard persistence.
+- [Audio](audio.md): sound effects, streamed music and sound an app makes
+  itself, mixed in Go, with WAV, Ogg Vorbis and MP3.
 - [Building and distributing](distribution.md): packaged apps for macOS,
   Windows and Linux, signing, installers and disk images.
 - [Auto-updates](updates.md): signed updates from GitHub releases, an S3
