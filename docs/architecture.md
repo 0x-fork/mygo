@@ -2640,7 +2640,9 @@ renderer's (`gputest.Compare`).
   to the main package, with `//go:embed all:mygo_frontend` and a call to
   `SetFrontend`, and maps every `frontendDist` file into that virtual
   directory, so the frontend may live anywhere. macOS targets become `.app`
-  bundles (Info.plist, `.icns` rendered in pure Go), signed with
+  bundles (Info.plist, `.icns` rendered in pure Go, and with `macos.icon`
+  an `Assets.car`, as it is or compiled from an Icon Composer `.icon` by
+  `xcrun actool`), signed with
   `macos.signingIdentity` (hardened runtime and timestamp for real
   identities, ad hoc by default); `darwin/universal` combines both
   architectures with a pure-Go fat-binary writer. Linux gets a `.desktop`
@@ -2666,7 +2668,7 @@ renderer's (`gputest.Compare`).
   links inside them are copied as links, permissions are kept. Installed
   paths must be unique ignoring case (listed resources never merge), and
   top-level names must not replace the packaging's own files
-  (`AppIcon.icns`, the executable, the `.desktop` entry). Code
+  (`AppIcon.icns`, `Assets.car`, the executable, the `.desktop` entry). Code
   among them is signed before the app (`signNestedCode`), since
   `codesign --deep` only covers code directories and notarization rejects
   unsigned code: Mach-O files, then the bundles holding them, deepest
