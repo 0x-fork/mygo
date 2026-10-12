@@ -189,12 +189,15 @@ type engine struct {
 	focused      uint64
 	// texts are selectable paragraphs in build order; selection spans those
 	// of one Selectable container (textselection.go).
-	texts         []*state
-	selection     textSelection
-	focusVisible  bool
-	windowFocused bool
-	keys          []keyEvent
-	menu          menuState
+	texts        []*state
+	selection    textSelection
+	focusVisible bool
+	keys         []keyEvent
+	menu         menuState
+	// windowFocused tells that the window has the keyboard focus, which
+	// windowFocus reads; focusRead, that the last frame read it, so that a
+	// change of it draws a frame.
+	windowFocused, focusRead bool
 	// toasts are the toasts the window holds, oldest first, and
 	// toastList those showing, as ToastViewportBase gives them; their time
 	// stops while toastsPaused. A viewport of them was built in the pass
@@ -380,6 +383,7 @@ func (rt *engine) runFrame() {
 	defer rt.endFrame()
 
 	rt.frame++
+	rt.focusRead = false
 	rt.stats.begin(rt)
 	now := rt.now()
 	w, h, scale := rt.host.size()

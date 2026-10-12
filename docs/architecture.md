@@ -1525,6 +1525,14 @@ either.
   `SurfaceShown`, sent as some of the window shows again
   (`windowDidChangeOcclusionState:`), has a held animation go on from
   where the time puts it.
+  The window gaining or losing the keyboard focus draws a frame only when
+  the last frame read it (`windowFocus`, as a focus ring, a caret, a
+  selection's color or a focused text input's IME state do): a window
+  hiding or showing again draws nothing it would draw the same. Each
+  frame matters on macOS, where the Metal driver takes 30 to 45 MB of the
+  process's footprint ("owned unmapped (graphics)") for the first command
+  buffer encoding anything after a pause, and gives them back a second or
+  two after the last, as a bare Metal app does.
   A frame allocates next to nothing once the view builds what it built
   before: elements come from the context's arena, the default theme is
   copied for each pass, the states that pruning frees go to new elements
