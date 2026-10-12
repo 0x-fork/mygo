@@ -78,6 +78,35 @@ A part outside what the painter shows draws nothing, so a view of many
 can draw them all without culling them itself, as games draw their
 sprites and tiles.
 
+## Transforms
+
+`Painter.Transform(t, ox, oy, fn)` transforms what `fn` draws by `t`, a
+`ui.Transform` such as `Translation`, `Scaling` or `Rotation`, around the
+point `(ox, oy)`, which stays where it is. Transforms nest, after the
+painter's own, so a view that pans and zooms, as a map or a diagram,
+draws its content through one, and turns a part of it inside:
+
+```go
+ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) {
+	view := ui.Translation(-doc.panX, -doc.panY).Then(ui.Scaling(doc.zoom, doc.zoom))
+	p.Transform(view, r.X, r.Y, func() {
+		for _, n := range doc.nodes {
+			p.Fill(n.box, n.color, 6) // culled where the view does not look
+		}
+		cx, cy := doc.dial.X, doc.dial.Y
+		p.Transform(ui.Rotation(doc.dial.angle), cx, cy, func() {
+			p.Line(cx, cy, cx, cy-40, 2, c.Theme().Accent)
+		})
+	})
+})
+```
+
+Clips made inside turn with what they clip. Input is not transformed: the
+pointer comes in the element's coordinates, which the app maps to its
+content with the inverse of its view. Under a transform, images and their
+parts are placed where they are rather than on whole pixels, so that one
+moving through a zoomed view glides.
+
 ## Shaping text
 
 Text that a widget lays out itself, as in the cells of a grid, is shaped

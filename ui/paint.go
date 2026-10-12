@@ -1033,7 +1033,9 @@ type ImageOptions struct {
 // of it), stretched into dst, as Image draws a bitmap (pixelated if it
 // is), unless dst is outside what the painter shows. Nothing of the bitmap
 // around src shows, so that the parts of a bitmap holding many, as the
-// icons of a sheet or the frames of an animation, draw on their own:
+// icons of a sheet or the frames of an animation, draw on their own. Under
+// a transform (Painter.Transform), dst is where it is, not snapped to
+// pixels, so that a part moving through a zoomed view glides:
 //
 //	p.ImageRegion(icons, ui.Rect{X: 32, W: 16, H: 16}, box, ui.ImageOptions{})
 func (p *Painter) ImageRegion(b *Bitmap, src, dst Rect, o ImageOptions) {
@@ -1058,7 +1060,14 @@ func (p *Painter) ImageRegion(b *Bitmap, src, dst Rect, o ImageOptions) {
 	if o.Tint != (Color{}) {
 		tint = o.Tint.scene()
 	}
-	p.add(scene.Op{Kind: scene.OpImage, Rect: p.snap(dst), Image: shown, Src: sr, Opacity: p.opacity, Color: tint,
+	// Snapped to the pixels of the screen, unless a transform places it:
+	// snapping before a zoom would move a part in steps of several
+	// pixels, where pixelated sampling glides.
+	rect := p.snap(dst)
+	if p.transform.Set {
+		rect = scene.Rect{X: dst.X * p.scale, Y: dst.Y * p.scale, W: dst.W * p.scale, H: dst.H * p.scale}
+	}
+	p.add(scene.Op{Kind: scene.OpImage, Rect: rect, Image: shown, Src: sr, Opacity: p.opacity, Color: tint,
 		Pixelated: b.pixelated && shrink <= 1})
 }
 
@@ -1079,4 +1088,29 @@ func (p *Painter) Clip(r Rect, radius float32, fn func()) {
 	fn()
 	p.popClip()
 	p.clip = saved
+}
+
+// Transform transforms what fn draws by t around the point (ox, oy), which
+// t leaves where it is, after the painter's own transforms: it nests. A
+// view that pans and zooms, as a map or a diagram, draws its content
+// through one, and a dial turns its needle around its center with another:
+//
+//	view := ui.Translation(-panX, -panY).Then(ui.Scaling(zoom, zoom))
+//	p.Transform(view, r.X, r.Y, func() {
+//		drawDiagram(p)
+//		p.Transform(ui.Rotation(angle), cx, cy, func() { p.Line(cx, cy, cx, cy-40, 2, red) })
+//	})
+//
+// Clips made in fn turn with what it draws, and what the transform moves
+// out of view is culled as usual. Input is not transformed: the pointer
+// comes in the element's coordinates, which the app maps to its content
+// itself.
+func (p *Painter) Transform(t Transform, ox, oy float32, fn func()) {
+	saved := p.transform
+	if t.set() {
+		m := Translation(-ox, -oy).Then(t).Then(Translation(ox, oy))
+		p.transform = saved.Mul(m.flat())
+	}
+	fn()
+	p.transform = saved
 }
