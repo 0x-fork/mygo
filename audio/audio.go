@@ -404,14 +404,40 @@ func (p *Player) Speed() float64 {
 }
 
 // SetLoop sets whether the player starts again from the start when it
-// ends, without a gap.
+// ends, without a gap, or from its loop's start (SetLoopRange). A change
+// is heard after what the player decoded ahead: a few milliseconds of a
+// sound, up to a second of a stream.
 func (p *Player) SetLoop(loop bool) *Player {
 	mu.Lock()
 	defer mu.Unlock()
 	if !p.v.closed {
 		p.v.loop = loop
-		p.v.src.setLoop(loop)
+		p.v.src.setLoop(loop, p.v.loopStart, p.v.loopEnd)
 	}
+	return p
+}
+
+// SetLoopRange loops the player between start and end, without a gap,
+// end 0 being the end of its audio: what is before start, as a tune's
+// intro, plays once, and playing past end goes on from start. It sets the
+// player looping; SetLoop(false) plays on past end, as far as the end.
+func (p *Player) SetLoopRange(start, end time.Duration) *Player {
+	mu.Lock()
+	defer mu.Unlock()
+	v := p.v
+	if v.closed {
+		return p
+	}
+	s := max(int64(math.Round(start.Seconds()*v.rate)), 0)
+	e := max(int64(math.Round(end.Seconds()*v.rate)), 0)
+	if v.length >= 0 {
+		s, e = min(s, v.length), min(e, v.length)
+	}
+	if e != 0 && e <= s {
+		s, e = 0, 0 // nothing to loop: all of it
+	}
+	v.loopStart, v.loopEnd, v.loop = s, e, true
+	v.src.setLoop(true, s, e)
 	return p
 }
 

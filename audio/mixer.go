@@ -17,7 +17,9 @@ type source interface {
 	// looping.
 	read(dst []float32) (n int, ended bool)
 	seek(frame int64)
-	setLoop(loop bool)
+	// setLoop sets whether the source loops, from frame start to end
+	// (0 for its end).
+	setLoop(loop bool, start, end int64)
 	close()
 }
 
@@ -38,6 +40,7 @@ type voice struct {
 
 	volume, pan, speed float64
 	loop               bool
+	loopStart, loopEnd int64 // frames, loopEnd 0 for the end
 
 	// The four source frames the output is interpolated between, the
 	// second at idx, and how far the output is past it.
@@ -73,14 +76,21 @@ func (v *voice) ended() bool { return v.end >= 0 && v.idx >= v.end }
 // position returns the source frame the voice is at.
 func (v *voice) position() float64 {
 	p := max(float64(v.idx)+v.phase, 0)
-	if v.length > 0 {
-		if v.loop {
-			p = math.Mod(p, float64(v.length))
-		} else {
-			p = min(p, float64(v.length))
+	if v.length == 0 {
+		return 0
+	}
+	if v.loop {
+		end := float64(v.loopEnd)
+		if end <= 0 {
+			end = float64(v.length)
 		}
-	} else if v.length == 0 {
-		p = 0
+		if start := float64(v.loopStart); end > start && p >= end {
+			p = start + math.Mod(p-start, end-start)
+		}
+		return p
+	}
+	if v.length > 0 {
+		p = min(p, float64(v.length))
 	}
 	return p
 }

@@ -53,6 +53,7 @@ A `Player` plays, pauses (`Pause`), and goes back to the start (`Stop`);
 | `SetPan(p)` | from the left speaker (-1) to the right (1): mono keeps its power, stereo both channels, as Web Audio's `StereoPannerNode` |
 | `SetSpeed(s)` | speed and pitch together, as a record's: 2 is twice as fast and an octave higher |
 | `SetLoop(true)` | starts again at the end, without a gap |
+| `SetLoopRange(start, end)` | loops from `end` back to `start`: a tune's intro plays once, then its loop (`end` 0 is the end) |
 
 The setters return the player, to chain them. Volume changes, pauses and
 resumes ramp over 5 ms, so none clicks. `audio.SetVolume` sets the volume
@@ -71,7 +72,13 @@ box. Import a format's package for its side effect, as with package
 | `audio/mp3` | MP3 | [hajimehoshi/go-mp3](https://github.com/hajimehoshi/go-mp3) |
 
 Prefer Ogg Vorbis for music that loops: MP3 files begin and end with the
-encoder's padding, a few milliseconds of silence that a loop plays too.
+encoder's padding, a few milliseconds of silence that a loop plays too,
+unless `SetLoopRange` leaves it out.
+
+```go
+// 12.5 s of intro, then bars from 12.5 s to 1 min 40 s, again and again.
+music.SetLoopRange(12500*time.Millisecond, 100*time.Second).Play()
+```
 
 `RegisterFormat` adds a format of your own, and a `Decoder` you write plays
 sound an app makes as it plays, such as a synthesizer:

@@ -4,6 +4,7 @@ import (
 	"io"
 	"math"
 	"math/rand/v2"
+	"time"
 
 	"github.com/egoist/mygo/audio"
 )
@@ -31,8 +32,9 @@ func newSounds() *sounds {
 		}),
 		harvest: synth(0.5, chime),
 		nothing: synth(0.06, func(t float64) float64 { return math.Sin(2*math.Pi*160*t) * math.Exp(-t*50) * 0.3 }),
-		music:   audio.NewPlayer(&tune{}).SetLoop(true).SetVolume(0.35),
-		rng:     rng,
+		// The first bar is an intro: then the rest loops.
+		music: audio.NewPlayer(&tune{}).SetLoopRange(4*tuneBeat*time.Second, 0).SetVolume(0.35),
+		rng:   rng,
 	}
 }
 
