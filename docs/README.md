@@ -76,7 +76,7 @@ that must start instantly.
 ## Guides
 
 - [Getting started](getting-started.md): install the tools, then create,
-  develop and build an app, with a web frontend or native UI.
+  develop and build an app, with native UI or a web frontend.
 - [Windows](windows.md): creating and arranging windows of both kinds,
   their events, and what windows showing web pages do with them:
   navigation, downloads, permissions, printing.
