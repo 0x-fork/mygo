@@ -1098,11 +1098,14 @@ as in Tauri:
   restarts), so progress and a hidden button set before showing stick.
 - `WindowOptions.StateKey` (`window_state.go`) remembers a window's normal
   bounds and maximized/full screen state in `window-state.json` in
-  `PathUserData`, like Tauri's window-state plugin. The state is captured
+  `PathUserData`, like Tauri's window-state plugin, or in the app's
+  `WindowStateStore` (`App.SetWindowStateStore`), which loads all the
+  states once and saves them all, on the main thread. The state is captured
   300 ms after the last move/resize/state event (transitions resize the
   window on the way, and the normal bounds only change in the normal
-  state) and when the window closes; it is written when a window closes
-  and when the app quits. A saved window that would not show on any
+  state) and when the window closes; it is saved when a window closes
+  and when the app quits, if it changed, and kept for the next save when
+  saving fails. A saved window that would not show on any
   display keeps its size and is centered. `WindowOptions.Maximized` starts
   a window maximized: `zoom:` on macOS, `gtk_window_maximize` before
   mapping on Linux, `SW_SHOWMAXIMIZED` on the first show on Windows, where
