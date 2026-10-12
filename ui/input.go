@@ -247,6 +247,7 @@ const interactive = flagClickable | flagFocusable | flagEditable | flagSelectabl
 func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count int) {
 	chain := rt.hitChain(x, y)
 	rt.setHover(chain)
+	rt.pressDragger = 0
 	if len(chain) > 0 {
 		rt.downs = append(rt.downs, chain[0])
 	} else {
@@ -322,6 +323,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 		return
 	}
 	rt.pressed, rt.pressButton = target, button
+	rt.pressDragger = pressDragger(rt, chain, target)
 	target.pressed, target.pressMods = true, mods
 	target.pressPending = true
 	target.pressX, target.pressY = target.local(x, y)

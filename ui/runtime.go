@@ -183,7 +183,10 @@ type engine struct {
 	chain       []uint64
 	pressed     *state
 	pressButton int
-	focused     uint64
+	// pressDragger is the element around the one pressed that drags a
+	// value, which takes the press as it moves (dragMove), or 0.
+	pressDragger uint64
+	focused      uint64
 	// texts are selectable paragraphs in build order; selection spans those
 	// of one Selectable container (textselection.go).
 	texts         []*state
