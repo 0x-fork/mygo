@@ -478,7 +478,16 @@ func (w *window) captionless() bool { return w.frameless || w.hiddenTitleBar }
 func (w *window) frameCalcSize(wp, lp uintptr) uintptr {
 	params := (*ncCalcSizeParams)(native(lp))
 	if w.IsMaximized() {
-		params.Rgrc[0] = monitorWorkArea(w.monitor())
+		// The monitor of the proposed rectangle, not of the window: while a
+		// window is restored from minimized it is still the minimized one,
+		// parked off screen, whose nearest monitor is not the one it comes
+		// back to. Fitting the work area of the wrong monitor leaves the
+		// client area outside the window, and the content shows nothing.
+		// A rectangle on no monitor keeps the whole window as its client
+		// area, as winit and tao do.
+		if mon, _, _ := procMonitorFromRect.Call(uintptr(unsafe.Pointer(&params.Rgrc[0])), monitorDefaultToNull); mon != 0 {
+			params.Rgrc[0] = monitorWorkArea(mon)
+		}
 		return 0
 	}
 	if windowLong(w.hwnd, gwlStyle)&wsThickFrame != 0 {
