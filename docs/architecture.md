@@ -105,8 +105,9 @@ framework safely. Read it before changing anything under `internal/`.
 │                       audio/vorbis and audio/mp3 decode Ogg Vorbis and MP3
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native; counter-native, vibrancy,
-│                       effort-slider, flyout, menubar-flyout, piano and
-│                       gallery (native UI); webview (web views in native UI)
+│                       effort-slider, flyout, menubar-flyout, piano, farm
+│                       (a game) and gallery (native UI); webview (web views
+│                       in native UI)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
