@@ -232,3 +232,50 @@ func TestBuildWide(t *testing.T) {
 		}
 	}
 }
+
+func TestTransformOutsideAClipLeavesItUnmasked(t *testing.T) {
+	// A scaled badge beside a rounded card of clipped rows: nothing in the
+	// card is transformed, so its clips stay in the shader.
+	s := &scene.Scene{Width: 400, Height: 300, Ops: []scene.Op{
+		{Kind: scene.OpFill, Rect: scene.Rect{W: 40, H: 40}, Color: scene.Color{B: 255, A: 255}, Transform: scene.Scaling(1.2, 1.2)},
+		{Kind: scene.OpPushClip, Rect: scene.Rect{Y: 50, W: 400, H: 250}, Radii: [4]float32{11, 11, 11, 11}},
+		{Kind: scene.OpPushClip, Rect: scene.Rect{Y: 50, W: 200, H: 32}},
+		{Kind: scene.OpFill, Rect: scene.Rect{Y: 50, W: 300, H: 32}, Color: scene.Color{A: 255}},
+		{Kind: scene.OpPopClip},
+		{Kind: scene.OpPopClip},
+	}}
+	var b Builder
+	defer b.Release()
+	masks := 0
+	b.Build(s, func(*scene.Image) uintptr { masks++; return 1 })
+	if masks != 0 || len(b.maskSlots) != 0 {
+		t.Fatalf("rasterized %d clip masks for clips with no transform inside", masks)
+	}
+	if in := b.Instances[1]; in.Transform1[3] != 0 || in.Clip != [4]float32{0, 50, 200, 32} {
+		t.Fatalf("row clip %v, mask mode %v", in.Clip, in.Transform1[3])
+	}
+}
+
+func TestRoundedClipMasksOnlyTheBranchWithATransform(t *testing.T) {
+	// A zoomed image beside a list in the same rounded card: the image's
+	// clip keeps the card's corners, the list's rows stay in the shader.
+	s := &scene.Scene{Width: 400, Height: 300, Ops: []scene.Op{
+		{Kind: scene.OpPushClip, Rect: scene.Rect{W: 400, H: 300}, Radii: [4]float32{11, 11, 11, 11}},
+		{Kind: scene.OpPushClip, Rect: scene.Rect{W: 200, H: 300}},
+		{Kind: scene.OpFill, Rect: scene.Rect{W: 200, H: 300}, Color: scene.Color{A: 255}, Transform: scene.Scaling(1.5, 1.5)},
+		{Kind: scene.OpPopClip},
+		{Kind: scene.OpPushClip, Rect: scene.Rect{X: 200, W: 200, H: 32}},
+		{Kind: scene.OpFill, Rect: scene.Rect{X: 200, W: 200, H: 32}, Color: scene.Color{A: 255}},
+		{Kind: scene.OpPopClip},
+		{Kind: scene.OpPopClip},
+	}}
+	var b Builder
+	defer b.Release()
+	b.Build(s, func(*scene.Image) uintptr { return 1 })
+	if b.Instances[0].Transform1[3] != 1 {
+		t.Fatal("zoomed content lost its rounded ancestor's mask")
+	}
+	if b.Instances[1].Transform1[3] != 0 || b.Batches[len(b.Batches)-1].ClipMask != 0 {
+		t.Fatal("untransformed row was masked")
+	}
+}

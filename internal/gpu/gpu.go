@@ -28,6 +28,7 @@ package gpu
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"unsafe"
 
@@ -128,9 +129,12 @@ type Builder struct {
 	// Wide draws the colors of scenes outside the sRGB gamut
 	// (Scene.Wide), for a target that keeps them, as Metal's float16
 	// drawables do; without it, their nearest sRGB colors.
-	Wide         bool
-	stack        []clip
-	transformed  bool
+	Wide  bool
+	stack []clip
+	// encloses tells, for each op of the scene, that it pushes a clip with
+	// a transformed op or glyph inside it.
+	encloses     []bool
+	pushes       []int
 	clipShapes   []scene.ClipShape
 	maskSlots    []clipMaskSlot
 	maskUsed     int
@@ -178,11 +182,14 @@ func (b *Builder) BackdropSize() (w, h int) {
 }
 
 type clip struct {
-	rect        scene.Rect
-	radii       [4]float32
-	bounds      scene.Rect
-	scissor     Scissor
-	shape       scene.ClipShape
+	rect    scene.Rect
+	radii   [4]float32
+	bounds  scene.Rect
+	scissor Scissor
+	shape   scene.ClipShape
+	// moved tells that this clip or one it is nested in is transformed,
+	// which the scissor rectangles don't follow.
+	moved       bool
 	masked      bool
 	maskSlot    int
 	maskTexture uintptr
@@ -191,8 +198,11 @@ type clip struct {
 // Build turns a scene directly into GPU instances, retaining local geometry
 // and composing transforms in the vertex shader. Nested affine clips use
 // cached masks; stationary clipping never rasterizes again as content moves.
+// A clip is masked only when it is transformed, nested in a transformed
+// clip, or rounded (or masked) with transformed content inside: the others
+// cut in the shader as in a scene without transforms.
 func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene.Scene {
-	b.transformed = s.HasTransforms()
+	b.markEnclosing(s)
 	b.imageTexture = image
 	b.maskUsed = 0
 	b.clipShapes = b.clipShapes[:0]
@@ -212,7 +222,8 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 			// others cut with the scissor rectangle.
 			c := clip{rect: op.Rect, radii: scene.Corners(op.Rect, op.Radii, op.Continuous), bounds: bounds,
 				shape: scene.ClipShape{Rect: op.Rect, Radii: op.Radii, Transform: op.Transform, Continuous: op.Continuous}, maskSlot: -1}
-			c.masked = b.transformed && (top.masked || op.Transform.Set || c.radii != [4]float32{})
+			c.moved = top.moved || op.Transform.Set
+			c.masked = c.moved || b.encloses[i] && (top.masked || c.radii != [4]float32{})
 			if c.masked {
 				c.maskSlot = b.maskUsed
 				b.maskUsed++
@@ -365,6 +376,36 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 	}
 	b.imageTexture = nil
 	return s
+}
+
+// markEnclosing sets b.encloses for the ops of s.
+func (b *Builder) markEnclosing(s *scene.Scene) {
+	b.encloses = slices.Grow(b.encloses[:0], len(s.Ops))[:len(s.Ops)]
+	clear(b.encloses)
+	b.pushes = b.pushes[:0]
+	for i := range s.Ops {
+		op := &s.Ops[i]
+		if op.Kind == scene.OpPopClip {
+			if n := len(b.pushes); n > 0 {
+				b.pushes = b.pushes[:n-1]
+			}
+			continue
+		}
+		transformed := op.Transform.Set
+		if op.Kind == scene.OpGlyphs {
+			for _, g := range s.Glyphs[op.Start:op.End] {
+				transformed = transformed || g.Transform.Set
+			}
+		}
+		// Every clip open around it encloses it, from the innermost out to
+		// the first already marked, whose own are.
+		for j := len(b.pushes) - 1; transformed && j >= 0 && !b.encloses[b.pushes[j]]; j-- {
+			b.encloses[b.pushes[j]] = true
+		}
+		if op.Kind == scene.OpPushClip {
+			b.pushes = append(b.pushes, i)
+		}
+	}
 }
 
 // Release frees the retained clipping resources and instance buffers.
