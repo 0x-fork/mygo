@@ -1209,7 +1209,11 @@ as in Tauri:
   app, inside the bundle on macOS, with each file's size and SHA-256 and
   how to make it: a copy of a file of the old app with the same content
   (at its path, or elsewhere for moved files), else a patch of the file at
-  its path or its own bytes, whichever is smaller. Patches are bsdiff's
+  its path or its own bytes, whichever is smaller. The stapled ticket
+  (`Contents/CodeResources`) is never made from the old app: the archives'
+  bundles are stapled, but the bundle a user copies from the disk image is
+  not, as `buildDMG` staples the app after copying it into the image.
+  Patches are bsdiff's
   (`bsdiff.go`, with the qsufsort suffix array of `suffix.go`), their
   three streams compressed apart so that they are read from the delta
   file in place. `Update.Install` takes the delta whose `from` is the
