@@ -158,21 +158,15 @@ func createEnvironment(userData string, done func(env uintptr, err error)) error
 	dataDir := u16(userData)
 
 	// An official loader next to the executable wins.
-	if exe, err := os.Executable(); err == nil {
-		loader := filepath.Join(filepath.Dir(exe), "WebView2Loader.dll")
-		if _, err := os.Stat(loader); err == nil {
-			proc := syscall.NewLazyDLL(loader).NewProc("CreateCoreWebView2EnvironmentWithOptions")
-			if proc.Find() == nil {
-				hr := withHandler(completed, func(h uintptr) uintptr {
-					r, _, _ := proc.Call(0, uintptr(unsafe.Pointer(dataDir)), 0, h)
-					return r
-				})
-				if failed(hr) {
-					return hresultError("CreateCoreWebView2EnvironmentWithOptions", hr)
-				}
-				return nil
-			}
+	if proc := loaderProc(); proc != nil {
+		hr := withHandler(completed, func(h uintptr) uintptr {
+			r, _, _ := proc.Call(0, uintptr(unsafe.Pointer(dataDir)), 0, h)
+			return r
+		})
+		if failed(hr) {
+			return hresultError("CreateCoreWebView2EnvironmentWithOptions", hr)
 		}
+		return nil
 	}
 
 	// Otherwise the runtime's client library, as the loader does: a fixed
@@ -199,6 +193,44 @@ func createEnvironment(userData string, done func(env uintptr, err error)) error
 		return hresultError("creating the WebView2 environment", hr)
 	}
 	return nil
+}
+
+// loaderProc returns the official WebView2 loader next to the executable and
+// its CreateCoreWebView2EnvironmentWithOptions, or nil when there is no
+// loader to use. createEnvironment calls what it returns, and
+// WebViewSupported asks for it, so the two cannot disagree: a DLL of that
+// name with no such export is no loader, and a runtime is looked for
+// instead.
+func loaderProc() *syscall.LazyProc {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	path := filepath.Join(filepath.Dir(exe), "WebView2Loader.dll")
+	if _, err := os.Stat(path); err != nil {
+		return nil
+	}
+	proc := syscall.NewLazyDLL(path).NewProc("CreateCoreWebView2EnvironmentWithOptions")
+	if proc.Find() != nil {
+		return nil
+	}
+	return proc
+}
+
+// WebViewSupported reports whether a window showing a web page can have
+// one: the WebView2 Runtime is installed, or a loader next to the
+// executable loads a fixed version runtime or the installed one itself. It
+// starts nothing; once a window showing a page created the environment, it
+// says whether that worked.
+func (b *Backend) WebViewSupported() bool {
+	if b.env != 0 || b.envErr != nil {
+		return b.envErr == nil
+	}
+	if loaderProc() != nil {
+		return true
+	}
+	_, _, err := webview2.Find()
+	return err == nil
 }
 
 // regDWORD reads a DWORD value, reporting whether it exists.

@@ -116,6 +116,12 @@ type Backend interface {
 	// RemoveAllNotifications removes the app's notifications, on macOS
 	// those of earlier runs too.
 	RemoveAllNotifications()
+
+	// WebViewSupported reports whether the system webview is there, and so
+	// whether windows showing web pages can work: WKWebView on macOS,
+	// WebKitGTK on Linux, the WebView2 Runtime on Windows. A window showing
+	// native UI needs none, so an app whose windows all do runs without one.
+	WebViewSupported() bool
 }
 
 // AppOptions configures Backend.Init.

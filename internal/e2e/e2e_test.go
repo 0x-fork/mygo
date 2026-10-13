@@ -245,6 +245,7 @@ var beforeRunCalls = []struct {
 	{"Theme.Preferences", func() { mygo.Theme.Preferences() }},
 	{"Dialog.Message", func() { mygo.Dialog.Message(mygo.MessageOptions{Message: "Too early"}) }},
 	{"NewTray", func() { mygo.NewTray(mygo.TrayOptions{}) }},
+	{"WebViewSupported", func() { mygo.WebViewSupported() }},
 }
 
 // beforeRun is a helper process for TestBeforeRun: it does what main may

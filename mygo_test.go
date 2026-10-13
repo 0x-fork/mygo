@@ -1858,6 +1858,7 @@ var needsAppCalls = []struct {
 	{"GlobalShortcut.Register", func() { GlobalShortcut.Register("CmdOrCtrl+Shift+K", func() {}) }},
 	{"NewTray", func() { NewTray(TrayOptions{}) }},
 	{"NotificationsSupported", func() { NotificationsSupported() }},
+	{"WebViewSupported", func() { WebViewSupported() }},
 	{"Notification.Show", func() { NewNotification(NotificationOptions{}).Show() }},
 	{"Power.KeepAwake", func() { Power.KeepAwake("test", false) }},
 	{"Power.IdleTime", func() { Power.IdleTime() }},

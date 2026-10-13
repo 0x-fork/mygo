@@ -89,6 +89,9 @@ type Backend struct {
 	// NotificationError, when set, is what showing a notification fails
 	// with.
 	NotificationError error
+	// NoWebView makes WebViewSupported report no system webview, as a
+	// machine without one does.
+	NoWebView bool
 	// notifications are the notifications shown and not yet removed, by
 	// id.
 	notifications map[string]*platform.Notification
@@ -316,6 +319,10 @@ func (b *Backend) PressHotkey(acc string) {
 // Notifications are recorded rather than shown, so that a test can see
 // what the app asked for and report a click as a platform does.
 func (b *Backend) NotificationsSupported() bool { return true }
+
+// WebViewSupported reports whether the fake system webview is there:
+// windows showing web pages work, unless NoWebView says otherwise.
+func (b *Backend) WebViewSupported() bool { return !b.NoWebView }
 
 func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
 	b.mu.Lock()
