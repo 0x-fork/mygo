@@ -65,6 +65,8 @@ type Backend struct {
 	DockMenu *platform.Menu
 	// Cleared counts ClearBrowsingData calls.
 	Cleared int
+	// cookies holds the cookies of the pages, by name, domain and path.
+	cookies map[platform.CookieKey]platform.Cookie
 	// RecentDocuments are the paths AddRecentDocument recorded, in order,
 	// without the ones ClearRecentDocuments removed.
 	RecentDocuments []string
@@ -670,6 +672,7 @@ func (a app) SetDockMenu(m *platform.Menu) { a.b.mu.Lock(); a.b.DockMenu = m; a.
 func (a app) ClearBrowsingData(done func(error)) {
 	a.b.mu.Lock()
 	a.b.Cleared++
+	clear(a.b.cookies)
 	a.b.mu.Unlock()
 	done(nil)
 }

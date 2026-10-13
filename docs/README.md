@@ -82,7 +82,7 @@ that must start instantly.
   navigation, downloads, permissions, printing.
 - [The application](app.md): the lifecycle, quitting, a single instance,
   deep links, file associations, recent documents, starting at login,
-  well-known directories and the jump list.
+  well-known directories, the jump list, browsing data and cookies.
 - [Menus and the tray](menus.md): application, context and Dock menus,
   keyboard shortcuts and tray icons.
 - [Desktop APIs](native.md): dialogs, notifications, the clipboard, the

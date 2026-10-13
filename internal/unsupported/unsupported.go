@@ -81,6 +81,10 @@ func (app) AddRecentDocument(string) error                    { return errUnsupp
 func (app) ClearRecentDocuments() error                       { return errUnsupported }
 func (app) SetJumpListTasks([]platform.JumpListTask) error    { return errUnsupported }
 
+func (app) ListCookies(done func([]platform.Cookie, error))     { done(nil, platform.ErrUnsupported) }
+func (app) SetCookie(_ platform.Cookie, done func(error))       { done(platform.ErrUnsupported) }
+func (app) DeleteCookie(_ platform.CookieKey, done func(error)) { done(platform.ErrUnsupported) }
+
 type dialogs struct{}
 
 func (dialogs) ShowOpenDialog(_ platform.Window, _ *platform.OpenDialogOptions, cb func([]string, error)) {
