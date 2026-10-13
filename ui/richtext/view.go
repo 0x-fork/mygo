@@ -37,6 +37,10 @@ type EditorOptions struct {
 	// TagStyle styles the runs that carry a Tag, as an app shows mentions
 	// or comments.
 	TagStyle func(tag string, s *ui.Span)
+	// Theme sets how the text looks: colors, code, headings, lists and
+	// quotations. What it leaves zero, and all of it when nil, takes the
+	// window theme's DefaultTheme.
+	Theme *Theme
 }
 
 // Editor creates an editor of doc's attributed text, as NSTextView edits
@@ -171,12 +175,10 @@ type paraView struct {
 // look is how the text of an editor looks: its font and the theme's
 // colors, set as it builds.
 type look struct {
-	size              float32
-	mono              string
-	text, muted, link ui.Color
-	code, quote       ui.Color
-	accent, selection ui.Color
-	indent            float32 // DIPs a level of indentation takes
+	Theme
+	size   float32
+	indent float32  // DIPs a level of indentation takes
+	border ui.Color // around an attachment not loaded yet
 	// width is the room of the paragraph being laid out, which
 	// attachments shrink to.
 	width    float32
@@ -254,21 +256,17 @@ func (v *view) setLook(t *ui.Theme, styled bool) {
 		f.Family = t.Font
 	}
 	v.base = f
+	def := defaultTheme(t)
+	th := resolve(v.opts.Theme, &def)
 	v.look = look{
-		size:      f.Size,
-		mono:      "monospace",
-		text:      t.Text,
-		muted:     t.TextMuted,
-		link:      t.Accent,
-		code:      t.Text.Alpha(0.07),
-		quote:     t.Border,
-		accent:    t.Accent,
-		selection: t.Selection,
-		indent:    f.Size * 1.7,
-		tagStyle:  v.opts.TagStyle,
+		Theme:    th,
+		size:     f.Size,
+		indent:   f.Size * th.Indent,
+		border:   t.Border,
+		tagStyle: v.opts.TagStyle,
 	}
 	if styled {
-		v.padX, v.padY = t.Space(3), t.Space(2.5)
+		v.padX, v.padY = th.Padding[0], th.Padding[1]
 	} else {
 		v.padX, v.padY = 0, 0
 	}
@@ -383,42 +381,30 @@ func (v *view) paraFont(st ParagraphStyle) ui.Font {
 	f := v.base
 	switch {
 	case st.Heading > 0:
-		f.Size *= headingScale(st.Heading)
-		f.Weight = 700
+		h := v.look.heading(st.Heading)
+		f.Size *= h.Size
+		f.Weight = h.Weight
 	case st.CodeBlock:
-		f.Family = v.look.mono
-		f.Size *= 0.92
+		f.Family = v.look.CodeFont
+		f.Size *= v.look.CodeSize
 	}
 	return f
 }
 
 // lookKey is what of the look the layouts of paragraphs are made of.
 type lookKey struct {
-	base                    ui.Font
-	text, muted, link, code ui.Color
-	tags                    bool
+	base  ui.Font
+	theme Theme
+	tags  bool
 }
 
 func (v *view) lookKey() lookKey {
-	l := &v.look
-	return lookKey{base: v.base, text: l.text, muted: l.muted, link: l.link, code: l.code, tags: l.tagStyle != nil}
+	return lookKey{base: v.base, theme: v.look.Theme, tags: v.look.tagStyle != nil}
 }
 
-// headingScale is how much larger than the text a heading of level is.
-func headingScale(level int) float32 {
-	switch level {
-	case 1:
-		return 1.8
-	case 2:
-		return 1.45
-	case 3:
-		return 1.2
-	case 4:
-		return 1.1
-	case 5:
-		return 1
-	}
-	return 0.9
+// heading returns the style of headings of level, from 1.
+func (look *look) heading(level int) *HeadingStyle {
+	return &look.Headings[min(max(level, 1), 6)-1]
 }
 
 // insets returns the room left and right of paragraph p: its indentation,
@@ -433,8 +419,8 @@ func (v *view) insets(st ParagraphStyle) (left, right float32) {
 		left += look.indent * 0.75
 	}
 	if st.CodeBlock {
-		left += look.size * 0.7
-		right += look.size * 0.7
+		left += look.size * look.CodeBlockPadding[0]
+		right += look.size * look.CodeBlockPadding[0]
 	}
 	return left, right
 }
@@ -445,16 +431,17 @@ func (v *view) space(p int, st ParagraphStyle) (above, below float32) {
 	look := &v.look
 	switch {
 	case st.Heading > 0:
+		h := look.heading(st.Heading)
 		if p > 0 {
-			above = look.size * headingScale(st.Heading) * 0.6
+			above = look.size * h.Size * h.Top
 		}
-		below = look.size * 0.25
+		below = look.size * h.Bottom
 	case st.CodeBlock:
 		if p == 0 || !v.para(p-1).style.CodeBlock {
-			above = look.size * 0.5
+			above = look.size * look.CodeBlockPadding[1]
 		}
 		if p+1 >= len(v.paras) || !v.para(p+1).style.CodeBlock {
-			below = look.size * 0.5
+			below = look.size * look.CodeBlockPadding[1]
 		}
 	}
 	return above, below
@@ -466,30 +453,38 @@ func (look *look) span(text string, a Attributes, st ParagraphStyle) ui.Span {
 	s := ui.Span{Text: text, Font: a.Font, Size: a.Size, Weight: a.Weight, Italic: a.Italic, Color: a.Color,
 		Underline: a.Underline, Strikethrough: a.Strikethrough, Background: a.Background}
 	if a.Code {
-		s.Font = look.mono
+		s.Font = look.CodeFont
 		if s.Size == 0 {
-			s.Size = look.size * 0.92
+			s.Size = look.size * look.CodeSize
 		}
 		if s.Background.A == 0 {
-			s.Background = look.code
+			s.Background = look.CodeBackground
 		}
 		// A pill hugging the code, as Markdown views show it.
 		s.Radius = max(3, s.Size/4)
 	}
 	if a.Link != "" {
 		if s.Color.A == 0 {
-			s.Color = look.link
+			s.Color = look.Link
 		}
 		s.Underline = true
 	}
 	if st.List == Tasks && st.Checked {
 		s.Strikethrough = true
 		if s.Color.A == 0 {
-			s.Color = look.muted
+			s.Color = look.Muted
 		}
 	}
 	if st.Quote && s.Color.A == 0 {
-		s.Color = look.muted
+		s.Color = look.QuoteText
+	}
+	if (a.Code || st.CodeBlock) && s.Color.A == 0 && look.Code != look.Text {
+		s.Color = look.Code
+	}
+	if st.Heading > 0 && s.Color.A == 0 {
+		if c := look.heading(st.Heading).Color; c != look.Text {
+			s.Color = c
+		}
 	}
 	if a.Tag != "" && look.tagStyle != nil {
 		look.tagStyle(a.Tag, &s)

@@ -18,7 +18,7 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	look := &v.look
 	if v.shown.Len() == 0 && v.compose == "" && v.opts.Placeholder != "" {
 		pl := ui.ShapeRichTextWith([]ui.Span{{Text: v.opts.Placeholder}}, v.paraFont(v.para(0).style), ui.TextShape{Width: w})
-		p.TextLayout(pl, ox, oy, look.muted)
+		p.TextLayout(pl, ox, oy, look.Muted)
 	}
 	a, z := v.selection()
 	focused := v.focused
@@ -33,7 +33,7 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		pe := ps + v.para(i).n
 		if a != z && a <= pe && z >= ps && (focused || v.opts.ReadOnly) {
 			from, to := v.local(i, max(a, ps)), v.local(i, min(z, pe))
-			color := look.selection
+			color := look.Selection
 			for _, s := range pv.layout.SelectionRects(ui.TextInputRange{Start: pv.units[from], End: pv.units[to]}) {
 				p.Fill(ui.Rect{X: x + s.X, Y: y + s.Y, W: s.W, H: s.H}, color, 0)
 			}
@@ -43,14 +43,14 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 				p.Fill(ui.Rect{X: x + c.X, Y: y + c.Y, W: look.size * 0.35, H: c.H}, color, 0)
 			}
 		}
-		p.TextLayout(pv.layout, x, y, look.text)
+		p.TextLayout(pv.layout, x, y, look.Text)
 		v.paintAttachments(p, i, pv, x, y)
 		v.paintMarker(p, i, st, pv, x, y)
 		if v.compose != "" && v.shown.paraAt(v.caret) == i {
 			c := v.local(i, v.caret)
 			n := len([]rune(v.compose))
 			for _, s := range pv.layout.SelectionRects(ui.TextInputRange{Start: pv.units[c], End: pv.units[min(c+n, len(pv.units)-1)]}) {
-				p.Fill(ui.Rect{X: x + s.X, Y: y + s.Y + s.H - 2, W: s.W, H: 1}, look.text, 0)
+				p.Fill(ui.Rect{X: x + s.X, Y: y + s.Y + s.H - 2, W: s.W, H: 1}, look.Text, 0)
 			}
 		}
 	}
@@ -59,12 +59,12 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		if phase := p.Now().Sub(v.blinkStart); (phase/blink)%2 == 0 || phase < 0 {
 			cx, cy, ch := v.caretAt(v.caret, v.composeCaret, v.affinity)
 			scale := p.Scale()
-			p.Fill(ui.Rect{X: ox + cx, Y: oy + float32(cy-v.scroll), W: max(1/scale, 1), H: ch}, look.accent, 0)
+			p.Fill(ui.Rect{X: ox + cx, Y: oy + float32(cy-v.scroll), W: max(1/scale, 1), H: ch}, look.Caret, 0)
 		}
 	}
 	if total := v.hs.top(len(v.paras)); total > float64(h) {
 		top, size := v.thumbBox()
-		p.Fill(ui.Rect{X: r.X + r.W - 8, Y: r.Y + top, W: 5, H: size}, look.text.Alpha(0.3), 2.5)
+		p.Fill(ui.Rect{X: r.X + r.W - 8, Y: r.Y + top, W: 5, H: size}, look.Text.Alpha(0.3), 2.5)
 	}
 }
 
@@ -76,7 +76,7 @@ func (v *view) paintBlock(p *ui.Painter, i int, st ParagraphStyle, x, top, heigh
 	if st.CodeBlock {
 		// One block for the paragraphs of code next to each other, rounded
 		// at its ends.
-		radius := look.size * 0.3
+		radius := look.size * look.CodeBlockRadius
 		box := ui.Rect{X: x + indent, Y: top, W: width - indent, H: height}
 		first := i == 0 || !v.para(i-1).style.CodeBlock
 		last := i+1 >= len(v.paras) || !v.para(i+1).style.CodeBlock
@@ -87,10 +87,11 @@ func (v *view) paintBlock(p *ui.Painter, i int, st ParagraphStyle, x, top, heigh
 		if !last {
 			fill.H += 2 * radius
 		}
-		p.Clip(box, 0, func() { p.Fill(fill, look.code, radius) })
+		p.Clip(box, 0, func() { p.Fill(fill, look.CodeBlockBackground, radius) })
 	}
 	if st.Quote {
-		p.Fill(ui.Rect{X: x + indent, Y: top, W: 3, H: height}, look.quote, 1.5)
+		w := look.QuoteBarWidth
+		p.Fill(ui.Rect{X: x + indent, Y: top, W: w, H: height}, look.QuoteBar, w/2)
 	}
 }
 
@@ -108,12 +109,12 @@ func (v *view) paintMarker(p *ui.Painter, i int, st ParagraphStyle, pv *paraView
 		bx := x - look.indent + (look.indent-box)/2 - look.indent*0.1
 		by := y + line.Y + (line.H-box)/2
 		if st.Checked {
-			p.Fill(ui.Rect{X: bx, Y: by, W: box, H: box}, look.accent, box*0.25)
+			p.Fill(ui.Rect{X: bx, Y: by, W: box, H: box}, look.Checkbox, box*0.25)
 			var path ui.Path
 			path.MoveTo(bx+box*0.25, by+box*0.52).LineTo(bx+box*0.43, by+box*0.7).LineTo(bx+box*0.76, by+box*0.32)
-			p.StrokePath(&path, max(1.5, box*0.12), ui.RGB(255, 255, 255))
+			p.StrokePath(&path, max(1.5, box*0.12), look.Checkmark)
 		} else {
-			p.Stroke(ui.Rect{X: bx, Y: by, W: box, H: box}, look.muted, box*0.25, 1.25)
+			p.Stroke(ui.Rect{X: bx, Y: by, W: box, H: box}, look.Muted, box*0.25, 1.25)
 		}
 		return
 	}
@@ -127,7 +128,7 @@ func (v *view) paintMarker(p *ui.Painter, i int, st ParagraphStyle, pv *paraView
 	if st.List == Bullets {
 		mx = x - look.indent*0.5 - mw/2
 	}
-	p.TextLayout(ml, mx, y+line.Y, look.text)
+	p.TextLayout(ml, mx, y+line.Y, look.Marker)
 }
 
 // listNumber returns the number of the item of a numbered list that
@@ -232,12 +233,12 @@ func (v *view) paintAttachments(p *ui.Painter, i int, pv *paraView, x, y float32
 			p.Image(at.Image, r, ui.Contain)
 		default:
 			// Not loaded: a box with its name.
-			p.Fill(r, v.look.code, 4)
-			p.Stroke(r, v.look.quote, 4, 1)
+			p.Fill(r, v.look.CodeBlockBackground, 4)
+			p.Stroke(r, v.look.border, 4, 1)
 			if at.Name != "" {
 				l := ui.ShapeText(at.Name, ui.Font{Size: v.look.size * 0.85}, max(r.W-8, 1))
 				_, lh := l.Size()
-				p.Clip(r, 4, func() { p.TextLayout(l, r.X+4, r.Y+(r.H-lh)/2, v.look.muted) })
+				p.Clip(r, 4, func() { p.TextLayout(l, r.X+4, r.Y+(r.H-lh)/2, v.look.Muted) })
 			}
 		}
 	}

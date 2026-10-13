@@ -163,6 +163,7 @@ made through the document. `EditorOptions` set:
 - `OnLink`, to open links itself instead of the system;
 - `OnLinkCommand`, to ask for a link's URL on ⌘K, as in a popover;
 - `TagStyle`, to style the runs that carry a `Tag`.
+- `Theme`, how the text looks (see [Theme](#theme)).
 
 The keys are those of word processors, with Control in place of Command off
 macOS:
@@ -203,6 +204,31 @@ stays one. Undo takes a shortcut back to what was typed.
 The [Format menu's roles](../menus.md#roles) (`RoleFormatMenu`, or
 `RoleBold`, `RoleAlignCenter`, …) format the editor with the keyboard
 focus. Paste and Match Style pastes plain text in the typing attributes.
+
+## Theme
+
+`EditorOptions.Theme` sets how the text looks: the colors of text, muted
+text, links, the caret and the selection; the font, size and colors of
+code, within text and in blocks, and the corners and room of blocks of
+code; each level of heading's size, weight, color and room above and
+below; the indentation of lists, the colors of their markers and check
+boxes; the bar and text of quotations; and the padding of `Editor`,
+which replaces the window theme's. What it leaves zero takes the
+value of `DefaultTheme` for the window's theme, so that a theme sets only
+what it changes, and follows the window into dark mode:
+
+```go
+violet := ui.Hex("#7c3aed")
+richtext.Editor(c, doc, richtext.EditorOptions{Theme: &richtext.Theme{
+	Link:     violet,
+	Checkbox: violet,
+	Headings: [6]richtext.HeadingStyle{{Size: 2.2, Weight: 800}},
+}})
+```
+
+Lengths are in ems, times the editor's font size, so that a theme scales
+with `Font`, but for the padding and the quotation bar's width, in DIPs. Changing the theme lays the text out again. The colors the
+editor shows go to screen readers with its runs.
 
 ## Typing at the edges of formats
 
