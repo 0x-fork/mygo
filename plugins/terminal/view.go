@@ -105,8 +105,13 @@ type view struct {
 	// does not open.
 	opening     string
 	openingPath bool
-	scrolled    float32 // scrolling not yet a whole row
-	ticking     bool    // an autoscroll tick is due
+	// copying is the selection a release ended with Options.CopyOnSelect,
+	// and pasting a secondary click's copy-or-paste, done once t.mu is
+	// released, as opening is.
+	copying  string
+	pasting  bool
+	scrolled float32 // scrolling not yet a whole row
+	ticking  bool    // an autoscroll tick is due
 }
 
 type pendingKey struct {
@@ -270,6 +275,19 @@ func (v *view) input(ev ui.InputEvent) bool {
 				v.services.OpenURL(link)
 			}
 		}
+		if text := v.copying; text != "" {
+			// Outside pointerEvent's lock, which the clipboard may hold
+			// up while another program has it.
+			v.copying = ""
+			v.services.WriteClipboard(text)
+		}
+		if v.pasting {
+			// Outside pointerEvent's lock, which copying and pasting take.
+			v.pasting = false
+			if !v.copySelected() {
+				v.paste()
+			}
+		}
 		return took
 	case ui.InputScroll:
 		return v.scroll(ev)
@@ -296,6 +314,17 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 		return true
 	case mods == copyMods && key == ui.KeyV:
 		v.paste()
+		return true
+	case !mac && t.opts.InsertKeys && mods == ui.Ctrl && key == ui.KeyInsert:
+		v.copy()
+		return true
+	case !mac && t.opts.InsertKeys && mods == ui.Shift && key == ui.KeyInsert:
+		v.paste()
+		return true
+	case !mac && t.opts.CtrlVPastes && mods == ui.Ctrl && key == ui.KeyV:
+		v.paste()
+		return true
+	case !mac && t.opts.CtrlCCopies && mods == ui.Ctrl && key == ui.KeyC && v.copySelected():
 		return true
 	case mods == ui.Shift && (key == ui.KeyPageUp || key == ui.KeyPageDown) && v.scrollPage(key == ui.KeyPageUp):
 		return true
@@ -477,6 +506,26 @@ func (v *view) copy() {
 	}
 }
 
+// copySelected copies the selection and lets go of it, so that the next
+// Control-C interrupts, and reports whether there was one.
+func (v *view) copySelected() bool {
+	t := v.t
+	t.mu.Lock()
+	text, ok := "", false
+	if t.term != nil {
+		if text, ok = t.term.SelectionText(); ok && text != "" {
+			t.term.SetSelection(nil)
+		}
+	}
+	t.mu.Unlock()
+	if !ok || text == "" {
+		return false
+	}
+	v.services.WriteClipboard(text)
+	v.services.Invalidate()
+	return true
+}
+
 func (v *view) paste() {
 	text := v.services.ReadClipboard()
 	if on := v.t.opts.OnPaste; on != nil && on(text) {
@@ -552,6 +601,12 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 	px, py := float64(ev.X*v.scale), float64(ev.Y*v.scale)
 	switch ev.Kind {
 	case ui.InputPointerDown:
+		if ev.Button == 1 && t.opts.RightClickPastes {
+			// As Windows Terminal: copy what is selected, else paste;
+			// input does it once the lock is released.
+			v.pasting = true
+			return true
+		}
 		if ev.Button != 0 {
 			return false // the context menu
 		}
@@ -589,6 +644,11 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 			v.gesture.Release(t.term, &ref)
 		} else {
 			v.gesture.Release(t.term, nil)
+		}
+		if t.opts.CopyOnSelect {
+			if text, ok := t.term.SelectionText(); ok {
+				v.copying = text
+			}
 		}
 		return true
 	}

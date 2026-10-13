@@ -77,7 +77,8 @@ The terminal does what terminal apps do:
   menu's roles also send, and Control+Shift+C and Control+Shift+V
   elsewhere. Pastes are bracketed when the program asks, so that pasted
   lines do not run as commands. The context menu has Copy, Paste, Select
-  All and Clear Scrollback.
+  All and Clear Scrollback. Options add copying on select and Windows'
+  keys (see [Options](#options)).
 - **Scrolling**: the wheel and the touchpad scroll the scrollback, as do
   Shift+Page Up and Shift+Page Down. Full-screen programs get the wheel as
   arrow keys, or as mouse reports when they take the mouse. Typing scrolls
@@ -130,6 +131,15 @@ term, err := terminal.New(terminal.Options{
   background color of their own still draw it.
 - `OptionAsAlt` makes Option on macOS the Alt key of programs (Meta),
   instead of the key typing accented letters.
+- `CopyOnSelect` copies the selection to the clipboard as the pointer
+  ends it, as Ghostty's `copy-on-select`.
+- `CtrlCCopies`, `CtrlVPastes` and `InsertKeys` add the keys of Windows
+  Terminal, outside macOS: Control+C copies the selection and lets go of
+  it, and still interrupts the program when nothing is selected;
+  Control+V pastes; Control+Insert copies and Shift+Insert pastes.
+  `RightClickPastes` makes a secondary click copy the selection, or paste
+  when there is none, instead of showing the context menu. A program
+  that takes the mouse still gets the click.
 - `OnTitle`, `OnExit`, `OnBell` and `OnNotify` run on a goroutine of the
   terminal when the program sets the title, ends, rings the bell or asks
   for a desktop notification. `Done` is closed once the program exited,

@@ -79,6 +79,19 @@ type Options struct {
 	// OptionAsAlt makes Option on macOS the Alt key of programs (Meta),
 	// rather than the key that types accented letters and symbols.
 	OptionAsAlt bool
+	// CopyOnSelect copies what the pointer selects to the clipboard as
+	// the selection ends, as Ghostty's copy-on-select does.
+	CopyOnSelect bool
+	// CtrlCCopies makes Control-C copy the selection when there is one,
+	// and interrupt the program as usual when there is none, as Windows
+	// Terminal does; CtrlVPastes makes Control-V paste, and InsertKeys
+	// make Control-Insert copy and Shift-Insert paste. Control-Shift-C
+	// and -V always copy and paste (Command-C and -V on macOS, where the
+	// three are ignored).
+	CtrlCCopies, CtrlVPastes, InsertKeys bool
+	// RightClickPastes makes a secondary click paste, or copy the
+	// selection when there is one, instead of showing the context menu.
+	RightClickPastes bool
 	// Transparent leaves the terminal's background undrawn, so that what
 	// is under the view shows through, as the window's material or an
 	// element's translucent background, as Ghostty's background-opacity

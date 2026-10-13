@@ -489,6 +489,124 @@ func TestMenus(t *testing.T) {
 	}
 }
 
+func TestCopyOnSelect(t *testing.T) {
+	loadLib(t)
+	for _, on := range []bool{false, true} {
+		conn := newPipe()
+		term, err := New(Options{Conn: conn, CopyOnSelect: on})
+		if err != nil {
+			t.Fatal(err)
+		}
+		term.Feed([]byte("hello world"))
+		tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+		x0, y0 := cellCenter(term, 0, 0)
+		x1, y1 := cellCenter(term, 4, 0)
+		tt.Press(x0-2, y0)
+		tt.Move(x1+2, y1)
+		tt.Release(x1+2, y1)
+		want := ""
+		if on {
+			want = "hello"
+		}
+		if got := tt.Clipboard(); got != want {
+			t.Errorf("CopyOnSelect %v: selecting copied %q, want %q", on, got, want)
+		}
+		term.Close()
+	}
+}
+
+func TestCopyAndPasteKeys(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("Control and Insert keep their meaning on macOS")
+	}
+	loadLib(t)
+	conn := newPipe()
+	term, err := New(Options{Conn: conn, CtrlCCopies: true, CtrlVPastes: true, InsertKeys: true, RightClickPastes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	term.Feed([]byte("some text"))
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	// Control-C copies a selection and lets go of it; without one it
+	// interrupts.
+	tt.Command("selectAll")
+	tt.Key(ui.Ctrl, ui.KeyC)
+	if got := tt.Clipboard(); got != "some text" {
+		t.Errorf("Control-C copied %q", got)
+	}
+	if got := conn.take(1); got != "" {
+		t.Errorf("Control-C with a selection sent %q", got)
+	}
+	tt.Key(ui.Ctrl, ui.KeyC)
+	if got := conn.take(1); got != "\x03" {
+		t.Errorf("Control-C without a selection sent %q", got)
+	}
+	tt.SetClipboard("by V")
+	tt.Key(ui.Ctrl, ui.KeyV)
+	if got := conn.take(4); got != "by V" {
+		t.Errorf("Control-V sent %q", got)
+	}
+	tt.SetClipboard("")
+	tt.Command("selectAll")
+	tt.Key(ui.Ctrl, ui.KeyInsert)
+	if got := tt.Clipboard(); got != "some text" {
+		t.Errorf("Control-Insert copied %q", got)
+	}
+	tt.SetClipboard("by Insert")
+	tt.Key(ui.Shift, ui.KeyInsert)
+	if got := conn.take(9); got != "by Insert" {
+		t.Errorf("Shift-Insert sent %q", got)
+	}
+	// A secondary click copies a selection, else pastes, and shows no menu.
+	x, y := cellCenter(term, 1, 0)
+	tt.SetClipboard("")
+	tt.Command("selectAll")
+	tt.RightClickAt(x, y)
+	if got := tt.Clipboard(); got != "some text" {
+		t.Errorf("a secondary click over a selection copied %q", got)
+	}
+	tt.RightClickAt(x, y)
+	if got := conn.take(9); got != "some text" {
+		t.Errorf("a secondary click without a selection sent %q", got)
+	}
+	if menu := tt.Menu(); menu != nil {
+		t.Errorf("a secondary click showed the menu %q", menu)
+	}
+}
+
+// TestCopyAndPasteKeysOff: without the options, Control-C and -V reach
+// the program and a secondary click shows the menu.
+func TestCopyAndPasteKeysOff(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	term, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	term.Feed([]byte("some text"))
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Command("selectAll")
+	tt.SetClipboard("clipboard")
+	tt.Key(ui.Ctrl, ui.KeyC)
+	if got := conn.take(1); got != "\x03" {
+		t.Errorf("Control-C sent %q", got)
+	}
+	tt.Key(ui.Ctrl, ui.KeyV)
+	if got := conn.take(1); got != "\x16" {
+		t.Errorf("Control-V sent %q", got)
+	}
+	if got := tt.Clipboard(); got != "clipboard" {
+		t.Errorf("the clipboard became %q", got)
+	}
+	x, y := cellCenter(term, 1, 0)
+	tt.RightClickAt(x, y)
+	if tt.Menu() == nil {
+		t.Error("a secondary click showed no menu")
+	}
+}
+
 func TestAppearance(t *testing.T) {
 	loadLib(t)
 	term, err := New(Options{Conn: newPipe()})
