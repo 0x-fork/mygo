@@ -2023,15 +2023,16 @@ either.
   the pointer went a few DIPs, past a neighbor whose middle it passes; a
   double click on a header's edge fits the column as the table lays
   out, from the intrinsic widths of the cells the frame built
-  (`tableFit`). Sorting is the app's: the table sets `ListState.Sort`
-  and shows it, to assistive technology as well (`AccessSortAscending`
-  and `AccessSortDescending`: AppKit's `AXSortDirection`, ATK's `sort`
-  attribute, UIA's ItemStatus). An `EditableText` in a row reads the row
-  being built (`Context.row`): the list, which keeps the focus, asks for
-  the chosen row's text to be edited on Return (macOS) or F2, which it
-  takes only once a row has such a text; a click on the text of a row
-  chosen before the click edits it once the double-click time has
-  passed.
+  (`tableFit`). Sorting is the app's: the table sets `ListState.Sort`,
+  or `SortBy` for several columns (a new slice each time, which
+  `sortClicked` makes), and shows it, to assistive technology as well
+  (`AccessSortAscending` and `AccessSortDescending`: AppKit's
+  `AXSortDirection`, ATK's `sort` attribute, UIA's ItemStatus). An
+  `EditableText` in a row reads the row being built (`Context.row`): the
+  list, which keeps the focus, asks for the chosen row's text to be
+  edited on Return (macOS) or F2, which it takes only once a row has such
+  a text; a click on the text of a row chosen before the click edits it
+  once the double-click time has passed.
 - **Outlines** (`ui/outline.go`). An outline flattens the open part of
   its tree into rows every frame (`OutlineState.flatten`), which a `List`
   or a `Table` builds as they show, keyed by their items. Rows are tree
