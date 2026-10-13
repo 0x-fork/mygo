@@ -189,6 +189,10 @@ func (s *surface) listen() {
 	s.on(c, "pointerleave", true, func(js.Value) {
 		s.send(platform.SurfaceEvent{Kind: platform.PointerLeave})
 	})
+	// iOS sends a tap's mouse events even though its pointerdown was
+	// canceled: the mousedown would move the focus to the canvas, and the
+	// touch keyboard would hide as soon as it showed.
+	s.on(c, "mousedown", false, func(e js.Value) { e.Call("preventDefault") })
 	s.on(c, "contextmenu", false, func(e js.Value) { e.Call("preventDefault") })
 	s.on(c, "wheel", false, func(e js.Value) {
 		e.Call("preventDefault")
