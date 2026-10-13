@@ -36,12 +36,14 @@ func endSheet(w *mygo.Window) (ok bool, supported bool) {
 }
 
 func click(w *mygo.Window, x, y float64) bool {
+	waitOnScreen(w)
 	mygo.RunOnMain(func() { darwin.TestClick(w.NativeHandle(), x, y) })
 	return true
 }
 
 // appClick clicks through the application, whose event monitors see it.
 func appClick(w *mygo.Window, x, y float64) bool {
+	waitOnScreen(w)
 	mygo.RunOnMain(func() { darwin.TestAppClick(w.NativeHandle(), x, y) })
 	return true
 }
@@ -49,10 +51,26 @@ func appClick(w *mygo.Window, x, y float64) bool {
 // heldAppClick is appClick with the button held down a while, as a user
 // clicks: what the press did runs before the release.
 func heldAppClick(w *mygo.Window, x, y float64) bool {
+	waitOnScreen(w)
 	mygo.RunOnMain(func() { darwin.TestAppPress(w.NativeHandle(), x, y, true) })
 	time.Sleep(150 * time.Millisecond)
 	mygo.RunOnMain(func() { darwin.TestAppPress(w.NativeHandle(), x, y, false) })
 	return true
+}
+
+// waitOnScreen waits, for up to 5 seconds, for a window to show on screen,
+// as a user sees a window before clicking it: a window shows a while after
+// it is ordered front and made key, longer on a busy runner, and AppKit
+// puts a click made for it before then elsewhere in it, as outside its
+// content, where it clicks nothing.
+func waitOnScreen(w *mygo.Window) {
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		var on bool
+		mygo.RunOnMain(func() { on = darwin.TestOnScreen(w.NativeHandle()) })
+		if on {
+			return
+		}
+	}
 }
 
 func sideButton(w *mygo.Window, back bool) (ok bool) {

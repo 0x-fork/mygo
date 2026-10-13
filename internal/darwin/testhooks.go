@@ -61,6 +61,13 @@ func TestPerformKeyEquivalent(key string, shift bool) bool {
 	return handled
 }
 
+// TestOnScreen reports whether some of a window shows on screen, as the
+// window server reports once it put the window there.
+func TestOnScreen(handle uintptr) bool {
+	const occlusionStateVisible = 1 << 1
+	return sendInt(id(handle), "occlusionState")&occlusionStateVisible != 0
+}
+
 // TestEndSheet ends the sheet attached to a window as if its first button
 // was clicked, and reports whether there was one.
 func TestEndSheet(handle uintptr) bool {
