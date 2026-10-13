@@ -1120,6 +1120,28 @@ func TestMenuLetters(t *testing.T) {
 	}
 }
 
+// The menu bar, and the line below it, follow the appearance, also when it
+// changes (Windows, where Win32 menus have no dark appearance of their own).
+func TestMenuBarAppearance(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300})
+	prev := mygo.App.Menu()
+	defer mygo.App.SetMenu(prev)
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))
+	if _, _, supported := menuBarColors(w); !supported {
+		t.Skip("the menu bar is not the window's to draw")
+	}
+	defer mygo.Theme.SetSource(mygo.Theme.Source())
+	dark := func(c uint32) bool { return c&0xFF+c>>8&0xFF+c>>16&0xFF < 3*0x60 }
+	for _, source := range []mygo.ThemeSource{mygo.ThemeDark, mygo.ThemeLight, mygo.ThemeDark} {
+		mygo.Theme.SetSource(source)
+		want := source == mygo.ThemeDark
+		eventually(t, fmt.Sprintf("the menu bar and its line %s", source), func() bool {
+			bar, line, _ := menuBarColors(w)
+			return dark(bar) == want && dark(line) == want
+		})
+	}
+}
+
 // Resizing a centered window keeps its position, also when it was
 // resized right before, which GTK has not confirmed yet.
 func TestCenterThenResize(t *testing.T) {
