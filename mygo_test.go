@@ -1831,6 +1831,8 @@ var needsAppCalls = []struct {
 	{"Shell.TrashItem", func() { Shell.TrashItem("/nonexistent") }},
 	{"Shell.Beep", func() { Shell.Beep() }},
 	{"Shell.FileIcon", func() { Shell.FileIcon("/", 16) }},
+	{"Shell.InstalledApps", func() { Shell.InstalledApps() }},
+	{"Shell.LaunchApp", func() { Shell.LaunchApp(InstalledApp{Path: "/"}) }},
 	{"Clipboard.ReadText", func() { Clipboard.ReadText() }},
 	{"Clipboard.WriteText", func() { Clipboard.WriteText("x") }},
 	{"Clipboard.ReadHTML", func() { Clipboard.ReadHTML() }},

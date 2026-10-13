@@ -163,6 +163,38 @@ content type from the icon theme, and for a desktop entry (`.desktop`), the
 icon of its application, or where the theme has none, that of desktop
 entries.
 
+`InstalledApps` lists the applications installed on the computer, sorted
+by name, as a launcher shows them, and `LaunchApp` starts one, or brings
+it to the front:
+
+```go
+go func() {
+	apps, err := mygo.Shell.InstalledApps() // reads the disk: off the main thread
+	if err != nil {
+		return
+	}
+	for _, app := range apps {
+		fmt.Println(app.Name, app.ID)
+	}
+	icon, _ := mygo.Shell.FileIcon(apps[0].Path, 64)
+	_ = mygo.Shell.LaunchApp(apps[0])
+}()
+```
+
+Each app has the `Name` the system shows, in the user's language, an
+`ID` and the `Path` whose icon `FileIcon` draws:
+
+| | the apps | `ID` | `Path` |
+|---|---|---|---|
+| macOS | the `.app` bundles of `/Applications`, `/System/Applications`, `~/Applications` and CoreServices' `Applications`, and of their folders (Utilities), plus Finder; an app behind symbolic links once, at the link, as `/Applications/Safari.app` | the bundle identifier, or the path for a bundle without one | the bundle |
+| Windows | the Start menu's All apps, desktop and packaged apps alike (the shell's Applications folder) | the AppUserModelID, or for a desktop app without one, its path under a known folder | `shell:AppsFolder\<ID>` |
+| Linux | the desktop entries menus show (not `NoDisplay`, `Hidden`, or meant for another desktop) | the desktop file ID, such as `org.gnome.Nautilus.desktop` | the desktop entry |
+
+`InstalledApps` does not block the main thread when called from another
+goroutine, and returns in tens of milliseconds. Drawing icons takes a few
+milliseconds each, on the main thread: draw those that show, and keep
+them.
+
 ## Displays
 
 `mygo.Screen` describes the connected displays, in device-independent

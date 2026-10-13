@@ -88,6 +88,10 @@ type Backend interface {
 	Network() Network
 	// Secrets may be called before Init, from any goroutine.
 	Secrets() Secrets
+	// Applications lists the applications installed on the computer.
+	// Unlike other methods it may be called from any goroutine once Init
+	// returned: it reads the disk, which the core does off the main thread.
+	Applications() ([]Application, error)
 
 	// NewFileWatch starts watching files, with no target yet. notify is
 	// called on a goroutine of the backend, one notice at a time.
@@ -729,6 +733,15 @@ type Shell interface {
 	// FileIcon returns the icon the file manager shows for a file, a
 	// folder or an application, as a PNG image of size by size pixels.
 	FileIcon(path string, size int) ([]byte, error)
+	// OpenApplication starts the application at Application.Path, or
+	// brings it to the front.
+	OpenApplication(path string) error
+}
+
+// Application is an installed application (Backend.Applications): Path is
+// where FileIcon finds its icon and OpenApplication starts it.
+type Application struct {
+	Name, ID, Path string
 }
 
 // Display describes a monitor.
