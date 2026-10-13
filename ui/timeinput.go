@@ -12,12 +12,14 @@ import (
 // typed set it, going on to the minutes once the hours are typed, and Left
 // and Right move between them. Changed reports a new time, which keeps the
 // date and the location of *tm. Assistive technology sees two spin
-// buttons, named after the field's Label and "hours" and "minutes".
+// buttons, named after the field's Label and "hours" and "minutes". It
+// reads left to right in an interface laid out right to left too, as
+// times are written there.
 //
 //	ui.TimeInput(c, &app.alarm).Label("Alarm")
 func coreTimeInput(c *context, tm *time.Time) *node {
 	t := c.theme
-	f := coreRow(c).AlignItems(Center).Padding(t.Space(1.5), t.Space(2)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border).Shrink(0).Role(RoleGroup)
+	f := coreRow(c).Direction(LeftToRight).AlignItems(Center).Padding(t.Space(1.5), t.Space(2)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border).Shrink(0).Role(RoleGroup)
 	f.widget = "TimeInput"
 	set := func(h, m int) {
 		y, mo, d := tm.Date()

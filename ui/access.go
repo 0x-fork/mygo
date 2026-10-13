@@ -520,9 +520,10 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 		rt.reveal(s.id)
 	case platform.AccessIncrement, platform.AccessDecrement:
 		rt.focusOn(s)
-		// Sliders step right and left, spin buttons up and down.
+		// Sliders step right and left, spin buttons up and down, as do
+		// sliders laid out right to left, whose Right goes down.
 		up, down := KeyRight, KeyLeft
-		if s.role == RoleStepper {
+		if s.role == RoleStepper || s.rtl {
 			up, down = KeyUp, KeyDown
 		}
 		k := up

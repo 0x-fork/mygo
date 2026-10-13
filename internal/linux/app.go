@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -37,17 +36,21 @@ type Backend struct {
 	// window.frameExtents).
 	frames [2]extents
 
-	appMenu    *platform.Menu
-	schemes    map[string]bool
-	signaled   atomic.Bool
-	quitLoops  []ptr
-	popups     []ptr // context menus being shown
-	modals     []modal
-	trays      map[int]*tray
-	nextTray   int
-	grabs      map[int]grab    // global shortcuts on X11
-	portal     portalShortcuts // global shortcuts elsewhere
-	themeHooks bool
+	appMenu *platform.Menu
+	// languages are those SetLanguages told, which the web context
+	// takes as the first web view is made (webLanguages).
+	languages    []string
+	webLanguages bool
+	schemes      map[string]bool
+	signaled     atomic.Bool
+	quitLoops    []ptr
+	popups       []ptr // context menus being shown
+	modals       []modal
+	trays        map[int]*tray
+	nextTray     int
+	grabs        map[int]grab    // global shortcuts on X11
+	portal       portalShortcuts // global shortcuts elsewhere
+	themeHooks   bool
 	// onX11 reports an X11 display, where windows have positions, and
 	// wmName names its window manager.
 	onX11  bool
@@ -297,16 +300,6 @@ func (a appController) ShowAboutPanel(o platform.AboutPanelOptions) {
 	gtkAboutDialogSetComments(d, optCS(o.Credits))
 	a.b.runDialog(d, false)
 	gtkWidgetDestroy(d)
-}
-
-func (a appController) Locale() string {
-	for _, env := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
-		if v := os.Getenv(env); v != "" && v != "C" && v != "POSIX" {
-			v, _, _ = strings.Cut(v, ".")
-			return strings.ReplaceAll(v, "_", "-")
-		}
-	}
-	return "en-US"
 }
 
 func (a appController) Package() (platform.PackageInfo, bool) { return platform.PackageInfo{}, false }

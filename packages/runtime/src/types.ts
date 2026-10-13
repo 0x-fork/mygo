@@ -1,6 +1,17 @@
 /** The operating system, using Node.js' `process.platform` names. */
 export type Platform = "darwin" | "linux" | "win32";
 
+/** The direction a language is written in: left to right, or right to left. */
+export type Direction = "ltr" | "rtl";
+
+/** The payload of the `mygo:locale` event. */
+export interface LocaleChange {
+  /** The language the app shows now, e.g. "zh-Hans". */
+  locale: string;
+  /** The direction it is written in. */
+  dir: Direction;
+}
+
 /** Controls for the window hosting the page, handy for custom title bars. */
 export interface WindowControls {
   minimize(): Promise<void>;
@@ -54,6 +65,15 @@ export interface Runtime {
   readonly windowId: number;
   /** MyGo version. */
   readonly version: string;
+  /**
+   * The language the app shows, a BCP 47 tag such as "en" or "zh-Hans"
+   * (`App.Locale`): of the languages the app is written in, the one the
+   * user reads best, or the one `App.SetLocale` chose. A page has it from
+   * document start, and the `mygo:locale` event tells of changes.
+   */
+  readonly locale: string;
+  /** The direction `locale` is written in, for `<html dir>`. */
+  readonly dir: Direction;
   /** The window hosting this page. */
   readonly window: WindowControls;
 }

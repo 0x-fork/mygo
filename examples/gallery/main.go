@@ -33,6 +33,9 @@ type gallery struct {
 	// "/list/42".
 	router *ui.Router
 
+	// rtl lays the gallery out right to left, as an app in Arabic or
+	// Hebrew is (MYGO_DIRECTION=rtl does it for the whole window).
+	rtl      bool
 	count    int
 	agree    bool
 	notify   bool
@@ -325,7 +328,12 @@ func pageOf(path string) string {
 }
 
 func (g *gallery) view(c *ui.Context) {
-	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+	root := ui.Row(c)
+	if g.rtl {
+		// Given first, so that what is built inside reads it.
+		root.Direction(ui.RightToLeft)
+	}
+	root.Fill().AlignItems(ui.Stretch).Children(func() {
 		g.sidebar(c)
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			g.toolbar(c)
@@ -399,6 +407,8 @@ func (g *gallery) toolbar(c *ui.Context) {
 		if ui.Breadcrumbs(c, path, &chosen).Label("Path").Changed() {
 			g.router.Push(pagePath(page))
 		}
+		ui.Spacer(c)
+		ui.Toggle(c, &g.rtl, "Right to left").Tooltip("Lay the gallery out right to left")
 	}).Label("Navigation").Padding(8, 24, 0)
 }
 

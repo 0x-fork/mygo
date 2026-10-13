@@ -112,19 +112,26 @@ func (e *node) layoutInput(cw, ch float32) {
 	if len(l.Lines) > 0 {
 		ed.originY += max((ch-l.Lines[0].Height)/2, 0)
 	}
-	// Text narrower than the box goes where TextAlign puts it.
+	// Text narrower than the box goes where TextAlign puts it: Start is
+	// the right of an input laid out right to left, whatever its text, as
+	// that of Text.
+	rtl := e.rtl()
 	if room := cw - l.Width; room > 0 {
-		switch e.resolvedText().align {
-		case End:
-			ed.originX += room
-		case Center:
+		switch align := e.resolvedText().align; {
+		case align == Center:
 			ed.originX += room / 2
+		case (align == End) != rtl:
+			ed.originX += room
 		}
 	}
 	// Keep the caret in view while the input has the focus. Without it, the
-	// input shows the start of its text, as fields do on macOS and the web.
+	// input shows the start of its text, as fields do on macOS and the web:
+	// its right right to left.
 	if e.c.rt.focused != e.id {
 		ed.scrollX = 0
+		if rtl {
+			ed.scrollX = max(l.Width-cw+1, 0)
+		}
 	} else if x, _, _ := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret); x-ed.scrollX < 0 {
 		ed.scrollX = x
 	} else if x-ed.scrollX > cw-1 {

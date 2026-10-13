@@ -40,7 +40,7 @@ func coreCheckboxGroup(c *context, label string, fn func()) *node {
 		saved := c.checks
 		group = &checkGroup{}
 		c.checks = group
-		boxes := coreColumn(c).Gap(t.Space(2)).Padding(0, 0, 0, t.Space(6)).Role(RoleGroup).Label(label)
+		boxes := coreColumn(c).Gap(t.Space(2)).PaddingStart(t.Space(6)).Role(RoleGroup).Label(label)
 		boxes.Children(fn)
 		c.checks = saved
 		on := 0
@@ -116,10 +116,16 @@ func coreBreadcrumbs(c *context, items []string, chosen *int) *node {
 	e.Children(func() {
 		for i, item := range items {
 			if i > 0 {
-				coreBox(c).Size(t.Space(3), t.Space(3)).Shrink(0).Role(RoleNone).Draw(func(p *Painter, r Rect) {
+				sep := coreBox(c).Size(t.Space(3), t.Space(3)).Shrink(0).Role(RoleNone)
+				rtl := sep.rtl()
+				sep.Draw(func(p *Painter, r Rect) {
 					cx, cy, d := r.X+r.W/2, r.Y+r.H/2, r.W/6
+					if rtl {
+						// Pointing left, along the path.
+						d = -d
+					}
 					var path Path
-					path.MoveTo(cx-d, cy-2*d).LineTo(cx+d, cy).LineTo(cx-d, cy+2*d)
+					path.MoveTo(cx-d, cy-2*abs32(d)).LineTo(cx+d, cy).LineTo(cx-d, cy+2*abs32(d))
 					p.StrokePath(&path, 1.2, t.TextMuted)
 				})
 			}

@@ -169,6 +169,9 @@ var pangoLib struct {
 	attrWeightNew             func(weight int32) uintptr
 	attrStyleNew              func(style int32) uintptr
 	attrShapeNew              func(ink, logical *pangoRectangle) uintptr
+	attrLanguageNew           func(language uintptr) uintptr
+	languageFromString        func(tag string) uintptr
+	languageGetDefault        func() uintptr
 	fontMapConfigChanged      func(fontMap uintptr)
 	cairoFontOptionsCreate    func() uintptr
 	cairoFontOptionsDestroy   func(options uintptr)
@@ -289,6 +292,9 @@ func loadPango() error {
 	bind(pango, &l.attrWeightNew, "pango_attr_weight_new")
 	bind(pango, &l.attrStyleNew, "pango_attr_style_new")
 	bind(pango, &l.attrShapeNew, "pango_attr_shape_new")
+	bind(pango, &l.attrLanguageNew, "pango_attr_language_new")
+	bind(pango, &l.languageFromString, "pango_language_from_string")
+	bind(pango, &l.languageGetDefault, "pango_language_get_default")
 	bind(cairo, &l.cairoFontOptionsCreate, "cairo_font_options_create")
 	bind(cairo, &l.cairoFontOptionsDestroy, "cairo_font_options_destroy")
 	bind(cairo, &l.cairoFontOptionsAntialias, "cairo_font_options_set_antialias")
@@ -358,6 +364,8 @@ type pangoEngine struct {
 	// The cairo antialiasing, hint style and subpixel order of the
 	// desktop's settings (setFontRendering), as GTK has its labels draw.
 	antialias, hintStyle, subpixels int32
+	// languages are the PangoLanguages of tags.
+	languages map[string]uintptr
 }
 
 // setFontRendering takes the desktop's settings (platform.FontRendering)
@@ -418,6 +426,7 @@ func newPango() (*pangoEngine, error) {
 		scaled:     map[scaledKey]uintptr{},
 		registered: map[string]bool{},
 		appFamily:  map[string]string{},
+		languages:  map[string]uintptr{},
 	}
 	// A font map of our own: the default one belongs to the thread that
 	// asks for it, and goroutines move between threads.
@@ -606,9 +615,23 @@ func (e *pangoEngine) shape(text []rune, style Style, spans []Span, width float3
 	return lines
 }
 
-// attributes returns Pango's attributes of a style's letter spacing and
-// OpenType features, over the whole text, and of its spans' styles, over
-// their runes; 0 without any.
+// language returns the PangoLanguage of a tag, Pango's default one, of
+// the user's locale, for "". Pango keeps them for good.
+func (e *pangoEngine) language(tag string) uintptr {
+	if tag == "" {
+		return pangoLib.languageGetDefault()
+	}
+	if p, ok := e.languages[tag]; ok {
+		return p
+	}
+	p := pangoLib.languageFromString(tag)
+	e.languages[tag] = p
+	return p
+}
+
+// attributes returns Pango's attributes of a style's letter spacing,
+// OpenType features and language, over the whole text, and of its spans'
+// styles, over their runes; 0 without any.
 func (e *pangoEngine) attributes(style Style, spans []Span, text []rune) uintptr {
 	l := &pangoLib
 	var list uintptr
@@ -654,7 +677,11 @@ func (e *pangoEngine) attributes(style Style, spans []Span, text []rune) uintptr
 	}
 	add(spacing(style.LetterSpacing), 0, 0)
 	add(features(style.Features), 0, 0)
-	if len(spans) == 0 {
+	if style.Lang != "" {
+		add(l.attrLanguageNew(e.language(style.Lang)), 0, 0)
+	}
+	runs := langRuns(text, style.Lang, spans)
+	if len(spans) == 0 && len(runs) == 0 {
 		return list
 	}
 	// The byte each rune starts at.
@@ -694,6 +721,11 @@ func (e *pangoEngine) attributes(style Style, spans []Span, text []rune) uintptr
 				add(l.attrShapeNew(&box, &box), at[k], at[k+1])
 			}
 		}
+	}
+	// The runs in other languages, over the whole text's: an attribute
+	// added later over a range wins.
+	for _, r := range runs {
+		add(l.attrLanguageNew(e.language(r.lang)), at[r.start], at[r.end])
 	}
 	return list
 }

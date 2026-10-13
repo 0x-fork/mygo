@@ -107,6 +107,7 @@ func (a *Application) Run() error {
 	a.initialized = true
 	// Settings made before Run, which the backend could not take yet.
 	Theme.apply()
+	a.startLocale()
 	if m := a.Dock.Menu(); m != nil {
 		b.App().SetDockMenu(m.snapshot())
 	}
@@ -397,11 +398,6 @@ func (a *Application) SetBadgeCount(n int) {
 	a.Dock.SetBadge(label)
 }
 
-// Locale returns the user's preferred locale, e.g. "en-US".
-func (a *Application) Locale() string {
-	return onMainValue(func() string { return backend().App().Locale() })
-}
-
 // AboutPanelOptions customizes the standard about panel.
 type AboutPanelOptions struct {
 	ApplicationName    string
@@ -603,6 +599,7 @@ func (appHandler) ThemeChanged() {
 	sendPreferences()
 }
 func (appHandler) DisplaysChanged()              { Screen.changed() }
+func (appHandler) LocaleChanged()                { App.localeChangedFromSystem() }
 func (appHandler) PowerEvent(event string)       { Power.event(event) }
 func (appHandler) HotkeyPressed(id int)          { GlobalShortcut.pressed(id) }
 func (appHandler) NotificationClicked(id string) { notificationClicked(id) }

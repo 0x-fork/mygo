@@ -21,6 +21,14 @@ OpenType features of the font by tag, or sets them with `tag=value`:
 `FontFeatures("tnum")` gives digits of one width for numbers that change,
 `FontFeatures("liga=0")` turns ligatures off.
 
+Text in Arabic, Hebrew and the other scripts written so reads right to
+left, mixed with text reading left to right as Unicode's bidirectional
+algorithm says: a paragraph reads in the direction of its first strongly
+directional character. `TextAlign`'s `Start` is the left, or the right of
+a paragraph reading right to left, and of any text of an element laid out
+[right to left](right-to-left.md), where paragraphs without a strongly
+directional character, as numbers, read right to left too.
+
 `SingleLine` keeps text on one line, cut with an ellipsis, `MaxLines`
 limits it to a few, and `Ellipsis(" →")` ends what they cut with another
 mark; `NoWrap` keeps its lines whole, breaking them only at newlines.

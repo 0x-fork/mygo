@@ -85,7 +85,7 @@ func (st *viewState) codeBlock(c *ui.Context, i int) ui.Element {
 // with the language and a copy button above the highlighted code.
 func DefaultCodeBlock(c *ui.Context, b *CodeBlockView) ui.Element {
 	th := &b.st.th
-	box := ui.Column(c).Background(th.CodeBlockBackground).Border(1, th.CodeBlockBorder).Radius(th.CodeBlockRadius).AlignSelf(ui.Stretch).Clip()
+	box := ui.Column(c).Direction(ui.LeftToRight).Background(th.CodeBlockBackground).Border(1, th.CodeBlockBorder).Radius(th.CodeBlockRadius).AlignSelf(ui.Stretch).Clip()
 	box.Role(ui.RoleGroup).Label(codeLabel(b.Language))
 	return box.Children(func() {
 		head := ui.Row(c).AlignItems(ui.Center).Padding(th.em(0.35), th.em(0.4), 0, th.em(th.CodeBlockPadding))
@@ -152,7 +152,9 @@ func (b *CodeBlockView) Body(c *ui.Context) ui.Element {
 	} else {
 		outer = ui.ScrollHorizontal(c)
 	}
-	outer.AlignSelf(ui.Stretch).Font(th.CodeFont).FontSize(th.em(th.CodeSize)).LineHeight(th.CodeLineHeight)
+	// Code reads left to right in a right-to-left interface too, as in
+	// editors.
+	outer.Direction(ui.LeftToRight).AlignSelf(ui.Stretch).Font(th.CodeFont).FontSize(th.em(th.CodeSize)).LineHeight(th.CodeLineHeight)
 	return outer.Children(func() {
 		col := ui.Column(c).Padding(th.em(0.25), pad, pad, pad)
 		if !st.o.WrapCode {

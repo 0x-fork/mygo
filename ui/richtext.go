@@ -34,6 +34,7 @@ type Span struct {
 	Radius        float32
 	LetterSpacing float32
 	Features      string // as for Element.FontFeatures, comma separated
+	Lang          string // the language, as for Element.Lang
 	// ObjectWidth and ObjectHeight, when ObjectWidth is set, make each
 	// rune of the span, an object replacement character (U+FFFC), an
 	// inline object: a box of that size in DIPs standing on the baseline,
@@ -167,7 +168,7 @@ func (sc *spanCache) update(spans []Span) {
 // spanStyle returns the style of a span ending at rune end, for its
 // layout.
 func spanStyle(s Span, end int) text.Span {
-	return text.Span{End: end, Family: s.Font, Size: s.Size, Weight: s.Weight, Italic: s.Italic, LetterSpacing: s.LetterSpacing, Features: s.Features,
+	return text.Span{End: end, Family: s.Font, Size: s.Size, Weight: s.Weight, Italic: s.Italic, LetterSpacing: s.LetterSpacing, Features: s.Features, Lang: s.Lang,
 		ObjectWidth: s.ObjectWidth, ObjectHeight: s.ObjectHeight}
 }
 
@@ -186,7 +187,7 @@ func encodeSpans(spans []Span) string {
 // wrapping lines at width (none for 0).
 func (rt *engine) richParams(width float32, spans []Span) text.Params {
 	t := rt.c.theme
-	style := text.Style{Family: t.Font, Size: t.FontSize}
+	style := text.Style{Family: t.Font, Size: t.FontSize, Lang: rt.lang}
 	// Views measure the same spans frame after frame.
 	for i := range rt.measured {
 		m := &rt.measured[i]

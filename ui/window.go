@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/raster"
 	"github.com/egoist/mygo/internal/scene"
@@ -57,6 +58,10 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 	}
 	conn.TitleBarChanged = rt.requestFrame
 	conn.Changed = rt.changed
+	conn.LocaleChanged = func() {
+		h.textLanguage()
+		rt.changed()
+	}
 	conn.Capture = h.capture
 	conn.Detach = h.detach
 	rt.insp.enabled = conn.DevTools
@@ -66,6 +71,7 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 		}
 	}
 	h.uiFont()
+	h.textLanguage()
 	// Load the fonts while the window shows up.
 	go text.Shared().Preload()
 	conn.Surface.RequestFrame()
@@ -115,6 +121,8 @@ type windowHost struct {
 }
 
 func (h *windowHost) framePath() string { return h.path }
+
+func (h *windowHost) rightToLeft() bool { return h.conn.RightToLeft != nil && h.conn.RightToLeft() }
 
 // newGPU makes the GPU renderer of a surface; tests replace it.
 var newGPU = newGPURenderer
@@ -523,6 +531,26 @@ func (h *windowHost) preferences() platform.Preferences {
 		return platform.Preferences{}
 	}
 	return h.conn.Preferences()
+}
+
+func (h *windowHost) locale() string {
+	if h.conn.Locale == nil {
+		return ""
+	}
+	return h.conn.Locale()
+}
+
+func (h *windowHost) region() i18n.Region {
+	if h.conn.Region == nil {
+		return i18n.Region{}
+	}
+	return h.conn.Region()
+}
+
+// textLanguage makes the language the app shows that of the text the
+// text engine lays out without one, as Painter.Shape does.
+func (h *windowHost) textLanguage() {
+	text.Shared().SetLanguage(h.locale())
 }
 
 func (h *windowHost) titleBar() TitleBar {

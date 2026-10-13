@@ -91,6 +91,11 @@ func (b *Backend) Init(h platform.AppHandler, _ platform.AppOptions) error {
 	for _, q := range []string{"(prefers-color-scheme: dark)", "(prefers-reduced-motion: reduce)", "(prefers-contrast: more)"} {
 		js.Global().Call("matchMedia", q).Call("addEventListener", "change", changed)
 	}
+	// The languages the user reads: the browser's.
+	js.Global().Call("addEventListener", "languagechange", b.funcOf(func(js.Value, []js.Value) any {
+		b.sync(func() { b.h.LocaleChanged() })
+		return nil
+	}))
 	// The page's own choice of appearance (themeAttr), as a page framing
 	// the app sets it, since frames take the media's.
 	js.Global().Get("MutationObserver").New(changed).Call("observe", js.Global().Get("document").Get("documentElement"),
@@ -240,11 +245,100 @@ func (app) OpenedAtLogin() bool                               { return false }
 func (app) SetDockMenu(*platform.Menu)                        {}
 func (app) ClearBrowsingData(done func(error))                { done(errUnsupported) }
 
-func (app) Locale() string {
-	if l := js.Global().Get("navigator").Get("language"); l.Type() == js.TypeString {
-		return l.String()
+// PreferredLanguages returns the browser's languages, navigator.languages.
+func (app) PreferredLanguages() []string {
+	nav := js.Global().Get("navigator")
+	var out []string
+	if list := nav.Get("languages"); list.Type() == js.TypeObject {
+		for i := range list.Length() {
+			if l := list.Index(i); l.Type() == js.TypeString {
+				out = append(out, l.String())
+			}
+		}
 	}
-	return "en-US"
+	if len(out) == 0 {
+		if l := nav.Get("language"); l.Type() == js.TypeString {
+			out = append(out, l.String())
+		}
+	}
+	return out
+}
+
+// Region returns the formats of the browser's locale, as Intl resolves
+// it: its first day of the week where the browser tells it
+// (Intl.Locale's getWeekInfo, or weekInfo before), and its hour cycle.
+func (app) Region() platform.Region {
+	r := platform.Region{FirstWeekday: -1}
+	intl := js.Global().Get("Intl")
+	if intl.Type() != js.TypeObject {
+		return r
+	}
+	opts := intl.Get("DateTimeFormat").New(js.Undefined(), map[string]any{"hour": "numeric"}).Call("resolvedOptions")
+	if l := opts.Get("locale"); l.Type() == js.TypeString {
+		r.Locale = l.String()
+	}
+	switch opts.Get("hourCycle").String() {
+	case "h11", "h12":
+		r.HourCycle = 12
+	case "h23", "h24":
+		r.HourCycle = 24
+	}
+	if r.Locale == "" || intl.Get("Locale").Type() != js.TypeFunction {
+		return r
+	}
+	func() {
+		defer func() { recover() }() // a browser that throws on either
+		locale := intl.Get("Locale").New(r.Locale)
+		info := js.Undefined()
+		if locale.Get("getWeekInfo").Type() == js.TypeFunction {
+			info = locale.Call("getWeekInfo")
+		} else {
+			info = locale.Get("weekInfo")
+		}
+		if info.Type() == js.TypeObject && info.Get("firstDay").Type() == js.TypeNumber {
+			r.FirstWeekday = info.Get("firstDay").Int() % 7 // 7 is Sunday
+		}
+	}()
+	return r
+}
+
+// localeKey is the key of localStorage the app's language is kept under.
+const localeKey = "mygo:locale"
+
+// SavedLocale reads the app's language from the page's localStorage.
+func (app) SavedLocale() (tag string, kept bool) {
+	defer func() { recover() }() // storage the page may not use
+	if v := js.Global().Get("localStorage").Call("getItem", localeKey); v.Type() == js.TypeString {
+		tag = v.String()
+	}
+	return tag, true
+}
+
+// SaveLocale keeps the app's language in the page's localStorage.
+func (app) SaveLocale(tag string) bool {
+	defer func() { recover() }()
+	storage := js.Global().Get("localStorage")
+	if tag == "" {
+		storage.Call("removeItem", localeKey)
+	} else {
+		storage.Call("setItem", localeKey, tag)
+	}
+	return true
+}
+
+// SetLanguages makes the app's language the page's (<html lang>), which
+// browsers draw the text of canvases and read the page aloud in, and its
+// direction the page's (<html dir>).
+func (app) SetLanguages(tags []string, rtl bool) {
+	root := js.Global().Get("document").Get("documentElement")
+	if len(tags) > 0 {
+		root.Set("lang", tags[0])
+	}
+	dir := "ltr"
+	if rtl {
+		dir = "rtl"
+	}
+	root.Set("dir", dir)
 }
 
 type dialogs struct{}

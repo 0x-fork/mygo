@@ -33,7 +33,9 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 	ed.sync()
 	ed.syncGitDiff()
 	ed.frameNow = c.Now()
-	e := ui.Box(c).Focusable().FocusRing(false).Clip()
+	// Code reads left to right in a right-to-left interface too, as in
+	// editors: its gutter on the left, its lines from the left.
+	e := ui.Box(c).Direction(ui.LeftToRight).Focusable().FocusRing(false).Clip()
 	// Focused is false while the window has not the keyboard.
 	focused := e.Focused()
 	if focused != ed.focused {

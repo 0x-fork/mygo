@@ -158,6 +158,7 @@ const (
 	layoutSetFontSize          = 35
 	layoutSetInlineObject      = 39
 	layoutSetTypography        = 40
+	layoutSetLocaleName        = 41
 	layoutDraw                 = 58
 	layoutGetLineMetrics       = 59
 	layoutHitTestTextPosition  = 65
@@ -391,6 +392,7 @@ type formatKey struct {
 	weight int
 	italic bool
 	size   float32
+	lang   string // Style.Lang, "" for the user's locale
 }
 
 type faceKey struct {
@@ -498,9 +500,20 @@ func dwStyle(italic bool) uintptr {
 	return fontStyleNormal
 }
 
+// localeName returns the locale name DirectWrite takes for a language, which
+// text formats shape with and the font fallback picks fonts by: the
+// language's tag, or for "" the user's locale of regional formats
+// (GetUserDefaultLocaleName), as text without a language had.
+func (e *dwrite) localeName(lang string) []uint16 {
+	if lang == "" {
+		return e.locale
+	}
+	return utf16z(lang)
+}
+
 func (e *dwrite) format(style Style) uintptr {
 	family, custom := e.family(style.Family)
-	key := formatKey{style.Family, family, custom, style.weight(), style.Italic, style.FontSize()}
+	key := formatKey{style.Family, family, custom, style.weight(), style.Italic, style.FontSize(), style.Lang}
 	if f, ok := e.formats[key]; ok {
 		return f
 	}
@@ -513,7 +526,7 @@ func (e *dwrite) format(style Style) uintptr {
 	name := utf16z(family)
 	var format uintptr
 	hr := method[func(this uintptr, family *uint16, coll uintptr, weight, style, stretch uintptr, size float32, locale *uint16, out *uintptr) uintptr](e.factory, factoryCreateTextFormat)(
-		e.factory, &name[0], e.collection(custom), uintptr(key.weight), dwStyle(key.italic), fontStretchNormal, key.size, &e.locale[0], &format)
+		e.factory, &name[0], e.collection(custom), uintptr(key.weight), dwStyle(key.italic), fontStretchNormal, key.size, &e.localeName(key.lang)[0], &format)
 	if failed(hr) {
 		return 0
 	}
@@ -869,6 +882,14 @@ func (e *dwrite) typeset(layout uintptr, style Style, spans []Span, text []rune)
 		}
 		e.spacing(layout, sp.LetterSpacing, r)
 		e.typography(layout, sp.Features, r)
+	}
+	// The runes in other languages than the format's: those of spans, and
+	// Han characters in a language that does not write them, which keep
+	// the user's locale.
+	for _, run := range langRuns(text, style.Lang, spans) {
+		name := e.localeName(run.lang)
+		call(layout, layoutSetLocaleName, uintptr(unsafe.Pointer(&name[0])), textRange(run.start, run.end))
+		runtime.KeepAlive(name)
 	}
 	setObjects(layout, spans, units)
 }

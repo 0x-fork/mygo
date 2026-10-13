@@ -6,6 +6,7 @@ import (
 	"time"
 	"weak"
 
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/text"
@@ -45,6 +46,13 @@ type host interface {
 	escape()
 	isDark() bool
 	preferences() platform.Preferences
+	// locale returns the language the app shows, and region the user's
+	// regional formats; they cost nothing.
+	locale() string
+	region() i18n.Region
+	// rightToLeft reports whether the window is laid out right to left,
+	// as its language reads.
+	rightToLeft() bool
 	titleBar() TitleBar
 	// vibrancy reports whether the window shows a material where the
 	// frames are transparent.
@@ -176,9 +184,13 @@ type engine struct {
 	byID         map[uint64]*node
 	// insp is the inspector (inspector.go); dupKeys are the duplicate keys
 	// reported, and warnings what the inspector lists.
-	insp     inspector
-	dupKeys  map[uint64]bool
-	warnings []string
+	insp inspector
+	// dirOverride lays the window out left to right (1) or right to left
+	// (2) whatever its language, as the inspector's toggle asks; 0 follows
+	// it.
+	dirOverride uint8
+	dupKeys     map[uint64]bool
+	warnings    []string
 	// strict makes mistakes found while building panic, as duplicate keys
 	// do in a Tester.
 	strict bool
@@ -283,6 +295,8 @@ type engine struct {
 	// prefs are the desktop's preferences, read once until they change.
 	prefs      Preferences
 	prefsKnown bool
+	// lang is the language the app shows, read as each frame starts.
+	lang string
 	// theme is the default theme, which follows the appearance and the
 	// preferences, made once until they change (themeOK); each pass
 	// starts from a copy, passTheme, which the view may change.
@@ -869,6 +883,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		s.parent = 0
 	}
 	s.flags = e.flags
+	s.rtl = e.rtl()
 	s.anchor = 0
 	if e.popover != nil {
 		s.anchor = e.popover.id

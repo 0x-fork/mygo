@@ -13,9 +13,9 @@
  *
  * @module
  */
-import type { Channel as ChannelType, Runtime, WindowControls } from "./types";
+import type { Channel as ChannelType, Direction, LocaleChange, Runtime, WindowControls } from "./types";
 
-export type { Platform, Runtime, WindowControls } from "./types";
+export type { Direction, LocaleChange, Platform, Runtime, WindowControls } from "./types";
 
 declare global {
   interface Window {
@@ -82,6 +82,43 @@ export function on<T = unknown>(name: string, listener: (payload: T) => void): (
 /** Like {@link on}, but unsubscribes after the first event. */
 export function once<T = unknown>(name: string, listener: (payload: T) => void): () => void {
   return runtime().once<T>(name, listener);
+}
+
+/**
+ * The language the app shows, a BCP 47 tag such as "en" or "zh-Hans"
+ * (`App.Locale`): the page has it from document start, so its first paint
+ * can be in it.
+ *
+ * ```ts
+ * document.documentElement.lang = locale();
+ * document.documentElement.dir = direction();
+ * ```
+ */
+export function locale(): string {
+  return runtime().locale;
+}
+
+/** The direction the language the app shows is written in: "ltr" or "rtl". */
+export function direction(): Direction {
+  return runtime().dir;
+}
+
+/**
+ * Subscribes to changes of the language the app shows, as `App.SetLocale`
+ * makes them, or the user's languages while the app follows them. The
+ * listener hears only of a language the page did not have: a page loaded
+ * after a change starts with the new one. Returns a function that
+ * unsubscribes.
+ *
+ * ```ts
+ * onLocaleChange((tag, dir) => {
+ *   document.documentElement.lang = tag;
+ *   document.documentElement.dir = dir;
+ * });
+ * ```
+ */
+export function onLocaleChange(listener: (locale: string, dir: Direction) => void): () => void {
+  return on<LocaleChange>("mygo:locale", (p) => listener(p.locale, p.dir));
 }
 
 /** A typed event sent by the Go side, declared with `mygo.NewEvent`. */

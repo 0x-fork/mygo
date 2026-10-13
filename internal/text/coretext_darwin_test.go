@@ -5,6 +5,7 @@ package text
 import (
 	"bytes"
 	"math"
+	"slices"
 	"testing"
 )
 
@@ -142,5 +143,46 @@ func TestCoreTextItalicColorGlyphs(t *testing.T) {
 				t.Fatalf("%s cluster %d: skew %v, want %v", family, g.Cluster, got, want)
 			}
 		}
+	}
+}
+
+// TestCoreTextLanguage holds the glyphs of Han characters to the language
+// of the text: 直 and 骨 are drawn apart in Japanese and in Chinese, by
+// the fonts Core Text falls back to and by a font's own forms for the
+// language. A language that writes no Han characters leaves them as text
+// without a language has them, and Latin letters keep their glyphs.
+func TestCoreTextLanguage(t *testing.T) {
+	s := newSystem()
+	ids := func(family, lang string, spans []Span) []uint32 {
+		l := s.Layout(Params{Text: "直骨 Ag", Style: Style{Family: family, Size: 32, Lang: lang}, Spans: EncodeSpans(spans)})
+		var out []uint32
+		for _, g := range l.Lines[0].Glyphs {
+			out = append(out, g.ID)
+		}
+		return out
+	}
+	for _, family := range []string{"system-ui", "Helvetica"} {
+		none, en, ja, hans := ids(family, "", nil), ids(family, "en", nil), ids(family, "ja", nil), ids(family, "zh-Hans", nil)
+		if !slices.Equal(none, en) {
+			t.Errorf("%s: English %v, without a language %v", family, en, none)
+		}
+		if slices.Equal(ja[:2], hans[:2]) {
+			t.Errorf("%s: Japanese and Chinese Han glyphs are the same: %v", family, ja)
+		}
+		if !slices.Equal(ja[2:], hans[2:]) || !slices.Equal(ja[2:], none[2:]) {
+			t.Errorf("%s: Latin glyphs changed with the language: %v %v %v", family, none, ja, hans)
+		}
+		// A span in Japanese in a Chinese text, and the other way round.
+		if got := ids(family, "zh-Hans", []Span{{End: 2, Lang: "ja"}}); !slices.Equal(got, ja) {
+			t.Errorf("%s: a Japanese span in Chinese text: %v, want %v", family, got, ja)
+		}
+		if got := ids(family, "ja", []Span{{End: 1}, {End: 2, Lang: "zh-Hans"}}); got[0] != ja[0] || got[1] != hans[1] {
+			t.Errorf("%s: a Chinese span in Japanese text: %v", family, got)
+		}
+	}
+	// The system's language for text without one.
+	s.SetLanguage("ja")
+	if got := ids("system-ui", "", nil); !slices.Equal(got, ids("system-ui", "ja", nil)) {
+		t.Errorf("text without a language in a Japanese system: %v", got)
 	}
 }

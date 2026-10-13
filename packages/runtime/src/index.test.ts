@@ -3,13 +3,16 @@ import {
   Channel,
   call,
   currentWindow,
+  direction,
   event,
   isCallError,
   isMyGo,
+  locale,
   on,
   onDocumentReload,
   onDocumentState,
   onFileDrop,
+  onLocaleChange,
   onPreferences,
   runtime,
   type DocumentState,
@@ -45,6 +48,8 @@ const fake: Runtime = {
   platform: "darwin",
   windowId: 1,
   version: "0.1.0",
+  locale: "en",
+  dir: "ltr",
   window: {
     minimize: () => fake.call("mygo:window.Minimize"),
     maximize: () => fake.call("mygo:window.Maximize"),
@@ -138,4 +143,16 @@ test("onPreferences", () => {
   expect(got).toEqual([preferences]);
   off();
   expect(listeners.has("mygo:preferences")).toBe(false);
+});
+
+test("locale, direction and onLocaleChange", () => {
+  (globalThis as { mygo?: Runtime }).mygo = fake;
+  expect(locale()).toBe("en");
+  expect(direction()).toBe("ltr");
+  const got: [string, string][] = [];
+  const off = onLocaleChange((tag, dir) => got.push([tag, dir]));
+  listeners.get("mygo:locale")?.({ locale: "ar", dir: "rtl" });
+  expect(got).toEqual([["ar", "rtl"]]);
+  off();
+  expect(listeners.has("mygo:locale")).toBe(false);
 });

@@ -98,8 +98,15 @@ type TextShape struct {
 	// Width wraps lines at it, in DIPs; zero only breaks at newlines.
 	Width float32
 	// Align aligns the lines within Width: Start (the default, the right
-	// in right-to-left paragraphs), Center or End.
+	// in right-to-left paragraphs, and of a right-to-left Direction),
+	// Center or End.
 	Align Align
+	// Direction is that of the element the text shows in
+	// (Context.Direction): right to left, lines start at the right, as
+	// those of Text, and paragraphs without a strongly directional
+	// character, as an empty one, read right to left. The others read in
+	// the direction of their first strong character either way.
+	Direction Direction
 }
 
 // ShapeRichTextWith shapes spans as ShapeRichText does, laid out as shape
@@ -117,11 +124,15 @@ func shapeText(s string, font Font, width float32, spans []Span) *TextLayout {
 }
 
 func shapeTextAligned(s string, font Font, shape TextShape, spans []Span) *TextLayout {
-	params := text.Params{Text: s, Style: font.style(), Width: shape.Width, KeepSpaces: true, Spans: encodeSpans(spans)}
-	switch shape.Align {
-	case Center:
+	params := text.Params{Text: s, Style: font.style(), Width: shape.Width, KeepSpaces: true, Spans: encodeSpans(spans), RTL: shape.Direction == RightToLeft}
+	switch {
+	case shape.Align == Center:
 		params.Align = text.Center
-	case End:
+	case shape.Direction == RightToLeft && shape.Align == End:
+		params.Align = text.Left
+	case shape.Direction == RightToLeft:
+		params.Align = text.Right
+	case shape.Align == End:
 		params.Align = text.End
 	}
 	l := text.Shared().Shape(params)

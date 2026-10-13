@@ -272,6 +272,8 @@ var (
 	gtkWindowSetIcon                    func(w, pixbuf ptr)
 	gtkWindowSetDefaultIcon             func(pixbuf ptr)
 	gtkWidgetShowAll                    func(w ptr)
+	gtkWidgetSetDirection               func(w ptr, dir int32)
+	gtkWidgetSetDefaultDirection        func(dir int32)
 	gtkWidgetShow                       func(w ptr)
 	gtkWidgetHide                       func(w ptr)
 	gtkWidgetDestroy                    func(w ptr)
@@ -382,6 +384,7 @@ var (
 	webkitWebContextRegisterURIScheme                 func(ctx ptr, scheme *byte, cb ptr, data ptr, destroy ptr)
 	webkitWebContextGetSecurityManager                func(ctx ptr) ptr
 	webkitWebContextGetWebsiteDataManager             func(ctx ptr) ptr
+	webkitWebContextSetPreferredLanguages             func(ctx ptr, languages **byte)
 	webkitWebsiteDataManagerClear                     func(m ptr, types uint32, timespan int64, cancellable ptr, cb ptr, data ptr)
 	webkitWebsiteDataManagerClearFinish               func(m, res ptr, err *ptr) bool
 	webkitDownloadGetWebView                          func(d ptr) ptr
@@ -689,6 +692,8 @@ func load() error {
 	mustBind(t, &gtkWindowSetIcon, "gtk_window_set_icon")
 	mustBind(t, &gtkWindowSetDefaultIcon, "gtk_window_set_default_icon")
 	mustBind(t, &gtkWidgetShowAll, "gtk_widget_show_all")
+	mustBind(t, &gtkWidgetSetDirection, "gtk_widget_set_direction")
+	mustBind(t, &gtkWidgetSetDefaultDirection, "gtk_widget_set_default_direction")
 	mustBind(t, &gtkWidgetShow, "gtk_widget_show")
 	mustBind(t, &gtkWidgetHide, "gtk_widget_hide")
 	mustBind(t, &gtkWidgetDestroy, "gtk_widget_destroy")
@@ -868,6 +873,7 @@ func loadWebKit() error {
 	mustBind(w, &webkitWebContextRegisterURIScheme, "webkit_web_context_register_uri_scheme")
 	mustBind(w, &webkitWebContextGetSecurityManager, "webkit_web_context_get_security_manager")
 	mustBind(w, &webkitWebContextGetWebsiteDataManager, "webkit_web_context_get_website_data_manager")
+	bind(w, &webkitWebContextSetPreferredLanguages, "webkit_web_context_set_preferred_languages")
 	mustBind(w, &webkitWebsiteDataManagerClear, "webkit_website_data_manager_clear")
 	mustBind(w, &webkitWebsiteDataManagerClearFinish, "webkit_website_data_manager_clear_finish")
 	mustBind(w, &webkitDownloadGetWebView, "webkit_download_get_web_view")

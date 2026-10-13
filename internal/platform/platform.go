@@ -154,6 +154,9 @@ type AppHandler interface {
 	MenuItemClicked(id int)
 	ThemeChanged()
 	DisplaysChanged()
+	// LocaleChanged is called when the languages the user prefers, or the
+	// regional formats, may have changed, on the systems that report it.
+	LocaleChanged()
 	// PowerEvent is "suspend", "resume", "lock-screen" or "unlock-screen".
 	PowerEvent(event string)
 	// NetworkChanged reports the network's status, once Network.Watch was
@@ -187,7 +190,28 @@ type AppController interface {
 	SetCookie(cookie Cookie, done func(error))
 	DeleteCookie(key CookieKey, done func(error))
 	ShowAboutPanel(opts AboutPanelOptions)
-	Locale() string
+	// PreferredLanguages returns the languages the user reads, most
+	// preferred first, as the system's settings list them, in the forms
+	// the system writes them (the core normalizes them): never what the
+	// app chose for itself (SaveLocale). Safe before Init.
+	PreferredLanguages() []string
+	// Region returns the user's regional formats. Safe before Init.
+	Region() Region
+	// SavedLocale returns the language the app chose for itself, as the
+	// system keeps it, and whether the system keeps one at all (macOS:
+	// AppleLanguages in the app's own defaults, which System Settings
+	// shows as the app's language; browsers: localStorage). Where it
+	// keeps none, the core keeps it in a file. Safe before Init.
+	SavedLocale() (tag string, kept bool)
+	// SaveLocale keeps tag where SavedLocale reads it, "" to forget it,
+	// and reports whether the system keeps one at all.
+	SaveLocale(tag string) bool
+	// SetLanguages tells the backend the languages the app shows, its
+	// own language first, and whether it is laid out right to left, for
+	// what shows text the core does not draw: the web views it creates
+	// later and, where it can change, those it created, and the system's
+	// own texts and widgets.
+	SetLanguages(tags []string, rtl bool)
 	// RegisterURLScheme makes the app, identified by id (its identifier)
 	// and named name, the handler of the URLs of scheme for the user.
 	RegisterURLScheme(scheme, id, name string) error
@@ -211,6 +235,19 @@ type AppController interface {
 	// SetJumpListTasks sets the Tasks category of the app's jump list
 	// (Windows); elsewhere it does nothing.
 	SetJumpListTasks(tasks []JumpListTask) error
+}
+
+// Region is the user's regional formats, as the system's settings have
+// them with the user's changes.
+type Region struct {
+	// Locale is the locale of the formats, in the form the system writes
+	// it, "" when unknown.
+	Locale string
+	// FirstWeekday is the first day of the week, 0 for Sunday to 6 for
+	// Saturday, or -1 when the system does not say.
+	FirstWeekday int
+	// HourCycle is 12 or 24, or 0 when the system does not say.
+	HourCycle int
 }
 
 // PackageInfo is metadata of a packaged application.
@@ -435,6 +472,9 @@ type Page interface {
 	IsLoading() bool
 	// Eval runs JavaScript in the main frame and ignores the result.
 	Eval(js string)
+	// SetUserScripts replaces the scripts WindowOptions.UserScripts gave
+	// the pages loaded later; the page loaded now keeps those it ran.
+	SetUserScripts(scripts []UserScript)
 	// CallAsyncFunction runs body as the body of an async function in the
 	// main frame, awaits it and reports the returned value, which the
 	// caller arranges to be a string. err is non-nil when the body fails to
@@ -640,6 +680,10 @@ const (
 // Menu is a snapshot of a menu tree.
 type Menu struct {
 	Items []*MenuItem
+	// RightToLeft lays a context menu out right to left, as that of an
+	// interface laid out so: its items from the right, opening to the
+	// left of where it shows, which is its top right corner.
+	RightToLeft bool
 }
 
 // MenuItem is a snapshot of a menu item. ID identifies the public item the

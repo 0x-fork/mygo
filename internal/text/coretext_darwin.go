@@ -147,6 +147,7 @@ var ct struct {
 	trackingName    uintptr
 	kernName        uintptr
 	cascadeList     uintptr
+	languageName    uintptr // kCTLanguageAttributeName, macOS 10.8
 	featureSettings uintptr
 	featureTag      uintptr
 	featureValue    uintptr
@@ -283,6 +284,7 @@ func loadCoreText() error {
 	ct.trackingName = optional(text, "kCTTrackingAttributeName")
 	ct.kernName = optional(text, "kCTKernAttributeName")
 	ct.cascadeList = optional(text, "kCTFontCascadeListAttribute")
+	ct.languageName = optional(text, "kCTLanguageAttributeName")
 	ct.featureSettings = optional(text, "kCTFontFeatureSettingsAttribute")
 	ct.featureTag = optional(text, "kCTFontOpenTypeFeatureTag")
 	ct.featureValue = optional(text, "kCTFontOpenTypeFeatureValue")
@@ -433,6 +435,7 @@ type coreText struct {
 type attrsKey struct {
 	font uintptr
 	rtl  bool
+	lang string
 }
 
 type registeredFace struct {
@@ -799,6 +802,11 @@ func (e *coreText) styleSpans(attributed uintptr, style Style, spans []Span, tex
 			ct.attributedSet(styled, r, ct.kernName, zero)
 			ct.release(zero)
 		}
+		if s.Lang != style.Lang && s.Lang != "" && ct.languageName != 0 {
+			tag := cfString(s.Lang)
+			ct.attributedSet(styled, r, ct.languageName, tag)
+			ct.release(tag)
+		}
 	}
 	return styled
 }
@@ -916,8 +924,23 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 	if rtl {
 		paragraph = e.styles[1]
 	}
-	attrs, cached := e.attrs[attrsKey{font, rtl}]
+	lang := style.Lang
+	if ct.languageName == 0 {
+		lang = ""
+	}
+	key := attrsKey{font, rtl, lang}
+	attrs, cached := e.attrs[key]
 	keys, values := append(e.keys[:0], ct.fontAttributeName, ct.paragraphStyleName), append(e.values[:0], font, paragraph)
+	base := 2
+	if lang != "" {
+		// The language picks the glyphs of a font that has several, as
+		// Han characters in Chinese and Japanese, and the fonts Core Text
+		// falls back to.
+		tag := cfString(lang)
+		defer ct.release(tag)
+		keys, values = append(keys, ct.languageName), append(values, tag)
+		base++
+	}
 	if style.LetterSpacing != 0 && ct.trackingName != 0 {
 		// Tracking, in points as DIPs, keeps the font's kerning.
 		tracking := cfFloat(float64(style.LetterSpacing))
@@ -931,13 +954,13 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 	}
 	e.keys, e.values = keys, values
 	switch {
-	case len(keys) > 2:
+	case len(keys) > base:
 		attrs = cfDictionary(keys, values)
 		defer ct.release(attrs)
 	case !cached:
 		// The font of a style lives in primary, with its attributes.
 		attrs = cfDictionary(keys, values)
-		e.attrs[attrsKey{font, rtl}] = attrs
+		e.attrs[key] = attrs
 	}
 	attributed := ct.attributedString(0, str, attrs)
 	defer ct.release(attributed)

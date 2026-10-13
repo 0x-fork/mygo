@@ -116,6 +116,7 @@ func (c *context) reset(now time.Time, w, h float32) {
 	c.now = now
 	c.w, c.h = w, h
 	c.theme = c.rt.defaultTheme()
+	c.rt.lang = c.rt.host.locale()
 	c.tree = nil
 	clear(c.reveal)
 	c.reveal = c.reveal[:0]
@@ -134,6 +135,13 @@ func (c *context) reset(now time.Time, w, h float32) {
 	root.st = c.rt.stateFor(root.id)
 	root.bg = c.theme.Background
 	root.ts = textStyle{set: setColor | setSize | setFamily, color: c.theme.Text, size: c.theme.FontSize, family: c.theme.Font}
+	if c.rt.lang != "" {
+		// Text is in the language the app shows unless told otherwise.
+		root.ts.lang, root.ts.set = c.rt.lang, root.ts.set|setLang
+	}
+	if c.rt.direction() {
+		root.dir = dirRTL
+	}
 	c.root = root
 	c.parent = root
 	c.overlay = nil
@@ -196,6 +204,7 @@ func (c *context) overlayRoot() *node {
 		o.id = overlayID
 		o.kind = kindBox
 		o.flags = flagAbsolute | flagPassThrough
+		o.dir = c.root.dir
 		o.inset = [4]length{px(0), px(0), px(0), px(0)}
 		o.depth = 1
 		o.st = c.rt.stateFor(o.id)
@@ -219,6 +228,7 @@ func (c *context) newElement(k kind) *node {
 	e.kind = k
 	p := c.parent
 	e.id = mix(p.id, uint64(p.nchild)+uint64(k)<<56)
+	e.dir = p.dir &^ dirSet
 	keyed := c.keySet
 	if c.keySet {
 		e.id = keyedID(p.id, c.nextKey)
@@ -456,8 +466,12 @@ type state struct {
 	pendingSubmit bool
 	noticeQueued  bool
 
-	world     scene.Affine
-	clips     bool
+	world scene.Affine
+	clips bool
+	// rtl tells that the element was laid out right to left: a scroll
+	// container's horizontal offset counts from the right, and its
+	// vertical scroll bar is on the left.
+	rtl       bool
 	clipRect  Rect
 	clipRadii [4]float32
 	id        uint64

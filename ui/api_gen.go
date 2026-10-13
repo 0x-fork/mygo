@@ -3,6 +3,7 @@
 package ui
 
 import (
+	i18n "github.com/egoist/mygo/i18n"
 	platform "github.com/egoist/mygo/internal/platform"
 	transfer "github.com/egoist/mygo/transfer"
 	image "image"
@@ -278,6 +279,22 @@ func (_handle *Context) CloseToast(id string) {
 	_ctx.CloseToast(id)
 }
 
+// Direction returns the direction of the elements built now: that of the
+// element they go in. Widgets of an app's own read it to draw what points
+// along the line, as an arrow forward:
+//
+//	forward := "M5 2 11 8 5 14"
+//	if c.Direction() == ui.RightToLeft {
+//		forward = "M11 2 5 8 11 14"
+//	}
+func (_handle *Context) Direction() Direction {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return *new(Direction)
+	}
+	return _ctx.Direction()
+}
+
 // DisableAnimations makes the values that animate in this frame
 // (AnimateTo, Animate, Spring), the element transitions and the pages of
 // routers go to their targets at once, as SwiftUI's disablesAnimations:
@@ -290,6 +307,18 @@ func (_handle *Context) DisableAnimations() {
 		return
 	}
 	_ctx.DisableAnimations()
+}
+
+// Locale returns the language the app shows (mygo.App.Locale), a BCP 47
+// tag such as "en" or "zh-Hans", for what the view says in it. Text is in
+// it unless an element says otherwise (Element.Lang). A frame follows its
+// changes, as App.SetLocale makes them.
+func (_handle *Context) Locale() string {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return ""
+	}
+	return _ctx.Locale()
 }
 
 // MeasureText returns the size spans of text take as Painter.RichText draws
@@ -370,6 +399,17 @@ func (_handle *Context) ReadClipboard() string {
 		return ""
 	}
 	return _ctx.ReadClipboard()
+}
+
+// Region returns the user's regional formats (mygo.App.Region): the
+// locale of the formats, the first day of the week and the hour cycle,
+// which dates and times follow. A frame follows their changes.
+func (_handle *Context) Region() i18n.Region {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return *new(i18n.Region)
+	}
+	return _ctx.Region()
 }
 
 // Root returns the element holding the window's content: a column the
@@ -1286,12 +1326,13 @@ func Popover(c *Context, anchor Element, open *bool, fn func()) Element {
 // true: fn styles the panel and builds its content. Pressing outside the
 // panel and the anchor, or Escape, sets *open to false, which Dismissed
 // reports; the press goes on to what is under the pointer, as with the
-// web's popovers. Where there is
+// web's popovers. It starts at the anchor's start: its left, or its right
+// right to left (Direction). Where there is
 // no room below the anchor, the panel shows above it; a top margin keeps
 // it apart from the anchor on either side. fn may place it elsewhere with
-// AttachTo, as to the right of the anchor:
+// AttachTo, as after the anchor:
 //
-//	panel.AttachTo(anchor, ui.AnchorRight, ui.AnchorLeft).Margin(0, 0, 0, 6)
+//	panel.AttachTo(anchor, ui.AnchorEnd, ui.AnchorStart).MarginStart(6)
 //
 // It returns the panel, or nil while closed; Popover is PopoverBase with
 // the theme's look.
@@ -1313,8 +1354,9 @@ func PrimaryButton(c *Context, label string) Element {
 }
 
 // Progress creates a progress bar filled to value between 0 and 1; a
-// negative value shows activity of unknown length. Reverse fills it from
-// the right, for interfaces laid out from right to left.
+// negative value shows activity of unknown length. It fills from its
+// start: the right right to left (Direction). Reverse fills it from the
+// other side.
 func Progress(c *Context, value float64) Element {
 	_ctx := c.build()
 	if _ctx == nil {
@@ -1619,7 +1661,9 @@ func Slider(c *Context, value *float64, lo float64, hi float64) Element {
 // range unless Step says otherwise; Changed reports a new value, and
 // assistive technology sees a slider of that range. Draw its track and
 // thumb where (*value-lo)/(hi-lo) puts them, and pad it by half the
-// thumb's width to keep the thumb inside it:
+// thumb's width to keep the thumb inside it. Right to left
+// (Context.Direction), lo is at the right of the content box, as the
+// arrows go: draw it mirrored.
 //
 //	s := ui.SliderBase(c, &app.volume, 0, 100).Height(24).PaddingX(12)
 //	s.Draw(func(p *ui.Painter, r ui.Rect) {
@@ -1664,7 +1708,8 @@ func Spinner(c *Context) Element {
 // Split lays out first and second side by side, with a divider between
 // them that the user drags to resize them, or moves with the arrows once
 // it has the keyboard focus: *size is the width of first, which the
-// divider keeps 40 DIPs from either edge. Changed reports a move.
+// divider keeps 40 DIPs from either edge. Changed reports a move. Right to
+// left (Direction), first is on the right.
 //
 //	ui.Split(c, &app.sidebar, app.files, app.editor).Fill()
 func Split(c *Context, size *float32, first func(), second func()) Element {
@@ -1916,7 +1961,9 @@ func Textf(c *Context, format string, args ...any) Element {
 // typed set it, going on to the minutes once the hours are typed, and Left
 // and Right move between them. Changed reports a new time, which keeps the
 // date and the location of *tm. Assistive technology sees two spin
-// buttons, named after the field's Label and "hours" and "minutes".
+// buttons, named after the field's Label and "hours" and "minutes". It
+// reads left to right in an interface laid out right to left too, as
+// times are written there.
 //
 //	ui.TimeInput(c, &app.alarm).Label("Alarm")
 func TimeInput(c *Context, tm *time.Time) Element {
@@ -2066,10 +2113,10 @@ func Toolbar(c *Context, fn func()) Element {
 // shows; one shows at a time.
 //
 // The tip goes above anchor, centered, or below it where there is no room
-// above; fn may place it elsewhere with AttachTo, as to the right:
+// above; fn may place it elsewhere with AttachTo, as after it:
 //
 //	ui.TooltipBase(c, b, func(tip ui.Element) {
-//		tip.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).Margin(0, 0, 0, 6)
+//		tip.AttachTo(b, ui.AnchorEnd, ui.AnchorStart).MarginStart(6)
 //		tip.Padding(4, 8).Radius(6).Background(dark).TextColor(light)
 //		tip.Children(func() { ui.Text(c, "Share") })
 //	})
@@ -2487,6 +2534,29 @@ func (_handle Element) BorderColor(c Color) Element {
 	return wrapElement(_node.BorderColor(c))
 }
 
+func (_handle Element) BorderEndWidth(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.BorderEndWidth(v))
+}
+
+// BorderStartWidth and BorderEndWidth set the width of the border on the
+// side lines start and on the other, as PaddingStart does: a line
+// between a sidebar and the content is BorderEndWidth(1) on the sidebar.
+func (_handle Element) BorderStartWidth(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.BorderStartWidth(v))
+}
+
 // BorderStyle sets whether the border is solid, as by default, or dashed.
 func (_handle Element) BorderStyle(s BorderStyle) Element {
 	_node := _handle.node()
@@ -2860,6 +2930,27 @@ func (_handle Element) Description(s string) Element {
 	return wrapElement(_node.Description(s))
 }
 
+// Direction lays the element and what is inside it out in d, whatever the
+// direction around it: Direction(ui.LeftToRight) keeps a code sample, a
+// phone number or a media player's controls left to right in a
+// right-to-left window, as Flutter's Directionality and SwiftUI's
+// layoutDirection environment do. The elements built inside it inherit it,
+// as do the popups attached to it.
+//
+// Give it right after creating the element, before its children, logical
+// edges and the parts that read it, as widgets do as they are built:
+// elements already inside take it, and logical edges move to the other
+// side, but what read the old direction keeps it.
+func (_handle Element) Direction(d Direction) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Direction(d))
+}
+
 // Disabled disables the element and those inside it when d is true: they
 // report no clicks, take no focus, and widgets look disabled.
 func (_handle Element) Disabled(d bool) Element {
@@ -3117,6 +3208,26 @@ func (_handle Element) Ellipsis(s string) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Ellipsis(s))
+}
+
+func (_handle Element) End(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.End(v))
+}
+
+func (_handle Element) EndPercent(p float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.EndPercent(p))
 }
 
 // Error marks the element's value as not valid, for msg, which assistive
@@ -3694,6 +3805,27 @@ func (_handle Element) Label(s string) Element {
 	return wrapElement(_node.Label(s))
 }
 
+// Lang sets the language of the element's text, and of the text of the
+// elements inside it, as a BCP 47 tag, as HTML's lang attribute does: the
+// system's text stack draws the glyphs of that language, as the Han
+// characters Chinese and Japanese draw apart, and falls back to its
+// fonts. Text is in the language the app shows (mygo.App.Locale) unless
+// told otherwise: a Japanese quote in a Chinese app,
+//
+//	ui.Text(c, "直").Lang("ja")
+//
+// "" takes the language of the elements around it. Browsers draw text in
+// the page's language whatever the element's.
+func (_handle Element) Lang(tag string) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Lang(tag))
+}
+
 // LayoutBounds returns the previous frame's border box before transforms,
 // in the layout's window coordinates. Draw callbacks use these coordinates.
 func (_handle Element) LayoutBounds() Rect {
@@ -3825,6 +3957,29 @@ func (_handle Element) Margin(v ...float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Margin(v...))
+}
+
+func (_handle Element) MarginEnd(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.MarginEnd(v))
+}
+
+// MarginStart and MarginEnd set the margin on the side lines start and
+// on the other, as PaddingStart does: Auto takes the free space there, so
+// that a Row's child with MarginStart(ui.Auto) goes to its end.
+func (_handle Element) MarginStart(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.MarginStart(v))
 }
 
 // MarginX sets the left and right margins.
@@ -4095,6 +4250,29 @@ func (_handle Element) Padding(v ...float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Padding(v...))
+}
+
+func (_handle Element) PaddingEnd(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PaddingEnd(v))
+}
+
+// PaddingStart sets the padding on the side lines start: the left, or
+// the right of an element laid out right to left, as CSS's
+// padding-inline-start does. PaddingEnd sets the other side's.
+func (_handle Element) PaddingStart(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PaddingStart(v))
 }
 
 // PaddingX sets the left and right padding.
@@ -4672,6 +4850,33 @@ func (_handle Element) Spring(key any, target float32, options ...SpringOptions)
 	_ctx := _node.c
 	_ = _ctx
 	return _node.Spring(key, target, options...)
+}
+
+// Start and End place an Absolute element from the side lines start and
+// from the other, as Left and Right do, as CSS's inset-inline-start and
+// inset-inline-end: from the left and the right, or the right and the
+// left right to left. On an element in its parent's layout, they move it
+// as relative positioning does.
+func (_handle Element) Start(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Start(v))
+}
+
+// StartPercent and EndPercent place the element as Start and End do, by
+// a percentage of the parent's width.
+func (_handle Element) StartPercent(p float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.StartPercent(p))
 }
 
 // Step makes the values of a slider lo and the multiples of step from it,

@@ -391,9 +391,17 @@ func (b *Backend) PopupMenu(m *platform.Menu, pw platform.Window, pos *platform.
 	gtkWidgetShowAll(menu)
 	event, anchor := w.popupTrigger(), w.contentWindow()
 	const northWest = 1 // GDK_GRAVITY_NORTH_WEST
+	corner := int32(northWest)
+	if m.RightToLeft {
+		// GTK_TEXT_DIR_RTL lays the menu out from the right (its items
+		// take the default direction, which GTK takes from the locale),
+		// and GDK_GRAVITY_NORTH_EAST opens it to the left of the point.
+		gtkWidgetSetDirection(menu, 2)
+		corner = 3
+	}
 	switch {
 	case pos != nil && anchor != 0:
-		gtkMenuPopupAtRect(menu, anchor, &gdkRectangle{X: int32(pos.X), Y: int32(pos.Y), Width: 1, Height: 1}, northWest, northWest, event)
+		gtkMenuPopupAtRect(menu, anchor, &gdkRectangle{X: int32(pos.X), Y: int32(pos.Y), Width: 1, Height: 1}, northWest, corner, event)
 	case event != 0:
 		gtkMenuPopupAtPointer(menu, event)
 	case anchor != 0:

@@ -107,10 +107,12 @@ func calendarGrid(c *context, date, cursor *time.Time, moveChooses bool, choose 
 		c.rt.consumed = true
 	}
 	grid.afterInput(func() {
+		// The days of a week go from the right right to left.
+		back, forth := grid.arrows()
 		switch {
-		case grid.Shortcut(0, KeyLeft):
+		case grid.Shortcut(0, back):
 			move(cur.AddDate(0, 0, -1))
-		case grid.Shortcut(0, KeyRight):
+		case grid.Shortcut(0, forth):
 			move(cur.AddDate(0, 0, 1))
 		case grid.Shortcut(0, KeyUp):
 			move(cur.AddDate(0, 0, -7))

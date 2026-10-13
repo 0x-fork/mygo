@@ -127,6 +127,15 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 		uintptr(nsString("NSSystemColorsDidChangeNotification")), 0)
 	send(send(workspace(), "notificationCenter"), "addObserver:selector:name:object:", uintptr(b.delegate), uintptr(sel("preferencesChanged:")),
 		uintptr(nsString("NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification")), 0)
+	// The languages and regional formats of the user: Foundation tells of
+	// a new current locale, and System Settings of new languages, a new
+	// time and date format, which the current locale may not change.
+	send(center, "addObserver:selector:name:object:", uintptr(b.delegate), uintptr(sel("localeChanged:")),
+		uintptr(nsString("NSCurrentLocaleDidChangeNotification")), 0)
+	distributed := send(class("NSDistributedNotificationCenter"), "defaultCenter")
+	for _, name := range []string{"AppleLanguagePreferencesChangedNotification", "AppleTimePreferencesChangedNotification", "AppleDatePreferencesChangedNotification"} {
+		send(distributed, "addObserver:selector:name:object:", uintptr(b.delegate), uintptr(sel("localeChanged:")), uintptr(nsString(name)), 0)
+	}
 	return nil
 }
 
@@ -342,6 +351,9 @@ func registerAppDelegate() {
 		method("preferencesChanged:", func(self id, _ objc.SEL, n id) {
 			theBackend.h.ThemeChanged()
 		}),
+		method("localeChanged:", func(self id, _ objc.SEL, n id) {
+			theBackend.h.LocaleChanged()
+		}),
 	})
 }
 
@@ -429,14 +441,6 @@ func (a appController) ShowAboutPanel(o platform.AboutPanelOptions) {
 	}
 	send(a.b.app, "activateIgnoringOtherApps:", 1)
 	send(a.b.app, "orderFrontStandardAboutPanelWithOptions:", uintptr(dict))
-}
-
-func (a appController) Locale() string {
-	langs := arrayItems(send(class("NSLocale"), "preferredLanguages"))
-	if len(langs) == 0 {
-		return "en-US"
-	}
-	return goString(langs[0])
 }
 
 func (a appController) Package() (platform.PackageInfo, bool) {

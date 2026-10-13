@@ -31,6 +31,12 @@ type Style struct {
 	// Features are OpenType features, comma separated: a tag turns one
 	// on, and tag=value sets it, as "tnum, liga=0, salt=2".
 	Features string
+	// Lang is the language of the text, a BCP 47 tag as "ja" or
+	// "zh-Hant": the system's text stack picks the glyphs of that
+	// language, as the Han characters Chinese and Japanese write apart,
+	// and falls back to fonts for it. "" is the language of the System
+	// (SetLanguage).
+	Lang string
 }
 
 func (s Style) weight() int {
@@ -57,6 +63,10 @@ const (
 	Start Align = iota
 	Center
 	End
+	// Left and Right align lines so whatever their direction, as the
+	// start and the end of an interface laid out right to left do.
+	Left
+	Right
 )
 
 // Params describe a text to lay out.
@@ -74,6 +84,12 @@ type Params struct {
 	// all the same.
 	NoWrap bool
 	Align  Align
+	// RTL makes paragraphs without a strongly directional character, as
+	// numbers or an empty line, right to left, as in an interface laid out
+	// right to left; the others read in the direction of their first
+	// strongly directional character, as Unicode's bidirectional
+	// algorithm finds it by default (rules P2 and P3), whichever this is.
+	RTL bool
 	// KeepSpaces keeps the advance of whitespace at the end of wrapped
 	// lines, as text editors do.
 	KeepSpaces bool
@@ -96,6 +112,9 @@ type Span struct {
 	Italic        bool
 	LetterSpacing float32
 	Features      string
+	// Lang is the language of the runes, as Style.Lang; "" keeps the
+	// text's.
+	Lang string
 	// ObjectWidth and ObjectHeight, when ObjectWidth is set, make each
 	// rune of the span, an object replacement character (U+FFFC), an
 	// inline object: a box that wide, standing that high on the baseline,
@@ -125,6 +144,9 @@ func (sp Span) style(base Style) Style {
 	if sp.Features != "" {
 		s.Features = sp.Features
 	}
+	if sp.Lang != "" {
+		s.Lang = sp.Lang
+	}
 	return s
 }
 
@@ -150,6 +172,7 @@ func EncodeSpans(spans []Span) string {
 		str(sp.Features)
 		b = binary.LittleEndian.AppendUint32(b, math.Float32bits(sp.ObjectWidth))
 		b = binary.LittleEndian.AppendUint32(b, math.Float32bits(sp.ObjectHeight))
+		str(sp.Lang)
 	}
 	return string(b)
 }
@@ -200,6 +223,7 @@ func DecodeSpans(s string) []Span {
 		sp.Features = str()
 		sp.ObjectWidth = f32()
 		sp.ObjectHeight = f32()
+		sp.Lang = str()
 		if b == nil {
 			break
 		}
@@ -290,6 +314,8 @@ type System struct {
 	// rasterizing text, if the app gave them (SetFontRendering).
 	uiFamily  string
 	rendering *[3]string
+	// lang is the language of texts whose style names none (SetLanguage).
+	lang string
 	// fonts caches the font of each style.
 	fonts map[Style]*Font
 
@@ -459,6 +485,30 @@ func (s *System) SetUIFamily(family string) {
 	}
 }
 
+// SetLanguage sets the language of the texts whose Style names none, a
+// BCP 47 tag, or "" for none: the system's text stack then picks glyphs
+// and fallback fonts as it does by default, by the user's settings. The
+// ui package sets the language the app shows. The layouts made before are
+// made anew (Generation).
+func (s *System) SetLanguage(tag string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if tag == s.lang {
+		return
+	}
+	s.lang = tag
+	s.gen++
+	s.clearLayouts()
+	clear(s.marks)
+}
+
+// Language returns the language SetLanguage set.
+func (s *System) Language() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lang
+}
+
 // RegisterFont adds a TrueType or OpenType font (or collection) to the
 // fonts text can use, under family, or the font's own family name when
 // family is empty.
@@ -558,6 +608,7 @@ func (s *System) Layout(p Params) *Layout {
 	p.Ellipsis = strings.Clone(p.Ellipsis)
 	p.Style.Family = strings.Clone(p.Style.Family)
 	p.Style.Features = strings.Clone(p.Style.Features)
+	p.Style.Lang = strings.Clone(p.Style.Lang)
 	c := s.layout(p)
 	c.bytes = layoutBytes(c)
 	// A large paragraph still lays out correctly; keeping it would evict
@@ -594,7 +645,7 @@ func (s *System) overLayoutBudget(n int) bool {
 
 func layoutBytes(c *cached) int {
 	l, p := &c.layout, c.layout.Params
-	n := int(unsafe.Sizeof(*c)+unsafe.Sizeof(p)) + len(p.Text) + len(p.Spans) + len(p.Ellipsis) + len(p.Style.Family) + len(p.Style.Features)
+	n := int(unsafe.Sizeof(*c)+unsafe.Sizeof(p)) + len(p.Text) + len(p.Spans) + len(p.Ellipsis) + len(p.Style.Family) + len(p.Style.Features) + len(p.Style.Lang)
 	n += cap(l.Runes) * int(unsafe.Sizeof(rune(0)))
 	if cap(l.Lines) > 1 {
 		n += cap(l.Lines) * int(unsafe.Sizeof(Line{}))
@@ -731,6 +782,11 @@ func (s *System) layout(p Params) *cached {
 	spans := DecodeSpans(p.Spans)
 	c := &cached{layout: Layout{Params: p, Runes: runes}}
 	l := &c.layout
+	// The layout keeps its parameters as they came; the engine shapes in
+	// the system's language where they name none.
+	if p.Style.Lang == "" {
+		p.Style.Lang = s.lang
+	}
 	l.Lines = c.line[:0]
 	y := float32(0)
 	for start := 0; start <= len(runes); {
@@ -774,7 +830,7 @@ func (s *System) layout(p Params) *cached {
 		switch align {
 		case Center:
 			dx = (box - line.Width) / 2
-		case End:
+		case End, Right:
 			dx = box - line.Width
 		}
 		if dx != 0 {
@@ -797,7 +853,7 @@ func (s *System) paragraph(out []Line, p Params, spans []Span, runes []rune, sta
 	if n := len(text); n > 0 && text[n-1] == '\r' {
 		text = text[:n-1]
 	}
-	rtl := isRTL(text)
+	rtl := isRTL(text, p.RTL)
 	spans = spansIn(spans, start, start+len(text))
 	var shaped []shapedLine
 	if len(text) > 0 {
@@ -1043,8 +1099,8 @@ func advance(l shapedLine) float32 {
 }
 
 // isRTL reports whether a paragraph is right-to-left: whether its first
-// strongly directional rune is.
-func isRTL(para []rune) bool {
+// strongly directional rune is, else neutral.
+func isRTL(para []rune, neutral bool) bool {
 	for _, r := range para {
 		switch {
 		case unicode.In(r, unicode.Hebrew, unicode.Arabic, unicode.Syriac, unicode.Thaana, unicode.Nko, unicode.Samaritan, unicode.Mandaic, unicode.Adlam):
@@ -1053,5 +1109,5 @@ func isRTL(para []rune) bool {
 			return false
 		}
 	}
-	return false
+	return neutral
 }

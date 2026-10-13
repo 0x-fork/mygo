@@ -96,6 +96,9 @@ that must start instantly.
   installed.
 - [Clipboard and drag data](data-transfer.md): multiple representations,
   file lists, custom formats, lazy providers, and clipboard persistence.
+- [Languages](i18n.md): the app's messages in the languages it ships,
+  with catalogs of ICU messages, typed Go and TypeScript functions, plural
+  forms, MyGo's own strings, and pseudo locales to test layouts.
 - [Audio](audio.md): sound effects, streamed music and sound an app makes
   itself, mixed in Go, with WAV, Ogg Vorbis and MP3.
 - [Building and distributing](distribution.md): packaged apps for macOS,

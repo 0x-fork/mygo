@@ -24,7 +24,8 @@ import (
 // text, or a file path with Options.OpenLink.
 func View(c *ui.Context, t *Terminal) ui.Element {
 	v := t.viewOf(c)
-	e := ui.Box(c).Focusable().FocusRing(false).Clip().Label("Terminal")
+	// A terminal's grid is left to right in a right-to-left interface too.
+	e := ui.Box(c).Direction(ui.LeftToRight).Focusable().FocusRing(false).Clip().Label("Terminal")
 	v.build(c, e)
 	cursor := ui.CursorText
 	if v.hoverLink {

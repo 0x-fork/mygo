@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/raster"
 	"github.com/egoist/mygo/internal/scene"
@@ -22,6 +23,11 @@ type headless struct {
 	requested atomic.Bool
 	dark      bool
 	prefs     platform.Preferences
+	// lang and reg are what SetLocale and SetRegion set.
+	lang string
+	reg  i18n.Region
+	// rtl lays the window out right to left (SetDirection).
+	rtl       bool
 	clipboard string
 	// clipboardData is what WriteClipboardData copied, with its formats.
 	clipboardData transfer.Data
@@ -137,7 +143,10 @@ func (h *headless) finishDataDrag(r transfer.Result) {
 func (h *headless) titleBarDoubleClicked()            {}
 func (h *headless) escape()                           { h.escapes++ }
 func (h *headless) isDark() bool                      { return h.dark }
+func (h *headless) rightToLeft() bool                 { return h.rtl }
 func (h *headless) preferences() platform.Preferences { return h.prefs }
+func (h *headless) locale() string                    { return h.lang }
+func (h *headless) region() i18n.Region               { return h.reg }
 func (h *headless) titleBar() TitleBar                { return h.bar }
 func (h *headless) vibrancy() bool                    { return h.material }
 func (h *headless) invalidate()                       { h.requested.Store(true) }
@@ -266,6 +275,32 @@ func (t *Tester) SetPreferences(p Preferences) {
 		HighContrast: p.HighContrast, TextScale: float64(p.TextScale)}
 	t.rt.themeChanged()
 	t.settle()
+}
+
+// SetLocale makes tag the language the app shows, as mygo.App.SetLocale
+// does: the view reads it with Context.Locale, and text without a
+// language of its own is in it. A Tester starts with none, "", which
+// draws text as the system does by default.
+func (t *Tester) SetLocale(tag string) {
+	t.h.lang = tag
+	t.rt.changed()
+	t.settle()
+}
+
+// SetRegion changes the user's regional formats, which the view reads with
+// Context.Region, as the user does in the system's settings. A Tester
+// starts with the zero Region.
+func (t *Tester) SetRegion(r i18n.Region) {
+	t.h.reg = r
+	t.rt.changed()
+	t.settle()
+}
+
+// SetDirection lays the window out in d, as an app whose language reads
+// so: RightToLeft lays it out from the right.
+func (t *Tester) SetDirection(d Direction) {
+	t.h.rtl = d == RightToLeft
+	t.Frame()
 }
 
 // Frame renders another frame, as when the view's state changed.

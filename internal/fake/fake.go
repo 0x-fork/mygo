@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -34,6 +35,7 @@ type Backend struct {
 	mu               sync.Mutex
 	windows          []*Window
 	appMenu          *platform.Menu
+	popups           []Popup
 	updates          []*platform.MenuItem
 	hotkeys          map[int]string
 	clipboard        transfer.Data
@@ -46,6 +48,18 @@ type Backend struct {
 	theme                string
 	prefs                platform.Preferences
 	prefsReads           int
+	// languages and region are the user's (SetSystemLanguages,
+	// SetSystemRegion); en-US without them.
+	languages []string
+	region    *platform.Region
+	// KeepsLocale makes the backend keep the app's language, as macOS
+	// does, in SavedLocale; without it the core keeps it in a file.
+	KeepsLocale bool
+	savedLocale string
+	// UILanguages are the languages SetLanguages told last, and
+	// UIRightToLeft its direction.
+	UILanguages   []string
+	UIRightToLeft bool
 	// Watching reports whether power events were asked for, Awake counts the
 	// KeepAwake calls not released yet.
 	Watching bool
@@ -259,7 +273,25 @@ func (b *Backend) SetApplicationMenu(m *platform.Menu) {
 	b.mu.Unlock()
 }
 
-func (b *Backend) PopupMenu(*platform.Menu, platform.Window, *platform.Point) {}
+// PopupMenu notes the context menu shown, which Popups returns.
+func (b *Backend) PopupMenu(m *platform.Menu, _ platform.Window, pos *platform.Point) {
+	b.mu.Lock()
+	b.popups = append(b.popups, Popup{Menu: m, Pos: pos})
+	b.mu.Unlock()
+}
+
+// Popup is a context menu shown at Pos.
+type Popup struct {
+	Menu *platform.Menu
+	Pos  *platform.Point
+}
+
+// Popups returns the context menus shown, in order.
+func (b *Backend) Popups() []Popup {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.Clone(b.popups)
+}
 
 func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 	b.mu.Lock()
@@ -389,19 +421,22 @@ type Window struct {
 	// Flyout is how a flyout was placed last.
 	Flyout platform.Flyout
 
-	mu        sync.Mutex
-	scripts   []string
-	title     string
-	url       string
-	bounds    platform.Rect
-	visible   bool
-	focused   bool
-	minimized bool
-	maximized bool
-	full      bool
-	zoom      float64
-	closed    bool
-	devtools  bool
+	mu      sync.Mutex
+	scripts []string
+	// userScripts are what SetUserScripts set, or nil.
+	userScripts []platform.UserScript
+	menu        *platform.Menu
+	title       string
+	url         string
+	bounds      platform.Rect
+	visible     bool
+	focused     bool
+	minimized   bool
+	maximized   bool
+	full        bool
+	zoom        float64
+	closed      bool
+	devtools    bool
 	// Dropped is what DroppedFiles returns, once.
 	Dropped []string
 	// PDF holds the options of the last PrintToPDF.
@@ -453,6 +488,20 @@ func (w *Window) Scripts() []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return append([]string(nil), w.scripts...)
+}
+
+// ClearScripts forgets the scripts passed to Eval so far.
+func (w *Window) ClearScripts() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.scripts = nil
+}
+
+// Menu returns the menu SetMenu set last.
+func (w *Window) Menu() *platform.Menu {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.menu
 }
 
 func (w *Window) SetProgressBar(state string, value float64) {
@@ -572,7 +621,7 @@ func (w *Window) HasShadow() bool                    { return true }
 func (w *Window) SetIgnoreMouseEvents(bool)          {}
 func (w *Window) SetContentProtection(bool)          {}
 func (w *Window) SetVibrancy(string)                 {}
-func (w *Window) SetMenu(*platform.Menu)             {}
+func (w *Window) SetMenu(m *platform.Menu)           { w.mu.Lock(); w.menu = m; w.mu.Unlock() }
 func (w *Window) StartDrag()                         {}
 func (w *Window) TitleBarDoubleClicked()             {}
 func (w *Window) LoadURL(url string)                 { w.mu.Lock(); w.url = url; w.mu.Unlock() }
@@ -602,6 +651,25 @@ func (w *Window) addHTML(html string) {
 	defer w.mu.Unlock()
 	w.HTML = append(w.HTML, html)
 	w.url = "about:blank"
+}
+
+// SetUserScripts replaces the scripts of the pages loaded later, which
+// UserScripts returns.
+func (w *Window) SetUserScripts(scripts []platform.UserScript) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.userScripts = append([]platform.UserScript{}, scripts...)
+}
+
+// UserScripts returns the scripts a page loaded now gets: those of the
+// options, or the ones SetUserScripts set since.
+func (w *Window) UserScripts() []platform.UserScript {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.userScripts != nil {
+		return append([]platform.UserScript(nil), w.userScripts...)
+	}
+	return append([]platform.UserScript(nil), w.Opts.UserScripts...)
 }
 
 func (w *Window) Eval(js string) {
@@ -664,8 +732,48 @@ func (app) Bounce(bool) int                           { return 0 }
 func (app) CancelBounce(int)                          {}
 func (app) SetDockIcon([]byte) error                  { return nil }
 func (app) ShowAboutPanel(platform.AboutPanelOptions) {}
-func (app) Locale() string                            { return "en-US" }
 func (app) Package() (platform.PackageInfo, bool)     { return platform.PackageInfo{}, false }
+
+func (a app) PreferredLanguages() []string {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	if a.b.languages == nil {
+		return []string{"en-US"}
+	}
+	return append([]string(nil), a.b.languages...)
+}
+
+func (a app) Region() platform.Region {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	if a.b.region == nil {
+		return platform.Region{Locale: "en-US", FirstWeekday: 0, HourCycle: 12}
+	}
+	return *a.b.region
+}
+
+func (a app) SavedLocale() (string, bool) {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	return a.b.savedLocale, a.b.KeepsLocale
+}
+
+func (a app) SaveLocale(tag string) bool {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	if !a.b.KeepsLocale {
+		return false
+	}
+	a.b.savedLocale = tag
+	return true
+}
+
+func (a app) SetLanguages(tags []string, rtl bool) {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	a.b.UILanguages = append([]string(nil), tags...)
+	a.b.UIRightToLeft = rtl
+}
 
 func (a app) RegisterURLScheme(scheme, id, name string) error {
 	a.b.mu.Lock()
@@ -939,6 +1047,36 @@ func (b *Backend) SetPreferences(p platform.Preferences) {
 	b.prefs = p
 	b.mu.Unlock()
 	b.h.ThemeChanged()
+}
+
+// SetSystemLanguages changes the languages the user prefers, as the user
+// does in the system's settings, and reports it; none goes back to en-US.
+func (b *Backend) SetSystemLanguages(tags ...string) {
+	b.mu.Lock()
+	b.languages = append([]string(nil), tags...)
+	if len(tags) == 0 {
+		b.languages = nil
+	}
+	b.mu.Unlock()
+	b.h.LocaleChanged()
+}
+
+// SetSystemRegion changes the user's regional formats, as the user does
+// in the system's settings, and reports it.
+func (b *Backend) SetSystemRegion(r platform.Region) {
+	b.mu.Lock()
+	b.region = &r
+	b.mu.Unlock()
+	b.h.LocaleChanged()
+}
+
+// SetSavedLocale sets what the system keeps of the app's language, as the
+// user does choosing it in macOS's System Settings while the app is not
+// running.
+func (b *Backend) SetSavedLocale(tag string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.savedLocale = tag
 }
 
 // PreferenceReads returns how many times Preferences() read the backend,

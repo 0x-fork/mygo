@@ -178,7 +178,7 @@ func (p *comboboxParts) Popup(fn func(panel *node)) *node {
 	b := p.anchor.Bounds()
 	var panel *node
 	coreOverlay(c, func() {
-		panel = coreBox(c).MinWidth(b.W).Role(RoleList).AttachTo(p.anchor, AnchorBottomLeft, AnchorTopLeft)
+		panel = coreBox(c).MinWidth(b.W).Role(RoleList).AttachTo(p.anchor, AnchorBottomStart, AnchorTopStart)
 		// Pressing an option keeps the focus in the input.
 		panel.flags |= flagClickable | flagKeepFocus
 		panel.choosesItems = true
@@ -490,7 +490,7 @@ func coreTokenField(c *context, tokens *[]string, suggestions []string) *node {
 	f, in := field(c, func() *node {
 		for i := 0; i < len(*tokens); i++ {
 			tok := (*tokens)[i]
-			chip := coreRow(c).Key(tok).AlignItems(Center).Gap(t.Space(1)).Padding(t.Space(0.25), t.Space(1), t.Space(0.25), t.Space(2)).
+			chip := coreRow(c).Key(tok).AlignItems(Center).Gap(t.Space(1)).Padding(t.Space(0.25), 0).PaddingStart(t.Space(2)).PaddingEnd(t.Space(1)).
 				Radius(t.Radius).Background(t.SurfacePressed).Shrink(0)
 			chip.Children(func() {
 				coreText(c, tok).SingleLine()

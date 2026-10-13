@@ -94,6 +94,9 @@ func (e *node) spanStyle() Span {
 	if t.set&setFeatures != 0 {
 		s.Features = t.features
 	}
+	if t.set&setLang != 0 {
+		s.Lang = t.lang
+	}
 	if t.set&setDecoColor != 0 {
 		s.DecorationColor = t.decoColor
 	}
@@ -149,6 +152,9 @@ func over(s, base Span) Span {
 	}
 	if s.Features == "" {
 		s.Features = base.Features
+	}
+	if s.Lang == "" {
+		s.Lang = base.Lang
 	}
 	s.Italic = s.Italic || base.Italic
 	s.Underline = s.Underline || base.Underline

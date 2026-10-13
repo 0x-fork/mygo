@@ -219,7 +219,7 @@ func (w *window) popupMenuBar(key uintptr) {
 		w.menuKey = menuKey{popup: popup, key: key}
 		postMessage(w.hwnd, wmChar, key, 0)
 	}
-	cmd := w.b.trackPopup(popup, w.hwnd, pt)
+	cmd := w.b.trackPopup(popup, w.hwnd, pt, 0)
 	w.menuKey = menuKey{}
 	for i := count - 1; i >= 0; i-- {
 		procRemoveMenu.Call(popup, uintptr(i), mfByPosition)
@@ -368,18 +368,24 @@ func (b *Backend) PopupMenu(m *platform.Menu, pw platform.Window, pos *platform.
 	} else {
 		procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 	}
-	cmd := b.trackPopup(menu, owner, pt)
+	var flags uintptr
+	if m.RightToLeft {
+		// Its right edge at the point, laid out from the right.
+		flags = tpmRightAlign | tpmLayoutRTL
+	}
+	cmd := b.trackPopup(menu, owner, pt, flags)
 	if cmd != 0 {
 		b.menuCommand(cmd, w)
 	}
 }
 
-// trackPopup shows a popup menu and returns the chosen command, or 0.
-func (b *Backend) trackPopup(menu, owner uintptr, pt point) uint16 {
+// trackPopup shows a popup menu, with TrackPopupMenuEx's flags besides
+// those it always gives, and returns the chosen command, or 0.
+func (b *Backend) trackPopup(menu, owner uintptr, pt point, flags uintptr) uint16 {
 	// The owner must be in the foreground, or the menu does not close
 	// when the user clicks elsewhere.
 	procSetForegroundWindow.Call(owner)
-	cmd, _, _ := procTrackPopupMenuEx.Call(menu, tpmReturnCmd|tpmRightButton, uintptr(pt.X), uintptr(pt.Y), owner, 0)
+	cmd, _, _ := procTrackPopupMenuEx.Call(menu, tpmReturnCmd|tpmRightButton|flags, uintptr(pt.X), uintptr(pt.Y), owner, 0)
 	postMessage(owner, 0, 0, 0) // WM_NULL, as the documentation asks
 	return uint16(cmd)
 }

@@ -180,15 +180,22 @@ func (ed *editor) key(c *context, st *state, k editEvent) {
 	switch k.key {
 	case KeyLeft, KeyRight:
 		left := k.key == KeyLeft
+		// Words and line ends go the way the arrow points, as AppKit's
+		// moveWordLeft: and moveToLeftEndOfLine: do: back in the text of
+		// a left-to-right paragraph, forward in a right-to-left one.
+		forward := !left
+		if (word || mac && m == Super) && ed.caretParagraphRTL() {
+			forward = left
+		}
 		switch {
 		case mac && m == Super:
 			s, e := ed.lineEdges(ed.caret)
-			if left {
+			if !forward {
 				ed.move(s, shift)
 			} else {
 				ed.move(e, shift)
 			}
-		case word && left:
+		case word && !forward:
 			ed.move(b.prevWord(ed.caret), shift)
 		case word:
 			ed.move(b.nextWord(ed.caret), shift)

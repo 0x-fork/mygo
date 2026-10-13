@@ -186,12 +186,9 @@ func (s *OutlineState[K]) prefix(c *context, i int, children func(K) []K, conten
 
 		})
 		turn := arrow.Animate("open", 90*b2f(open), 150*time.Millisecond)
+		rtl := arrow.rtl()
 		arrow.Draw(func(p *Painter, rect Rect) {
-			cx, cy, d := rect.X+rect.W/2, rect.Y+rect.H/2, rect.W/8
-			var path Path
-			at := rotate(cx, cy, turn)
-			path.MoveTo(at(-d, -2*d)).LineTo(at(d, 0)).LineTo(at(-d, 2*d))
-			p.StrokePath(&path, 1.5, arrowColor(t, item))
+			p.StrokePath(disclosurePath(rect, turn, rtl), 1.5, arrowColor(t, item))
 		})
 	}
 	content()
@@ -219,8 +216,11 @@ func (s *OutlineState[K]) keys(owner *node, children func(K) []K) {
 	if sel == nil {
 		return
 	}
-	right, left := owner.Shortcut(0, KeyRight), owner.Shortcut(0, KeyLeft)
-	allRight, allLeft := owner.Shortcut(allMod, KeyRight), owner.Shortcut(allMod, KeyLeft)
+	// Right opens, toward where the rows' content goes; Left right to
+	// left.
+	back, forth := owner.arrows()
+	right, left := owner.Shortcut(0, forth), owner.Shortcut(0, back)
+	allRight, allLeft := owner.Shortcut(allMod, forth), owner.Shortcut(allMod, back)
 	i := *sel
 	if i < 0 || i >= len(s.rows) {
 		return

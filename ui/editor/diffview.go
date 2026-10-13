@@ -408,7 +408,7 @@ func DiffView(c *ui.Context, d *DiffState) ui.Element {
 		if d.Indicators == DiffClassic {
 			o.signs = true
 		}
-		root := ui.Box(c).Clip()
+		root := ui.Box(c).Direction(ui.LeftToRight).Clip()
 		root.Draw(func(p *ui.Painter, r ui.Rect) {
 			ed := &d.eds[1]
 			ed.layout(r.W, r.H, p.Scale())
@@ -433,7 +433,8 @@ func DiffView(c *ui.Context, d *DiffState) ui.Element {
 	}
 	// Side by side: two editors sharing their scroll.
 	d.scroll.eds = []*editor{&d.eds[0], &d.eds[1]}
-	row := ui.Row(c).Clip()
+	// The old text on the left, as code reads left to right.
+	row := ui.Row(c).Direction(ui.LeftToRight).Clip()
 	row.Draw(func(p *ui.Painter, r ui.Rect) {
 		w := (r.W - 1) / 2
 		for i := range d.eds {
