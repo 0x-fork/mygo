@@ -272,15 +272,19 @@ func gtkAccelerator(acc string) (uint32, uint32, bool) {
 func (b *Backend) SetApplicationMenu(m *platform.Menu) {
 	b.appMenu = m
 	for _, w := range b.windows {
-		if !w.ownMenu {
+		if !w.ownMenu && w.hasAppMenu() {
 			w.installMenu(m)
 		}
 	}
 }
 
+// hasAppMenu tells whether the window shows the application menu in its
+// menu bar: flyouts and panels show none.
+func (w *window) hasAppMenu() bool { return w.opts.Flyout == nil && !w.opts.Panel }
+
 func (w *window) SetMenu(m *platform.Menu) {
 	w.ownMenu = m != nil
-	if m == nil {
+	if m == nil && w.hasAppMenu() {
 		m = w.b.appMenu
 	}
 	w.installMenu(m)

@@ -5,6 +5,7 @@ package darwin
 import (
 	"fmt"
 	"math"
+	"os"
 	"sync"
 	"unsafe"
 
@@ -219,6 +220,18 @@ func TestSetWindowAppearance(handle uintptr, dark bool) {
 func TestWebViewAttached(handle uintptr) bool {
 	w := theBackend.byNSWindow[id(handle)]
 	return w != nil && send(w.web, "window") == w.win
+}
+
+// TestIsFrontmost reports whether the application is the frontmost one,
+// which NSApp's isActive does not tell while a nonactivating panel is the
+// key window: it reports the app active then.
+func TestIsFrontmost() bool {
+	var front bool
+	withPool(func() {
+		app := send(send(class("NSWorkspace"), "sharedWorkspace"), "frontmostApplication")
+		front = app != 0 && sendInt(app, "processIdentifier") == os.Getpid()
+	})
+	return front
 }
 
 // TestCollectionBehavior returns a window's NSWindowCollectionBehavior.

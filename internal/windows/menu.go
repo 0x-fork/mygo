@@ -248,7 +248,7 @@ func (w *window) menuChar(wp, lp uintptr) (uintptr, bool) {
 func (b *Backend) SetApplicationMenu(m *platform.Menu) {
 	b.appMenu = m
 	for _, w := range b.windows {
-		if !w.ownMenu {
+		if !w.ownMenu && w.hasAppMenu() {
 			w.installMenu(m)
 		}
 	}

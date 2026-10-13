@@ -271,6 +271,11 @@ type WindowOptions struct {
 	// takes the keyboard. Show of a flyout that is not focusable shows it
 	// without the keyboard, as ShowInactive.
 	Flyout *Flyout
+	// Panel makes the window a panel (mygo.WindowOptions.Panel): it floats
+	// above the windows of all apps on the current workspace, full-screen
+	// ones included, out of the taskbar and the app switcher, and on macOS
+	// takes the keyboard without activating the app.
+	Panel bool
 
 	// UserScripts are injected into every page, in order.
 	UserScripts []UserScript

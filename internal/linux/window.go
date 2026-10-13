@@ -217,7 +217,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 	w.accel = gtkAccelGroupNew()
 	gtkWindowAddAccelGroup(w.win, w.accel)
-	if b.appMenu != nil && o.Flyout == nil {
+	if b.appMenu != nil && w.hasAppMenu() {
 		w.installMenu(b.appMenu)
 	}
 	// GTK sizes the window inside the window manager's frame, with the menu
@@ -257,6 +257,9 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	gtkWidgetShowAll(w.box)
 	if o.Flyout != nil {
 		w.initFlyout()
+	}
+	if o.Panel {
+		w.initPanel()
 	}
 	if o.FullScreen {
 		gtkWindowFullscreen(w.win)
@@ -579,9 +582,9 @@ func (w *window) IsResizable() bool   { return gtkWindowGetResizable(w.win) }
 func (w *window) SetMovable(bool)     {}
 func (w *window) IsMovable() bool     { return true }
 func (w *window) SetMinimizable(bool) {}
-func (w *window) IsMinimizable() bool { return true }
+func (w *window) IsMinimizable() bool { return !w.opts.Panel }
 func (w *window) SetMaximizable(bool) {}
-func (w *window) IsMaximizable() bool { return gtkWindowGetResizable(w.win) }
+func (w *window) IsMaximizable() bool { return gtkWindowGetResizable(w.win) && !w.opts.Panel }
 func (w *window) SetClosable(v bool) {
 	gtkWindowSetDeletable(w.win, v)
 	if w.controls != nil {

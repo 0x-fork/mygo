@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"os/exec"
 	"slices"
 	"testing"
 	"time"
@@ -67,6 +68,16 @@ func drag(w *mygo.Window, points [][2]float64) bool {
 func webViewAttached(w *mygo.Window) (attached bool, supported bool) {
 	mygo.RunOnMain(func() { attached = darwin.TestWebViewAttached(w.NativeHandle()) })
 	return attached, true
+}
+
+// deactivateApp activates the Finder, as the user would.
+func deactivateApp() bool {
+	return exec.Command("open", "-a", "Finder").Run() == nil
+}
+
+func appActive() (active bool, supported bool) {
+	mygo.RunOnMain(func() { active = darwin.TestIsFrontmost() })
+	return active, true
 }
 
 func collectionBehavior(w *mygo.Window) (behavior uint, supported bool) {
@@ -261,3 +272,6 @@ func pressEscape(*mygo.Window) bool {
 	mygo.RunOnMain(func() { darwin.TestAppKey(53, "\x1b") })
 	return true
 }
+
+// Panels' window styles are Windows'.
+func panelStyles(*mygo.Window) (bool, bool, bool, bool) { return false, false, false, false }
