@@ -254,6 +254,11 @@ type Window struct {
 	// hear the room the window controls take. Main thread only.
 	hiddenTitleBar bool
 	menu           *Menu
+	// title is the title the app or the page set; representedFile and
+	// documentEdited are the document the window shows. Main thread only.
+	title           string
+	representedFile string
+	documentEdited  bool
 	// stateKey is WindowOptions.StateKey; stateTimer captures the state
 	// once it settled. Main thread only.
 	stateKey   string
@@ -440,6 +445,7 @@ func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyou
 	if w.stateKey != "" {
 		restoreWindowState(w.stateKey, popts)
 	}
+	w.title = popts.Title
 	nw, err := backend().NewWindow(popts, &windowHandler{w})
 	if err != nil {
 		panic(fmt.Sprintf("mygo: cannot create window: %v", err))
@@ -741,11 +747,68 @@ func (w *Window) Center() { w.do(platform.Window.Center) }
 
 // SetTitle sets the native window title.
 func (w *Window) SetTitle(title string) {
-	w.do(func(n platform.Window) { n.SetTitle(title) })
+	w.do(func(n platform.Window) {
+		w.title = title
+		w.applyTitle(n)
+	})
 }
 
-// Title returns the native window title.
-func (w *Window) Title() string { return get(w, platform.Window.Title) }
+// Title returns the window title, without the mark of an edited document
+// (see SetDocumentEdited).
+func (w *Window) Title() string {
+	return get(w, func(platform.Window) string { return w.title })
+}
+
+// SetRepresentedFile tells which file the window shows, "" for none. On
+// macOS the title bar shows its icon, which the user can drag, and
+// Command-clicking the title lists the folders it is in. Other platforms
+// show nothing. Documents (NewDocuments) set it for their windows.
+func (w *Window) SetRepresentedFile(path string) {
+	if path != "" {
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+	}
+	w.do(func(n platform.Window) {
+		w.representedFile = path
+		n.SetRepresentedFile(path)
+	})
+}
+
+// RepresentedFile returns the path SetRepresentedFile set.
+func (w *Window) RepresentedFile() string {
+	return onMainValue(func() string { return w.representedFile })
+}
+
+// SetDocumentEdited tells whether the window's document has unsaved
+// changes: a dot in the close button on macOS, and a "*" before the title
+// on Linux and Windows, as Notepad and gedit show it. Documents
+// (NewDocuments) set it for their windows.
+func (w *Window) SetDocumentEdited(edited bool) {
+	w.do(func(n platform.Window) {
+		if w.documentEdited == edited {
+			return
+		}
+		w.documentEdited = edited
+		n.SetDocumentEdited(edited)
+		w.applyTitle(n)
+	})
+}
+
+// IsDocumentEdited reports what SetDocumentEdited set.
+func (w *Window) IsDocumentEdited() bool {
+	return onMainValue(func() bool { return w.documentEdited })
+}
+
+// applyTitle gives the native window its title, marked when the document
+// is edited where the title bar has no other mark. Main thread only.
+func (w *Window) applyTitle(n platform.Window) {
+	title := w.title
+	if w.documentEdited && runtime.GOOS != "darwin" {
+		title = "*" + title
+	}
+	n.SetTitle(title)
+}
 
 // SetBounds moves and resizes the window.
 func (w *Window) SetBounds(r Rectangle) {
@@ -1667,7 +1730,8 @@ func (h *windowHandler) TitleChanged(title string) {
 	e := &TitleEvent{Title: title}
 	fire1(&h.w.onPageTitleUpdated, e)
 	if !e.prevented && h.w.native != nil {
-		h.w.native.SetTitle(title)
+		h.w.title = title
+		h.w.applyTitle(h.w.native)
 	}
 }
 

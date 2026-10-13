@@ -60,6 +60,7 @@ framework safely. Read it before changing anything under `internal/`.
 ├── cookies.go          Cookies: the pages' cookies, checked and keyed by name, domain and path
 ├── dialog.go modules.go clipboard.go: shell, clipboard, screen, theme, tray, shortcuts, notifications
 ├── watch.go watch_scan.go: WatchFiles, and what a watch saw of its directory
+├── document*.go        NewDocuments: documents, their saving, recovery copies, watches, menus
 ├── loop.go             main-thread queue: postMain / onMain / await
 ├── events.go           listener lists and the Preventable event types
 ├── single_instance.go  RequestSingleInstanceLock over a Unix socket
@@ -1495,6 +1496,63 @@ main thread, so watches work before the app runs and don't wait on it.
   The handles can't be given to the os package, which would tie them to the
   Go runtime's completion port. A handle closed still completes its I/O,
   which writes to its buffer, so a session lives until its completion.
+
+## Documents (`document*.go`)
+
+`NewDocuments` follows NSDocument and NSDocumentController for the
+bookkeeping and SwiftUI's 2026 `Document` for the shape (a snapshot on the
+main thread, the I/O on goroutines), with the recovery copies of VS Code
+and Zed. Everything is in the core; backends only show a window's
+document (`Window.SetRepresentedFile`, `SetDocumentEdited`) and replace
+files (`Backend.ReplaceFile`).
+
+- *State.* `Document[T]` embeds `docBase`, the state that doesn't depend on
+  the content's type, under one mutex: a change counter (`changes`), the
+  change the file has (`savedAt`) and the recovery copy (`backedUp`), the
+  edited flag, and the file's stamp (modification time and size) as last
+  read or written. `docOps` is what the generic half gives the rest:
+  `capture` takes the content and its change (on the main thread with a
+  `Snapshot`), `markSaved` makes a written snapshot the saved one (with
+  `Equal`, the document stays edited only if the content differs), so
+  edits made during a write stay unsaved, as NSDocument's change count
+  tokens and Zed's `did_save` keep them.
+- *Writes* of a document's file and of its recovery copy hold its `io`
+  mutex, which checks of the disk take too, so a watch never mistakes the
+  document's own write for another app's. `writeFileSafely` writes a
+  sibling, flushes it and replaces the file through the backend
+  (`NSFileManager`, `ReplaceFileW`, rename with mode and owner on Linux),
+  in place for hard links and folders the user can't create files in.
+  Save and autosave stat the file first: a stamp other than the one known
+  is a conflict.
+- *Pacing.* One timer per document fires after the edits stop: the
+  autosave delay for a document saved in place, a second for a recovery
+  copy, shortened so that a document edited without a pause is written at
+  least every 30 or 5 seconds (`dirtySince`).
+- *Recovery copies* live in `PathUserData/Recovery/<kind>/<session>`, a
+  session per running instance with an index of the copies, locked with
+  `flock` or `LockFileEx` while the instance runs; at launch an instance
+  takes the sessions whose lock it gets, reopens their documents edited
+  (in conflict when the file's stamp changed), writes them into its own
+  session, then removes the old ones.
+- *Watches.* One `WatchFiles` per folder of open documents, shared by
+  reference count; an event naming a document's file makes it look at the
+  disk (`checkDisk`), as focusing its window does. A rename within the
+  folder is followed.
+- *Closing and quitting* never nest an event loop: `OnClose` of a
+  document's window prevents a close that must save or ask, does it on a
+  goroutine (dialogs are sheets on macOS), then destroys the window. The
+  quit's `OnBeforeQuit` listener prevents a quit with edited documents,
+  saves them in place, writes their recovery copies or asks, then calls
+  `App.Quit` again (`docQuit.resolved` lets that one through), and
+  windows closing during a quit no longer ask.
+- *Launch.* `whenLaunched` runs once the launch arguments were delivered:
+  the kinds restore their recovery copies, the files queued by
+  `OnOpenFile` open, and then, with no document open, an untitled one.
+- *Menus.* The document roles go to `documentRole` before the window
+  roles; `refreshDocumentMenus` enables them for the focused window's
+  document when focus or a document's state changes, and
+  `updateRecentMenus` rebuilds the Open Recent submenus from
+  `recent-documents.json`.
 
 ## Native UI (`ui`)
 
@@ -3053,7 +3111,7 @@ shader generation commands are listed in [AGENTS.md](../AGENTS.md).
 
 | suite | command | covers |
 |---|---|---|
-| core | `go test .` | lifecycle, quit, IPC, channels, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
+| core | `go test .` | lifecycle, quit, documents, IPC, channels, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
 | CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, the console's output (replayed as a terminal shows it), resources (platform directories, universal pairs, staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime, `mygo-runtime` and the plugins' packages (against a fake Go side on the real runtime, `plugins/fake-go.ts`) |
@@ -3274,6 +3332,8 @@ which npm allows only for packages that exist: the first release uses an
 | ClearBrowsingData | default `WKWebsiteDataStore`, all types | the web context's website data manager | the WebView2 profile's `ClearBrowsingDataAll` (needs a window) |
 | permissions | `WKUIDelegate` media capture (camera, microphone) | `permission-request` (camera, microphone, geolocation, notifications) | `PermissionRequested` (the same four; WebView2 asks about others) |
 | file associations | `CFBundleDocumentTypes`; files arrive with `application:openURLs:` | desktop entry `MimeType` (`%U`), a shared-mime-info package in the .deb for types the app defines | ProgIDs and `OpenWithProgids` written by the installer |
+| document windows | `representedURL` (proxy icon, Command-click folder menu) and `setDocumentEdited:` (the dot), then the traffic lights are laid out again | the core puts `*` before the title | the core puts `*` before the title |
+| replacing a document's file | `-[NSFileManager replaceItemAtURL:withItemAtURL:…]` (permissions, dates, extended attributes, ACLs, identity) | rename after `chmod` and `lchown` to the target's | `ReplaceFileW`, retried on sharing violations |
 | recent documents | `noteNewRecentDocumentURL:` / `clearRecentDocuments:` of the shared `NSDocumentController` (the Dock menu) | `gtk_recent_manager_add_item`, removing the items of `g_get_application_name()` | `SHAddToRecentDocs` (`SHARD_PATHW`), `IApplicationDestinations::RemoveAllDestinations`; the process keeps the AppUserModelID the shell derives from its path, which the installer's shortcuts have too |
 | jump list tasks | ignored | ignored | `ICustomDestinationList`: the Recent category, `AddUserTasks` with an `IShellLinkW` per task (`PKEY_Title`), `CommitList` |
 | Dock menu | `applicationDockMenu:` | ignored | ignored |

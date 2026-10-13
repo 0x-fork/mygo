@@ -97,6 +97,12 @@ type Backend interface {
 	// called on a goroutine of the backend, one notice at a time.
 	// NewFileWatch may be called before Init, from any goroutine.
 	NewFileWatch(notify func(FileWatchNotice)) (FileWatch, error)
+	// ReplaceFile replaces the file at target with the file at
+	// replacement, in the same directory, keeping what the system keeps of
+	// the target's metadata (permissions, owner, extended attributes,
+	// creation date); replacement is gone afterwards. It may be called
+	// before Init, from any goroutine.
+	ReplaceFile(target, replacement string) error
 
 	NewTray(h TrayHandler) (Tray, error)
 	RegisterHotkey(id int, accelerator string) error
@@ -319,6 +325,14 @@ type Window interface {
 
 	SetTitle(title string)
 	Title() string
+	// SetRepresentedFile shows the file a window shows, "" for none: the
+	// proxy icon of the title bar and its menu of folders (macOS). Other
+	// platforms do nothing.
+	SetRepresentedFile(path string)
+	// SetDocumentEdited shows that the window's document has unsaved
+	// changes: the dot of the close button (macOS). Other platforms do
+	// nothing; the core marks the title there.
+	SetDocumentEdited(edited bool)
 	SetBounds(r Rect)
 	Bounds() Rect
 	SetContentBounds(r Rect)

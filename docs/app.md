@@ -176,6 +176,9 @@ It also gets files dropped on the app's Dock icon (macOS) and files passed
 on the command line. As with deep links, the single instance lock makes the
 first instance get the files of later ones on Windows and Linux.
 
+Apps whose windows each show a file get this and the rest of what
+document-based apps do from [documents](documents.md).
+
 ## Recent documents
 
 Record the documents the user opens, so that the system offers them again:

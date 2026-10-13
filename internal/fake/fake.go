@@ -81,6 +81,11 @@ type Backend struct {
 	OpenResult    []string
 	SaveResult    string
 	MessageResult platform.MessageBoxResult
+	// OnOpenDialog, OnSaveDialog and OnMessageBox, when set, answer the
+	// dialogs instead of the results above. They run on the main thread.
+	OnOpenDialog func(opts *platform.OpenDialogOptions) []string
+	OnSaveDialog func(opts *platform.SaveDialogOptions) string
+	OnMessageBox func(opts *platform.MessageBoxOptions) platform.MessageBoxResult
 	// NotificationError, when set, is what showing a notification fails
 	// with.
 	NotificationError error
@@ -405,6 +410,10 @@ type Window struct {
 	OnAllWorkspaces bool
 	AutoHidesMenu   bool
 	Icon            []byte
+	// RepresentedFile and DocumentEdited are what SetRepresentedFile and
+	// SetDocumentEdited set.
+	RepresentedFile string
+	DocumentEdited  bool
 	// TitleBarRoom is what TitleBar returns: set for windows with a hidden
 	// title bar, and changed by tests before they call H.TitleBarChanged.
 	TitleBarRoom platform.TitleBar
@@ -448,6 +457,15 @@ func (w *Window) FlashFrame(v bool)                { w.mu.Lock(); w.Flashing = v
 func (w *Window) SetSkipTaskbar(v bool)            { w.mu.Lock(); w.SkipsTaskbar = v; w.mu.Unlock() }
 func (w *Window) SetVisibleOnAllWorkspaces(v bool) { w.mu.Lock(); w.OnAllWorkspaces = v; w.mu.Unlock() }
 func (w *Window) SetAutoHideMenu(v bool)           { w.mu.Lock(); w.AutoHidesMenu = v; w.mu.Unlock() }
+func (w *Window) SetRepresentedFile(p string)      { w.mu.Lock(); w.RepresentedFile = p; w.mu.Unlock() }
+func (w *Window) SetDocumentEdited(v bool)         { w.mu.Lock(); w.DocumentEdited = v; w.mu.Unlock() }
+
+// Document returns what SetRepresentedFile and SetDocumentEdited set.
+func (w *Window) Document() (path string, edited bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.RepresentedFile, w.DocumentEdited
+}
 func (w *Window) SetIcon(png []byte) error {
 	if png != nil && !bytes.HasPrefix(png, []byte("\x89PNG")) {
 		return errors.New("fake: not a PNG image")
@@ -717,13 +735,25 @@ func (a app) SetJumpListTasks(tasks []platform.JumpListTask) error {
 
 type dialogs struct{ b *Backend }
 
-func (d dialogs) ShowOpenDialog(_ platform.Window, _ *platform.OpenDialogOptions, cb func([]string, error)) {
+func (d dialogs) ShowOpenDialog(_ platform.Window, o *platform.OpenDialogOptions, cb func([]string, error)) {
+	if f := d.b.OnOpenDialog; f != nil {
+		cb(f(o), nil)
+		return
+	}
 	cb(d.b.OpenResult, nil)
 }
-func (d dialogs) ShowSaveDialog(_ platform.Window, _ *platform.SaveDialogOptions, cb func(string, error)) {
+func (d dialogs) ShowSaveDialog(_ platform.Window, o *platform.SaveDialogOptions, cb func(string, error)) {
+	if f := d.b.OnSaveDialog; f != nil {
+		cb(f(o), nil)
+		return
+	}
 	cb(d.b.SaveResult, nil)
 }
-func (d dialogs) ShowMessageBox(_ platform.Window, _ *platform.MessageBoxOptions, cb func(platform.MessageBoxResult, error)) {
+func (d dialogs) ShowMessageBox(_ platform.Window, o *platform.MessageBoxOptions, cb func(platform.MessageBoxResult, error)) {
+	if f := d.b.OnMessageBox; f != nil {
+		cb(f(o), nil)
+		return
+	}
 	cb(d.b.MessageResult, nil)
 }
 

@@ -529,3 +529,6 @@ func TestRecentDocuments() []string {
 	}
 	return paths
 }
+
+// TestWindowTitle returns the text of a window's title bar.
+func TestWindowTitle(hwnd uintptr) string { return (&window{hwnd: hwnd}).Title() }

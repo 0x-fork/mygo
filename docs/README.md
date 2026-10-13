@@ -83,6 +83,9 @@ that must start instantly.
 - [The application](app.md): the lifecycle, quitting, a single instance,
   deep links, file associations, recent documents, starting at login,
   well-known directories, the jump list, browsing data and cookies.
+- [Documents](documents.md): document-based apps, a window per file, with
+  the File menu, autosave, recovery after a crash, asking to save before
+  closing and quitting, and files changed by other apps.
 - [Menus and the tray](menus.md): application, context and Dock menus,
   keyboard shortcuts and tray icons.
 - [Desktop APIs](native.md): dialogs, notifications, the clipboard, the

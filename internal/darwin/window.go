@@ -457,6 +457,27 @@ func (w *window) SetTitle(title string) {
 	w.layoutTrafficLights()
 }
 
+// SetRepresentedFile shows the file's proxy icon in the title bar, which
+// the user drags, and whose ⌘-click menu lists its folders.
+func (w *window) SetRepresentedFile(path string) {
+	withPool(func() {
+		var url id
+		if path != "" {
+			url = fileURL(path)
+		}
+		send(w.win, "setRepresentedURL:", uintptr(url))
+	})
+	// AppKit lays the title bar's buttons out again.
+	w.layoutTrafficLights()
+}
+
+// SetDocumentEdited shows the dot in the close button, and dims the proxy
+// icon.
+func (w *window) SetDocumentEdited(edited bool) {
+	send(w.win, "setDocumentEdited:", boolArg(edited))
+	w.layoutTrafficLights()
+}
+
 func (w *window) Title() string {
 	var s string
 	withPool(func() { s = goString(send(w.win, "title")) })

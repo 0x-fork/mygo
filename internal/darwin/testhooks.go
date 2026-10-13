@@ -754,3 +754,68 @@ func TestObserve(handle uintptr) (stop func()) {
 		})
 	}
 }
+
+// TestDocumentChrome describes what a window's title bar shows of its
+// document: the title, the file of the proxy icon, whether the icon
+// shows, and the dot of an edited document.
+func TestDocumentChrome(handle uintptr) (title, file string, icon, edited bool) {
+	withPool(func() {
+		w := id(handle)
+		title = goString(send(w, "title"))
+		if u := send(w, "representedURL"); u != 0 {
+			file = goString(send(u, "path"))
+		}
+		const documentIconButton = 4 // NSWindowDocumentIconButton
+		if b := send(w, "standardWindowButton:", documentIconButton); b != 0 {
+			icon = !sendBool(b, "isHidden")
+		}
+		edited = sendBool(w, "isDocumentEdited")
+	})
+	return
+}
+
+// TestSheet returns the texts of the alert attached to a window as a
+// sheet, and its button titles in the order the alert was given them
+// (their tags), which TestEndSheetButton takes.
+func TestSheet(handle uintptr) (texts, buttons []string, ok bool) {
+	withPool(func() {
+		sheet := send(id(handle), "attachedSheet")
+		if sheet == 0 {
+			return
+		}
+		ok = true
+		tagged := map[int]string{}
+		var walk func(v id)
+		walk = func(v id) {
+			switch {
+			case sendBool(v, "isKindOfClass:", uintptr(class("NSButton"))):
+				if t := goString(send(v, "title")); t != "" {
+					tagged[sendInt(v, "tag")-nsAlertFirstButtonReturn] = t
+				}
+			case sendBool(v, "isKindOfClass:", uintptr(class("NSTextField"))):
+				if t := goString(send(v, "stringValue")); t != "" {
+					texts = append(texts, t)
+				}
+			}
+			for _, sub := range arrayItems(send(v, "subviews")) {
+				walk(sub)
+			}
+		}
+		walk(send(sheet, "contentView"))
+		for i := 0; i < len(tagged); i++ {
+			buttons = append(buttons, tagged[i])
+		}
+	})
+	return
+}
+
+// TestEndSheetButton ends the alert attached to a window as a sheet as if
+// its button i, in the order the alert was given them, was clicked.
+func TestEndSheetButton(handle uintptr, i int) bool {
+	sheet := send(id(handle), "attachedSheet")
+	if sheet == 0 {
+		return false
+	}
+	send(id(handle), "endSheet:returnCode:", uintptr(sheet), uintptr(nsAlertFirstButtonReturn+i))
+	return true
+}

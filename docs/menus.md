@@ -58,6 +58,9 @@ shortcut, which `Label` and `Accelerator` override:
   `RoleResetZoom`, `RoleZoomIn`, `RoleZoomOut`;
 - the window: `RoleToggleFullScreen`, `RoleMinimize`, `RoleZoom`,
   `RoleClose`;
+- [documents](documents.md#the-file-menu): `RoleNew`, `RoleOpen`,
+  `RoleOpenRecent`, `RoleSave`, `RoleSaveAs`, `RoleDuplicate`,
+  `RoleRename`, `RoleMoveTo`, `RoleRevert`;
 - the app: `RoleQuit`, and on macOS `RoleAbout`, `RoleHide`,
   `RoleHideOthers`, `RoleUnhide`, `RoleFront`, `RoleServices`,
   `RoleStartSpeaking`, `RoleStopSpeaking`;
@@ -95,7 +98,8 @@ paste work.
 
 On Linux and Windows menu bars belong to windows. `App.SetMenu` gives its
 menu to every window without one of its own, `Window.SetMenu` gives a
-window its own, and windows have none by default. `App.SetMenu(nil)`
+window its own, and windows have none by default, except in apps with
+[documents](documents.md), which get File and Edit menus. `App.SetMenu(nil)`
 removes the menu.
 
 On Windows, menu bars and menus follow the appearance, light or dark, as

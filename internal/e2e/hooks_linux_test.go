@@ -314,5 +314,14 @@ func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 // pressEscape presses Escape, as the keyboard does.
 func pressEscape(*mygo.Window) bool { return pressKeys("Escape") }
 
+// GTK shows no document but the title.
+func documentChrome(w *mygo.Window) (title, file string, icon, edited, supported bool) {
+	mygo.RunOnMain(func() { title = linux.TestWindowTitle(w.NativeHandle()) })
+	return title, "", false, false, true
+}
+
+func sheet(*mygo.Window) ([]string, []string, bool, bool) { return nil, nil, false, false }
+func endSheetButton(*mygo.Window, int) bool               { return false }
+
 // Panels' window styles are Windows'.
 func panelStyles(*mygo.Window) (bool, bool, bool, bool) { return false, false, false, false }

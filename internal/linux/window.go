@@ -391,6 +391,10 @@ func (w *window) WebViewHandle() uintptr { return w.web }
 func (w *window) SetTitle(title string) { gtkWindowSetTitle(w.win, cs(title)) }
 func (w *window) Title() string         { return goStr(gtkWindowGetTitle(w.win)) }
 
+// The core marks the title of an edited document; GTK shows no file.
+func (w *window) SetRepresentedFile(string) {}
+func (w *window) SetDocumentEdited(bool)    {}
+
 // extents are the widths of the edges around a rectangle.
 type extents struct{ left, top, right, bottom int32 }
 

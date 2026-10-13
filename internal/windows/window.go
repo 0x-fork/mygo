@@ -585,6 +585,10 @@ func (w *window) Title() string {
 	return string(utf16Decode(buf))
 }
 
+// The core marks the title of an edited document; Windows shows no file.
+func (w *window) SetRepresentedFile(string) {}
+func (w *window) SetDocumentEdited(bool)    {}
+
 func utf16Decode(b []uint16) []rune {
 	for i, c := range b {
 		if c == 0 {

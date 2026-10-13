@@ -291,5 +291,20 @@ func pressEscape(*mygo.Window) bool {
 	return true
 }
 
+func documentChrome(w *mygo.Window) (title, file string, icon, edited, supported bool) {
+	mygo.RunOnMain(func() { title, file, icon, edited = darwin.TestDocumentChrome(w.NativeHandle()) })
+	return title, file, icon, edited, true
+}
+
+func sheet(w *mygo.Window) (texts, buttons []string, ok, supported bool) {
+	mygo.RunOnMain(func() { texts, buttons, ok = darwin.TestSheet(w.NativeHandle()) })
+	return texts, buttons, ok, true
+}
+
+func endSheetButton(w *mygo.Window, i int) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestEndSheetButton(w.NativeHandle(), i) })
+	return ok
+}
+
 // Panels' window styles are Windows'.
 func panelStyles(*mygo.Window) (bool, bool, bool, bool) { return false, false, false, false }
