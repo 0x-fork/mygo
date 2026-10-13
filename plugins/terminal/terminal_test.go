@@ -1040,3 +1040,60 @@ func TestOnScrollTakesTheWheel(t *testing.T) {
 		t.Errorf("OnScroll saw %v without alternate scroll", seen)
 	}
 }
+
+// TestOnZoom: Options.OnZoom takes the wheel with Control (Command on
+// macOS) in notches, rolling up positive, before OnScroll and a program
+// that takes the mouse.
+func TestOnZoom(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	var zooms, scrolls []int
+	term, err := New(Options{
+		Conn:     conn,
+		OnZoom:   func(steps int) { zooms = append(zooms, steps) },
+		OnScroll: func(rows int) bool { scrolls = append(scrolls, rows); return true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	zoomMod := ui.Cmd
+	wheel := func(mods ui.Modifiers, dy float32, precise bool) {
+		term.v.scroll(ui.InputEvent{Kind: ui.InputScroll, DY: dy, Mods: mods, Precise: precise})
+	}
+	wheel(zoomMod, -40, false) // a notch up
+	wheel(zoomMod, 40, false)  // and down
+	wheel(zoomMod, -120, false)
+	if !slices.Equal(zooms, []int{1, -1, 1}) {
+		t.Errorf("notches zoomed %v, want [1 -1 1]: one step an event", zooms)
+	}
+	// A trackpad's moves add up to notches of 40.
+	zooms = nil
+	for range 6 {
+		wheel(zoomMod, -15, true)
+	}
+	if !slices.Equal(zooms, []int{1, 1}) {
+		t.Errorf("a trackpad zoomed %v, want [1 1]", zooms)
+	}
+	if scrolls != nil {
+		t.Errorf("OnScroll saw %v while zooming", scrolls)
+	}
+	// Without the modifier the wheel scrolls.
+	zooms = nil
+	wheel(0, -40, false)
+	if zooms != nil || !slices.Equal(scrolls, []int{-3}) {
+		t.Errorf("a plain notch zoomed %v and scrolled %v", zooms, scrolls)
+	}
+	// A program that takes the mouse gets no report of a zoom.
+	term.Feed([]byte("\x1b[?1002h\x1b[?1006h"))
+	tt.Frame()
+	wheel(zoomMod, -40, false)
+	if !slices.Equal(zooms, []int{1}) {
+		t.Errorf("zoomed %v while the program took the mouse", zooms)
+	}
+	if got := conn.take(1); got != "" {
+		t.Errorf("a zoom sent %q to the program", got)
+	}
+}

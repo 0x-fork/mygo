@@ -144,6 +144,12 @@ type Options struct {
 	// whose history lives at the other end, as a remote multiplexer
 	// streaming only its screen.
 	OnScroll func(rows int) bool
+	// OnZoom, when set, takes the wheel with Control held (Command on
+	// macOS) on the main thread, before OnScroll and a program that takes
+	// the mouse: steps is how many notches, rolling up positive, as an app
+	// that sizes its text by the wheel wants. A trackpad's moves add up to
+	// notches.
+	OnZoom func(steps int)
 }
 
 // CursorStyle is the shape of the cursor.

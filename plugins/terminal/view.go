@@ -111,6 +111,7 @@ type view struct {
 	copying  string
 	pasting  bool
 	scrolled float32 // scrolling not yet a whole row
+	zoomed   float32 // wheel with the zoom modifier not yet a notch
 	ticking  bool    // an autoscroll tick is due
 }
 
@@ -747,6 +748,26 @@ func (v *view) scroll(ev ui.InputEvent) bool {
 	t := v.t
 	if v.cellH == 0 {
 		return false
+	}
+	if on := t.opts.OnZoom; on != nil && ev.Mods&ui.Cmd != 0 {
+		// Rolling up is a step up. DY is the scroll offset's change, so up
+		// comes negative; a wheel's event is a notch, a trackpad's many
+		// small moves, which add up to a step by 40.
+		if !ev.Precise {
+			switch {
+			case ev.DY < 0:
+				on(1)
+			case ev.DY > 0:
+				on(-1)
+			}
+			return true
+		}
+		v.zoomed -= ev.DY
+		if steps := int(v.zoomed / 40); steps != 0 {
+			v.zoomed -= float32(steps) * 40
+			on(steps)
+		}
+		return true
 	}
 	ch := float32(v.cellH) / v.scale
 	dy := ev.DY

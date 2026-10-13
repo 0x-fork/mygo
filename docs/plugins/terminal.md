@@ -172,6 +172,11 @@ term, err := terminal.New(terminal.Options{
   screen (alternate scroll, which `\x1b[?1007l` turns off). A `Conn`
   whose history lives at the other end, as a remote multiplexer streaming
   only its screen, sends the wheel there this way.
+- `OnZoom` takes the wheel with Control held (Command on macOS) on the
+  main thread, before `OnScroll` and a program that takes the mouse: it
+  gets how many notches, rolling up positive, as an app that sizes its
+  text by the wheel wants. A wheel's event is a notch; a trackpad's moves
+  add up to them.
 
 ## Fonts
 
