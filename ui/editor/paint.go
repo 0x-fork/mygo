@@ -321,9 +321,14 @@ func (ed *editor) paintLine(p *ui.Painter, r ui.Rect, f *frame, line int, g line
 		if y > p.Visible().Y+p.Visible().H || y+lh < p.Visible().Y {
 			continue
 		}
-		// Backgrounds: the line's, then the caret's line.
+		// Backgrounds: the line's, the app's, then the caret's line.
 		if style.bg.A > 0 {
 			p.Fill(ui.Rect{X: textRect.X, Y: y, W: textRect.W, H: lh}, style.bg, 0)
+		}
+		for _, b := range ed.o.backgrounds {
+			if line >= b.First && line <= b.Last && b.Color.A > 0 {
+				p.Fill(ui.Rect{X: textRect.X, Y: y, W: textRect.W, H: lh}, b.Color, 0)
+			}
 		}
 		if active && !lineSelected {
 			p.Fill(ui.Rect{X: textRect.X, Y: y, W: textRect.W, H: lh}, ct.ActiveLine, 0)
