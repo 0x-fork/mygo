@@ -1953,7 +1953,11 @@ either.
   rows are measured, and the others are estimated as their average; the
   content's size, and its offset, are where those heights put the rows,
   in float64, as all scroll offsets are, so that millions of rows scroll
-  by fractions of a DIP. Rows are placed relative to the list, the offset
+  by fractions of a DIP. Following its end with a `FollowAnimation`, a
+  list notes where the top of its last row was placed; as rows grow or
+  come, that row goes up, and the rows show as far below their place,
+  which a motion channel takes back to nothing (`glideToEnd`), counted
+  as at the end. Rows are placed relative to the list, the offset
   they were placed at kept as `scrollBase` for placing and revealing. An
   offset the wheel, the keys, the scroll bar or the app changed moves the
   place by as much when it is a step (up to two views), so rows not
@@ -2158,6 +2162,37 @@ either.
     the editor reads back after the build, as a query typed. Separators
     are built by the diff view across both sides, over the room their
     blocks leave.
+- **Markdown** (`ui/markdown`), on ui's public API as `ui/editor` is, whose
+  tokenizers highlight its code. The parser, `ui/markdown/parser`,
+  imports nothing of ui, so that `ui/richtext` reads Markdown without the
+  view; the view reaches it through its exported methods only
+  (`Source`, `Footnote`, `Block.Revision` and `Healed`). It follows cmark-gfm's two
+  phases over flat blocks and inlines with byte offsets: a block parser
+  with a stack of open blocks, line by line, closing those a line does not
+  match before adding a block, so that blocks go in document order; and
+  inlines parsed per block when first asked, with cmark's guards against
+  quadratic inputs (the bottoms of openers, backtick runs, comments and
+  math remembered unclosed). Appending text truncates the blocks from the
+  outermost block open after the last complete line (`restart`), which
+  CommonMark makes sound: no rule looks ahead, and those rewriting an
+  earlier block touch only open ones; the partial last line never decides
+  what is closed. Definitions made or unmade parse anew the inlines of the
+  blocks that looked their labels up, and the inlines of blocks parsed
+  again are reused when their text is the same. An edit parses from the
+  top-level block before it until a top-level block starts with nothing
+  open (`quiet`) where one did, and splices the old ones after, shifted.
+  Streaming completes the tail's inlines from the openers the parser left
+  (`heal.go`) and holds back lines that may still change. The view keeps
+  the document in its root's local state and the spans of each paragraph
+  by block, links as inline `Link` elements, a code block's tokens by line
+  and its text in chunks of 32 lines; it reveals text at a pace, fading it
+  by span colors and element opacity, which only paint. A `Selectable`
+  root's `CopyData` and `SelectedTexts` map paragraphs' runes back to
+  source offsets, to copy text with block separators, Markdown, and the
+  HTML of that Markdown parsed again, which `ui/richtext` pastes with its
+  formatting, as it reads Markdown with the same parser
+  (`ParseMarkdown`). Links open in the system only when `ui.SafeToOpen`
+  allows them, in both.
 - **Rich text** (`ui/richtext`). Package `richtext` edits attributed text
   on ui's public API, as `ui/editor` does: a focusable box with a text
   input client, `HandleInput`, `Draw`, `Access` and its own scrolling, and
@@ -2209,7 +2244,10 @@ either.
   controls and `Unselectable` subtrees do not participate. A drag near
   a scroll edge asks for frames until scrolling stops. Inline children
   contribute to their paragraph once, and preparation waits for their
-  final text so a rebuild preserves the selection.
+  final text so a rebuild preserves the selection. A paragraph whose text
+  only grew at its end keeps the selection, as a reply streaming in. A
+  container's `CopyData` makes what Copy writes from the parts
+  `SelectedTexts` returns: each paragraph's ID, text and runes selected.
 - **Tables** (`ui/table.go`, `ui/editable.go`). A table's rows are a
   `List`'s that scrolls both ways: the list lays its rows out at least as
   wide as the columns ask (`rowMinW`), and the header, outside the list,

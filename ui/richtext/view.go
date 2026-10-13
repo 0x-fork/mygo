@@ -27,7 +27,8 @@ type EditorOptions struct {
 	// NoMarkdown turns off the Markdown shortcuts: "# " at the start of a
 	// paragraph making a heading, **bold** making bold, and the others.
 	NoMarkdown bool
-	// OnLink opens the URL of a link clicked, instead of the system.
+	// OnLink opens the URL of a link clicked, instead of the system,
+	// which opens only those ui.SafeToOpen allows.
 	OnLink func(url string)
 	// OnLinkCommand runs for ⌘K (Ctrl+K), as an app asks for the URL of a
 	// link in a popover and sets it with Document.SetLink. Without it,
@@ -472,6 +473,8 @@ func (look *look) span(text string, a Attributes, st ParagraphStyle) ui.Span {
 		if s.Background.A == 0 {
 			s.Background = look.code
 		}
+		// A pill hugging the code, as Markdown views show it.
+		s.Radius = max(3, s.Size/4)
 	}
 	if a.Link != "" {
 		if s.Color.A == 0 {

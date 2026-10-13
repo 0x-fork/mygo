@@ -163,6 +163,12 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
 - [Diff viewer](diff-viewer.md): the changes between two texts, side by
   side or unified, with the new text editable and changes to review.
 
+## Documents
+
+- [Markdown](markdown.md): CommonMark and GitHub's Markdown, as finished
+  documents or a language model's replies streaming in, selectable and
+  copied as text or Markdown.
+
 ## Dates and colors
 
 - [Calendar](calendar.md): a month choosing a day.

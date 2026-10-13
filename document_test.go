@@ -113,6 +113,13 @@ func readString(t *testing.T, path string) string {
 	return string(b)
 }
 
+// fileIs reports whether the file at path holds want, false while it
+// cannot be read: Windows refuses to open a file being replaced.
+func fileIs(path, want string) bool {
+	b, err := os.ReadFile(path)
+	return err == nil && string(b) == want
+}
+
 func TestDocumentOpen(t *testing.T) {
 	ds := testDocs(t, DocumentsOptions[string]{Autosave: AutosaveOff, Equal: func(a, b string) bool { return a == b }})
 	path := writeTemp(t, "notes.txt", "hello")
@@ -247,7 +254,7 @@ func TestDocumentAutosave(t *testing.T) {
 	path := writeTemp(t, "auto.txt", "a")
 	d, _ := ds.Open(path)
 	d.Set("b")
-	waitFor(t, "the autosave", func() bool { return readString(t, path) == "b" && !d.IsEdited() })
+	waitFor(t, "the autosave", func() bool { return fileIs(path, "b") && !d.IsEdited() })
 
 	// A saved document closes without asking, saving first.
 	asked := answer("Cancel")
@@ -508,7 +515,7 @@ func TestDocumentMenus(t *testing.T) {
 	d, _ := ds.Open(path)
 	d.Set("2")
 	documentRole(RoleSave, d.Window())
-	waitFor(t, "Save", func() bool { return readString(t, path) == "2" })
+	waitFor(t, "Save", func() bool { return fileIs(path, "2") })
 	n := len(allDocuments())
 	documentRole(RoleNew, nil)
 	waitFor(t, "New", func() bool { return len(allDocuments()) == n+1 })

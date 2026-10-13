@@ -204,7 +204,7 @@ func (v *view) paste(matchStyle bool) {
 	var t Text
 	ok := false
 	if !matchStyle {
-		d := v.services.ReadClipboardData(Format, transfer.HTML, RTF, transfer.Text)
+		d := v.services.ReadClipboardData(Format, transfer.HTML, RTF, transfer.Markdown, transfer.Text)
 		if b, err := d.Read(Format); err == nil {
 			t, ok = decodeClip(b)
 		}
@@ -217,6 +217,12 @@ func (v *view) paste(matchStyle bool) {
 			// TextEdit, Pages and WordPad copy RTF without HTML.
 			if b, err := d.Read(RTF); err == nil && len(b) > 0 {
 				t, ok = ParseRTF(b), true
+			}
+		}
+		if !ok {
+			// Markdown apps and Markdown views copy it.
+			if b, err := d.Read(transfer.Markdown); err == nil && len(b) > 0 {
+				t, ok = ParseMarkdown(string(b)), true
 			}
 		}
 		if !ok {

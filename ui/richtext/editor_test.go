@@ -2,6 +2,7 @@ package richtext
 
 import (
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -492,5 +493,25 @@ func TestRichTextParagraphKeys(t *testing.T) {
 	}
 	if _, c := doc.Selection(); c != want {
 		t.Fatalf("down to %d, want %d", c, want)
+	}
+}
+
+// TestRichTextLinkOpensSafely clicks links: only those ui.SafeToOpen
+// allows open, as "calc" would run a program on Windows.
+func TestRichTextLinkOpensSafely(t *testing.T) {
+	doc := NewDocument(TextOf(
+		Paragraph{Runs: []Run{{Text: "run", Attributes: Attributes{Link: "calc"}}}},
+		Paragraph{Runs: []Run{{Text: "site", Attributes: Attributes{Link: "https://example.com"}}}},
+	))
+	tt, _ := richTester(t, doc)
+	for y := float32(2); y < 80; y += 4 {
+		tt.Move(10, y)
+		if tt.Cursor() == ui.CursorPointer {
+			tt.ClickAt(10, y)
+		}
+	}
+	got := tt.OpenedURLs()
+	if len(got) == 0 || slices.ContainsFunc(got, func(u string) bool { return u != "https://example.com" }) {
+		t.Errorf("opened %q", got)
 	}
 }

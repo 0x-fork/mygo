@@ -198,6 +198,10 @@ func TestMarkdownEscapes(t *testing.T) {
 		{TextOf(para(ParagraphStyle{}, Run{Text: "x!"}, Run{Text: "y", Attributes: Attributes{Link: "http://e"}})), `x\![y](http://e)`},
 		{TextOf(para(ParagraphStyle{}, Run{Text: "a``b", Attributes: Attributes{Code: true}})), "```a``b```"},
 		{TextOf(para(ParagraphStyle{}, Run{Text: "`x", Attributes: Attributes{Code: true}})), "`` `x ``"},
+		// Delimiters that cannot open or close where they are.
+		{TextOf(para(ParagraphStyle{}, Run{Text: "foo.", Attributes: Attributes{Weight: 700}}, Run{Text: "bar"})), "<strong>foo.</strong>bar"},
+		{TextOf(para(ParagraphStyle{}, Run{Text: "x"}, Run{Text: "(y)", Attributes: Attributes{Italic: true}})), "x<em>(y)</em>"},
+		{TextOf(para(ParagraphStyle{}, Run{Text: "foo.", Attributes: Attributes{Weight: 700}}, Run{Text: " bar"})), "**foo.** bar"},
 	} {
 		if got := c.text.Markdown(); got != c.want {
 			t.Errorf("%q: got %q, want %q", c.text.String(), got, c.want)

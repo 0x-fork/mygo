@@ -27,7 +27,11 @@ type Span struct {
 	DecorationColor     Color
 	DecorationThickness float32
 	// Background highlights the span, as search results are.
-	Background    Color
+	Background Color
+	// Radius rounds the corners of the Background, which then hugs the
+	// span's glyphs, a little wider than them, rather than filling the
+	// line, as code within text shows.
+	Radius        float32
 	LetterSpacing float32
 	Features      string // as for Element.FontFeatures, comma separated
 	// ObjectWidth and ObjectHeight, when ObjectWidth is set, make each
@@ -101,6 +105,9 @@ type spanCache struct {
 	styles []text.Span
 	key    string
 	paints bool
+	// inline holds the spans of a paragraph with elements inside it, its
+	// own and theirs, made again each frame (inlineSpans).
+	inline []Span
 }
 
 // spanCache returns the element's spanCache, making it the first time.
@@ -322,9 +329,16 @@ func (sp *spanPaint) backgrounds(p *Painter, line *text.Line, x, y float32) {
 		saved := p.transform
 		p.transform = saved.Mul(p.inlineTransform(line.Glyphs[i].Cluster))
 		defer func() { p.transform = saved }()
-		if k >= 0 && sp.spans[k].Background.A > 0 {
-			p.Fill(Rect{x + x0, y + line.Y, x1 - x0, line.Height}, sp.spans[k].Background, 0)
+		if k < 0 || sp.spans[k].Background.A == 0 {
+			return
 		}
+		if r := sp.spans[k].Radius; r > 0 {
+			size := line.Glyphs[i].Size
+			px := min(size*0.22, r)
+			p.Fill(Rect{x + x0 - px, y + line.Baseline - size*0.98, x1 - x0 + 2*px, size * 1.32}, sp.spans[k].Background, r)
+			return
+		}
+		p.Fill(Rect{x + x0, y + line.Y, x1 - x0, line.Height}, sp.spans[k].Background, 0)
 	})
 }
 

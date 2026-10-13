@@ -89,7 +89,8 @@ level, and items next to each other make a list, numbered at each level from
 1 (in letters and Roman numerals below the first).
 
 `MarshalJSON` and `UnmarshalJSON` save a text. `Markdown` and `HTML` export
-it, and `ParseHTML` and `ParseRTF` read HTML and RTF, as a paste does.
+it, and `ParseMarkdown`, `ParseHTML` and `ParseRTF` read Markdown, HTML and
+RTF, as a paste does.
 
 ## Documents
 
@@ -186,7 +187,10 @@ Paragraphs behave as in Notes and Google Docs:
 - Backspace at the start of a list's item, a heading, a quotation or a
   block of code takes the style away before joining the paragraph to the
   one above.
-- A click on a task's check box checks it, and a click on a link opens it.
+- A click on a task's check box checks it, and a click on a link opens it:
+  an `http`, `https` or `mailto` address (`ui.SafeToOpen`), as Markdown
+  views open them, since other schemes and paths run programs on Windows.
+  `OnLink` opens links itself instead.
 
 The Markdown shortcuts format what is typed: at the start of a paragraph,
 `# ` to `###### ` make headings, `- `, `* ` and `+ ` bulleted lists, `1. `
@@ -241,7 +245,9 @@ Copying puts the selection on the clipboard in three formats:
 - plain text.
 
 Pasting reads the richest format the clipboard holds: the editor's own,
-then HTML, then RTF, then plain text.
+then HTML, then RTF, then Markdown (`transfer.Markdown`, which Markdown
+views and apps copy), then plain text. A [Markdown view](markdown.md)'s
+selection pastes with its formatting.
 
 - HTML, as browsers, mail, Word and Google Docs copy it, keeps its
   headings, lists, task lists, quotations, blocks of code, alignment,
@@ -289,6 +295,15 @@ in `ui/richtext`).
 - headings, lists, task lists, quotations and fenced blocks of code;
 - `**bold**`, `*italic*`, `~~strikethrough~~`, `` `code` ``, links and
   images;
-- underlines as `<u>`.
+- underlines as `<u>`, and as `<strong>`, `<em>` and `<del>` the marks
+  that Markdown's delimiters cannot open or close where they are, as bold
+  "foo." right before "bar".
 
 Alignment, fonts and colors have no Markdown and are left out.
+
+`ParseMarkdown` reads it back, and what a model or another app wrote:
+CommonMark with GitHub's extensions and footnotes, with the parser of
+[Markdown views](markdown.md) (`ui/markdown/parser`). A list item's
+paragraphs after its first are indented under it, and a table's rows are
+paragraphs of their cells apart by tabs. Math stays as written, as the
+editor does not show it. What `Markdown` writes reads back the same.

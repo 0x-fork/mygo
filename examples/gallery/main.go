@@ -28,6 +28,7 @@ import (
 
 type gallery struct {
 	win *mygo.Window
+	md  markdownDemo
 	// router shows the pages: "/overview", "/list", and a row of the list,
 	// "/list/42".
 	router *ui.Router
@@ -269,7 +270,7 @@ func makeMessage(id int) message {
 	return message{id: id, text: strings.Join(lines, " "), mine: r%3 == 0}
 }
 
-var pages = []string{"Overview", "Controls", "Text", "Rich Text", "List", "Charts", "Styling", "Drawing", "Glass", "Overlays", "Motion"}
+var pages = []string{"Overview", "Controls", "Text", "Rich Text", "List", "Charts", "Markdown", "Styling", "Drawing", "Glass", "Overlays", "Motion"}
 
 // icon parses the shapes of a 24×24 stroked icon, drawn in currentColor
 // as icon sets draw them.
@@ -286,6 +287,7 @@ var (
 		"Rich Text": icon(`<path d="M6 4h6a4 4 0 0 1 0 8H6zM6 12h7a4 4 0 0 1 0 8H6z"/>`),
 		"List":      icon(`<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>`),
 		"Charts":    icon(`<path d="M3 3v18h18"/><path d="M8 17v-5M13 17V8M18 17v-8"/>`),
+		"Markdown":  icon(`<rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M6 15V9l2.5 3L11 9v6M15.5 9v6M13.5 13l2 2 2-2"/>`),
 		"Styling":   icon(`<path d="M12 21a9 9 0 1 1 9-9c0 2.5-2 3.5-3.5 3.5H16a2 2 0 0 0-1.5 3.3c.4.5.4 2.2-2.5 2.2z"/><circle cx="7.5" cy="11" r="1"/><circle cx="11" cy="7" r="1"/><circle cx="16" cy="8.5" r="1"/>`),
 		"Drawing":   icon(`<path d="M15 5l4 4M4 20l1-4.5L16.5 4a2.1 2.1 0 0 1 3 3L8 18.5z"/>`),
 		"Glass":     icon(`<rect x="3" y="6" width="18" height="12" rx="6"/><path d="M7 10.5a3 3 0 0 1 2.5-1.5"/>`),
@@ -356,6 +358,8 @@ func (g *gallery) view(c *ui.Context) {
 						g.list(c)
 					case "Charts":
 						g.charts(c)
+					case "Markdown":
+						g.markdownPage(c)
 					case "Styling":
 						g.styling(c)
 					case "Drawing":
@@ -450,7 +454,7 @@ func (g *gallery) sidebar(c *ui.Context) {
 			for k, section := range []struct {
 				title string
 				pages []string
-			}{{"Widgets", pages[:5]}, {"Look", pages[5:]}} {
+			}{{"Widgets", pages[:6]}, {"Look", pages[6:]}} {
 				ui.SidebarSection(c, section.title, &g.sectionsOpen[k], func() {
 					for _, p := range section.pages {
 						item := ui.SidebarItem(c, p, pageIcons[p], p)

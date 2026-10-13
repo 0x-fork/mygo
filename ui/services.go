@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"weak"
 
 	"github.com/egoist/mygo/transfer"
@@ -69,4 +70,27 @@ func (s Services) OpenURL(url string) {
 	if rt := s.owner.Value(); rt != nil && !rt.closed {
 		rt.host.openURL(url, nil)
 	}
+}
+
+// SafeToOpen reports whether a link to url can open in the system when
+// others wrote it, as a message, a language model's reply or a pasted
+// document: an http, https or mailto address. Other schemes and paths
+// open files and run programs (on Windows, "calc" and \\host\x.exe
+// run), and javascript: runs script in a browser. Markdown views and the
+// rich text editor open only these, unless the app opens links itself.
+func SafeToOpen(url string) bool {
+	for i := 0; i < len(url); i++ {
+		if c := url[i]; c < ' ' || c == 0x7f || c == '\\' {
+			return false
+		}
+	}
+	scheme, _, ok := strings.Cut(url, ":")
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(scheme) {
+	case "http", "https", "mailto":
+		return true
+	}
+	return false
 }

@@ -630,7 +630,7 @@ func (v *view) release(ev ui.InputEvent) bool {
 	if link != "" && v.caret == v.selAnchor {
 		if v.opts.OnLink != nil {
 			v.opts.OnLink(link)
-		} else if link := safeLink(link); link != "" {
+		} else if ui.SafeToOpen(link) {
 			v.services.OpenURL(link)
 		}
 	}
