@@ -1432,6 +1432,36 @@ func TestWindowExtras(t *testing.T) {
 	}
 }
 
+// A window that cannot go full screen is an auxiliary of full-screen Spaces
+// while it is visible on all workspaces, which lets an accessory app show it
+// over other apps in full screen (#309), and it still cannot go full screen
+// itself.
+func TestVisibleOnAllWorkspacesWithoutFullScreen(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Title: "Overlay", Width: 300, Height: 120, AlwaysOnTop: true, DisableFullScreen: true})
+	const auxiliary, none = 1 << 8, 1 << 9 // NSWindowCollectionBehaviorFullScreen…
+	b, ok := collectionBehavior(w)
+	if !ok {
+		t.Skip("collection behaviors are macOS's")
+	}
+	if b&none == 0 {
+		t.Fatalf("DisableFullScreen: behavior %#x lacks FullScreenNone", b)
+	}
+	w.SetVisibleOnAllWorkspaces(true)
+	if b, _ = collectionBehavior(w); b&auxiliary == 0 || b&none != 0 {
+		t.Errorf("visible on all workspaces: behavior %#x, want FullScreenAuxiliary without FullScreenNone", b)
+	}
+	w.SetFullScreen(true)
+	time.Sleep(1500 * time.Millisecond) // longer than the full-screen animation
+	if w.IsFullScreen() {
+		w.SetFullScreen(false)
+		t.Error("a window with DisableFullScreen went full screen")
+	}
+	w.SetVisibleOnAllWorkspaces(false)
+	if b, _ = collectionBehavior(w); b&none == 0 || b&auxiliary != 0 {
+		t.Errorf("no longer on all workspaces: behavior %#x, want FullScreenNone back", b)
+	}
+}
+
 func TestURLScheme(t *testing.T) {
 	const scheme = "mygo-e2e"
 	switch runtime.GOOS {
