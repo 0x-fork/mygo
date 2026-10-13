@@ -88,6 +88,9 @@ that must start instantly.
 - [Desktop APIs](native.md): dialogs, notifications, the clipboard, the
   shell, displays, dark mode, power, the network status, secrets, watching
   files and global shortcuts.
+- [Launchers](launchers.md): apps in the manner of Spotlight and Raycast,
+  summoned by a shortcut over every app, which find and open the apps
+  installed.
 - [Clipboard and drag data](data-transfer.md): multiple representations,
   file lists, custom formats, lazy providers, and clipboard persistence.
 - [Audio](audio.md): sound effects, streamed music and sound an app makes
