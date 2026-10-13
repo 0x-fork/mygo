@@ -726,6 +726,9 @@ type Shell interface {
 	ShowItemInFolder(path string)
 	TrashItem(path string) error
 	Beep()
+	// FileIcon returns the icon the file manager shows for a file, a
+	// folder or an application, as a PNG image of size by size pixels.
+	FileIcon(path string, size int) ([]byte, error)
 }
 
 // Display describes a monitor.

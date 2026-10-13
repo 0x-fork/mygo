@@ -46,6 +46,26 @@ func (ShellModule) TrashItem(path string) error {
 	return onMainValue(func() error { return backend().Shell().TrashItem(path) })
 }
 
+// FileIcon returns the icon the file manager shows for a file, a folder or
+// an application, as a PNG image of size by size pixels: pass the size in
+// DIPs times the display's scale factor for a sharp icon. On Windows path
+// may also name a shell item, such as an app of the Start menu by its
+// shell:AppsFolder\<AppUserModelID> path; on Linux, the icon of a desktop
+// entry (.desktop) is its application's, from the icon theme. It fails
+// in browsers.
+func (ShellModule) FileIcon(path string, size int) ([]byte, error) {
+	needsApp("Shell.FileIcon")
+	if size <= 0 {
+		return nil, errors.New("mygo: Shell.FileIcon: size must be positive")
+	}
+	var png []byte
+	err := onMainValue(func() (err error) {
+		png, err = backend().Shell().FileIcon(path, size)
+		return err
+	})
+	return png, err
+}
+
 // Beep plays the system alert sound.
 func (ShellModule) Beep() {
 	needsApp("Shell.Beep")

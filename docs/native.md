@@ -145,6 +145,24 @@ mygo.Shell.TrashItem(path)                     // to the trash
 mygo.Shell.Beep()
 ```
 
+`FileIcon` returns the icon the file manager shows for a file, a folder
+or an application, as a PNG of the size asked for in pixels: pass the size
+in DIPs times the display's scale factor.
+
+```go
+png, err := mygo.Shell.FileIcon("/Applications/Safari.app", 64)
+```
+
+On macOS it is Finder's icon (`NSWorkspace`), drawn from the
+representation that fits the size best; a symbolic link has the icon of
+what it points to, without Finder's arrow. On Windows it is Explorer's
+(`IShellItemImageFactory`, icons only, no thumbnails), and the path may
+also name a shell item, such as an app of the Start menu by
+`shell:AppsFolder\<AppUserModelID>`. On Linux it is the icon of the file's
+content type from the icon theme, and for a desktop entry (`.desktop`), the
+icon of its application, or where the theme has none, that of desktop
+entries.
+
 ## Displays
 
 `mygo.Screen` describes the connected displays, in device-independent

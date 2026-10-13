@@ -1830,6 +1830,7 @@ var needsAppCalls = []struct {
 	{"Shell.ShowItemInFolder", func() { Shell.ShowItemInFolder("/") }},
 	{"Shell.TrashItem", func() { Shell.TrashItem("/nonexistent") }},
 	{"Shell.Beep", func() { Shell.Beep() }},
+	{"Shell.FileIcon", func() { Shell.FileIcon("/", 16) }},
 	{"Clipboard.ReadText", func() { Clipboard.ReadText() }},
 	{"Clipboard.WriteText", func() { Clipboard.WriteText("x") }},
 	{"Clipboard.ReadHTML", func() { Clipboard.ReadHTML() }},

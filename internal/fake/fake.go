@@ -7,6 +7,9 @@ import (
 	"bytes"
 	"cmp"
 	"errors"
+	"image"
+	"image/png"
+	"os"
 	"runtime"
 	"strconv"
 	"sync"
@@ -796,6 +799,17 @@ func (shell) OpenPath(string) error     { return nil }
 func (shell) ShowItemInFolder(string)   {}
 func (shell) TrashItem(string) error    { return nil }
 func (shell) Beep()                     {}
+
+// FileIcon returns a transparent PNG of the size asked for, or the error of
+// a path that does not exist.
+func (shell) FileIcon(path string, size int) ([]byte, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, size, size)))
+	return buf.Bytes(), err
+}
 
 type power struct{ b *Backend }
 
