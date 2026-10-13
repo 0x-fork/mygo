@@ -46,6 +46,10 @@ type Backend struct {
 	// KeepAwake calls not released yet.
 	Watching bool
 	Awake    int
+	// Online and Constrained are what Network.Status answers with, and
+	// WatchingNetwork whether Network.Watch was called.
+	Online, Constrained bool
+	WatchingNetwork     bool
 	// URLSchemes are the registered URL schemes, by scheme: "id name".
 	URLSchemes map[string]string
 	// LoginItem is the command that starts the app at login: "id name arg".
@@ -245,6 +249,7 @@ func (b *Backend) Shell() platform.Shell     { return shell{} }
 func (b *Backend) Screen() platform.Screen   { return screen{} }
 func (b *Backend) Theme() platform.Theme     { return theme{b} }
 func (b *Backend) Power() platform.Power     { return power{b} }
+func (b *Backend) Network() platform.Network { return network{b} }
 func (b *Backend) Secrets() platform.Secrets { return secrets{b} }
 
 func (b *Backend) NewTray(platform.TrayHandler) (platform.Tray, error) { return &tray{}, nil }
@@ -767,6 +772,24 @@ func (power) IdleTime() time.Duration { return 42 * time.Second }
 
 // EmitPower simulates a power or session event.
 func (b *Backend) EmitPower(event string) { b.h.PowerEvent(event) }
+
+type network struct{ b *Backend }
+
+func (n network) Status() platform.NetworkStatus {
+	n.b.mu.Lock()
+	defer n.b.mu.Unlock()
+	return platform.NetworkStatus{Online: n.b.Online, Constrained: n.b.Constrained}
+}
+
+func (n network) Watch() {
+	n.b.mu.Lock()
+	defer n.b.mu.Unlock()
+	n.b.WatchingNetwork = true
+}
+
+// EmitNetwork reports a network status to the app, as a backend does when
+// it may have changed.
+func (b *Backend) EmitNetwork(status platform.NetworkStatus) { b.h.NetworkChanged(status) }
 
 type screen struct{}
 

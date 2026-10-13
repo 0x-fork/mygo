@@ -1678,6 +1678,7 @@ var needsAppCalls = []struct {
 	{"Notification.Show", func() { NewNotification(NotificationOptions{}).Show() }},
 	{"Power.KeepAwake", func() { Power.KeepAwake("test", false) }},
 	{"Power.IdleTime", func() { Power.IdleTime() }},
+	{"Network.Status", func() { Network.Status() }},
 	{"Dialog.Open", func() { Dialog.Open(OpenDialogOptions{}) }},
 	{"Dialog.Save", func() { Dialog.Save(SaveDialogOptions{}) }},
 	{"Dialog.Message", func() { Dialog.Message(MessageOptions{}) }},
