@@ -70,6 +70,10 @@ type window struct {
 	flyoutSize                  platform.Size
 	placed, grabbed, dismissing bool
 	unmaps                      int
+	// layer tells that a panel is a layer surface (layer.go), put at
+	// layerAt, or centered by the compositor without it.
+	layer   bool
+	layerAt *platform.Point
 
 	closed       bool
 	programmatic bool
@@ -161,6 +165,9 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 	w.win = gtkWindowNew(typ)
 	gtkWindowSetTitle(w.win, cs(o.Title))
+	if o.Panel {
+		w.initLayer() // before anything realizes the window
+	}
 	if o.Center {
 		gtkWindowSetPosition(w.win, 1) // GTK_WIN_POS_CENTER
 	} else {
@@ -231,6 +238,9 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 		width, height = width-f.left-f.right, height-f.top-f.bottom
 	}
 	gtkWindowSetDefaultSize(w.win, max(width, 1), max(height, 1))
+	if w.layer {
+		w.sizeLayer(max(width, 1), max(height, 1))
+	}
 
 	connect(w.win, "delete-event", cbDeleteEvent, data)
 	connect(w.win, "destroy", cbDestroy, data)
@@ -245,7 +255,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if w.web != 0 {
 		b.byWebView[w.web] = w
 	}
-	if o.Frameless && o.Flyout == nil && b.announceCSD != nil {
+	if o.Frameless && o.Flyout == nil && !w.layer && b.announceCSD != nil {
 		// GTK asks a Wayland compositor that speaks
 		// org_kde_kwin_server_decoration (KWin, COSMIC, Sway…) to decorate
 		// every window it does not decorate itself, an undecorated one
@@ -456,7 +466,13 @@ func (w *window) contentInsets() extents {
 
 // SetBounds asks for the bounds of the window manager's frame: GTK moves
 // the frame and sizes the window inside it.
-func (w *window) SetBounds(r platform.Rect) { w.setBounds(r, false) }
+func (w *window) SetBounds(r platform.Rect) {
+	if w.layer {
+		w.setLayerBounds(r)
+		return
+	}
+	w.setBounds(r, false)
+}
 
 func (w *window) SetContentBounds(r platform.Rect) {
 	w.setBounds(w.frameExtents().grow(w.contentInsets().grow(r)), true)
@@ -512,6 +528,9 @@ func (w *window) constrain(width, height int32) (int32, int32) {
 // Bounds returns the bounds of the window manager's frame, which are the
 // window's own without one.
 func (w *window) Bounds() platform.Rect {
+	if w.layer {
+		return w.layerBounds()
+	}
 	if w.requested != nil {
 		return *w.requested
 	}
@@ -607,6 +626,9 @@ func (w *window) Show() {
 		w.showFlyout(w.flyout.Focusable)
 		return
 	}
+	if w.layer {
+		w.layerKeyboard(true)
+	}
 	w.willShow()
 	gtkWidgetShow(w.win)
 	gtkWindowPresent(w.win)
@@ -616,6 +638,9 @@ func (w *window) ShowInactive() {
 	if w.opts.Flyout != nil {
 		w.showFlyout(false)
 		return
+	}
+	if w.layer {
+		w.layerKeyboard(false)
 	}
 	w.willShow()
 	gtkWidgetShow(w.win)
@@ -664,6 +689,9 @@ func (w *window) Focus() {
 		return
 	}
 	w.b.dismissFlyouts(w)
+	if w.layer {
+		w.layerKeyboard(true)
+	}
 	w.willShow() // presenting shows a hidden window
 	gtkWindowPresent(w.win)
 }
@@ -729,6 +757,10 @@ func (w *window) DroppedFiles() []string {
 }
 
 func (w *window) Center() {
+	if w.layer {
+		w.centerLayer()
+		return
+	}
 	b := w.Bounds()
 	for _, d := range (screen{}).Displays() {
 		if d.Primary {

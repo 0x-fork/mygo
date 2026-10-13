@@ -389,13 +389,21 @@ How each platform shows them:
 
 | | macOS | Linux | Windows |
 |---|---|---|---|
-| window | an `NSPanel` with the nonactivating style, never the main window | a utility window (`_NET_WM_WINDOW_TYPE_UTILITY`), kept above, out of the taskbar and the pager | a topmost tool window (`WS_EX_TOOLWINDOW`), owned by a hidden window, so it never has a taskbar button, with Windows 11's rounded corners |
+| window | an `NSPanel` with the nonactivating style, never the main window | a utility window (`_NET_WM_WINDOW_TYPE_UTILITY`), kept above, out of the taskbar and the pager; a surface of the overlay layer under Wayland (gtk-layer-shell) | a topmost tool window (`WS_EX_TOOLWINDOW`), owned by a hidden window, so it never has a taskbar button, with Windows 11's rounded corners |
 | workspaces | every Space, as a full-screen auxiliary (`CanJoinAllSpaces`, `FullScreenAuxiliary`), out of Mission Control and the window cycle | every workspace (sticky) | the virtual desktop it shows on |
-| keyboard | the key window, the app staying inactive | the active window | the foreground window, which the key press of a global shortcut lets it take |
+| keyboard | the key window, the app staying inactive | the active window; on a layer surface, exclusively while it shows | the foreground window, which the key press of a global shortcut lets it take |
 
 Under Wayland, where apps neither place nor raise their windows, a panel
-is a window as others: the compositor decides where it shows and what is
-above it.
+is a surface of the layer shell where the compositor speaks the protocol
+(Sway, Hyprland, KDE Plasma, COSMIC…) and `libgtk-layer-shell.so.0` is
+installed, as launchers there are: it shows on the overlay layer, above
+windows in full screen too, out of the taskbar, centered on the output
+the user is on, or where `X` and `Y` or `SetPosition` put it. It keeps the
+keyboard while it shows, as other launchers there do, so that it gets the
+keys from the start: it is blurred only as it hides, so close it on
+Escape, which the user presses there. Elsewhere, as on GNOME, which has no
+layer shell, it is a window as others: the compositor decides where it
+shows and what is above it.
 
 ## Events
 

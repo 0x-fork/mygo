@@ -22,6 +22,9 @@ const (
 // minimizes nor maximizes (the Motif hints GDK sets). The options keep it
 // above other windows and out of the taskbar.
 func (w *window) initPanel() {
+	if w.layer {
+		return // initLayer made it a layer surface
+	}
 	loadFlyouts()
 	panelOnce.Do(func() { mustBind(libGDK, &gdkWindowSetFunctions, "gdk_window_set_functions") })
 	gtkWindowSetTypeHint(w.win, typeHintUtility)
