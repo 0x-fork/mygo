@@ -37,10 +37,11 @@ func newEngine() engine {
 
 // Core Foundation, Core Text and Core Graphics structs passed by value.
 type (
-	cfRange struct{ location, length int }
-	cgPoint struct{ x, y float64 }
-	cgSize  struct{ w, h float64 }
-	cgRect  struct{ x, y, w, h float64 }
+	cfRange           struct{ location, length int }
+	cgPoint           struct{ x, y float64 }
+	cgSize            struct{ w, h float64 }
+	cgRect            struct{ x, y, w, h float64 }
+	cgAffineTransform struct{ a, b, c, d, tx, ty float64 }
 
 	ctParagraphStyleSetting struct {
 		spec  uint32
@@ -114,6 +115,7 @@ var ct struct {
 	fontGetDescent        func(font uintptr) float64
 	fontGetLeading        func(font uintptr) float64
 	fontGetSize           func(font uintptr) float64
+	fontGetMatrix         func(font uintptr) cgAffineTransform
 	fontGetSymbolicTraits func(font uintptr) uint32
 	fontGetUnderlinePos   func(font uintptr) float64
 	fontGetUnderlineThick func(font uintptr) float64
@@ -250,6 +252,7 @@ func loadCoreText() error {
 	bind(text, &ct.fontGetDescent, "CTFontGetDescent")
 	bind(text, &ct.fontGetLeading, "CTFontGetLeading")
 	bind(text, &ct.fontGetSize, "CTFontGetSize")
+	bind(text, &ct.fontGetMatrix, "CTFontGetMatrix")
 	bind(text, &ct.fontGetSymbolicTraits, "CTFontGetSymbolicTraits")
 	bind(text, &ct.fontGetBoundingRects, "CTFontGetBoundingRectsForGlyphs")
 	bind(text, &ct.fontDrawGlyphs, "CTFontDrawGlyphs")
@@ -394,6 +397,15 @@ type coreText struct {
 	fonts   map[uint][]*Font  // by CFHash of their CTFont
 	// native finds Fonts by their CTFont, which they retain.
 	native map[uintptr]*Font
+	// oblique maps an upright Font to its synthetic italic variant. Both
+	// are retained by fonts, and have distinct glyph/outline cache keys.
+	oblique map[*Font]*Font
+	// italic names an attribute that marks the runes of italic spans in a
+	// text that is not italic, owned, so that Core Text ends a run where
+	// italics start or stop even when both sides are in one font, as a
+	// CJK font without an italic face. Any value marks them; it is its
+	// own.
+	italic uintptr
 	// attrs are the attributes of strings in a font of primary, in each
 	// direction, without tracking or kerning, owned.
 	attrs map[attrsKey]uintptr
@@ -438,10 +450,12 @@ func newCoreText() (*coreText, error) {
 		primary:    map[Style]uintptr{},
 		fonts:      map[uint][]*Font{},
 		native:     map[uintptr]*Font{},
+		oblique:    map[*Font]*Font{},
 		attrs:      map[attrsKey]uintptr{},
 		color:      map[uintptr]bool{},
 		registered: map[string][]registeredFace{},
 		bands:      map[bandKey][2]float32{},
+		italic:     cfString("MyGoItalic"),
 	}
 	for i, dir := range [2]int8{0, 1} { // kCTWritingDirectionLeftToRight, RightToLeft
 		d := dir
@@ -681,6 +695,47 @@ func (e *coreText) ctFont(style Style) uintptr {
 	return font
 }
 
+// obliqueSkew slants synthetic italics by 14°, as WebKit does.
+var obliqueSkew = math.Tan(14 * math.Pi / 180)
+
+// syntheticItalic returns a slanted copy of a font without an italic face,
+// owned, or 0 when it has one. Core Text's y axis points up, so a positive
+// c moves the glyph's top right. A font already transformed is left as it
+// is, and color glyphs stay upright, as Core Text draws their bitmaps.
+func syntheticItalic(font uintptr) uintptr {
+	if font == 0 || ct.fontGetSymbolicTraits(font)&(ctFontItalicTrait|ctFontColorGlyphsTrait) != 0 {
+		return 0
+	}
+	matrix := ct.fontGetMatrix(font)
+	if matrix.c != 0 {
+		return 0
+	}
+	matrix.c = obliqueSkew
+	with := ct.fontWithAttrs(font, 0, uintptr(unsafe.Pointer(&matrix)), 0)
+	runtime.KeepAlive(&matrix)
+	return with
+}
+
+// runFont returns the Font of a run's CTFont, slanted when the run is
+// italic and the font has no italic face: the font of an italic style, or
+// one Core Text fell back to for glyphs it lacks, as CJK fonts.
+func (e *coreText) runFont(font uintptr, italic bool) *Font {
+	base := e.fontOf(font)
+	if !italic {
+		return base
+	}
+	if f, ok := e.oblique[base]; ok {
+		return f
+	}
+	f := base
+	if with := syntheticItalic(font); with != 0 {
+		f = e.fontOf(with)
+		ct.release(with)
+	}
+	e.oblique[base] = f
+	return f
+}
+
 // styleSpans returns a copy of the attributed string of text, of style,
 // with the font and tracking of each span over its runes, owned.
 func (e *coreText) styleSpans(attributed uintptr, style Style, spans []Span, text []rune) uintptr {
@@ -730,6 +785,9 @@ func (e *coreText) styleSpans(attributed uintptr, style Style, spans []Span, tex
 		s := sp.style(style)
 		if font := e.ctFont(s); font != 0 {
 			ct.attributedSet(styled, r, ct.fontAttributeName, font)
+		}
+		if s.Italic && !style.Italic {
+			ct.attributedSet(styled, r, e.italic, e.italic)
 		}
 		if s.LetterSpacing != style.LetterSpacing && ct.trackingName != 0 {
 			tracking := cfFloat(float64(s.LetterSpacing))
@@ -918,14 +976,16 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 		if line == 0 {
 			break
 		}
-		lines = e.addLine(mark, e.line(line, index, n))
+		lines = e.addLine(mark, e.line(line, index, n, style.Italic))
 		ct.release(line)
 		start += count
 	}
 	return lines
 }
 
-func (e *coreText) line(line uintptr, index []int, n int) shapedLine {
+// line reads the runs of a line of a text that italic says is italic, or
+// whose runs styleSpans marked as such.
+func (e *coreText) line(line uintptr, index []int, n int, italic bool) shapedLine {
 	at := func(i int) int { return index[max(0, min(i, n))] }
 	r := ct.lineGetStringRange(line)
 	sl := shapedLine{start: at(r.location), end: at(r.location + r.length)}
@@ -934,7 +994,8 @@ func (e *coreText) line(line uintptr, index []int, n int) shapedLine {
 	for i := range ct.arrayGetCount(runs) {
 		run := ct.arrayGetValueAtIndex(runs, i)
 		rr := ct.runGetStringRange(run)
-		f := e.fontOf(ct.dictionaryGetValue(ct.runGetAttributes(run), ct.fontAttributeName))
+		attrs := ct.runGetAttributes(run)
+		f := e.runFont(ct.dictionaryGetValue(attrs, ct.fontAttributeName), italic || ct.dictionaryGetValue(attrs, e.italic) != 0)
 		sr := shapedRun{font: f, start: at(rr.location), end: at(rr.location + rr.length)}
 		if count := ct.runGetGlyphCount(run); count > 0 {
 			e.runIDs = slices.Grow(e.runIDs[:0], count)[:count]
@@ -1430,5 +1491,6 @@ func (e *coreText) forgetFonts() {
 	}
 	clear(e.fonts)
 	clear(e.native)
+	clear(e.oblique)
 	clear(e.color)
 }

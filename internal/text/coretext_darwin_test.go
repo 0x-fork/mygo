@@ -1,0 +1,146 @@
+//go:build darwin
+
+package text
+
+import (
+	"bytes"
+	"math"
+	"testing"
+)
+
+func TestCoreTextSyntheticItalic(t *testing.T) {
+	for _, tc := range []struct{ family, text string }{
+		{"PingFang SC", "口中文斜体"}, {"system-ui", "口中文斜体"}, {"Helvetica, PingFang SC", "口中文斜体"}, {"PingFang SC", "gy"},
+	} {
+		t.Run(tc.family+tc.text, func(t *testing.T) {
+			s := newSystem()
+			e := s.engine().(*coreText)
+			style := Style{Family: tc.family, Size: 64}
+			plain := s.Layout(Params{Text: tc.text, Style: style})
+			style.Italic = true
+			italic := s.Layout(Params{Text: tc.text, Style: style})
+			if len(plain.Lines[0].Glyphs) != len(italic.Lines[0].Glyphs) {
+				t.Fatal("italic changed glyph count")
+			}
+			for i, g := range italic.Lines[0].Glyphs {
+				p := plain.Lines[0].Glyphs[i]
+				if p.Font == g.Font || ct.fontGetMatrix(g.Font.native).c != obliqueSkew {
+					t.Fatalf("glyph %d did not get a separate synthetic font", i)
+				}
+				if tc.text == "gy" {
+					id := uint16(g.ID)
+					var bounds cgRect
+					ct.fontGetBoundingRects(g.Font.native, ctFontOrientationDefault, &id, &bounds, 1)
+					if bounds.y >= 0 {
+						t.Fatal("descender case has no negative-y ink")
+					}
+				}
+				a := e.glyph(p.Font, p.ID, 2, 0, Flat, false)
+				b := e.glyph(g.Font, g.ID, 2, 0, Flat, false)
+				if bytes.Equal(a.pix, b.pix) {
+					t.Fatal("upright and italic pixels are identical")
+				}
+				for y := range b.h {
+					for x := range b.w {
+						if (x == 0 || x == b.w-1 || y == 0 || y == b.h-1) && b.pix[y*b.w+x] != 0 {
+							t.Fatal("synthetic ink touches bitmap boundary")
+						}
+					}
+				}
+				// Exercise the atlas cache in both orders as well, small enough
+				// for every glyph to fit the test system's 256×256 atlas.
+				pi := s.Glyph(p.Font, p.ID, 0.5, 0, Flat, false)
+				ii := s.Glyph(g.Font, g.ID, 0.5, 0, Flat, false)
+				if !pi.OK || !ii.OK || (pi.X == ii.X && pi.Y == ii.Y) {
+					t.Fatalf("upright and italic share an atlas entry: %+v %+v", pi, ii)
+				}
+				if again := s.Glyph(p.Font, p.ID, 0.5, 0, Flat, false); again != pi {
+					t.Fatal("italic replaced upright cache entry")
+				}
+				if i == 0 && tc.text != "gy" {
+					// 口 has matching vertical sides, so compare their
+					// centroids near the top and bottom of the ink.
+					top, bottom := inkCentroid(b, 0.2), inkCentroid(b, 0.8)
+					if math.IsNaN(top) || math.IsNaN(bottom) || top-bottom < 10 {
+						t.Fatalf("glyph top is not tilted right: top %v bottom %v", top, bottom)
+					}
+				}
+			}
+		})
+	}
+}
+
+func inkCentroid(b bitmap, fraction float64) float64 {
+	lo, hi := b.h, 0
+	for y := range b.h {
+		for x := range b.w {
+			if b.pix[y*b.w+x] > 128 {
+				lo, hi = min(lo, y), max(hi, y)
+			}
+		}
+	}
+	y := lo + int(float64(hi-lo)*fraction)
+	var sum, weight float64
+	for x := range b.w {
+		v := float64(b.pix[y*b.w+x])
+		sum += float64(x+b.left) * v
+		weight += v
+	}
+	if weight == 0 {
+		return math.NaN()
+	}
+	return sum / weight
+}
+
+func TestCoreTextTrueItalic(t *testing.T) {
+	s := newSystem()
+	l := s.Layout(Params{Text: "italic", Style: Style{Family: "system-ui", Size: 48, Italic: true}})
+	identity := cgAffineTransform{a: 1, d: 1}
+	for _, g := range l.Lines[0].Glyphs {
+		if ct.fontGetSymbolicTraits(g.Font.native)&ctFontItalicTrait == 0 {
+			t.Fatal("system Latin italic did not select a true italic face")
+		}
+		if m := ct.fontGetMatrix(g.Font.native); m != identity {
+			t.Fatalf("true italic was transformed: %+v", m)
+		}
+	}
+}
+
+func TestCoreTextItalicFallbackSpans(t *testing.T) {
+	s := newSystem()
+	// In PingFang SC, both spans are in one font, which Core Text would
+	// shape as one run.
+	for _, family := range []string{"Helvetica", "PingFang SC"} {
+		for _, text := range []string{"中文中文", "😀文中文"} {
+			l := s.Layout(Params{Text: text, Style: Style{Family: family, Size: 32},
+				Spans: EncodeSpans([]Span{{End: 2}, {End: 4, Italic: true}})})
+			for _, g := range l.Lines[0].Glyphs {
+				want := float64(0)
+				if g.Cluster >= 2 {
+					want = obliqueSkew
+				}
+				if got := ct.fontGetMatrix(g.Font.native).c; got != want {
+					t.Fatalf("%s %q cluster %d: skew %v, want %v", family, text, g.Cluster, got, want)
+				}
+			}
+		}
+	}
+}
+
+// Core Text draws color glyphs upright whatever the font's matrix, so
+// emoji in italic text keep the upright font, as in WebKit.
+func TestCoreTextItalicColorGlyphs(t *testing.T) {
+	s := newSystem()
+	for _, family := range []string{"PingFang SC", "Helvetica"} {
+		l := s.Layout(Params{Text: "中😀", Style: Style{Family: family, Size: 32, Italic: true}})
+		for _, g := range l.Lines[0].Glyphs {
+			want := obliqueSkew
+			if g.Cluster == 1 {
+				want = 0
+			}
+			if got := ct.fontGetMatrix(g.Font.native).c; got != want {
+				t.Fatalf("%s cluster %d: skew %v, want %v", family, g.Cluster, got, want)
+			}
+		}
+	}
+}
