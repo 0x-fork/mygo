@@ -2158,6 +2158,46 @@ either.
     the editor reads back after the build, as a query typed. Separators
     are built by the diff view across both sides, over the room their
     blocks leave.
+- **Rich text** (`ui/richtext`). Package `richtext` edits attributed text
+  on ui's public API, as `ui/editor` does: a focusable box with a text
+  input client, `HandleInput`, `Draw`, `Access` and its own scrolling, and
+  four hooks of ui for it: `ShapeRichTextWith` aligns a paragraph's lines,
+  `Element.SetChanged` reports its edits as `Changed`,
+  `Services.ReadClipboardData` and `WriteClipboardData` carry its formats,
+  and `InputSelect` takes a selection assistive technology made.
+  - *The text* (`text.go`, `seq.go`). A `Text` is a value: its characters
+    in an `internal/rope` tree, and beside it a persistent sequence of its
+    paragraphs (an AVL tree of chunks of 32, `seq`), each with an
+    identity, a style and its runs: attributes over its runes and, last,
+    its newline's, which an empty paragraph types in, as Word's paragraph
+    mark. Runs are kept maximal. An edit splits and joins both trees,
+    copying the chunks and paths it touches; paragraphs joined or split
+    take the style of the one their first rune comes from, as AppKit's
+    `fixParagraphStyleAttributeInRange:`. Lists are flat, an indent per
+    item, as Quill and Automerge keep them, which leaves room for a CRDT.
+  - *The document* (`document.go`, `commands.go`). A `Document` holds a
+    text, the selection, the typing attributes, and the steps of undo as
+    the texts before and after each, which share all they did not change,
+    with the region each changed and the selections. A log of changed
+    regions by version lets the editor lay out again only the paragraphs a
+    change of the app touched. Typing derives the typing attributes as
+    NSTextView does (the character before the caret, the one after at a
+    paragraph's start, links, code and tags only inside), measured by a
+    Swift probe of NSTextView.
+  - *The editor* (`view.go`, `edit.go`, `input.go`, `ime.go`, `paint.go`).
+    It lays out a paragraph at a time with `ShapeRichTextWith`, keeping
+    each layout for the runs, style and composition it was made of, and
+    places them by heights in two Fenwick trees from an anchor paragraph,
+    as a text area does. Every edit goes through the document, as a step
+    of undo or part of the action's; typing joins typing's step.
+    Attachments are inline objects of the text system.
+  - *Formats out of the process.* The clipboard carries the editor's JSON,
+    HTML (`golang.org/x/net/html` reads what is pasted) and plain text;
+    browsers carry each text format through the clipboard events. The
+    runs' formats go to assistive technology as `AccessNode.TextRuns`:
+    `AXAttributedStringForRange` on macOS, ATK's run attributes on Linux,
+    and UI Automation's Text pattern on Windows (`uia_text.go`), whose
+    ranges are COM objects of their own.
 - **Text selection** (`ui/textselection.go`). `Selectable` on a text
   selects that paragraph; on a container it gives its text descendants
   one selection. The window keeps endpoints as stable element IDs and
@@ -2594,6 +2634,15 @@ either.
   the attributes of each font, and calls the functions of each layout
   through `SyscallN` rather than reflection. Colors, underlines and
   strikethroughs of spans only paint, by the rune each glyph starts.
+  A span with an `ObjectWidth` makes its object replacement characters
+  inline objects: boxes standing on the baseline, which lines break
+  around and which draw no glyph (`Glyph.Object`), as a rich text's
+  images. The line takes their height in the shared layout; each engine
+  only gives them their width: Core Text through run delegates, whose
+  callbacks return floats Go cannot, so they are leaves in assembly
+  (`rundelegate_darwin_*.s`); DirectWrite through `IDWriteInlineObject`s,
+  their places found by hit testing, as its glyph runs' are; Pango through
+  shape attributes; the canvas engine as clusters of their width.
   Text elements built inside a text (`ui/inline.go`) are inline: the
   paragraph takes their text when its `Children` returns, and their
   styles as spans over its own when it lays out. At commit, each gets the

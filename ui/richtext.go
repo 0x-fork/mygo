@@ -30,6 +30,12 @@ type Span struct {
 	Background    Color
 	LetterSpacing float32
 	Features      string // as for Element.FontFeatures, comma separated
+	// ObjectWidth and ObjectHeight, when ObjectWidth is set, make each
+	// rune of the span, an object replacement character (U+FFFC), an
+	// inline object: a box of that size in DIPs standing on the baseline,
+	// which lines break around and which draws nothing, where a rich text
+	// editor draws an image (TextLayout.Objects).
+	ObjectWidth, ObjectHeight float32
 }
 
 // RichText creates a text whose spans differ in style, over the style of
@@ -154,7 +160,8 @@ func (sc *spanCache) update(spans []Span) {
 // spanStyle returns the style of a span ending at rune end, for its
 // layout.
 func spanStyle(s Span, end int) text.Span {
-	return text.Span{End: end, Family: s.Font, Size: s.Size, Weight: s.Weight, Italic: s.Italic, LetterSpacing: s.LetterSpacing, Features: s.Features}
+	return text.Span{End: end, Family: s.Font, Size: s.Size, Weight: s.Weight, Italic: s.Italic, LetterSpacing: s.LetterSpacing, Features: s.Features,
+		ObjectWidth: s.ObjectWidth, ObjectHeight: s.ObjectHeight}
 }
 
 // encodeSpans encodes the styles of spans for a layout.

@@ -23,6 +23,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/richtext"
 )
 
 type gallery struct {
@@ -113,6 +114,8 @@ type gallery struct {
 	stars               int
 	battery, quality    float64
 	priceLow, priceHigh float64
+	// The note of the Rich Text page.
+	note *richtext.Document
 	// The grid of swatches, the one last chosen, those chosen, and their
 	// order; the tasks dragged between two columns.
 	swatches       ui.GridState
@@ -266,7 +269,7 @@ func makeMessage(id int) message {
 	return message{id: id, text: strings.Join(lines, " "), mine: r%3 == 0}
 }
 
-var pages = []string{"Overview", "Controls", "Text", "List", "Charts", "Styling", "Drawing", "Glass", "Overlays", "Motion"}
+var pages = []string{"Overview", "Controls", "Text", "Rich Text", "List", "Charts", "Styling", "Drawing", "Glass", "Overlays", "Motion"}
 
 // icon parses the shapes of a 24×24 stroked icon, drawn in currentColor
 // as icon sets draw them.
@@ -277,16 +280,17 @@ func icon(shapes string) *ui.SVG {
 // The icons of the pages, and two for buttons.
 var (
 	pageIcons = map[string]*ui.SVG{
-		"Overview": icon(`<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>`),
-		"Controls": icon(`<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>`),
-		"Text":     icon(`<path d="M5 6V5h14v1M12 5v14M9 19h6"/>`),
-		"List":     icon(`<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>`),
-		"Charts":   icon(`<path d="M3 3v18h18"/><path d="M8 17v-5M13 17V8M18 17v-8"/>`),
-		"Styling":  icon(`<path d="M12 21a9 9 0 1 1 9-9c0 2.5-2 3.5-3.5 3.5H16a2 2 0 0 0-1.5 3.3c.4.5.4 2.2-2.5 2.2z"/><circle cx="7.5" cy="11" r="1"/><circle cx="11" cy="7" r="1"/><circle cx="16" cy="8.5" r="1"/>`),
-		"Drawing":  icon(`<path d="M15 5l4 4M4 20l1-4.5L16.5 4a2.1 2.1 0 0 1 3 3L8 18.5z"/>`),
-		"Glass":    icon(`<rect x="3" y="6" width="18" height="12" rx="6"/><path d="M7 10.5a3 3 0 0 1 2.5-1.5"/>`),
-		"Overlays": icon(`<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 13 9 5 9-5"/>`),
-		"Motion":   icon(`<path d="M3 12h4M5 7h6M5 17h6"/><circle cx="16" cy="12" r="5"/>`),
+		"Overview":  icon(`<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>`),
+		"Controls":  icon(`<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>`),
+		"Text":      icon(`<path d="M5 6V5h14v1M12 5v14M9 19h6"/>`),
+		"Rich Text": icon(`<path d="M6 4h6a4 4 0 0 1 0 8H6zM6 12h7a4 4 0 0 1 0 8H6z"/>`),
+		"List":      icon(`<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>`),
+		"Charts":    icon(`<path d="M3 3v18h18"/><path d="M8 17v-5M13 17V8M18 17v-8"/>`),
+		"Styling":   icon(`<path d="M12 21a9 9 0 1 1 9-9c0 2.5-2 3.5-3.5 3.5H16a2 2 0 0 0-1.5 3.3c.4.5.4 2.2-2.5 2.2z"/><circle cx="7.5" cy="11" r="1"/><circle cx="11" cy="7" r="1"/><circle cx="16" cy="8.5" r="1"/>`),
+		"Drawing":   icon(`<path d="M15 5l4 4M4 20l1-4.5L16.5 4a2.1 2.1 0 0 1 3 3L8 18.5z"/>`),
+		"Glass":     icon(`<rect x="3" y="6" width="18" height="12" rx="6"/><path d="M7 10.5a3 3 0 0 1 2.5-1.5"/>`),
+		"Overlays":  icon(`<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 13 9 5 9-5"/>`),
+		"Motion":    icon(`<path d="M3 12h4M5 7h6M5 17h6"/><circle cx="16" cy="12" r="5"/>`),
 	}
 	starIcon    = icon(`<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>`)
 	checkIcon   = icon(`<path d="M20 6 9 17l-5-5"/>`)
@@ -307,7 +311,7 @@ var (
 )
 
 // pagePath returns the path of a page, and pageOf the page of a path.
-func pagePath(page string) string { return "/" + strings.ToLower(page) }
+func pagePath(page string) string { return "/" + strings.ReplaceAll(strings.ToLower(page), " ", "-") }
 
 func pageOf(path string) string {
 	for _, p := range pages {
@@ -346,6 +350,8 @@ func (g *gallery) view(c *ui.Context) {
 						g.controls(c)
 					case "Text":
 						g.text(c)
+					case "Rich Text":
+						g.richText(c)
 					case "List":
 						g.list(c)
 					case "Charts":

@@ -53,6 +53,12 @@ shortcut, which `Label` and `Accelerator` override:
 
 - editing: `RoleUndo`, `RoleRedo`, `RoleCut`, `RoleCopy`, `RolePaste`,
   `RoleDelete`, `RoleSelectAll`, and on macOS `RolePasteAndMatchStyle`;
+- formatting: `RoleBold`, `RoleItalic`, `RoleUnderline`,
+  `RoleStrikethrough`, `RoleAlignLeft`, `RoleAlignCenter` and
+  `RoleAlignRight`, which format the selection of a [rich text
+  editor](ui/rich-text-editor.md) of native UI, or of an editable page
+  (`document.execCommand`); Paste and Match Style pastes plain text into a
+  rich text editor;
 - the page: `RoleReload`, `RoleForceReload`, `RoleToggleDevTools` (in a
   window of native UI, its [inspector](ui/inspector.md)),
   `RoleResetZoom`, `RoleZoomIn`, `RoleZoomOut`;
@@ -64,7 +70,8 @@ shortcut, which `Label` and `Accelerator` override:
 - the app: `RoleQuit`, and on macOS `RoleAbout`, `RoleHide`,
   `RoleHideOthers`, `RoleUnhide`, `RoleFront`, `RoleServices`,
   `RoleStartSpeaking`, `RoleStopSpeaking`;
-- whole menus: `RoleFileMenu`, `RoleEditMenu`, `RoleViewMenu` and
+- whole menus: `RoleFileMenu`, `RoleEditMenu`, `RoleFormatMenu` (Bold,
+  Italic, Underline, Strikethrough and the alignments), `RoleViewMenu` and
   `RoleWindowMenu`, and on macOS `RoleAppMenu` (the menu named after the
   app), `RoleWindow` (the menu listing the windows) and `RoleHelp` (the
   menu with the search field).

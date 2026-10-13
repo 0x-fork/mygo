@@ -4508,6 +4508,19 @@ func (_handle Element) SelectionColor(c Color) Element {
 	return wrapElement(_node.SelectionColor(c))
 }
 
+// SetChanged reports the element's value as changed in this build pass,
+// as a widget of your own whose input changed what it edits: Changed
+// returns true for it, as for the widgets' own.
+func (_handle Element) SetChanged() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.SetChanged())
+}
+
 // SetTextSelection selects the runes of a text input from start to end, or
 // puts the caret at start when they are equal, and scrolls it into view: the
 // caret after a word the app completed. The offsets are kept within the text.

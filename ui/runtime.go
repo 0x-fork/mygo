@@ -32,6 +32,10 @@ type host interface {
 	// one.
 	readClipboardImage() []byte
 	writeClipboard(string)
+	// readClipboardData reads the representations of formats on the
+	// clipboard, all for nil; writeClipboardData puts data there.
+	readClipboardData(formats []transfer.Format) transfer.Data
+	writeClipboardData(transfer.Data)
 	startDrag()
 	startDataDrag(transfer.Data, any, transfer.DragOptions, float32, float32) error
 	cancelDataDrag()
