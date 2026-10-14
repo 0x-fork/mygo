@@ -90,7 +90,7 @@ type engine struct {
 	arena           *elementOwner
 	handleChecks    bool
 	afterInputs     []inputAction
-	inputs          []*node
+	inputs          []valueInput
 	inputAt         int
 	afterInputAt    int
 	applyingInputs  bool
@@ -107,6 +107,15 @@ type engine struct {
 	scene           scene.Scene
 	painter         Painter
 	glyphRun        glyphRun
+
+	// building counts the public constructors under way: input queued
+	// while more were under way than now belongs to controls built since,
+	// which applyInputs finalizes (see value_input.go).
+	building int32
+	// waitingInputs and waitingActions are the entries of inputs and
+	// afterInputs whose containers are still building.
+	waitingInputs, waitingActions []int
+
 	// measured are the last spans laid out outside elements (richParams).
 	measured     [8]measuredSpans
 	nextMeasured int
@@ -464,7 +473,7 @@ func (rt *engine) runFrame() {
 		if rt.insp.open {
 			rt.buildInspector(&rt.c, appW, w, h)
 		}
-		rt.applyInputs()
+		rt.applyAllInputs()
 		rt.finishInputs()
 		// Commit derived values while callbacks still hold this pass's
 		// bindings. Delivered callbacks do not repeat in the next pass.

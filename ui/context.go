@@ -109,6 +109,7 @@ func (c *context) reset(now time.Time, w, h float32) {
 	c.rt.afterInputs = c.rt.afterInputs[:0]
 	clear(c.rt.inputs)
 	c.rt.inputs = c.rt.inputs[:0]
+	c.rt.building = 0
 	clear(c.rt.actions)
 	c.rt.actions = c.rt.actions[:0]
 	c.dirty = max(c.dirty, c.used)

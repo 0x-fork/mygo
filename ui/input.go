@@ -1251,9 +1251,8 @@ func (d *dragTrack) velocities(now time.Time) [4]float32 {
 	return [4]float32{(newest.x - oldest.x) / dt, (newest.y - oldest.y) / dt, (newest.wx - oldest.wx) / dt, (newest.wy - oldest.wy) / dt}
 }
 
-// Changed applies pending input to the controls built so far and reports
-// whether this widget's value changed in this build pass. Configure controls
-// before querying their response; the bound value is updated before returning.
+// Changed reports whether this widget's value changed in this build pass,
+// by the input it took as its constructor returned.
 func (e *node) Changed() bool {
 	if e.hasState() {
 		e.c.rt.applyInputs()
@@ -1265,9 +1264,8 @@ func (e *node) Changed() bool {
 	return false
 }
 
-// Submitted applies pending input to the controls built so far and reports
-// whether Enter was pressed in a single-line text input. Configure controls
-// before querying their response; the bound value is updated before returning.
+// Submitted reports whether Enter was pressed in a single-line text input
+// in this build pass.
 func (e *node) Submitted() bool {
 	if !e.hasState() {
 		return false

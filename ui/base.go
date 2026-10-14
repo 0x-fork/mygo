@@ -95,9 +95,14 @@ func coreSliderBase(c *context, value *float64, lo, hi float64) *node {
 	return s
 }
 
-// sliderSettings are what Step and Vertical said of a slider as the last
-// frame built it, which the input since applies by.
+// sliderSettings are what Step and Vertical say of a slider in this
+// build, and what they said in the build before, which the input since
+// applies by: the slider the user dragged.
 type sliderSettings struct {
+	now, shown sliderOptions
+}
+
+type sliderOptions struct {
 	step     float64
 	vertical bool
 }
@@ -110,7 +115,8 @@ func sliderBase(c *context, value *float64, lo, hi, step float64) *node {
 	s := coreBox(c).Focusable()
 	s.flags |= flagDraggable | flagHover
 	s.widget = "Slider"
-	*coreLocal(s, sliderKey{}, func() sliderSettings { return sliderSettings{} }) = sliderSettings{}
+	set := coreLocal(s, sliderKey{}, func() sliderSettings { return sliderSettings{} })
+	set.shown, set.now = set.now, sliderOptions{}
 	*valueBinding[sliderValue](s) = sliderValue{value: value, lo: lo, hi: hi, step: step}
 	s.onValueInput(sliderInput)
 	if step <= 0 {
@@ -130,7 +136,7 @@ func (e *node) Step(step float64) *node {
 	}
 	e.accStep = step
 	if e.widget == "Slider" || e.widget == "SliderBase" {
-		coreLocal(e, sliderKey{}, func() sliderSettings { return sliderSettings{} }).step = step
+		coreLocal(e, sliderKey{}, func() sliderSettings { return sliderSettings{} }).now.step = step
 	}
 	return e
 }
@@ -141,7 +147,7 @@ func (e *node) Step(step float64) *node {
 // so.
 func (e *node) Vertical() *node {
 	if e.widget == "SliderBase" {
-		coreLocal(e, sliderKey{}, func() sliderSettings { return sliderSettings{} }).vertical = true
+		coreLocal(e, sliderKey{}, func() sliderSettings { return sliderSettings{} }).now.vertical = true
 		e.vertical = true
 	}
 	return e

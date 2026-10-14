@@ -100,7 +100,10 @@ func (_handle *Route) View(c *Context, fn func(r *Route)) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(_handle.coreView(_ctx, fn))
+	_ctx.rt.beginBuild()
+	_e := _handle.coreView(_ctx, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // View builds the page shown with fn, in a column taking the room it is
@@ -111,7 +114,10 @@ func (_handle *Router) View(c *Context, fn func(r *Route)) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(_handle.coreView(_ctx, fn))
+	_ctx.rt.beginBuild()
+	_e := _handle.coreView(_ctx, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Panel builds fn in the panel of the collapsible while it is open, and as
@@ -125,7 +131,10 @@ func (_handle CollapsibleParts) Panel(fn func()) Element {
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.Panel(fn))
+	_ctx.rt.beginBuild()
+	_e := _parts.Panel(fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Progress returns how far the collapsible is open, from 0 closed to 1
@@ -178,7 +187,10 @@ func (_handle ComboboxParts) Item(value string) Element {
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.Item(value))
+	_ctx.rt.beginBuild()
+	_e := _parts.Item(value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Open reports whether the popup shows.
@@ -202,7 +214,10 @@ func (_handle ComboboxParts) Popup(fn func(panel Element)) Element {
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.Popup(func(panel *node) { fn(wrapElement(panel)) }))
+	_ctx.rt.beginBuild()
+	_e := _parts.Popup(func(panel *node) { fn(wrapElement(panel)) })
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // SetOpen opens or closes the popup.
@@ -588,7 +603,10 @@ func Accordion(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreAccordion(_ctx, fn))
+	_ctx.rt.beginBuild()
+	_e := coreAccordion(_ctx, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // AccordionItem creates a section of an Accordion: a header showing title,
@@ -599,7 +617,10 @@ func AccordionItem(c *Context, title string, open *bool, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreAccordionItem(_ctx, title, open, fn))
+	_ctx.rt.beginBuild()
+	_e := coreAccordionItem(_ctx, title, open, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // AlertDialog shows an alert over the window while *open is true, as
@@ -637,7 +658,10 @@ func Autocomplete(c *Context, value *string, suggestions []string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreAutocomplete(_ctx, value, suggestions))
+	_ctx.rt.beginBuild()
+	_e := coreAutocomplete(_ctx, value, suggestions)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Avatar creates a picture of a person or a thing named name: the image,
@@ -649,7 +673,10 @@ func Avatar(c *Context, name string, image *Bitmap) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreAvatar(_ctx, name, image))
+	_ctx.rt.beginBuild()
+	_e := coreAvatar(_ctx, name, image)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // BackButton creates a button going back in r's history, disabled at its
@@ -660,7 +687,10 @@ func BackButton(c *Context, r *Router) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreBackButton(_ctx, r))
+	_ctx.rt.beginBuild()
+	_e := coreBackButton(_ctx, r)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Badge creates a short text in a pill, as a count of unread messages
@@ -670,7 +700,10 @@ func Badge(c *Context, text string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreBadge(_ctx, text))
+	_ctx.rt.beginBuild()
+	_e := coreBadge(_ctx, text)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Box creates a container that lays its children out in a column.
@@ -679,7 +712,10 @@ func Box(c *Context) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreBox(_ctx))
+	_ctx.rt.beginBuild()
+	_e := coreBox(_ctx)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Breadcrumbs creates a path of items, as Finder's path bar and AppKit's
@@ -697,7 +733,10 @@ func Breadcrumbs(c *Context, items []string, chosen *int) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreBreadcrumbs(_ctx, items, chosen))
+	_ctx.rt.beginBuild()
+	_e := coreBreadcrumbs(_ctx, items, chosen)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Button creates a button showing label. Ask Clicked whether it was
@@ -707,7 +746,10 @@ func Button(c *Context, label string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreButton(_ctx, label))
+	_ctx.rt.beginBuild()
+	_e := coreButton(_ctx, label)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // ButtonBase creates a button without a look: a row centering its
@@ -719,7 +761,10 @@ func ButtonBase(c *Context) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreButtonBase(_ctx))
+	_ctx.rt.beginBuild()
+	_e := coreButtonBase(_ctx)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Calendar creates a month's calendar choosing *date, as SwiftUI's
@@ -734,7 +779,10 @@ func Calendar(c *Context, date *time.Time) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreCalendar(_ctx, date))
+	_ctx.rt.beginBuild()
+	_e := coreCalendar(_ctx, date)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Checkbox creates a check box toggling *checked, with a label.
@@ -743,7 +791,10 @@ func Checkbox(c *Context, checked *bool, label string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreCheckbox(_ctx, checked, label))
+	_ctx.rt.beginBuild()
+	_e := coreCheckbox(_ctx, checked, label)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // CheckboxBase creates a check box without a look: a row that toggles
@@ -756,7 +807,10 @@ func CheckboxBase(c *Context, checked *bool) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreCheckboxBase(_ctx, checked))
+	_ctx.rt.beginBuild()
+	_e := coreCheckboxBase(_ctx, checked)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // CheckboxGroup creates a check box over the check boxes that fn builds,
@@ -775,7 +829,10 @@ func CheckboxGroup(c *Context, label string, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreCheckboxGroup(_ctx, label, fn))
+	_ctx.rt.beginBuild()
+	_e := coreCheckboxGroup(_ctx, label, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Collapsible creates a disclosure, as SwiftUI's DisclosureGroup: label
@@ -791,7 +848,10 @@ func Collapsible(c *Context, label string, open *bool, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreCollapsible(_ctx, label, open, fn))
+	_ctx.rt.beginBuild()
+	_e := coreCollapsible(_ctx, label, open, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // CollapsibleBase creates a collapsible without a look, open while *open:
@@ -802,7 +862,10 @@ func CollapsibleBase(c *Context, open *bool) CollapsibleParts {
 	if _ctx == nil {
 		return CollapsibleParts{}
 	}
-	return wrapCollapsibleParts(coreCollapsibleBase(_ctx, open))
+	_ctx.rt.beginBuild()
+	_p := coreCollapsibleBase(_ctx, open)
+	_ctx.rt.endBuild()
+	return wrapCollapsibleParts(_p)
 }
 
 // ColorPicker creates a picker of *color, as AppKit's color panel: a
@@ -817,7 +880,10 @@ func ColorPicker(c *Context, color *Color) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreColorPicker(_ctx, color))
+	_ctx.rt.beginBuild()
+	_e := coreColorPicker(_ctx, color)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // ColorWell creates a swatch of *color that opens a ColorPicker below it,
@@ -830,7 +896,10 @@ func ColorWell(c *Context, color *Color) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreColorWell(_ctx, color))
+	_ctx.rt.beginBuild()
+	_e := coreColorWell(_ctx, color)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Column creates a container that lays its children out from top to
@@ -840,7 +909,10 @@ func Column(c *Context) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreColumn(_ctx))
+	_ctx.rt.beginBuild()
+	_e := coreColumn(_ctx)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Combobox creates a combobox choosing *selected among options: a field
@@ -857,7 +929,10 @@ func Combobox(c *Context, selected *string, options []string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreCombobox(_ctx, selected, options))
+	_ctx.rt.beginBuild()
+	_e := coreCombobox(_ctx, selected, options)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // ComboboxBase creates a combobox without a look: a text input editing
@@ -889,7 +964,10 @@ func ComboboxBase(c *Context, text *string) ComboboxParts {
 	if _ctx == nil {
 		return ComboboxParts{}
 	}
-	return wrapComboboxParts(coreComboboxBase(_ctx, text))
+	_ctx.rt.beginBuild()
+	_p := coreComboboxBase(_ctx, text)
+	_ctx.rt.endBuild()
+	return wrapComboboxParts(_p)
 }
 
 // DataDragOver makes e a native destination, as DropData does, and returns
@@ -915,7 +993,10 @@ func DateInput(c *Context, date *time.Time) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreDateInput(_ctx, date))
+	_ctx.rt.beginBuild()
+	_e := coreDateInput(_ctx, date)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // DialogBase shows a dialog without a look over the window while *open is
@@ -929,7 +1010,10 @@ func DialogBase(c *Context, open *bool, fn func(backdrop Element, panel Element)
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreDialogBase(_ctx, open, func(backdrop *node, panel *node) { fn(wrapElement(backdrop), wrapElement(panel)) }))
+	_ctx.rt.beginBuild()
+	_e := coreDialogBase(_ctx, open, func(backdrop *node, panel *node) { fn(wrapElement(backdrop), wrapElement(panel)) })
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Divider creates a thin line across its row or column.
@@ -938,7 +1022,10 @@ func Divider(c *Context) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreDivider(_ctx))
+	_ctx.rt.beginBuild()
+	_e := coreDivider(_ctx)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // DragOver makes e take values of type T dragged within the window, as
@@ -1005,7 +1092,10 @@ func EditableText(c *Context, value *string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreEditableText(_ctx, value))
+	_ctx.rt.beginBuild()
+	_e := coreEditableText(_ctx, value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Field creates a field: label, above the control that fn builds, or
@@ -1026,7 +1116,10 @@ func Field(c *Context, label string, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreField(_ctx, label, fn))
+	_ctx.rt.beginBuild()
+	_e := coreField(_ctx, label, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Fieldset creates a group of the fields that fn builds, under legend,
@@ -1041,7 +1134,10 @@ func Fieldset(c *Context, legend string, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreFieldset(_ctx, legend, fn))
+	_ctx.rt.beginBuild()
+	_e := coreFieldset(_ctx, legend, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // FindBar creates a bar for finding text while *open is true, as Safari's
@@ -1059,7 +1155,10 @@ func FindBar(c *Context, open *bool, query *string, matches int, current *int) E
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreFindBar(_ctx, open, query, matches, current))
+	_ctx.rt.beginBuild()
+	_e := coreFindBar(_ctx, open, query, matches, current)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Form creates a column of the fields that fn builds (Field, Fieldset),
@@ -1076,7 +1175,10 @@ func Form(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreForm(_ctx, fn))
+	_ctx.rt.beginBuild()
+	_e := coreForm(_ctx, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // ForwardButton creates a button going forward in r's history, as
@@ -1086,7 +1188,10 @@ func ForwardButton(c *Context, r *Router) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreForwardButton(_ctx, r))
+	_ctx.rt.beginBuild()
+	_e := coreForwardButton(_ctx, r)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Grid creates a grid: its children fill its cells row by row, or go where
@@ -1104,7 +1209,10 @@ func Grid(c *Context) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreGrid(_ctx))
+	_ctx.rt.beginBuild()
+	_e := coreGrid(_ctx)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // GridView creates a scroll container of n items in a grid, as Photos'
@@ -1127,7 +1235,10 @@ func GridView(c *Context, s *GridState, n int, minWidth float32, height float32,
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreGridView(_ctx, s, n, minWidth, height, item))
+	_ctx.rt.beginBuild()
+	_e := coreGridView(_ctx, s, n, minWidth, height, item)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Icon creates an element showing an SVG as an icon: its shapes in the
@@ -1146,7 +1257,10 @@ func Icon(c *Context, s *SVG) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreIcon(_ctx, s))
+	_ctx.rt.beginBuild()
+	_e := coreIcon(_ctx, s)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Image creates an element showing a bitmap, or an SVG in its own colors
@@ -1157,7 +1271,10 @@ func Image(c *Context, src ImageSource) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreImage(_ctx, src))
+	_ctx.rt.beginBuild()
+	_e := coreImage(_ctx, src)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Link creates a text that opens url in the browser when clicked, or
@@ -1170,7 +1287,10 @@ func Link(c *Context, label string, url string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreLink(_ctx, label, url))
+	_ctx.rt.beginBuild()
+	_e := coreLink(_ctx, label, url)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Local returns state of type T that element e keeps from frame to frame,
@@ -1202,7 +1322,10 @@ func MenuButton(c *Context, label string, build func(m *Menu)) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreMenuButton(_ctx, label, build))
+	_ctx.rt.beginBuild()
+	_e := coreMenuButton(_ctx, label, build)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Meter creates a bar showing value between lo and hi, as AppKit's level
@@ -1216,7 +1339,10 @@ func Meter(c *Context, value float64, lo float64, hi float64, levels *MeterLevel
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreMeter(_ctx, value, lo, hi, levels))
+	_ctx.rt.beginBuild()
+	_e := coreMeter(_ctx, value, lo, hi, levels)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Modal shows a dialog built by fn over a dimmed window while *open is
@@ -1227,7 +1353,10 @@ func Modal(c *Context, open *bool, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreModal(_ctx, open, fn))
+	_ctx.rt.beginBuild()
+	_e := coreModal(_ctx, open, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // NewTester starts testing view in a window of width×height DIPs. Two
@@ -1249,7 +1378,10 @@ func NumberInput(c *Context, value *float64, lo float64, hi float64, step float6
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreNumberInput(_ctx, value, lo, hi, step))
+	_ctx.rt.beginBuild()
+	_e := coreNumberInput(_ctx, value, lo, hi, step)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Outline creates a list of items in a tree, as AppKit's outline view and
@@ -1277,7 +1409,10 @@ func Outline[K comparable](c *Context, s *OutlineState[K], roots []K, children f
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreOutline[K](_ctx, s, roots, children, row))
+	_ctx.rt.beginBuild()
+	_e := coreOutline[K](_ctx, s, roots, children, row)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // OutlineTable creates an outline whose rows are a Table's, as AppKit's
@@ -1298,7 +1433,10 @@ func OutlineTable[K comparable](c *Context, s *OutlineState[K], columns []TableC
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreOutlineTable[K](_ctx, s, columns, roots, children, cell))
+	_ctx.rt.beginBuild()
+	_e := coreOutlineTable[K](_ctx, s, columns, roots, children, cell)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Overlay builds fn's elements above the rest of the window. Place them
@@ -1321,7 +1459,10 @@ func Popover(c *Context, anchor Element, open *bool, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(corePopover(_ctx, anchor.nodeFor(_ctx.rt), open, fn))
+	_ctx.rt.beginBuild()
+	_e := corePopover(_ctx, anchor.nodeFor(_ctx.rt), open, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // PopoverBase shows a panel without a look below anchor while *open is
@@ -1343,7 +1484,10 @@ func PopoverBase(c *Context, anchor Element, open *bool, fn func(panel Element))
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(corePopoverBase(_ctx, anchor.nodeFor(_ctx.rt), open, func(panel *node) { fn(wrapElement(panel)) }))
+	_ctx.rt.beginBuild()
+	_e := corePopoverBase(_ctx, anchor.nodeFor(_ctx.rt), open, func(panel *node) { fn(wrapElement(panel)) })
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // PrimaryButton creates a button in the accent color, for the main action.
@@ -1352,7 +1496,10 @@ func PrimaryButton(c *Context, label string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(corePrimaryButton(_ctx, label))
+	_ctx.rt.beginBuild()
+	_e := corePrimaryButton(_ctx, label)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Progress creates a progress bar filled to value between 0 and 1; a
@@ -1364,7 +1511,10 @@ func Progress(c *Context, value float64) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreProgress(_ctx, value))
+	_ctx.rt.beginBuild()
+	_e := coreProgress(_ctx, value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Radio creates a radio button that selects value into *selected, with a
@@ -1374,7 +1524,10 @@ func Radio[T comparable](c *Context, selected *T, value T, label string) Element
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreRadio[T](_ctx, selected, value, label))
+	_ctx.rt.beginBuild()
+	_e := coreRadio[T](_ctx, selected, value, label)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // RadioBase creates a radio button without a look: a row that selects
@@ -1387,7 +1540,10 @@ func RadioBase[T comparable](c *Context, selected *T, value T) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreRadioBase[T](_ctx, selected, value))
+	_ctx.rt.beginBuild()
+	_e := coreRadioBase[T](_ctx, selected, value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // RadioGroup creates a column of the radio buttons that fn builds (Radio,
@@ -1405,7 +1561,10 @@ func RadioGroup(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreRadioGroup(_ctx, fn))
+	_ctx.rt.beginBuild()
+	_e := coreRadioGroup(_ctx, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // RangeSlider creates a slider of two knobs setting *low and *high between
@@ -1420,7 +1579,10 @@ func RangeSlider(c *Context, low *float64, high *float64, lo float64, hi float64
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreRangeSlider(_ctx, low, high, lo, hi, step))
+	_ctx.rt.beginBuild()
+	_e := coreRangeSlider(_ctx, low, high, lo, hi, step)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Rating creates a row of max stars, as AppKit's rating level indicator,
@@ -1433,7 +1595,10 @@ func Rating(c *Context, value *int, max int) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreRating(_ctx, value, max))
+	_ctx.rt.beginBuild()
+	_e := coreRating(_ctx, value, max)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Render draws a frame of view in a window of width×height DIPs at scale
@@ -1473,7 +1638,10 @@ func RichText(c *Context, spans ...Span) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreRichText(_ctx, spans...))
+	_ctx.rt.beginBuild()
+	_e := coreRichText(_ctx, spans...)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Row creates a container that lays its children out from left to right,
@@ -1483,7 +1651,10 @@ func Row(c *Context) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreRow(_ctx))
+	_ctx.rt.beginBuild()
+	_e := coreRow(_ctx)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Scroll creates a container that scrolls its children vertically. Give
@@ -1493,7 +1664,10 @@ func Scroll(c *Context) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreScroll(_ctx))
+	_ctx.rt.beginBuild()
+	_e := coreScroll(_ctx)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // ScrollBoth creates a container that scrolls its children both ways, as
@@ -1504,7 +1678,10 @@ func ScrollBoth(c *Context) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreScrollBoth(_ctx))
+	_ctx.rt.beginBuild()
+	_e := coreScrollBoth(_ctx)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // ScrollHorizontal creates a row that scrolls its children horizontally.
@@ -1513,7 +1690,10 @@ func ScrollHorizontal(c *Context) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreScrollHorizontal(_ctx))
+	_ctx.rt.beginBuild()
+	_e := coreScrollHorizontal(_ctx)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // SearchField creates a field for searching, editing *query: a magnifying
@@ -1530,7 +1710,10 @@ func SearchField(c *Context, query *string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSearchField(_ctx, query))
+	_ctx.rt.beginBuild()
+	_e := coreSearchField(_ctx, query)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Segmented creates a segmented control showing labels, of which
@@ -1545,7 +1728,10 @@ func Segmented(c *Context, selected *int, labels ...string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSegmented(_ctx, selected, labels...))
+	_ctx.rt.beginBuild()
+	_e := coreSegmented(_ctx, selected, labels...)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // SegmentedBase creates a segmented control of n segments without a look,
@@ -1558,7 +1744,10 @@ func SegmentedBase(c *Context, selected *int, n int) SegmentedParts {
 	if _ctx == nil {
 		return SegmentedParts{}
 	}
-	return wrapSegmentedParts(coreSegmentedBase(_ctx, selected, n))
+	_ctx.rt.beginBuild()
+	_p := coreSegmentedBase(_ctx, selected, n)
+	_ctx.rt.endBuild()
+	return wrapSegmentedParts(_p)
 }
 
 // Select creates a drop-down choosing one of options into *selected.
@@ -1567,7 +1756,10 @@ func Select(c *Context, selected *string, options []string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSelect(_ctx, selected, options))
+	_ctx.rt.beginBuild()
+	_e := coreSelect(_ctx, selected, options)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // SelectBase creates a select without a look: a trigger that opens a
@@ -1598,7 +1790,10 @@ func SelectBase[T comparable](c *Context, selected *T) SelectParts[T] {
 	if _ctx == nil {
 		return SelectParts[T]{}
 	}
-	return wrapSelectParts[T](coreSelectBase[T](_ctx, selected))
+	_ctx.rt.beginBuild()
+	_p := coreSelectBase[T](_ctx, selected)
+	_ctx.rt.endBuild()
+	return wrapSelectParts[T](_p)
 }
 
 // Sidebar creates a sidebar of the sections and the items that fn builds
@@ -1623,7 +1818,10 @@ func Sidebar(c *Context, selected *string, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSidebar(_ctx, selected, fn))
+	_ctx.rt.beginBuild()
+	_e := coreSidebar(_ctx, selected, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // SidebarItem creates an item of a Sidebar choosing id, showing label
@@ -1633,7 +1831,10 @@ func SidebarItem(c *Context, id string, icon *SVG, label string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSidebarItem(_ctx, id, icon, label))
+	_ctx.rt.beginBuild()
+	_e := coreSidebarItem(_ctx, id, icon, label)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // SidebarSection creates a section of a Sidebar under title, holding the
@@ -1645,7 +1846,10 @@ func SidebarSection(c *Context, title string, open *bool, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSidebarSection(_ctx, title, open, fn))
+	_ctx.rt.beginBuild()
+	_e := coreSidebarSection(_ctx, title, open, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Slider creates a slider setting *value between lo and hi.
@@ -1654,7 +1858,10 @@ func Slider(c *Context, value *float64, lo float64, hi float64) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSlider(_ctx, value, lo, hi))
+	_ctx.rt.beginBuild()
+	_e := coreSlider(_ctx, value, lo, hi)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // SliderBase creates a slider without a look: dragging across its
@@ -1681,7 +1888,10 @@ func SliderBase(c *Context, value *float64, lo float64, hi float64) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSliderBase(_ctx, value, lo, hi))
+	_ctx.rt.beginBuild()
+	_e := coreSliderBase(_ctx, value, lo, hi)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Spacer creates an empty element that takes the free space of its row or
@@ -1691,7 +1901,10 @@ func Spacer(c *Context) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSpacer(_ctx))
+	_ctx.rt.beginBuild()
+	_e := coreSpacer(_ctx)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Spinner creates an indicator of work of unknown length, as AppKit's
@@ -1704,7 +1917,10 @@ func Spinner(c *Context) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSpinner(_ctx))
+	_ctx.rt.beginBuild()
+	_e := coreSpinner(_ctx)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Split lays out first and second side by side, with a divider between
@@ -1719,7 +1935,10 @@ func Split(c *Context, size *float32, first func(), second func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSplit(_ctx, size, first, second))
+	_ctx.rt.beginBuild()
+	_e := coreSplit(_ctx, size, first, second)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // SplitVertical is Split with first above second, *size its height.
@@ -1728,7 +1947,10 @@ func SplitVertical(c *Context, size *float32, first func(), second func()) Eleme
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSplitVertical(_ctx, size, first, second))
+	_ctx.rt.beginBuild()
+	_e := coreSplitVertical(_ctx, size, first, second)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // StepSlider creates a slider setting *value to lo or a multiple of step
@@ -1739,7 +1961,10 @@ func StepSlider(c *Context, value *float64, lo float64, hi float64, step float64
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreStepSlider(_ctx, value, lo, hi, step))
+	_ctx.rt.beginBuild()
+	_e := coreStepSlider(_ctx, value, lo, hi, step)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Stepper creates a pair of arrows changing *value by step between lo and
@@ -1752,7 +1977,10 @@ func Stepper(c *Context, value *float64, lo float64, hi float64, step float64) E
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreStepper(_ctx, value, lo, hi, step))
+	_ctx.rt.beginBuild()
+	_e := coreStepper(_ctx, value, lo, hi, step)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Switch creates a switch toggling *on.
@@ -1761,7 +1989,10 @@ func Switch(c *Context, on *bool) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSwitch(_ctx, on))
+	_ctx.rt.beginBuild()
+	_e := coreSwitch(_ctx, on)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // SwitchBase creates a switch without a look: CheckboxBase, which
@@ -1772,7 +2003,10 @@ func SwitchBase(c *Context, on *bool) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreSwitchBase(_ctx, on))
+	_ctx.rt.beginBuild()
+	_e := coreSwitchBase(_ctx, on)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Table creates a table of n rows under a header of columns, whose rows
@@ -1813,7 +2047,10 @@ func Table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTable(_ctx, s, columns, n, cell))
+	_ctx.rt.beginBuild()
+	_e := coreTable(_ctx, s, columns, n, cell)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Tabs creates a row of tabs showing labels, of which *selected is the
@@ -1833,7 +2070,10 @@ func Tabs(c *Context, selected *int, labels ...string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTabs(_ctx, selected, labels...))
+	_ctx.rt.beginBuild()
+	_e := coreTabs(_ctx, selected, labels...)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TabsBase creates a list of n tabs without a look, of which *selected is
@@ -1859,7 +2099,10 @@ func TabsBase(c *Context, selected *int, n int) TabsParts {
 	if _ctx == nil {
 		return TabsParts{}
 	}
-	return wrapTabsParts(coreTabsBase(_ctx, selected, n))
+	_ctx.rt.beginBuild()
+	_p := coreTabsBase(_ctx, selected, n)
+	_ctx.rt.endBuild()
+	return wrapTabsParts(_p)
 }
 
 // Text creates a text, which wraps at the width it gets.
@@ -1868,7 +2111,10 @@ func Text(c *Context, s string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreText(_ctx, s))
+	_ctx.rt.beginBuild()
+	_e := coreText(_ctx, s)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TextArea creates a multi-line text input editing *value.
@@ -1877,7 +2123,10 @@ func TextArea(c *Context, value *string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTextArea(_ctx, value))
+	_ctx.rt.beginBuild()
+	_e := coreTextArea(_ctx, value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TextAreaBase creates a multi-line text input without a look, editing
@@ -1887,7 +2136,10 @@ func TextAreaBase(c *Context, value *string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTextAreaBase(_ctx, value))
+	_ctx.rt.beginBuild()
+	_e := coreTextAreaBase(_ctx, value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TextAreaBuffer creates a multiline control editing indexed storage.
@@ -1898,7 +2150,10 @@ func TextAreaBuffer(c *Context, value *TextBuffer) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTextAreaBuffer(_ctx, value))
+	_ctx.rt.beginBuild()
+	_e := coreTextAreaBuffer(_ctx, value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 func TextAreaBufferBase(c *Context, value *TextBuffer) Element {
@@ -1906,7 +2161,10 @@ func TextAreaBufferBase(c *Context, value *TextBuffer) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTextAreaBufferBase(_ctx, value))
+	_ctx.rt.beginBuild()
+	_e := coreTextAreaBufferBase(_ctx, value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TextInput creates a single-line text input editing *value.
@@ -1915,7 +2173,10 @@ func TextInput(c *Context, value *string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTextInput(_ctx, value))
+	_ctx.rt.beginBuild()
+	_e := coreTextInput(_ctx, value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TextInputBase creates a single-line text input without a look, editing
@@ -1926,7 +2187,10 @@ func TextInputBase(c *Context, value *string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTextInputBase(_ctx, value))
+	_ctx.rt.beginBuild()
+	_e := coreTextInputBase(_ctx, value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TextInputBuffer creates a single-line control editing indexed storage.
@@ -1936,7 +2200,10 @@ func TextInputBuffer(c *Context, value *TextBuffer) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTextInputBuffer(_ctx, value))
+	_ctx.rt.beginBuild()
+	_e := coreTextInputBuffer(_ctx, value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TextInputBufferBase and TextAreaBufferBase are the unstyled buffer controls.
@@ -1945,7 +2212,10 @@ func TextInputBufferBase(c *Context, value *TextBuffer) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTextInputBufferBase(_ctx, value))
+	_ctx.rt.beginBuild()
+	_e := coreTextInputBufferBase(_ctx, value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Textf creates a text formatted with fmt.Sprintf.
@@ -1954,7 +2224,10 @@ func Textf(c *Context, format string, args ...any) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTextf(_ctx, format, args...))
+	_ctx.rt.beginBuild()
+	_e := coreTextf(_ctx, format, args...)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TimeInput creates a field of the time of day of *tm, in the hour cycle
@@ -1977,7 +2250,10 @@ func TimeInput(c *Context, tm *time.Time) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTimeInput(_ctx, tm))
+	_ctx.rt.beginBuild()
+	_e := coreTimeInput(_ctx, tm)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // ToastBase creates the toast t without a look, in the viewport of
@@ -1987,7 +2263,10 @@ func ToastBase(c *Context, t Toast) ToastParts {
 	if _ctx == nil {
 		return ToastParts{}
 	}
-	return wrapToastParts(coreToastBase(_ctx, t))
+	_ctx.rt.beginBuild()
+	_p := coreToastBase(_ctx, t)
+	_ctx.rt.endBuild()
+	return wrapToastParts(_p)
 }
 
 // ToastViewportBase builds the window's toasts without a look, in place of
@@ -2018,7 +2297,10 @@ func ToastViewportBase(c *Context, fn func(viewport Element, toasts []Toast)) El
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreToastViewportBase(_ctx, func(viewport *node, toasts []Toast) { fn(wrapElement(viewport), toasts) }))
+	_ctx.rt.beginBuild()
+	_e := coreToastViewportBase(_ctx, func(viewport *node, toasts []Toast) { fn(wrapElement(viewport), toasts) })
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Toggle creates a button that stays pressed while *on, as Bold in an
@@ -2033,7 +2315,10 @@ func Toggle(c *Context, on *bool, label string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreToggle(_ctx, on, label))
+	_ctx.rt.beginBuild()
+	_e := coreToggle(_ctx, on, label)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // ToggleBase creates a toggle button without a look: a row that turns *on
@@ -2045,7 +2330,10 @@ func ToggleBase(c *Context, on *bool) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreToggleBase(_ctx, on))
+	_ctx.rt.beginBuild()
+	_e := coreToggleBase(_ctx, on)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // ToggleGroup creates a row of the toggles and buttons that fn builds,
@@ -2062,7 +2350,10 @@ func ToggleGroup(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreToggleGroup(_ctx, fn))
+	_ctx.rt.beginBuild()
+	_e := coreToggleGroup(_ctx, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TokenField creates a field of tokens, as of tags or the recipients of a
@@ -2079,7 +2370,10 @@ func TokenField(c *Context, tokens *[]string, suggestions []string) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTokenField(_ctx, tokens, suggestions))
+	_ctx.rt.beginBuild()
+	_e := coreTokenField(_ctx, tokens, suggestions)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Toolbar creates a row of the controls that fn builds, as along the top
@@ -2106,7 +2400,10 @@ func Toolbar(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreToolbar(_ctx, fn))
+	_ctx.rt.beginBuild()
+	_e := coreToolbar(_ctx, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TooltipBase shows a tip without a look by anchor: fn styles the tip and
@@ -2136,7 +2433,10 @@ func TooltipBase(c *Context, anchor Element, fn func(tip Element)) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTooltipBase(_ctx, anchor.nodeFor(_ctx.rt), func(tip *node) { fn(wrapElement(tip)) }))
+	_ctx.rt.beginBuild()
+	_e := coreTooltipBase(_ctx, anchor.nodeFor(_ctx.rt), func(tip *node) { fn(wrapElement(tip)) })
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Tree creates a tree, whose items TreeItem builds in fn. While an item
@@ -2155,7 +2455,10 @@ func Tree(c *Context, fn func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTree(_ctx, fn))
+	_ctx.rt.beginBuild()
+	_e := coreTree(_ctx, fn)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // TreeItem creates an item of a Tree showing label, inside the item it is
@@ -2168,7 +2471,10 @@ func TreeItem(c *Context, label string, open *bool, children func()) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreTreeItem(_ctx, label, open, children))
+	_ctx.rt.beginBuild()
+	_e := coreTreeItem(_ctx, label, open, children)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // View returns the content of a window whose user interface view builds,
@@ -2210,7 +2516,10 @@ func WebView(c *Context, v NativeWebView) Element {
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(coreWebView(_ctx, v))
+	_ctx.rt.beginBuild()
+	_e := coreWebView(_ctx, v)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Absolute takes the element out of its parent's layout and places it with
@@ -2633,9 +2942,8 @@ func (_handle Element) Center() Element {
 	return wrapElement(_node.Center())
 }
 
-// Changed applies pending input to the controls built so far and reports
-// whether this widget's value changed in this build pass. Configure controls
-// before querying their response; the bound value is updated before returning.
+// Changed reports whether this widget's value changed in this build pass,
+// by the input it took as its constructor returned.
 func (_handle Element) Changed() bool {
 	_node := _handle.node()
 	if _node == nil {
@@ -4954,9 +5262,8 @@ func (_handle Element) Stripes(c Color, width float32, gap float32, angle float3
 	return wrapElement(_node.Stripes(c, width, gap, angle))
 }
 
-// Submitted applies pending input to the controls built so far and reports
-// whether Enter was pressed in a single-line text input. Configure controls
-// before querying their response; the bound value is updated before returning.
+// Submitted reports whether Enter was pressed in a single-line text input
+// in this build pass.
 func (_handle Element) Submitted() bool {
 	_node := _handle.node()
 	if _node == nil {
@@ -5363,7 +5670,10 @@ func (_handle SegmentedParts) Segment(i int) Element {
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.Segment(i))
+	_ctx.rt.beginBuild()
+	_e := _parts.Segment(i)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Highlight moves the highlight to the option of value while the popup
@@ -5390,7 +5700,10 @@ func (_handle SelectParts[T]) Item(value T) Element {
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.Item(value))
+	_ctx.rt.beginBuild()
+	_e := _parts.Item(value)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Open reports whether the popup shows.
@@ -5415,7 +5728,10 @@ func (_handle SelectParts[T]) Popup(fn func(panel Element)) Element {
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.Popup(func(panel *node) { fn(wrapElement(panel)) }))
+	_ctx.rt.beginBuild()
+	_e := _parts.Popup(func(panel *node) { fn(wrapElement(panel)) })
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Tab creates tab i of the list: a row that takes the focus and chooses
@@ -5427,7 +5743,10 @@ func (_handle TabsParts) Tab(i int) Element {
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.Tab(i))
+	_ctx.rt.beginBuild()
+	_e := _parts.Tab(i)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // ActionButton creates a button without a look, as ButtonBase does, that
@@ -5440,7 +5759,10 @@ func (_handle ToastParts) ActionButton() Element {
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.ActionButton())
+	_ctx.rt.beginBuild()
+	_e := _parts.ActionButton()
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // CloseButton creates a button without a look, as ButtonBase does, that
@@ -5452,7 +5774,10 @@ func (_handle ToastParts) CloseButton() Element {
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.CloseButton())
+	_ctx.rt.beginBuild()
+	_e := _parts.CloseButton()
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
 }
 
 // Left returns how long the toast shows still, to count down, or 0 for one

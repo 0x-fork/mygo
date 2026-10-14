@@ -1800,15 +1800,24 @@ identity without depending on construction order; focus requests wait for a
 hidden control. `Services` offers persistent clipboard, URL and redraw access.
 
 Constructors build and style controls eagerly. `Context.Key` supplies an ID
-before state initialization. `Changed` and `Submitted` apply pending input
-to controls built so far, once per pass, before returning the response. This
-lets polling commit a local bound value immediately. Input options must be
-configured before response queries. Public click and shortcut queries also
-apply pending bound input before returning, so inline actions see the latest
-edits. `ComboboxParts.Chosen` applies input and reports a choice in the same
-pass; it is not carried into a later rebuild. Private widget queries do not
-finalize input during construction, before fluent configuration. Remaining
-input applies after construction. `OnChange` and `OnSubmit` run after construction and bound
+before state initialization. A control takes its input as the public
+constructor that built it returns, as Dear ImGui's widgets do, so what it
+binds, a local copy too, holds the edit when the next statement reads it
+(`value_input.go`). The generated facade brackets each constructor with
+`beginBuild` and `endBuild`; a control's queued input records how many
+constructors were under way, and `endBuild` finalizes the input queued
+deeper than the constructors still under way: a container's (a radio
+group's arrow keys) waits aside until the call that built its children
+returns, and each entry is visited once. Input queued outside public
+constructors, by the engine's own controls, is finished at once, and what
+remains applies after construction. Input follows the options of the build
+the user acted on: a constructor resets its fluent options (`ReadOnly`,
+`OnPaste`, a slider's `Step`) for this build after keeping the last build's,
+which edits apply by (`editor.withShown`, `sliderSettings.shown`), and the
+retained `flagDisabled` is last build's. `Changed`, `Submitted`, click and
+shortcut queries apply finished input before answering.
+`ComboboxParts.Chosen` applies input and reports a choice in the same
+pass; it is not carried into a later rebuild. `OnChange` and `OnSubmit` run after construction and bound
 input, before rebuilding. Notices are cleared before another pass so an
 edit cannot be reported again on a fresh local binding. Callback actions
 consume input once and rebuild before paint.
