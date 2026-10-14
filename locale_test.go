@@ -13,8 +13,13 @@ import (
 
 	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/internal/bridge"
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/ui"
+
+	// MyGo's own strings in the languages the tests show.
+	_ "github.com/egoist/mygo/locales/zh-Hans"
+	_ "github.com/egoist/mygo/locales/zh-Hant"
 )
 
 // localeTest gives a test the app written in langs, the user reading
@@ -484,5 +489,19 @@ func TestBackendTexts(t *testing.T) {
 	}
 	if !slices.Equal(buttons, []string{"好"}) {
 		t.Errorf("a message's default button: %q", buttons)
+	}
+}
+
+// TestMissingTranslations checks which languages of an app the app is
+// told, as it starts, it ships without MyGo's translation.
+func TestMissingTranslations(t *testing.T) {
+	translations := []string{"ja", "zh-Hans", "zh-Hant"}
+	got := missingTranslations([]string{"en", "zh-TW", "de", "zh-Hans", "ja"}, translations, []string{"en", "zh-Hans"})
+	want := [][2]string{{"zh-TW", "zh-Hant"}, {"ja", "ja"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("missing %v, want %v", got, want)
+	}
+	if got := missingTranslations([]string{"en", "zh-TW"}, l10n.Languages, l10n.Catalog.Languages()); got != nil {
+		t.Errorf("with the translations the tests import: %v", got)
 	}
 }

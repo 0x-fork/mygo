@@ -6,6 +6,11 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/ui"
+
+	// MyGo's own strings in the languages of the gallery that MyGo is
+	// translated to; its others show them in English.
+	_ "github.com/egoist/mygo/locales/zh-Hans"
+	_ "github.com/egoist/mygo/locales/zh-Hant"
 )
 
 // galleryLanguages are the languages the gallery declares, its own first:

@@ -1,16 +1,26 @@
-package l10n
+package l10n_test
 
 import (
 	"bytes"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/egoist/mygo/internal/i18ngen"
+	. "github.com/egoist/mygo/internal/l10n"
+
+	// The translations, which apps import for the languages they ship.
+	_ "github.com/egoist/mygo/locales/zh-Hans"
+	_ "github.com/egoist/mygo/locales/zh-Hant"
 )
 
 // TestCatalogs checks the catalogs as `mygo generate` checks an app's: no
-// errors, no warnings, every message in every language, and the accessors
-// generated from them.
+// errors, no warnings, every message in every language, and the code
+// generated from them: the accessors, the list of the translations and
+// their packages.
 func TestCatalogs(t *testing.T) {
 	c, diags, err := i18ngen.Load(FS(), i18ngen.Options{Dir: "internal/l10n", Source: "en", Namespace: Namespace})
 	if err != nil {
@@ -19,15 +29,40 @@ func TestCatalogs(t *testing.T) {
 	for _, d := range diags {
 		t.Error(d)
 	}
-	if len(c.Languages) != 3 {
-		t.Errorf("languages %v", c.Languages)
-	}
 	src, err := i18ngen.Go(c, "l10n")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if old, _ := os.ReadFile(i18ngen.GoFile); !bytes.Equal(old, src) {
 		t.Errorf("%s is out of date: go generate ./internal/l10n", i18ngen.GoFile)
+	}
+
+	all := fstest.MapFS{}
+	en, _ := os.ReadFile("en.json")
+	all["en.json"] = &fstest.MapFile{Data: en}
+	paths, _ := filepath.Glob("../../locales/*/*.json")
+	var tags []string
+	for _, p := range paths {
+		tag := strings.TrimSuffix(filepath.Base(p), ".json")
+		data, _ := os.ReadFile(p)
+		all[tag+".json"] = &fstest.MapFile{Data: data}
+		tags = append(tags, tag)
+		if _, err := os.Stat(filepath.Join(filepath.Dir(p), "locale_gen.go")); err != nil {
+			t.Errorf("%s has no package: go generate ./internal/l10n", p)
+		}
+	}
+	if !slices.Equal(tags, Languages) {
+		t.Errorf("Languages = %v, the translations are %v: go generate ./internal/l10n", Languages, tags)
+	}
+	_, diags, err = i18ngen.Load(all, i18ngen.Options{Dir: "locales", Source: "en", Namespace: Namespace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range diags {
+		t.Error(d)
+	}
+	if got, want := Catalog.Languages(), append([]string{"en"}, tags...); !slices.Equal(got, want) {
+		t.Errorf("with the translations imported, the catalog has %v, want %v", got, want)
 	}
 }
 

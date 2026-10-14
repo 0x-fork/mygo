@@ -328,3 +328,35 @@ func BenchmarkCatalogText(b *testing.B) {
 		_ = c.Format("de", "title", nil)
 	}
 }
+
+// TestCatalogAdd checks the translations a catalog takes from elsewhere,
+// as MyGo's own strings take those of the packages an app imports.
+func TestCatalogAdd(t *testing.T) {
+	c, err := NewLibraryCatalog(files(map[string]string{"en.json": `{"undo": "Undo", "redo": "Redo"}`}), "en", "lib")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Format("de", "undo", nil); got != "Undo" {
+		t.Fatalf("before German was added: %q", got)
+	}
+	if err := c.Add(files(map[string]string{"de.json": `{"undo": "Rückgängig"}`})); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Add(files(map[string]string{"zh-Hant.json": `{"undo": "復原"}`})); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := c.Languages(), []string{"en", "de", "zh-Hant"}; !slices.Equal(got, want) {
+		t.Errorf("Languages() = %v, want %v", got, want)
+	}
+	for _, tc := range [][3]string{{"de", "undo", "Rückgängig"}, {"de-AT", "undo", "Rückgängig"}, {"de", "redo", "Redo"}, {"zh-TW", "undo", "復原"}} {
+		if got := c.Format(tc[0], tc[1], nil); got != tc[2] {
+			t.Errorf("Format(%q, %q) = %q, want %q", tc[0], tc[1], got, tc[2])
+		}
+	}
+	if err := c.Add(files(map[string]string{"de.json": `{}`})); err == nil {
+		t.Error("adding German twice did not fail")
+	}
+	if err := c.Add(files(map[string]string{"german.json": `{}`})); err == nil {
+		t.Error("a file not named after a language was added")
+	}
+}

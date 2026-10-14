@@ -88,6 +88,8 @@ func loadCatalogs(c *Config) (*i18ngen.Catalog, i18ngen.Diagnostics, error) {
 		Dir:       filepath.ToSlash(c.I18n.Dir),
 		Source:    c.I18n.Source,
 		Libraries: map[string]*i18ngen.Catalog{l10n.Namespace: fw},
+		// The accessors import MyGo's translations to the app's languages.
+		Translations: l10n.Languages,
 	})
 }
 

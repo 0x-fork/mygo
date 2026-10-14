@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -33,12 +34,12 @@ import (
 // A Catalog reads the file of a language when it first formats a message
 // in it, and keeps it. It is safe for concurrent use.
 type Catalog struct {
-	fsys      fs.FS
 	source    string
-	namespace string               // of a library's catalog
-	langs     []string             // source first, then the others sorted
-	files     map[string]string    // file name by tag
-	data      map[string]*langMsgs // messages by tag
+	namespace string // of a library's catalog
+	// set holds the languages, replaced whole as Add adds some, so that
+	// formatting reads it without a lock.
+	set   atomic.Pointer[langSet]
+	addMu sync.Mutex
 
 	candMu sync.Mutex
 	cands  map[string]candidates // tags to look a key up in, by locale
@@ -53,11 +54,23 @@ type Catalog struct {
 
 type textKey struct{ locale, key string }
 
-// langMsgs are the messages of a catalog in one language, read once.
+// langSet is the languages of a catalog and their messages.
+type langSet struct {
+	langs []string             // source first, then the others sorted
+	data  map[string]*langMsgs // by tag
+}
+
+// langMsgs are the messages of a catalog in one language: the file they
+// are in, read once.
 type langMsgs struct {
+	fsys fs.FS
+	file string
 	once sync.Once
 	msgs map[string]*Message
 }
+
+// langs returns the languages of the catalog, source first.
+func (c *Catalog) langs() []string { return c.set.Load().langs }
 
 // candidates are the tags a locale looks messages up in, as of a version
 // of the registry.
@@ -78,11 +91,34 @@ func NewCatalog(fsys fs.FS, source string) (*Catalog, error) {
 	if src == "" || IsPseudo(src) {
 		return nil, fmt.Errorf("i18n: the source language %q is not a language", source)
 	}
-	c := &Catalog{fsys: fsys, source: src, files: map[string]string{}, data: map[string]*langMsgs{}}
+	files, err := catalogFiles(fsys)
+	if err != nil {
+		return nil, err
+	}
+	if files[src] == nil {
+		return nil, fmt.Errorf("i18n: the catalog has no %s.json, the messages of its source language", src)
+	}
+	c := &Catalog{source: src}
+	set := &langSet{data: files}
+	for tag := range files {
+		if tag != src {
+			set.langs = append(set.langs, tag)
+		}
+	}
+	slices.Sort(set.langs)
+	set.langs = append([]string{src}, set.langs...)
+	c.set.Store(set)
+	return c, nil
+}
+
+// catalogFiles returns the languages of the JSON files at the root of
+// fsys, named as NewCatalog says.
+func catalogFiles(fsys fs.FS) (map[string]*langMsgs, error) {
 	names, err := fs.Glob(fsys, "*.json")
 	if err != nil {
 		return nil, err
 	}
+	files := map[string]*langMsgs{}
 	for _, name := range names {
 		tag := strings.TrimSuffix(name, ".json")
 		norm := Normalize(tag)
@@ -92,18 +128,50 @@ func NewCatalog(fsys fs.FS, source string) (*Catalog, error) {
 		if IsPseudo(norm) {
 			return nil, fmt.Errorf("i18n: %s: the pseudo locales come from the source language and have no files", name)
 		}
-		c.files[norm] = name
-		c.data[norm] = &langMsgs{}
-		if norm != src {
-			c.langs = append(c.langs, norm)
+		files[norm] = &langMsgs{fsys: fsys, file: name}
+	}
+	return files, nil
+}
+
+// Add adds the languages of the JSON files at the root of fsys, named as
+// NewCatalog's, to the catalog: translations kept apart from it, as those
+// of MyGo's own strings are, each in a package an app imports for a
+// language it ships. It fails on a language the catalog has already, and
+// on files not named after a language; an app's registered catalog ships
+// the languages it adds. Add is safe for concurrent use with formatting,
+// which says the new languages from then on.
+func (c *Catalog) Add(fsys fs.FS) error {
+	files, err := catalogFiles(fsys)
+	if err != nil {
+		return err
+	}
+	c.addMu.Lock()
+	old := c.set.Load()
+	set := &langSet{data: maps.Clone(old.data)}
+	var added []string
+	for tag, f := range files {
+		if old.data[tag] != nil {
+			c.addMu.Unlock()
+			return fmt.Errorf("i18n: the catalog has %s already", tag)
 		}
+		set.data[tag] = f
+		added = append(added, tag)
 	}
-	if c.files[src] == "" {
-		return nil, fmt.Errorf("i18n: the catalog has no %s.json, the messages of its source language", src)
+	set.langs = append(slices.Clone(old.langs[1:]), added...)
+	slices.Sort(set.langs)
+	set.langs = append([]string{c.source}, set.langs...)
+	c.set.Store(set)
+	c.addMu.Unlock()
+
+	registry.mu.Lock()
+	isRegistered := slices.Contains(registry.catalogs, c)
+	registry.version.Add(1) // the languages to look messages up in changed
+	registry.mu.Unlock()
+	if isRegistered {
+		slices.Sort(added)
+		declare(c.source, added)
 	}
-	slices.Sort(c.langs)
-	c.langs = append([]string{src}, c.langs...)
-	return c, nil
+	return nil
 }
 
 // NewLibraryCatalog returns the catalog of a library, as NewCatalog does,
@@ -137,7 +205,7 @@ func (c *Catalog) Source() string { return c.source }
 
 // Languages returns the languages of the catalog: its source language,
 // then the others, sorted.
-func (c *Catalog) Languages() []string { return slices.Clone(c.langs) }
+func (c *Catalog) Languages() []string { return slices.Clone(c.langs()) }
 
 // Namespace returns the namespace under which apps change the messages of
 // a library's catalog, or "" for an app's.
@@ -253,10 +321,11 @@ func (c *Catalog) candidates(locale string, sources []lookupSource) []string {
 		// The language each catalog has that suits locale best, as
 		// zh-Hant for zh-TW, whose chain (zh-TW, zh) has none of it.
 		for _, s := range sources {
-			if slices.Contains(s.catalog.langs, tag) {
+			langs := s.catalog.langs()
+			if slices.Contains(langs, tag) {
 				continue
 			}
-			if m := Match([]string{tag}, s.catalog.langs); m != "" {
+			if m := Match([]string{tag}, langs); m != "" {
 				add(chain(m))
 			}
 		}
@@ -282,18 +351,18 @@ func (c *Catalog) candidates(locale string, sources []lookupSource) []string {
 // message returns the message of key in the language tag, which the
 // catalog has, or nil.
 func (c *Catalog) message(tag, key string) *Message {
-	l := c.data[tag]
+	l := c.set.Load().data[tag]
 	if l == nil {
 		return nil
 	}
-	l.once.Do(func() { l.msgs = c.load(tag) })
+	l.once.Do(func() { l.msgs = l.load() })
 	return l.msgs[key]
 }
 
 // load reads the messages of a language. A message that does not parse is
 // left out, as mygo generate reports it: its key falls back.
-func (c *Catalog) load(tag string) map[string]*Message {
-	data, err := fs.ReadFile(c.fsys, path.Clean(c.files[tag]))
+func (l *langMsgs) load() map[string]*Message {
+	data, err := fs.ReadFile(l.fsys, path.Clean(l.file))
 	if err != nil {
 		return nil
 	}
@@ -341,7 +410,7 @@ func Register(c *Catalog) {
 	registry.catalogs = append(registry.catalogs, c)
 	registry.version.Add(1)
 	registry.mu.Unlock()
-	declare(c.source, c.langs[1:])
+	declare(c.source, c.langs()[1:])
 }
 
 // registered returns the registered catalogs, the first first.

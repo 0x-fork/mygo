@@ -5,6 +5,10 @@ import (
 
 	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/internal/platform"
+
+	// MyGo's own strings in the languages the tests show.
+	_ "github.com/egoist/mygo/locales/zh-Hans"
+	_ "github.com/egoist/mygo/locales/zh-Hant"
 )
 
 // TestControlsSayTheLanguage checks that the controls say MyGo's own

@@ -36,9 +36,19 @@ func Go(c *Catalog, pkg string) ([]byte, error) {
 	if usesTime {
 		w("\t\"time\"\n")
 	}
-	w("\n\t\"github.com/egoist/mygo/i18n\"\n)\n\n")
+	w("\n\t\"github.com/egoist/mygo/i18n\"\n")
+	if len(c.Translations) > 0 {
+		w("\n\t// MyGo's own strings in the app's languages.\n")
+		for _, tag := range c.Translations {
+			w("\t_ \"github.com/egoist/mygo/locales/%s\"\n", tag)
+		}
+	}
+	w(")\n\n")
 	w("//go:embed *.json\nvar files embed.FS\n\n")
 	doc := fmt.Sprintf("Catalog holds the messages in %s, the source language, and %s.", c.Source, languageList(c.Languages[1:]))
+	if len(c.Languages) == 1 && c.Namespace != "" {
+		doc = fmt.Sprintf("Catalog holds the messages in %s, the source language, and those of the translations added to it (Catalog.Add).", c.Source)
+	}
 	if c.Namespace == "" {
 		doc += " It is registered with package i18n, which makes its languages the app's."
 	} else {

@@ -11,9 +11,9 @@ import (
 //go:embed *.json
 var files embed.FS
 
-// Catalog holds the messages in en, the source language, and zh-Hans and
-// zh-Hant. Apps change them, or translate them, with keys "mygo.<key>" in
-// their catalogs.
+// Catalog holds the messages in en, the source language, and those of the
+// translations added to it (Catalog.Add). Apps change them, or translate
+// them, with keys "mygo.<key>" in their catalogs.
 var Catalog *i18n.Catalog
 
 func init() {

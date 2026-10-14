@@ -37,6 +37,10 @@ type Options struct {
 	// Libraries are the catalogs of libraries whose messages an app's
 	// keys "<namespace>.<key>" change, by namespace.
 	Libraries map[string]*Catalog
+	// Translations are the languages MyGo's own strings are translated
+	// to, each in a package of github.com/egoist/mygo/locales, which the
+	// accessors of an app's catalogs import for the app's languages.
+	Translations []string
 }
 
 // Catalog is the catalogs of the languages of an app or a library.
@@ -51,6 +55,10 @@ type Catalog struct {
 	Keys []*Key
 	// Files are the files by language.
 	Files map[string]*File
+	// Translations are the translations of MyGo's own strings to the
+	// app's languages, which its accessors import: those of
+	// Options.Translations that suit a language of the catalogs best.
+	Translations []string
 }
 
 // File is the catalog of one language.
@@ -220,7 +228,11 @@ func Load(fsys fs.FS, opts Options) (*Catalog, Diagnostics, error) {
 	l.sourceKeys(srcFile)
 	for _, tag := range l.c.Languages {
 		l.checkFile(l.c.Files[tag])
+		if m := i18n.Match([]string{tag}, opts.Translations); m != "" && !slices.Contains(l.c.Translations, m) {
+			l.c.Translations = append(l.c.Translations, m)
+		}
 	}
+	slices.Sort(l.c.Translations)
 	return l.c, l.sorted(), nil
 }
 

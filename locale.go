@@ -1,6 +1,7 @@
 package mygo
 
 import (
+	"log"
 	"os"
 	"slices"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/i18n"
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -258,6 +260,25 @@ func (a *Application) startLocale() {
 	// Menus made before the app knew its language took their roles'
 	// labels in its own language.
 	relabelMenus()
+	locales.mu.Lock()
+	langs := appLanguages(locales.languages)
+	locales.mu.Unlock()
+	for _, missing := range missingTranslations(langs, l10n.Languages, l10n.Catalog.Languages()) {
+		log.Printf("mygo: the app is written in %s, but MyGo's own strings are in English there: import _ \"github.com/egoist/mygo/locales/%s\", as the code mygo generate writes for an app's catalogs does, or translate them with keys \"mygo.<key>\" in the app's catalog", missing[0], missing[1])
+	}
+}
+
+// missingTranslations returns the languages of langs that MyGo's own
+// strings are translated to, each in a package, but not linked, with the
+// translation that suits each, as {"zh-TW", "zh-Hant"}.
+func missingTranslations(langs, translations, linked []string) [][2]string {
+	var out [][2]string
+	for _, lang := range langs {
+		if m := i18n.Match([]string{lang}, translations); m != "" && !slices.Contains(linked, m) {
+			out = append(out, [2]string{lang, m})
+		}
+	}
+	return out
 }
 
 // localeChangedFromSystem tells the app that the user's languages or

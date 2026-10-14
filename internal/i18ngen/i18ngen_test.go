@@ -73,7 +73,7 @@ func loadDir(t *testing.T, dir string, opts Options) (*Catalog, Diagnostics) {
 }
 
 func TestApp(t *testing.T) {
-	c, diags := loadDir(t, "testdata/app", Options{Dir: "locales", Source: "en", Libraries: map[string]*Catalog{"mygo": library(t)}})
+	c, diags := loadDir(t, "testdata/app", Options{Dir: "locales", Source: "en", Libraries: map[string]*Catalog{"mygo": library(t)}, Translations: []string{"ja", "zh-Hans", "zh-Hant"}})
 	var got []string
 	for _, d := range diags {
 		got = append(got, d.String())
@@ -116,6 +116,10 @@ func TestApp(t *testing.T) {
 	}
 	if !slices.Equal(params, wantParams) {
 		t.Errorf("keys:\n%s\nwant:\n%s", strings.Join(params, "\n"), strings.Join(wantParams, "\n"))
+	}
+	// The app ships zh-Hant: its accessors link MyGo's zh-Hant.
+	if !slices.Equal(c.Translations, []string{"zh-Hant"}) {
+		t.Errorf("Translations = %v, want [zh-Hant]", c.Translations)
 	}
 	if got := Fallbacks(c, "en-GB"); !slices.Equal(got, []string{"en-GB", "en"}) {
 		t.Errorf("Fallbacks(en-GB) = %v", got)
