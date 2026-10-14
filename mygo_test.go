@@ -831,8 +831,7 @@ func (badStreams) Variadic(chs ...*Channel[int])    {}
 
 func TestChannelsAreParameters(t *testing.T) {
 	for _, name := range []string{"Result", "Nested", "Variadic"} {
-		m, _ := reflect.TypeFor[badStreams]().MethodByName(name)
-		if _, err := newMethod("Bad", m, reflect.ValueOf(badStreams{})); err == nil {
+		if _, err := newMethod("Bad", name, reflect.ValueOf(badStreams{}).MethodByName(name)); err == nil {
 			t.Errorf("%s: a misplaced channel should not bind", name)
 		}
 	}

@@ -787,6 +787,14 @@ window (`CallerWindow`) and is canceled when the page navigates or the window
 closes. `Bind` validates every parameter and result type up front
 (`tsgen.Validate`), so unsupported types fail at startup, not at call time.
 
+`Bind` lists a service's methods with `reflect.Type.Method`, and a program
+that does that keeps every exported method of every type in an interface,
+since the linker cannot tell which it calls: about 2.5 MB of a native UI
+app. So only apps that call `Bind` (or `Use` a plugin with a service) link
+it. MyGo's own service, `mygo:window` behind `window.mygo.window`, is bound
+by `bindFuncs`, from funcs, without it; `go build -ldflags=-dumpdep`
+prints `<ReflectMethod>` on what does it.
+
 JSON options (`jsonOptions` in `ipc.go`) are shared by calls and events:
 json/v2 defaults (nil slices encode as `[]`, case-sensitive names),
 `time.Duration` as nanoseconds, and U+2028/2029 escaped for JavaScript.
@@ -1684,7 +1692,10 @@ bookkeeping and SwiftUI's 2026 `Document` for the shape (a snapshot on the
 main thread, the I/O on goroutines), with the recovery copies of VS Code
 and Zed. Everything is in the core; backends only show a window's
 document (`Window.SetRepresentedFile`, `SetDocumentEdited`) and replace
-files (`Backend.ReplaceFile`).
+files (`Backend.ReplaceFile`). The menus reach documents only through the
+functions the first kind registers (`linkedDocuments`), so that apps
+without documents do not link them through the File menu's roles and Open
+Recent (about 290 KB).
 
 - *State.* `Document[T]` embeds `docBase`, the state that doesn't depend on
   the content's type, under one mutex: a change counter (`changes`), the

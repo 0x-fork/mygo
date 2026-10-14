@@ -30,12 +30,18 @@ var docRegistry struct {
 	// pending are those it was asked to open before.
 	launched bool
 	pending  []string
+	// role and open are what menus reach documents through, set with the
+	// first kind, so that apps that make no documents link none of their
+	// code.
+	role func(MenuRole, *Window)
+	open func(path string)
 }
 
 // registerDocKind adds k, and with the first kind sets documents up.
 func registerDocKind(k *docKind) {
 	docRegistry.Lock()
 	docRegistry.kinds = append(docRegistry.kinds, k)
+	docRegistry.role, docRegistry.open = documentRole, openDocumentPath
 	first := len(docRegistry.kinds) == 1
 	launched := docRegistry.launched
 	docRegistry.Unlock()
@@ -112,6 +118,17 @@ func openFileOfKind(path string) {
 			return
 		}
 	}
+}
+
+// linkedDocuments returns what menus reach documents through, nil
+// functions while the app has no kinds of documents.
+func linkedDocuments() (role func(MenuRole, *Window), open func(path string)) {
+	docRegistry.Lock()
+	defer docRegistry.Unlock()
+	if len(docRegistry.kinds) == 0 {
+		return nil, nil
+	}
+	return docRegistry.role, docRegistry.open
 }
 
 func docKinds() []*docKind {

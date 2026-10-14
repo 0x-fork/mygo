@@ -138,11 +138,12 @@ func saveRecentLocked() error {
 // through OnOpenFile, as the system opens those of the Dock menu and the
 // jump list. Main thread only.
 func openRecentDocument(path string) {
-	if !hasDocuments() {
+	_, open := linkedDocuments()
+	if open == nil {
 		fire1(&App.onOpenFile, path)
 		return
 	}
-	go openDocumentPath(path)
+	go open(path)
 }
 
 // addRecent records a document's file, as AddRecentDocument does, and logs

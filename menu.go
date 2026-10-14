@@ -486,7 +486,9 @@ func performRole(role MenuRole, win *Window) {
 	case "":
 		return
 	case RoleNew, RoleOpen, RoleSave, RoleSaveAs, RoleDuplicate, RoleRename, RoleMoveTo, RoleRevert:
-		documentRole(role, win)
+		if perform, _ := linkedDocuments(); perform != nil {
+			perform(role, win)
+		}
 		return
 	}
 	if win == nil || win.native == nil {
