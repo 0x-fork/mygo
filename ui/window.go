@@ -147,7 +147,15 @@ type windowHost struct {
 	views  []NativeWebView
 }
 
-func (h *windowHost) framePath() string { return h.path }
+func (h *windowHost) framePath() string {
+	if h.path == "drawn on the GPU" && h.gpu != nil {
+		// The stats logger calls this only while MYGO_FRAME_STATS is enabled.
+		if f, ok := h.gpu.(interface{ FrameInfo() string }); ok {
+			return h.path + ": " + f.FrameInfo()
+		}
+	}
+	return h.path
+}
 
 func (h *windowHost) rightToLeft() bool { return h.conn.RightToLeft != nil && h.conn.RightToLeft() }
 

@@ -3000,12 +3000,23 @@ either.
   and height of missing bitmaps as well as their area, so long thin
   paths fit on the repaint too. The first glyph can grow an empty atlas
   immediately, without invalidating anything already painted.
-- **Renderers.** `internal/gpu` turns a scene into one instanced quad per
-  operation, in batches that share a scissor rectangle and an image, for one
+- **Renderers.** `internal/gpu` turns a scene into instanced quads, in
+  batches that share a scissor rectangle and an image, for a
   shader that computes the signed distance to rounded rectangles, Evan
   Wallace's blurred rounded box, gradients, stripes, the dashes of borders,
   atlas coverage and the innermost rounded clip; outer clips are scissor
-  rectangles. An effect draws in a batch of its own, with a pipeline of
+  rectangles. The builder omits operations wholly hidden by the certainly
+  opaque core of a later fill, keeping at most eight occluders and treating
+  backdrop-reading effects as barriers. Its planner shares clipping rules
+  with drawing, grows shadow support before transforming it, and skips
+  scenes without potential opaque fills. Large shadows with a caster and
+  border-only fills draw as up to four scissored strips around interiors
+  where their output is zero. These scissors never change a clip mask's
+  sampling coordinates. Both transformations are shared by all GPU backends.
+  Metal opts into three further builder capabilities: marking fills whose
+  clip coverage is one, splitting opaque cores from blended edges, and
+  batching by fragment class. Other renderers keep the original instance
+  flags and class-independent batching. An effect draws in a batch of its own, with a pipeline of
   its own, which the renderer makes the first time the effect draws; one
   reading its backdrop draws after a backdrop step (`Builder.Backdrops`):
   the renderer ends its pass, reads the backdrop's area of what it drew
@@ -3085,10 +3096,23 @@ either.
     that waited for its drawable, as the display held both until its next
     refresh, has the next skip a refresh (`Behind`, at most once a
     second), or the frames after would wait as long, most of each
-    refresh, blocking the main thread. Each frame waits for the GPU to
-    finish the last before it updates the textures and the instance
-    buffer the last read, so two drawables do rather than the three a
-    layer makes while a window animates. Two seconds after the last frame, as the
+    refresh, blocking the main thread. Instances use two frame slots, for
+    the main target and each canvas, and a slot waits only for the command
+    buffer that last used it. Updating an atlas or image texture in place
+    still waits for every frame in flight. Rendering a canvas into its
+    texture stays ordered on the command queue. The layer keeps two
+    drawables: waiting for one remains separate from waiting for an instance
+    buffer, so offscreen encode timings do not establish presentation latency.
+    Opaque fill cores use an unblended pipeline in BGRA8; float16 keeps
+    blending to preserve its interpolation rounding. Fragment functions are
+    specialized by batch class and continuous corners, with general shaders
+    as an identical fallback. A worker compiles and warms these pipelines,
+    cached per device, outside the frame path. Renderer release stops and
+    joins that worker before releasing its shader library. Float16 shadows
+    stay general, and fills with fractional opacity avoid the plain class,
+    because specialization otherwise changes rounding. Function constant
+    indices 0 through 7 belong to the renderer; effects start their own at 8.
+    Two seconds after the last frame, as the
     driver frees its own memory of frames, a timer shrinks the drawables,
     which frees all but the one shown, until the next frame makes them
     again, and releases GPU instance buffers, atlas/image textures and
@@ -3609,6 +3633,17 @@ CPUs from run to run (Windows' EPYC 9V74 runs some benchmarks 40% faster
 than the 7763), so timings are compared only among commits measured on
 the same CPU, and their charts draw the last commit's CPU as the line and
 others in gray.
+
+The Metal `BenchmarkRenderFillRate` benchmark covers nested opaque layers,
+large border rings and stacked shadows at 3456×2000. It reports command
+buffer GPU timestamps with the existing benchmark harness; it waits for
+individual offscreen frames and does not measure display scheduling or
+input latency. `MYGO_FRAME_STATS` includes instance and batch counts,
+culled operations, opaque cores and Metal specialization fallbacks.
+`MYGO_GPU_REQUIRED=1` makes the Metal optimization identity tests fail if
+no renderer can be created. They compare raw BGRA8 and float16 output with
+both disabled optimizations and the shader from upstream f2eca9f7, including
+canvases and pixelated sprites.
 
 Benchmarks are described on the page by their doc comments, which the
 site reads when it is built: start them with the benchmark's name.
