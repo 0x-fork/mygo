@@ -1636,8 +1636,9 @@ it sees and what it saw (`fileWatchDiff`). An entry whose identity
 (`os.SameFile`) moved is a rename, unless a hard link makes it ambiguous,
 and what moved with a directory renamed above it says nothing more. When
 the system lost changes (an inotify queue overflow, Windows'
-`ERROR_NOTIFY_ENUM_DIR`), the core lists every directory again rather than
-stopping. Enrolling is checked against the scan: the backend opens a target
+`ERROR_NOTIFY_ENUM_DIR`, FSEvents' `MustScanSubDirs` or a dropped event),
+the core lists every directory again rather than stopping. Enrolling is
+checked against the scan: the backend opens a target
 and compares its identity with what the scan saw, then the scan stats it
 again, so that an entry replaced in between (an editor's atomic save) is
 looked at again rather than watched in place of the other.
@@ -1670,9 +1671,24 @@ reports; `notice` hands it to the watch's goroutine over a channel, and a
 full channel makes the watch look at everything again. Neither uses the
 main thread, so watches work before the app runs and don't wait on it.
 
-- macOS: kqueue `EVFILT_VNODE` on a descriptor opened `O_EVTONLY` for every
-  file and directory, since a directory tells that its entries changed but
-  not which, and a file's writes only reach its own descriptor.
+- macOS: an FSEventStream per directory target, which covers the whole
+  tree beneath it, so nothing is opened per file, and a file target is
+  covered by the stream of its directory. A target below a stream already
+  watching its tree needs no stream of its own, which keeps a watch of a
+  directory that isn't recursive at one stream. The stream names what
+  changed (`kFSEventStreamCreateFlagFileEvents`) and hears of the root
+  itself (`kFSEventStreamCreateFlagWatchRoot`), delivering through one
+  callback created at startup, on one serial dispatch queue of the
+  process, never the main thread. `Subtree` targets report paths at any
+  depth; one without it drops what changes deeper than its entries. The
+  stream's path is resolved with `realpath`, as FSEvents names what is
+  on disk, which a path given on a case-insensitive volume may not. The
+  notices are hints: `MustScanSubDirs` or a full queue makes the core look
+  at everything again, as an overflow does elsewhere, and the stream's
+  10 ms latency is under the core's debounce, which does the coalescing an
+  app sees. The stream starts `SinceNow`, but fseventsd can report a
+  change made just before it started; the core's snapshot is taken as
+  targets are enrolled, so nothing comes of it.
 - Linux: one inotify instance for the process, as fsnotify, with a watch
   per directory, which names the child that changed: watches cost watch
   descriptors, not instances, of which many systems allow 128 per user
@@ -1698,8 +1714,10 @@ main thread, so watches work before the app runs and don't wait on it.
   out junctions and mount points but not the placeholders of cloud files
   (OneDrive), reparse points that are no name surrogates.
 
-Backends report a write (`FileWatchWrite`) only for content: kqueue's
-`NOTE_WRITE` and `NOTE_EXTEND`, inotify's `IN_MODIFY` and `IN_CLOSE_WRITE`,
+Backends report a write (`FileWatchWrite`) only for content: FSEvents'
+`ItemModified` on a file (its `ItemCreated`, which APFS also sets on an
+`O_TRUNC` write, stays dirty and lets the core's comparison report the
+change), inotify's `IN_MODIFY` and `IN_CLOSE_WRITE`,
 and Windows without `FILE_NOTIFY_CHANGE_ATTRIBUTES`. Attribute changes are
 dirty, and the core compares only size and modification time, so that
 indexers and antivirus touching metadata report nothing.
@@ -1745,8 +1763,8 @@ Recent (about 290 KB).
   (in conflict when the file's stamp changed), writes them into its own
   session, then removes the old ones.
 - *Watches.* One `WatchFiles` per file of open documents, shared by
-  reference count, which costs the same whatever else its folder holds
-  (kqueue takes a descriptor per file a folder's watch covers); a batch
+  reference count, which costs the same whatever else its folder holds: a
+  watch covers the folder, not each file in it. A batch
   makes the document look at the disk (`checkDisk`), as focusing its
   window does, and so does the watch once it started. A removal looks in
   the folder for the file's identity, to follow a rename.
@@ -3719,7 +3737,7 @@ which npm allows only for packages that exist: the first release uses an
 
 | feature | macOS | Linux | Windows |
 |---|---|---|---|
-| watching files | kqueue, a descriptor per file and directory | inotify, per directory | `ReadDirectoryChangesW`, one for a recursive tree, and the parent to see the directory renamed |
+| watching files | FSEvents, one stream per tree, no descriptor per file | inotify, per directory | `ReadDirectoryChangesW`, one for a recursive tree, and the parent to see the directory renamed |
 | menu bar | application menu bar, default menu installed | per-window GTK menu bar, none by default | per-window Win32 menu bar, none by default |
 | auto-hide menu bar | ignored | the bar widget hides; `can-activate-accel` keeps its shortcuts; Alt alone or F10 show it and open its first menu until it deactivates | the menu is attached only for the `SC_KEYMENU` menu loop that Alt alone or F10 start; shortcuts come from the webview |
 | tray | NSStatusItem, click events | AppIndicator (menu only, no click events) | notification area icon, click events |

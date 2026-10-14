@@ -66,8 +66,10 @@ type FileWatchOptions struct {
 	// MaxDelay is the longest changes wait while more keep coming: 500 ms
 	// when zero, and never less than Debounce.
 	MaxDelay time.Duration
-	// MaxEntries is how many files and directories a watch covers before
-	// it stops with ErrWatchLimit: 8192 when zero.
+	// MaxEntries is how many files and directories a watch keeps a
+	// snapshot of before it stops with ErrWatchLimit: 65536 on macOS,
+	// where a watch covers a whole tree with one stream, and 8192
+	// elsewhere, where a backend may take a handle per entry, when zero.
 	MaxEntries int
 }
 
@@ -135,7 +137,7 @@ func WatchFiles(ctx context.Context, path string, opts FileWatchOptions) (*FileW
 		return nil, errors.New("mygo: negative watch limit")
 	}
 	if opts.MaxEntries == 0 {
-		opts.MaxEntries = 8192
+		opts.MaxEntries = defaultWatchMaxEntries
 	}
 	if opts.Debounce == 0 {
 		opts.Debounce = 50 * time.Millisecond

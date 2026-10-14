@@ -470,8 +470,10 @@ replaced, the last batch has a `FileRemove` of `.`, and `Next` then returns
 `Close`, or canceling the context given to `WatchFiles`, stops the watch:
 `Next` returns `io.EOF`, and `Done` is closed once it has released its
 handles. The app stops its watches when it quits. A watch stops with
-`mygo.ErrWatchLimit` when the directory has more than 8192 files and
-directories (`MaxEntries`). The [watch plugin](plugins/watch.md) gives
+`mygo.ErrWatchLimit` when its directory has more than `MaxEntries` files
+and directories: 65536 on macOS, where one FSEvents stream covers the
+whole tree, and 8192 elsewhere, where a backend may take a handle per
+entry. The [watch plugin](plugins/watch.md) gives
 pages watches of the directories and files an app chooses, and says how
 each platform watches.
 

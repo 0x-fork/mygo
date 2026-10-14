@@ -4,8 +4,10 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -195,4 +197,41 @@ func TestFileWatchFile(t *testing.T) {
 	next(mygo.FileEvent{Op: mygo.FileRemove, Path: "."})
 	write(file, "e")
 	next(mygo.FileEvent{Op: mygo.FileCreate, Path: "."})
+}
+
+// TestFileWatchManyFiles watches a directory with more entries than the
+// other platforms' default limit of 8192, with default options: macOS
+// covers a tree with one FSEvents stream, so its default MaxEntries is
+// 65536.
+func TestFileWatchManyFiles(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("watching more than 8192 entries is macOS-only")
+	}
+	dir := t.TempDir()
+	for i := range 10001 {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("file-%05d", i)), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	w, err := mygo.WatchFiles(ctx, dir, mygo.FileWatchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := os.WriteFile(filepath.Join(dir, "file-00000"), []byte("written"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		batch, err := w.Next(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range batch {
+			if e.Op == mygo.FileWrite && e.Path == "file-00000" {
+				return
+			}
+		}
+	}
 }

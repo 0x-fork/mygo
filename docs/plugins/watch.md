@@ -45,7 +45,7 @@ what is in them; without it they can watch the directory itself and the
 files in it. `Ignore` leaves out files and directories, by their path
 relative to the root, as `mygo.FileWatchOptions.Ignore` does: a directory
 it ignores, as `node_modules`, is never opened, and doesn't count in the
-8192 entries a watch may cover.
+entries a watch may cover (`MaxEntries`: 8192, or 65536 on macOS).
 
 ```go
 "project": {Path: projectDir, Recursive: true, Ignore: func(p string, isDir bool) bool {
@@ -139,7 +139,7 @@ error that stopped it. Errors are `WatchError`s, whose `code` is:
   directory in it, of a root without `Recursive`;
 - `not-found`: the path doesn't exist;
 - `limit`: the page or the app watch too many, or the directory has more
-  than 8192 files and directories;
+  than `MaxEntries` files and directories (8192, or 65536 on macOS);
 - `unsupported`: the platform can't watch files;
 - `path-encoding`: a file's name is not valid UTF-8, which pages can't be
   given;
@@ -152,9 +152,12 @@ junctions in it point. Only expose directories the app controls: names
 keep pages from choosing paths, but another program can still move or
 replace what is in a directory.
 
-- macOS watches with kqueue, which takes a file descriptor for every file
-  and directory watched; a file watched takes two, its own and its
-  directory's.
+- macOS watches with FSEvents: a watch is one event stream covering
+  everything beneath its root, so it costs no file descriptor per file,
+  and a file watched is covered by the stream of its directory. A
+  write reports itself only when FSEvents says the content changed, since
+  APFS also calls an O_TRUNC write a creation; the watch's comparison
+  reports the rest.
 - Linux watches each directory with inotify, through one instance for the
   app, whose limit is the system's (`fs.inotify.max_user_watches`).
 - Windows watches a recursive directory with one `ReadDirectoryChangesW`,

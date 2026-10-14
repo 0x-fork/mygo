@@ -15,8 +15,8 @@ import (
 // and asks at its next save, a file renamed in its directory is followed,
 // and a deleted one is written again by the next save. A watch of the
 // file rather than of its directory costs the same whatever else the
-// directory holds: on macOS, kqueue takes a descriptor for each file a
-// watch of the directory covers.
+// directory holds: a directory is one FSEvents stream on macOS, whatever
+// is in it.
 
 var docWatches struct {
 	sync.Mutex
