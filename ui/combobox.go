@@ -142,8 +142,8 @@ func (p *comboboxParts) choose(v string) {
 }
 
 // Chosen returns the option the user chose in this frame, by a click or
-// Enter: ask it after Popup. It applies pending input to the controls built
-// so far, so the choice can be handled in the same build pass.
+// Enter: ask it after Popup, which takes the input of the options it
+// built as it returns, so the choice can be handled in the same build pass.
 func (p *comboboxParts) Chosen() (string, bool) {
 	p.c.rt.applyInputs()
 	return p.chosen, p.isChosen

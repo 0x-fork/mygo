@@ -151,8 +151,8 @@ func (_handle CollapsibleParts) Progress() float32 {
 }
 
 // Chosen returns the option the user chose in this frame, by a click or
-// Enter: ask it after Popup. It applies pending input to the controls built
-// so far, so the choice can be handled in the same build pass.
+// Enter: ask it after Popup, which takes the input of the options it
+// built as it returns, so the choice can be handled in the same build pass.
 func (_handle ComboboxParts) Chosen() (string, bool) {
 	_parts := _handle.resolve()
 	if _parts == nil {

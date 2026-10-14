@@ -43,9 +43,6 @@ func (g *gallery) languages(c *ui.Context) {
 				default:
 					name = i18n.Autonym(tag) + " (" + tag + ")"
 				}
-				// Changed applies the click to g.language before it
-				// reports it: input reaches a binding as the view asks
-				// for a response, or after the view was built.
 				if ui.Radio(c, &g.language, tag, name).Changed() && g.win != nil {
 					mygo.App.SetLocale(g.language)
 				}
