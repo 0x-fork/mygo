@@ -3093,15 +3093,19 @@ either.
     them (`presentDrawable:`), sparing a pass of AppKit's display cycle
     and a commit of the transaction each: an animation at 120 Hz takes
     about half the main thread's time it would. A frame presented so
-    that waited for its drawable, as the display held both until its next
-    refresh, has the next skip a refresh (`Behind`, at most once a
-    second), or the frames after would wait as long, most of each
+    that waited for its drawable, as the display held the others until
+    its next refresh, has the next skip a refresh (`Behind`, at most
+    once a second), or the frames after would wait as long, most of each
     refresh, blocking the main thread. Instances use two frame slots, for
     the main target and each canvas, and a slot waits only for the command
     buffer that last used it. Updating an atlas or image texture in place
     still waits for every frame in flight. Rendering a canvas into its
-    texture stays ordered on the command queue. The layer keeps two
-    drawables: waiting for one remains separate from waiting for an instance
+    texture stays ordered on the command queue. The layer keeps three
+    drawables, as Core Animation makes while a window animates: with two,
+    on a ProMotion display, frames waited for one most of each refresh, a
+    skip catching up for a few frames only, and a fifth of the frames went
+    undrawn. The third costs a frame of memory while a window animates.
+    Waiting for a drawable remains separate from waiting for an instance
     buffer, so offscreen encode timings do not establish presentation latency.
     Opaque fill cores use an unblended pipeline in BGRA8; float16 keeps
     blending to preserve its interpolation rounding. Fragment functions are

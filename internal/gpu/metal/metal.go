@@ -431,11 +431,14 @@ func New(layer uintptr) (r *Renderer, err error) {
 		// Effects read their backdrops from the drawable, which their
 		// passes sample then.
 		send(ml, "setFramebufferOnly:", 0)
-		// Frames wait for the last to finish, so two drawables do,
-		// rather than the three Core Animation makes otherwise while a
-		// window animates: one less frame of memory.
+		// Two drawables are too few: on a ProMotion display, frames
+		// waited for one most of each refresh, and skipping a refresh to
+		// catch up (render) helped for a few frames only. Three, as Core
+		// Animation makes while a window animates, also let both instance
+		// slots have a frame in flight while the display shows a third.
+		// They cost a frame of memory until the window idles (trim).
 		if respondsTo(ml, "setMaximumDrawableCount:") {
-			send(ml, "setMaximumDrawableCount:", 2)
+			send(ml, "setMaximumDrawableCount:", 3)
 		}
 		// The first frame shows with the window's other changes; render
 		// decides for each frame.
@@ -1250,8 +1253,8 @@ func (r *Renderer) render(s *scene.Scene) error {
 	r.behind = !sync && r.waited && now.Sub(r.lastRender) < 50*time.Millisecond && now.Sub(r.skippedAt) > time.Second
 	r.waited = false
 	if r.behind {
-		// The last frame waited for a drawable, as the display held both
-		// until its next refresh: the frames following it would wait as
+		// The last frame waited for a drawable, as the display held the
+		// others until its next refresh: the frames following it would wait as
 		// long, most of each refresh, blocking the main thread. Drawing
 		// none for a refresh catches up.
 		r.skippedAt = now

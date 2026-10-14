@@ -122,6 +122,39 @@ func TestShaderLibrary(t *testing.T) {
 	pool(func() { release(&lib) })
 }
 
+// TestTrimDrawables checks that a renderer keeps three drawables, and that
+// trimming them shrinks them until the next frame.
+func TestTrimDrawables(t *testing.T) {
+	if err := load(); err != nil {
+		t.Skip("no Metal:", err)
+	}
+	var layer id
+	pool(func() { layer = send(class("CALayer"), "new") })
+	if layer == 0 {
+		t.Skip("no Core Animation")
+	}
+	defer pool(func() { release(&layer) })
+	r, err := New(uintptr(layer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Release()
+	pool(func() {
+		r.fit(800, 600, 1)
+		if n := send(r.layer, "maximumDrawableCount"); n != 3 {
+			t.Errorf("drawable count = %d, want 3", n)
+		}
+		r.trim()
+		if !r.trimmed {
+			t.Error("idle trim did not shrink the drawables")
+		}
+		r.fit(800, 600, 1)
+		if r.trimmed {
+			t.Error("next frame did not restore the drawables")
+		}
+	})
+}
+
 // TestChangedSince checks what frames drawn in memory copy into the
 // drawables, which take turns, and after the GPU drew into one.
 // TestWideColors draws wide colors into a float16 target, which keeps what
