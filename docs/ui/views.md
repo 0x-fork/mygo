@@ -119,6 +119,11 @@ if ui.Checkbox(c, &viewed, "Viewed").Changed() {
 }
 ```
 
+Ask through `Changed` (or `OnChange`) rather than comparing the copy with
+the value it started from: without a query, input reaches the copy only
+after the view is built, so `if viewed != app.viewed[file.ID]` right after
+the checkbox never sees the click.
+
 `OnChange` and `OnSubmit` run after construction and bound input, before the
 rebuild. Use callbacks when an action should wait until the view has finished
 building, such as modifying the collection being rendered. They can also

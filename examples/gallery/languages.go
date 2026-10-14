@@ -29,7 +29,6 @@ func (g *gallery) languages(c *ui.Context) {
 	ui.Text(c, "The window shows one language: MyGo's controls, its menus and the formats of numbers and dates follow it, and it lays out right to left in Arabic and Hebrew. The gallery's own text stays English.").TextColor(t.TextMuted)
 	card(c, "Language", func() {
 		// The language chosen: "" follows the system's.
-		chosen := g.language
 		ui.RadioGroup(c, func() {
 			options := append([]string{""}, galleryLanguages...)
 			options = append(options, i18n.PseudoAccents, i18n.PseudoBidi)
@@ -44,15 +43,14 @@ func (g *gallery) languages(c *ui.Context) {
 				default:
 					name = i18n.Autonym(tag) + " (" + tag + ")"
 				}
-				ui.Radio(c, &chosen, tag, name)
+				// Changed applies the click to g.language before it
+				// reports it: input reaches a binding as the view asks
+				// for a response, or after the view was built.
+				if ui.Radio(c, &g.language, tag, name).Changed() && g.win != nil {
+					mygo.App.SetLocale(g.language)
+				}
 			}
 		}).Label("Language")
-		if chosen != g.language {
-			g.language = chosen
-			if g.win != nil {
-				mygo.App.SetLocale(chosen)
-			}
-		}
 		ui.Textf(c, "Shows %s, %s; formats of %s: weeks start on %s, %d hours.",
 			orDefault(locale, "en"), i18n.Direction(locale), orDefault(region.Locale, "the language"), region.FirstWeekday, region.HourCycle).
 			TextColor(t.TextMuted).FontSize(13)

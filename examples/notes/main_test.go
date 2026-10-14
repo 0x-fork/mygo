@@ -37,3 +37,22 @@ func TestNotes(t *testing.T) {
 		t.Errorf("the sidebar shows %q", tt.Texts())
 	}
 }
+
+// The paragraph style menu makes the paragraph of the caret a heading.
+func TestParagraphStyle(t *testing.T) {
+	a := &app{}
+	a.next = 1
+	a.notes = []*note{{ID: 1, Text: welcome()}}
+	tt := ui.NewTester(a.view, 900, 640)
+	tt.Press(600, 300)
+	tt.Release(600, 300)
+	if err := tt.Click("Paragraph style"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("Subheading"); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.current().document().Formatting().Paragraph.Heading; got != 3 {
+		t.Errorf("heading %d after choosing Subheading, want 3", got)
+	}
+}

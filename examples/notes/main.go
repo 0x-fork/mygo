@@ -148,9 +148,8 @@ func (a *app) toolbar(c *ui.Context, doc *richtext.Document) {
 		if f.ParagraphsMixed {
 			style = ""
 		}
-		before := style
-		ui.Select(c, &style, []string{"Title", "Heading", "Subheading", "Body"}).KeepFocus().Width(130).Label("Paragraph style")
-		if style != before {
+		// Changed applies the choice to style before it reports it.
+		if ui.Select(c, &style, []string{"Title", "Heading", "Subheading", "Body"}).KeepFocus().Width(130).Label("Paragraph style").Changed() {
 			doc.SetHeading(map[string]int{"Title": 1, "Heading": 2, "Subheading": 3}[style])
 		}
 		divider()

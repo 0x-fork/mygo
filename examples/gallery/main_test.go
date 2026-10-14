@@ -151,4 +151,11 @@ func TestLanguagesPage(t *testing.T) {
 			t.Errorf("in Chinese, no %q in %q", want, tt.Texts())
 		}
 	}
+	// The menu of languages chooses one.
+	if err := tt.Click("Deutsch (de)"); err != nil {
+		t.Fatal(err)
+	}
+	if g.language != "de" {
+		t.Errorf("after clicking Deutsch, the language chosen is %q", g.language)
+	}
 }
