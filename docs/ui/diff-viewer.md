@@ -101,19 +101,33 @@ app.diff.RenderAnnotation = func(c *ui.Context, a editor.DiffAnnotation) {
 }
 ```
 
-The active side is the one that has the keyboard, or had it last: the
-new side until the old one of a split view has it. `Cursor` returns it
-and its newest caret, and `CurrentHunk` the change the caret is in, or
-the last before it, as "2 of 5" counts them; `GoToHunk` moves that
-caret, so Next Change can step from it. `Run` runs a command in its
-editor as its key would, and `Find` opens its find bar on a query, as an
-app's menu items do where the menu takes the keys first:
+`ActiveSide` is the side that has the keyboard, or had it last: the new
+side until the old one of a split view has it. `Cursor` and `CursorPos`
+return the offset and the position of its newest caret, as the code
+editor's do, and `CurrentHunk` the change the caret is in, with `inside`
+true, or else the last before it, -1 before the first, as "2 of 5"
+counts them; `GoToHunk` moves that caret, so Next Change can step from
+it. `Run` runs a command in its editor as its key would, and `Find` opens
+its find bar on a query, as an app's menu items do where the menu takes
+the keys first:
 
 ```go
 if ui.Button(c, "Find").Clicked() {
 	app.diff.Run(editor.Find)
 }
-ui.Text(c, fmt.Sprintf("%d of %d", app.diff.CurrentHunk()+1, len(app.diff.Hunks())))
+i, inside := app.diff.CurrentHunk()
+n := len(app.diff.Hunks())
+label := fmt.Sprintf("%d changes", n) // before the first
+if i >= 0 {
+	label = fmt.Sprintf("%d of %d", i+1, n)
+}
+ui.Text(c, label)
+if ui.Button(c, "Next change").Clicked() {
+	app.diff.GoToHunk(i + 1)
+}
+if inside && ui.Button(c, "Revert this change").Clicked() {
+	app.diff.Revert(i)
+}
 ```
 
 ## Styling

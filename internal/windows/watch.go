@@ -102,7 +102,7 @@ func (d *directoryWatch) Add(t platform.FileWatchTarget) error {
 }
 
 // sameDirectory checks that h is the directory info describes and not a
-// reparse point. The handle can't be given to the os package, which would
+// link to one. The handle can't be given to the os package, which would
 // tie it to the Go runtime's completion port, so a second handle does.
 func sameDirectory(h syscall.Handle, name string, info os.FileInfo) error {
 	path, err := syscall.UTF16PtrFromString(name)
@@ -113,7 +113,7 @@ func sameDirectory(h syscall.Handle, name string, info os.FileInfo) error {
 	if err = syscall.GetFileInformationByHandle(h, &native); err != nil {
 		return err
 	}
-	if native.FileAttributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 || native.FileAttributes&syscall.FILE_ATTRIBUTE_DIRECTORY == 0 {
+	if native.FileAttributes&syscall.FILE_ATTRIBUTE_DIRECTORY == 0 {
 		return errors.New("not a directory")
 	}
 	share := uint32(syscall.FILE_SHARE_READ | syscall.FILE_SHARE_WRITE | syscall.FILE_SHARE_DELETE)
@@ -132,6 +132,12 @@ func sameDirectory(h syscall.Handle, name string, info os.FileInfo) error {
 	if err != nil {
 		return err
 	}
+	// A directory to Lstat, which a junction, a symlink or a mount point
+	// is not, while a placeholder of cloud files (OneDrive) is: the
+	// handle is that of the reparse point, which doesn't fetch anything.
+	if !checked.IsDir() {
+		return errors.New("not a directory")
+	}
 	if other.VolumeSerialNumber != native.VolumeSerialNumber || other.FileIndexHigh != native.FileIndexHigh || other.FileIndexLow != native.FileIndexLow || !os.SameFile(checked, info) {
 		return errors.New("watch target identity changed")
 	}
@@ -139,8 +145,10 @@ func sameDirectory(h syscall.Handle, name string, info os.FileInfo) error {
 }
 
 func (s *directorySession) arm() error {
-	// FILE_NOTIFY_CHANGE_FILE_NAME | DIR_NAME | ATTRIBUTES | SIZE | LAST_WRITE.
-	return syscall.ReadDirectoryChanges(s.handle, (*byte)(unsafe.Pointer(&s.buffer[0])), uint32(len(s.buffer)*4), s.subtree, 0x1f, nil, &s.overlap, 0)
+	// FILE_NOTIFY_CHANGE_FILE_NAME | DIR_NAME | SIZE | LAST_WRITE: not
+	// ATTRIBUTES, which antivirus and indexers change, and which would be
+	// taken for writes.
+	return syscall.ReadDirectoryChanges(s.handle, (*byte)(unsafe.Pointer(&s.buffer[0])), uint32(len(s.buffer)*4), s.subtree, 0x1b, nil, &s.overlap, 0)
 }
 
 // release closes the handle of s, which cancels its I/O. s stays in

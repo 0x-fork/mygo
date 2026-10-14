@@ -1001,9 +1001,14 @@ func (w *window) CanGoForward() bool { return webkitWebViewCanGoForward(w.web) }
 func (w *window) URL() string        { return goStr(webkitWebViewGetURI(w.web)) }
 func (w *window) IsLoading() bool    { return webkitWebViewIsLoading(w.web) }
 
-// addUserScripts gives the content manager the scripts of the options, and
-// the script that tells the bridge the room of the window controls.
+// addUserScripts adds the user scripts of the options to the content
+// manager, and the title bar's after them.
 func (w *window) addUserScripts() {
+	add := func(src string, frames, when int32) {
+		script := webkitUserScriptNew(cs(src), frames, when, 0, 0)
+		webkitUserContentManagerAddScript(w.ucm, script)
+		webkitUserScriptUnref(script)
+	}
 	for _, s := range w.opts.UserScripts {
 		frames, when := int32(1), int32(0) // top frame, document start
 		if s.AllFrames {
@@ -1012,20 +1017,18 @@ func (w *window) addUserScripts() {
 		if s.AtDocumentEnd {
 			when = 1
 		}
-		script := webkitUserScriptNew(cs(s.Source), frames, when, 0, 0)
-		webkitUserContentManagerAddScript(w.ucm, script)
-		webkitUserScriptUnref(script)
+		add(s.Source, frames, when)
 	}
 	if w.controls != nil {
 		// After the bridge, which it tells; top frame, document start.
-		script := webkitUserScriptNew(cs(w.titleBarScript()), 1, 0, 0, 0)
-		webkitUserContentManagerAddScript(w.ucm, script)
-		webkitUserScriptUnref(script)
+		add(w.titleBarScript(), 1, 0)
 	}
 }
 
+// SetUserScripts replaces the user scripts, all of them, as the content
+// manager removes scripts one at a time only from WebKitGTK 2.32 on.
 func (w *window) SetUserScripts(scripts []platform.UserScript) {
-	if w.closed || w.ucm == 0 {
+	if w.ucm == 0 || w.closed {
 		return
 	}
 	w.opts.UserScripts = scripts

@@ -126,8 +126,8 @@ type tableDrag struct {
 // moves them by dragging the headers, which s.Columns keeps; columns wider
 // than the table scroll sideways, the header with them. With s.Sort, a
 // click on the header of a Sortable column sorts the rows by it; with
-// s.SortBy, a Cmd-click sorts by it after the others; with s.HeaderMenu,
-// the headers have a context menu.
+// s.SortBy, a Cmd-click or a Shift-click sorts by it after the others;
+// with s.HeaderMenu, the header has a context menu.
 //
 //	cols := []ui.TableColumn{{Title: "Name", Sortable: true}, {Title: "Size", Width: 90, Align: ui.End, Sortable: true}}
 //	app.files.Selected, app.files.Sort = &app.file, &app.sort
@@ -161,6 +161,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 		s = coreLocal(table, "rows", func() ListState { return ListState{} })
 	}
 	drag := coreLocal(table, "drag", func() tableDrag { return tableDrag{} })
+	s.syncSort()
 	layout := &s.Columns
 	order := layout.arrange(columns)
 	// The least width of the rows: the columns', those sharing the room
@@ -207,6 +208,11 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	table.Children(func() {
 		// The header, which scrolls sideways with the rows.
 		head := coreRow(c).Height(tableRow).Shrink(0).AlignItems(Stretch).Role(RoleRow).Clip()
+		if menu := s.HeaderMenu; menu != nil {
+			// The part of the header past the columns, as AppKit's
+			// clickedColumn -1.
+			head.ContextMenu(func(m *Menu) { menu(m, -1) })
+		}
 		head.Children(func() {
 			heads := cells(RoleColumnHeader, func(j int) {
 				col := &columns[j]
@@ -318,7 +324,10 @@ func tableHeader(c *context, table, h *node, j int, s *ListState, drag *tableDra
 	h.afterInput(func() {
 		if s.sorts() && col.Sortable && h.Clicked() {
 			if s.SortBy != nil {
-				*s.SortBy = sortClicked(*s.SortBy, id, h.ClickModifiers()&Cmd != 0)
+				// Cmd-click as Finder, Shift-click as web grids (TanStack
+				// Table, AG Grid, MUI).
+				*s.SortBy = sortClicked(*s.SortBy, id, h.ClickModifiers()&(Cmd|Shift) != 0)
+				s.syncSort()
 			} else {
 				*s.Sort = sortClicked([]SortOrder{*s.Sort}, id, false)[0]
 			}
@@ -461,6 +470,19 @@ func (tf *tableFit) apply() {
 		tf.layout.Widths = maps.Clone(tf.layout.Widths)
 	}
 	tf.layout.Widths[tf.id] = w
+}
+
+// syncSort keeps Sort, when set with SortBy, the first column SortBy sorts
+// by, or the zero SortOrder when it sorts by none.
+func (s *ListState) syncSort() {
+	if s.Sort == nil || s.SortBy == nil {
+		return
+	}
+	var first SortOrder
+	if by := *s.SortBy; len(by) > 0 {
+		first = by[0]
+	}
+	*s.Sort = first
 }
 
 // sorts reports whether a Table's headers sort its rows.

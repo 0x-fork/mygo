@@ -93,8 +93,8 @@ func startNetworkMonitor() {
 		// thread, and touches no Objective-C object.
 		blk := newBlock(func(_ objc.Block, path uintptr) {
 			s := platform.NetworkStatus{
-				Online:      nwPathGetStatus(path) == nwPathStatusSatisfied,
-				Constrained: nwPathIsExpensive(path) || nwPathIsConstrained(path),
+				Online:  nwPathGetStatus(path) == nwPathStatusSatisfied,
+				Metered: nwPathIsExpensive(path) || nwPathIsConstrained(path),
 			}
 			networkMonitor.mu.Lock()
 			networkMonitor.status = s

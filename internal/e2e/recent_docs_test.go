@@ -49,17 +49,17 @@ func TestRecentDocuments(t *testing.T) {
 }
 
 // TestJumpListTasks commits the tasks of the jump list (Windows), then
-// removes them. Elsewhere SetJumpListTasks does nothing.
+// removes them. Elsewhere SetTasks does nothing.
 func TestJumpListTasks(t *testing.T) {
 	tasks := []mygo.JumpListTask{
-		{Title: "New window", Args: "--new"},
+		{Title: "New window", Description: "Open a new window", Args: []string{"mygo-e2e://new", "two words"}, WorkingDir: os.TempDir()},
 		{Title: "No arguments"},
 	}
-	if err := mygo.App.SetJumpListTasks(tasks); err != nil {
-		t.Errorf("SetJumpListTasks: %v", err)
+	if err := mygo.App.JumpList.SetTasks(tasks); err != nil {
+		t.Errorf("SetTasks: %v", err)
 	}
-	if err := mygo.App.SetJumpListTasks(nil); err != nil {
-		t.Errorf("SetJumpListTasks(nil): %v", err)
+	if err := mygo.App.JumpList.SetTasks(nil); err != nil {
+		t.Errorf("SetTasks(nil): %v", err)
 	}
 }
 

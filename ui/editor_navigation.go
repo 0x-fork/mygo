@@ -274,11 +274,6 @@ func (ed *editor) key(c *context, st *state, k editEvent) {
 		}
 		return
 	case KeyEnter:
-		// OnEnter sees the Enter before the editor takes it, as OnPaste
-		// does a paste: taken, it changes nothing but what fn sets.
-		if ed.onEnter != nil && ed.enter(k.mods) {
-			return
-		}
 		if ed.multiline {
 			ed.insert("\n")
 		} else {
@@ -455,9 +450,29 @@ func (ed *editor) drag(x, y float32) {
 	}
 }
 
-// enter asks onEnter whether it takes an Enter with mods held.
-func (ed *editor) enter(mods Modifiers) bool {
-	ed.entering = true
-	defer func() { ed.entering = false }()
-	return ed.onEnter(Enter{Mods: mods, ed: ed})
+// textKey asks onTextKey whether it takes k as it comes, with the input
+// queued before it applied, so that fn reads the text typed before k.
+func (ed *editor) textKey(k keyEvent) bool {
+	if w := ed.client; w != nil {
+		w.prepare()
+	}
+	ed.keySeq++
+	ed.keying = true
+	defer func() { ed.keying = false }()
+	return ed.onTextKey(TextKey{Key: k.key, Mods: k.mods, ed: ed, seq: ed.keySeq})
+}
+
+// typesText reports whether k may type text rather than act: a character
+// key with no modifier but Shift and Alt, which type characters, or a key
+// the platform does not name.
+func typesText(k keyEvent) bool {
+	if k.mods&^(Shift|Alt) != 0 {
+		return false
+	}
+	switch k.key {
+	case KeyUnknown, KeySpace, KeyMinus, KeyEqual, KeyComma, KeyPeriod, KeySlash, KeySemicolon, KeyQuote,
+		KeyBracketLeft, KeyBracketRight, KeyBackslash, KeyBackquote:
+		return true
+	}
+	return k.key >= Key0 && k.key <= Key9 || k.key >= KeyA && k.key <= KeyZ
 }

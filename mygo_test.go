@@ -8,6 +8,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"image/color"
 	"io"
 	"net/http"
 	"os"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/egoist/mygo/internal/fake"
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/tsgen"
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 )
@@ -1640,51 +1642,80 @@ func TestThemePreferences(t *testing.T) {
 	if p := Theme.Preferences(); p != (ThemePreferences{TextScale: 1}) {
 		t.Errorf("Preferences without a desktop = %+v, want TextScale 1", p)
 	}
-	if c := Theme.AccentColor(); c != (Color{}) || c.A != 0 {
-		t.Errorf("AccentColor without an accent = %+v, want the zero color", c)
-	}
-	if s := Theme.TextScale(); s != 1 {
-		t.Errorf("TextScale without a desktop = %v, want 1", s)
-	}
-	if Theme.ReduceMotion() || Theme.HighContrast() {
-		t.Error("a desktop that does not say asked for less motion or contrast")
-	}
 
 	// A desktop with an accent and the settings of accessibility.
 	onMain(func() {
 		fb.SetPreferences(platform.Preferences{
-			Accent:       platform.Color{R: 255, G: 128, B: 0, A: 255},
-			ReduceMotion: true,
-			HighContrast: true,
-			TextScale:    1.25,
+			Accent:             platform.Color{R: 255, G: 128, B: 0, A: 255},
+			ReduceMotion:       true,
+			ReduceTransparency: true,
+			HighContrast:       true,
+			TextScale:          1.25,
 		})
 	})
-	p := Theme.Preferences()
-	want := ThemePreferences{Accent: Color{R: 255, G: 128, B: 0, A: 255}, ReduceMotion: true, HighContrast: true, TextScale: 1.25}
-	if p != want {
+	want := ThemePreferences{
+		Accent:             color.NRGBA{R: 255, G: 128, B: 0, A: 255},
+		ReduceMotion:       true,
+		ReduceTransparency: true,
+		HighContrast:       true,
+		TextScale:          1.25,
+	}
+	if p := Theme.Preferences(); p != want {
 		t.Errorf("Preferences = %+v, want %+v", p, want)
 	}
-	if c := Theme.AccentColor(); c.String() != "#ff8000" {
-		t.Errorf("AccentColor().String() = %q, want #ff8000", c.String())
-	}
-	if !Theme.ReduceMotion() || !Theme.HighContrast() || Theme.TextScale() != 1.25 {
-		t.Errorf("getters = %v, %v, %v", Theme.ReduceMotion(), Theme.HighContrast(), Theme.TextScale())
-	}
-	// A color with an alpha keeps it.
-	if got := (Color{R: 255, G: 128, B: 0, A: 128}).String(); got != "#ff800080" {
-		t.Errorf("Color.String() = %q, want #ff800080", got)
-	}
 
-	// The getters are safe from any goroutine.
-	done := make(chan Color, 1)
-	go func() { done <- Theme.AccentColor() }()
+	// Safe from any goroutine.
+	done := make(chan ThemePreferences, 1)
+	go func() { done <- Theme.Preferences() }()
 	select {
-	case c := <-done:
-		if c != want.Accent {
-			t.Errorf("AccentColor from another goroutine = %+v, want %+v", c, want.Accent)
+	case p := <-done:
+		if p != want {
+			t.Errorf("Preferences from another goroutine = %+v, want %+v", p, want)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("AccentColor from another goroutine hung")
+		t.Fatal("Preferences from another goroutine hung")
+	}
+}
+
+// TestThemePreferencesJSON checks the JSON of the preferences, which is
+// mygo-runtime's ThemePreferences: the accent a CSS color or null.
+func TestThemePreferencesJSON(t *testing.T) {
+	for _, tt := range []struct {
+		p    ThemePreferences
+		json string
+	}{
+		{ThemePreferences{TextScale: 1}, `{"accent":null,"reduceMotion":false,"reduceTransparency":false,"highContrast":false,"textScale":1}`},
+		{ThemePreferences{Accent: color.NRGBA{R: 255, G: 128, A: 255}, ReduceMotion: true, ReduceTransparency: true, HighContrast: true, TextScale: 1.5},
+			`{"accent":"#ff8000","reduceMotion":true,"reduceTransparency":true,"highContrast":true,"textScale":1.5}`},
+		{ThemePreferences{Accent: color.NRGBA{R: 255, G: 128, A: 128}, TextScale: 1}, `{"accent":"#ff800080","reduceMotion":false,"reduceTransparency":false,"highContrast":false,"textScale":1}`},
+	} {
+		b, err := json.Marshal(tt.p)
+		if err != nil || string(b) != tt.json {
+			t.Errorf("Marshal(%+v) = %s, %v, want %s", tt.p, b, err, tt.json)
+			continue
+		}
+		var back ThemePreferences
+		if err := json.Unmarshal(b, &back); err != nil || back != tt.p {
+			t.Errorf("Unmarshal(%s) = %+v, %v, want %+v", b, back, err, tt.p)
+		}
+	}
+}
+
+// TestThemePreferencesTypeScript checks that the generated client takes
+// the type of mygo-runtime for the preferences, whose JSON it is.
+func TestThemePreferencesTypeScript(t *testing.T) {
+	m := tsgen.Model{Events: []tsgen.Event{{Name: "prefs", Type: reflect.TypeFor[ThemePreferences]()}}}
+	out, err := tsgen.Generate(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`import { event, type ThemePreferences } from "mygo-runtime";`, `prefs: event<ThemePreferences>("prefs")`} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("client does not contain %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(string(out), "interface ThemePreferences") {
+		t.Errorf("client declares ThemePreferences itself:\n%s", out)
 	}
 }
 
@@ -1727,7 +1758,8 @@ func TestThemePreferencesAreReadOnce(t *testing.T) {
 }
 
 // TestThemePreferencesReachThePage checks that the accent and the settings
-// of accessibility reach a page, at document start and on a change.
+// of accessibility reach a page, at document start and on a change, and
+// that later documents start with the new ones.
 func TestThemePreferencesReachThePage(t *testing.T) {
 	onMain(func() {
 		fb.SetPreferences(platform.Preferences{
@@ -1739,7 +1771,10 @@ func TestThemePreferencesReachThePage(t *testing.T) {
 	})
 	defer onMain(func() { fb.SetPreferences(platform.Preferences{}) })
 
-	_, fw := readyWindow(t, WindowOptions{})
+	_, fw := readyWindow(t, WindowOptions{Page: PageOptions{PreloadScript: "preload();"}})
+	if src := fw.Opts.UserScripts[preferencesScriptIndex].Source; !strings.Contains(src, `"accent":"#ff8000"`) {
+		t.Errorf("preferences at document start = %s", src)
+	}
 	scaled := func(textScale float64) func(map[string]any) bool {
 		return func(m map[string]any) bool {
 			if m["n"] != "mygo:preferences" {
@@ -1749,17 +1784,28 @@ func TestThemePreferencesReachThePage(t *testing.T) {
 			return p["textScale"] == textScale
 		}
 	}
-	p, _ := received(t, fw, scaled(1.25))["p"].(map[string]any)
-	if p["accent"] != "#ff8000" || p["reduceMotion"] != true || p["highContrast"] != true {
-		t.Errorf("preferences at document start = %+v", p)
+
+	// A change reaches the page, and the script of the documents it loads
+	// next. A desktop without an accent sends null, so the page falls back
+	// to its own color.
+	onMain(func() { fb.SetPreferences(platform.Preferences{TextScale: 2}) })
+	p, _ := received(t, fw, scaled(2))["p"].(map[string]any)
+	if p["accent"] != nil || p["reduceMotion"] != false || p["highContrast"] != false {
+		t.Errorf("preferences after a change = %+v", p)
+	}
+	scripts := onMainValue(func() []platform.UserScript { return slices.Clone(fw.Opts.UserScripts) })
+	if len(scripts) != 3 || !strings.Contains(scripts[0].Source, `"secret"`) || scripts[2].Source != "preload();" {
+		t.Errorf("user scripts after a change = %+v", scripts)
+	} else if src := scripts[preferencesScriptIndex].Source; !strings.Contains(src, `"accent":null`) || !strings.Contains(src, `"textScale":2`) {
+		t.Errorf("preferences script after a change = %s", src)
 	}
 
-	// A change reaches the page. A desktop without an accent sends an empty
-	// string, so the page falls back to its own color.
+	// A theme change that leaves the preferences as they were, as one of
+	// the appearance, leaves the scripts.
+	updates := onMainValue(func() int { return fw.UserScriptUpdates })
 	onMain(func() { fb.SetPreferences(platform.Preferences{TextScale: 2}) })
-	p, _ = received(t, fw, scaled(2))["p"].(map[string]any)
-	if p["accent"] != "" || p["reduceMotion"] != false || p["highContrast"] != false {
-		t.Errorf("preferences after a change = %+v", p)
+	if n := onMainValue(func() int { return fw.UserScriptUpdates }); n != updates {
+		t.Errorf("SetUserScripts called %d times without a change of the preferences", n-updates)
 	}
 }
 
@@ -1780,7 +1826,7 @@ func TestPreferencesScriptAtDocumentStart(t *testing.T) {
 	if !strings.Contains(scripts[0].Source, `"secret"`) {
 		t.Error("the bridge configuration does not come first")
 	}
-	src := scripts[1].Source
+	src := scripts[preferencesScriptIndex].Source
 	for _, want := range []string{"mygo:preferences", `"accent":"#112233"`, `"textScale":1.5`} {
 		if !strings.Contains(src, want) {
 			t.Errorf("preferences script %q does not contain %q", src, want)
@@ -1858,7 +1904,6 @@ var needsAppCalls = []struct {
 	{"GlobalShortcut.Register", func() { GlobalShortcut.Register("CmdOrCtrl+Shift+K", func() {}) }},
 	{"NewTray", func() { NewTray(TrayOptions{}) }},
 	{"NotificationsSupported", func() { NotificationsSupported() }},
-	{"WebViewSupported", func() { WebViewSupported() }},
 	{"Notification.Show", func() { NewNotification(NotificationOptions{}).Show() }},
 	{"Power.KeepAwake", func() { Power.KeepAwake("test", false) }},
 	{"Power.IdleTime", func() { Power.IdleTime() }},

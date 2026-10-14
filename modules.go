@@ -3,7 +3,10 @@ package mygo
 import (
 	"bytes"
 	"cmp"
+	"encoding/json/v2"
 	"errors"
+	"fmt"
+	"image/color"
 	"image/png"
 	"math"
 	"runtime"
@@ -306,16 +309,34 @@ const (
 )
 
 // ThemePreferences are the accent color and the accessibility settings of
-// the desktop, which an app and its pages should follow.
+// the desktop, which an app and its pages should follow. Pages get them
+// as JSON, as mygo-runtime's ThemePreferences, which is also what they
+// encode to: {"accent": "#rrggbb" or null, "reduceMotion": …,
+// "reduceTransparency": …, "highContrast": …, "textScale": …}.
 type ThemePreferences struct {
-	// Accent is the color of the desktop's controls, or a Color with A 0
-	// where the desktop has none.
-	Accent Color
-	// ReduceMotion reports that the desktop asks for less animation.
+	// Accent is the color of the desktop's controls, 8-bit sRGB with
+	// straight alpha, or the zero color (A 0) where the desktop has none,
+	// as Linux desktops whose settings portal has no accent-color and
+	// browsers. Package ui's default theme already follows it; elsewhere
+	// ui.RGB(Accent.R, Accent.G, Accent.B) makes it a ui.Color.
+	Accent color.NRGBA
+	// ReduceMotion reports that the desktop asks for less motion: macOS's
+	// Reduce Motion, Windows's animation effects and GNOME's animations
+	// turned off.
 	ReduceMotion bool
-	// HighContrast reports that the desktop uses a contrast theme.
+	// ReduceTransparency reports that the desktop asks for opaque
+	// surfaces in place of translucent ones, such as vibrancy: macOS's
+	// Reduce Transparency, Windows's transparency effects turned off, and
+	// prefers-reduced-transparency in browsers. Linux desktops have no
+	// such setting, so it is false there.
+	ReduceTransparency bool
+	// HighContrast reports that the desktop asks for more contrast:
+	// macOS's Increase Contrast, Windows's contrast themes, the settings
+	// portal's higher contrast or a HighContrast GTK theme on Linux.
 	HighContrast bool
-	// TextScale is the factor the desktop asks text to grow by; 1 is usual.
+	// TextScale is how many times larger than usual text should be, as
+	// Windows's and GNOME's text size settings say; 1 is usual, and what
+	// macOS, which has no such setting, reports.
 	TextScale float64
 }
 
@@ -333,7 +354,7 @@ type ThemeModule struct {
 // Theme is the system appearance. Pages follow it through the
 // prefers-color-scheme media query, and the accent color and accessibility
 // settings through the --mygo-accent and --mygo-text-scale CSS variables
-// and the mygo:preferences event.
+// and preferences and onPreferences of mygo-runtime.
 var Theme = &ThemeModule{}
 
 // IsDark reports whether the app currently uses a dark appearance.
@@ -343,34 +364,19 @@ func (t *ThemeModule) IsDark() bool {
 }
 
 // Preferences returns the accent color and the accessibility settings of
-// the desktop. It is safe from any goroutine.
+// the desktop, all read at once. It is safe from any goroutine; like the
+// other calls that need the running app, it panics on the main goroutine
+// before App.Run, and waits for Run elsewhere.
 func (t *ThemeModule) Preferences() ThemePreferences {
 	needsApp("Theme.Preferences")
 	prefs := onMainValue(t.preferences)
-	// A call made before App.Run from another goroutine is dropped by onMain
-	// and answers the zero value; 0 is not a text scale.
+	// After the app has quit, onMain drops the call and the zero value is
+	// left; 0 is not a text scale.
 	if prefs.TextScale <= 0 {
 		prefs.TextScale = 1
 	}
 	return prefs
 }
-
-// AccentColor returns the color of the desktop's controls, or a Color with
-// A 0 where the desktop has none. It is safe from any goroutine.
-func (t *ThemeModule) AccentColor() Color { return t.Preferences().Accent }
-
-// ReduceMotion reports whether the desktop asks for less animation. It is
-// safe from any goroutine.
-func (t *ThemeModule) ReduceMotion() bool { return t.Preferences().ReduceMotion }
-
-// HighContrast reports whether the desktop uses a contrast theme. It is
-// safe from any goroutine.
-func (t *ThemeModule) HighContrast() bool { return t.Preferences().HighContrast }
-
-// TextScale returns the factor the desktop asks text to grow by; 1 is the
-// usual size, and the value macOS reports, which has no text scale. It is
-// safe from any goroutine.
-func (t *ThemeModule) TextScale() float64 { return t.Preferences().TextScale }
 
 // preferences returns the desktop's preferences, read once per change. The
 // read can call out to the desktop (the settings portal on Linux), so it is
@@ -387,15 +393,68 @@ func (t *ThemeModule) preferences() ThemePreferences {
 // lives here, not in the backends.
 func themePreferences(p platform.Preferences) ThemePreferences {
 	prefs := ThemePreferences{
-		Accent:       Color{R: p.Accent.R, G: p.Accent.G, B: p.Accent.B, A: p.Accent.A},
-		ReduceMotion: p.ReduceMotion,
-		HighContrast: p.HighContrast,
-		TextScale:    p.TextScale,
+		Accent:             color.NRGBA{R: p.Accent.R, G: p.Accent.G, B: p.Accent.B, A: p.Accent.A},
+		ReduceMotion:       p.ReduceMotion,
+		ReduceTransparency: p.ReduceTransparency,
+		HighContrast:       p.HighContrast,
+		TextScale:          p.TextScale,
 	}
 	if prefs.TextScale <= 0 {
 		prefs.TextScale = 1 // the usual size, as package ui normalizes it
 	}
 	return prefs
+}
+
+// themePreferencesJSON is ThemePreferences as pages see it, mygo-runtime's
+// ThemePreferences: the accent as a CSS color, null where there is none.
+type themePreferencesJSON struct {
+	Accent             *string `json:"accent"`
+	ReduceMotion       bool    `json:"reduceMotion"`
+	ReduceTransparency bool    `json:"reduceTransparency"`
+	HighContrast       bool    `json:"highContrast"`
+	TextScale          float64 `json:"textScale"`
+}
+
+// MarshalJSON encodes the preferences as pages get them, mygo-runtime's
+// ThemePreferences, with the accent as "#rrggbb" ("#rrggbbaa" when it is
+// not opaque), or null where the desktop has none.
+func (p ThemePreferences) MarshalJSON() ([]byte, error) {
+	v := themePreferencesJSON{
+		ReduceMotion:       p.ReduceMotion,
+		ReduceTransparency: p.ReduceTransparency,
+		HighContrast:       p.HighContrast,
+		TextScale:          p.TextScale,
+	}
+	if c := p.Accent; c.A != 0 {
+		s := fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)
+		if c.A != 255 {
+			s += fmt.Sprintf("%02x", c.A)
+		}
+		v.Accent = &s
+	}
+	return json.Marshal(v)
+}
+
+// UnmarshalJSON decodes what MarshalJSON encodes.
+func (p *ThemePreferences) UnmarshalJSON(b []byte) error {
+	var v themePreferencesJSON
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*p = ThemePreferences{
+		ReduceMotion:       v.ReduceMotion,
+		ReduceTransparency: v.ReduceTransparency,
+		HighContrast:       v.HighContrast,
+		TextScale:          v.TextScale,
+	}
+	if v.Accent != nil {
+		c, err := parseColor(*v.Accent)
+		if err != nil {
+			return err
+		}
+		p.Accent = color.NRGBA{R: c.R, G: c.G, B: c.B, A: c.A}
+	}
+	return nil
 }
 
 // Source returns the appearance override.
@@ -721,7 +780,7 @@ func NotificationsSupported() bool {
 	return onMainValue(func() bool { return backend().NotificationsSupported() })
 }
 
-// WebViewSupported reports whether the system webview is there, and so
+// WebViewAvailable reports whether the system webview is there, and so
 // whether a window showing a web page can work: WKWebView on macOS,
 // WebKitGTK on Linux, the WebView2 Runtime on Windows. A window showing
 // native UI (WindowOptions.Content) needs none, so an app whose windows all
@@ -729,10 +788,11 @@ func NotificationsSupported() bool {
 // native UI only.
 //
 // Ask before creating the first window showing a page, as NewWindow panics
-// when the platform has no webview:
+// when the platform has no webview. It may be called from any goroutine,
+// also in main before App.Run:
 //
 //	mygo.App.WhenReady(func() {
-//		if mygo.WebViewSupported() {
+//		if mygo.WebViewAvailable() {
 //			mygo.NewWindow(mygo.WindowOptions{URL: "/"})
 //		} else {
 //			mygo.NewWindow(mygo.WindowOptions{Content: ui.View(offlineView)})
@@ -745,10 +805,7 @@ func NotificationsSupported() bool {
 // reports true; the window then reports calls that need its page as
 // failed. Once a window showing a page started the runtime, it reports
 // whether that worked.
-func WebViewSupported() bool {
-	needsApp("WebViewSupported")
-	return onMainValue(func() bool { return backend().WebViewSupported() })
-}
+func WebViewAvailable() bool { return backend().WebViewAvailable() }
 
 // NewNotification creates a notification; call Show to display it.
 func NewNotification(opts NotificationOptions) *Notification {

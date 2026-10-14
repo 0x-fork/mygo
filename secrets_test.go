@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/egoist/mygo/internal/platform"
 )
 
 func TestSecrets(t *testing.T) {
@@ -141,4 +143,46 @@ func TestSecretsConcurrent(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// TestSecretsService checks that Service keeps secrets under another
+// service than the app's, as keytar's service and account.
+func TestSecretsService(t *testing.T) {
+	cli := Secrets.Service("example-cli")
+	t.Cleanup(func() { cli.Delete("token") })
+	if err := cli.Set("token", []byte("shared")); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := fb.StoredSecret("example-cli", "token"); !ok || string(v) != "shared" {
+		t.Fatalf("stored %q, %v under the service", v, ok)
+	}
+	if _, err := Secrets.Get("token"); !errors.Is(err, ErrSecretNotFound) {
+		t.Errorf("the app's Get found the other service's secret: %v", err)
+	}
+	if v, err := Secrets.Service("example-cli").Get("token"); err != nil || string(v) != "shared" {
+		t.Errorf("Get = %q, %v", v, err)
+	}
+	// An empty service is the app's.
+	if Secrets.Service("") != Secrets {
+		t.Error(`Service("") is not the app's`)
+	}
+	for _, bad := range []string{"a\x00b", strings.Repeat("s", maxSecretKeyLen+1)} {
+		if err := Secrets.Service(bad).Set("k", nil); err == nil {
+			t.Errorf("Set with the service %q succeeded", bad)
+		}
+	}
+}
+
+// TestSecretsUnsupported checks that having no credential store is
+// errors.ErrUnsupported, which an app checks to keep the secret
+// elsewhere.
+func TestSecretsUnsupported(t *testing.T) {
+	fb.SetSecretError(platform.ErrUnsupported)
+	t.Cleanup(func() { fb.SetSecretError(nil) })
+	if _, err := Secrets.Get("k"); !errors.Is(err, errors.ErrUnsupported) || errors.Is(err, ErrSecretNotFound) {
+		t.Errorf("Get without a store = %v, want errors.ErrUnsupported", err)
+	}
+	if err := Secrets.Set("k", []byte("v")); !errors.Is(err, errors.ErrUnsupported) {
+		t.Errorf("Set without a store = %v, want errors.ErrUnsupported", err)
+	}
 }

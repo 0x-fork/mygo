@@ -209,6 +209,23 @@ test("runtime object is frozen", () => {
   expect(Object.isFrozen(runtime.window)).toBe(true);
 });
 
+test("preferences are the latest Go told, before listeners hear them", () => {
+  const { runtime, internal } = setup();
+  expect(runtime.preferences).toEqual({
+    accent: null,
+    reduceMotion: false,
+    reduceTransparency: false,
+    highContrast: false,
+    textScale: 1,
+  });
+  const p = { accent: "#ff8000", reduceMotion: true, reduceTransparency: true, highContrast: false, textScale: 1.5 };
+  let seen: unknown;
+  runtime.on("mygo:preferences", () => (seen = runtime.preferences));
+  internal.receive({ t: "event", n: "mygo:preferences", p });
+  expect(runtime.preferences).toEqual(p);
+  expect(seen).toEqual(p);
+});
+
 describe("locale", () => {
   test("comes from the configuration, then from the event", () => {
     const { runtime, internal } = setup();

@@ -31,11 +31,9 @@ type headless struct {
 	clipboard string
 	// clipboardData is what WriteClipboardData copied, with its formats.
 	clipboardData transfer.Data
-	// clipboardImage is the clipboard's image as PNG, for tests.
-	clipboardImage []byte
-	cursor         Cursor
-	ime            platform.TextInputState
-	opened         []string
+	cursor        Cursor
+	ime           platform.TextInputState
+	opened        []string
 	// escapes counts the Escapes nothing handled.
 	escapes int
 	openErr error
@@ -125,8 +123,7 @@ func (h *headless) writeClipboardData(d transfer.Data) {
 	h.clipboard = string(b)
 }
 
-// readClipboardImage gives the image a test set with SetClipboardImage.
-func (h *headless) readClipboardImage() []byte { return h.clipboardImage }
+func (h *headless) clipboardFormats() []transfer.Format { return h.readClipboardData(nil).Formats() }
 
 func (h *headless) startDataDrag(d transfer.Data, local any, o transfer.DragOptions, x, y float32) error {
 	h.dragData, h.dragLocal, h.dragOptions = d.Snapshot(), local, o
@@ -557,8 +554,12 @@ func (t *Tester) SetFocused(focused bool) {
 
 // Compose shows text as an input method's composition, with its caret at
 // rune caret, as while typing in Chinese or Japanese; an empty text ends
-// it. Type commits the text.
+// it. Type commits the text. Nothing is composed while the focused element
+// turned input methods off (InputMethod), as on the desktop.
 func (t *Tester) Compose(text string, caret int) {
+	if t.h.ime.Active && t.h.ime.NoInputMethod {
+		return
+	}
 	t.send(platform.SurfaceEvent{Kind: platform.TextComposition, Text: text, Caret: caret})
 }
 
@@ -570,10 +571,18 @@ func (t *Tester) Command(name string) {
 }
 
 // TextCaret returns where input methods compose, and whether one would:
-// the caret of the focused text input, or of an element's TextCaret.
+// the caret of the focused text input, or of an element's TextCaret, and
+// not while it turned them off (InputMethod).
 func (t *Tester) TextCaret() (Rect, bool) {
 	c := t.h.ime.Caret
-	return Rect{float32(c.X), float32(c.Y), float32(c.W), float32(c.H)}, t.h.ime.Active
+	return Rect{float32(c.X), float32(c.Y), float32(c.W), float32(c.H)}, t.h.ime.Active && !t.h.ime.NoInputMethod
+}
+
+// TextInputActive reports whether the focused element takes text, typed
+// or composed (HandleTextInput, TextCaret), and whether it turned input
+// methods off (InputMethod), as the window tells the system.
+func (t *Tester) TextInputActive() (active, noInputMethod bool) {
+	return t.h.ime.Active, t.h.ime.NoInputMethod
 }
 
 // Clipboard returns the text the view copied; SetClipboard sets the text
@@ -593,9 +602,6 @@ func (t *Tester) SetClipboardData(d transfer.Data) {
 	b, _ := d.Read(transfer.Text)
 	t.h.clipboard = string(b)
 }
-
-// SetClipboardImage sets the clipboard's image, as PNG.
-func (t *Tester) SetClipboardImage(png []byte) { t.h.clipboardImage = png }
 
 // Cursor returns the pointer shape the view shows.
 func (t *Tester) Cursor() Cursor { return t.h.cursor }

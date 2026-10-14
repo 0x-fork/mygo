@@ -387,6 +387,7 @@ const (
 	hcfHighContrastOn         = 0x1
 	accessibilityKey          = `Software\Microsoft\Accessibility`
 	dwmKey                    = `Software\Microsoft\Windows\DWM`
+	personalizeKey            = `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
 	textScaleFactor           = "TextScaleFactor"
 	settingImmersiveColorSet  = "ImmersiveColorSet"
 	settingWindowMetrics      = "WindowMetrics"
@@ -409,8 +410,8 @@ func highContrastOn() bool {
 }
 
 // Preferences reads the accent of the title bars and the Start menu, the
-// settings of animation effects and contrast themes, and the size of
-// text of Accessibility.
+// settings of animation and transparency effects and contrast themes, and
+// the size of text of Accessibility.
 func (t theme) Preferences() platform.Preferences {
 	var p platform.Preferences
 	if v, ok := regDWORD(hkeyCurrentUser, dwmKey, "AccentColor"); ok { // 0xAABBGGRR
@@ -419,6 +420,12 @@ func (t theme) Preferences() platform.Preferences {
 	var animate int32
 	if r, _, _ := procSystemParametersInfoW.Call(spiGetClientAreaAnimation, 0, uintptr(unsafe.Pointer(&animate)), 0); r != 0 {
 		p.ReduceMotion = animate == 0
+	}
+	// Transparency effects of Personalization > Colors, which Windows's
+	// own surfaces (Mica, Acrylic) follow; toggling them broadcasts
+	// ImmersiveColorSet.
+	if v, ok := regDWORD(hkeyCurrentUser, personalizeKey, "EnableTransparency"); ok {
+		p.ReduceTransparency = v == 0
 	}
 	p.HighContrast = highContrastOn()
 	if v, ok := regDWORD(hkeyCurrentUser, accessibilityKey, textScaleFactor); ok && v >= 100 && v <= 500 {
@@ -452,7 +459,7 @@ func (b *Backend) isDark() bool {
 	case "light":
 		return false
 	}
-	light, ok := regDWORD(hkeyCurrentUser, `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, "AppsUseLightTheme")
+	light, ok := regDWORD(hkeyCurrentUser, personalizeKey, "AppsUseLightTheme")
 	return ok && light == 0
 }
 

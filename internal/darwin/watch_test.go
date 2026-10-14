@@ -23,8 +23,8 @@ func TestVnodeWatchEventMapping(t *testing.T) {
 	}{
 		{name: "write", fflags: syscall.NOTE_WRITE, kind: platform.FileWatchWrite},
 		{name: "extend", fflags: syscall.NOTE_EXTEND, kind: platform.FileWatchWrite},
-		{name: "attributes", fflags: syscall.NOTE_ATTRIB, kind: platform.FileWatchWrite},
-		{name: "link", fflags: syscall.NOTE_LINK, kind: platform.FileWatchWrite},
+		{name: "attributes", fflags: syscall.NOTE_ATTRIB},
+		{name: "link", fflags: syscall.NOTE_LINK},
 		{name: "rename", fflags: syscall.NOTE_RENAME},
 		{name: "delete", fflags: syscall.NOTE_DELETE},
 		{name: "combined", fflags: syscall.NOTE_WRITE | syscall.NOTE_RENAME, kind: platform.FileWatchWrite},

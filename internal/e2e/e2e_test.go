@@ -119,6 +119,10 @@ func TestMain(m *testing.M) {
 		beforeRun(mygo.ThemeSource(s))
 		return
 	}
+	if os.Getenv("MYGO_E2E_COOKIES_WHILE_OPENING") == "1" {
+		cookiesWhileOpening()
+		return
+	}
 	mygo.Bind(Greeter{}, probe, streams, Bench{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -245,7 +249,6 @@ var beforeRunCalls = []struct {
 	{"Theme.Preferences", func() { mygo.Theme.Preferences() }},
 	{"Dialog.Message", func() { mygo.Dialog.Message(mygo.MessageOptions{Message: "Too early"}) }},
 	{"NewTray", func() { mygo.NewTray(mygo.TrayOptions{}) }},
-	{"WebViewSupported", func() { mygo.WebViewSupported() }},
 }
 
 // beforeRun is a helper process for TestBeforeRun: it does what main may
@@ -259,6 +262,8 @@ func beforeRun(source mygo.ThemeSource) {
 		{Label: "New Window", Click: func(*mygo.MenuItem, *mygo.Window) { clicked <- struct{}{} }},
 	}))
 	fmt.Println("locale:", mygo.App.Locale() != "")
+	// Asked before the first window, which may then show native UI.
+	fmt.Println("webview:", mygo.WebViewAvailable())
 	mygo.Power.IsOnBattery()
 	for _, c := range beforeRunCalls {
 		func() {
@@ -304,7 +309,7 @@ func TestBeforeRun(t *testing.T) {
 			t.Errorf("%s: %v:\n%s", source, err, out)
 			continue
 		}
-		wants := []string{"locale: true\n", fmt.Sprintf("dark: %v\n", source == mygo.ThemeDark)}
+		wants := []string{"locale: true\n", "webview: true\n", fmt.Sprintf("dark: %v\n", source == mygo.ThemeDark)}
 		for _, c := range beforeRunCalls {
 			wants = append(wants, c.name+": mygo: "+c.name+" called before ")
 		}
@@ -627,10 +632,9 @@ func TestEvalForms(t *testing.T) {
 
 // TestThemePreferencesReachThePage checks the whole path from the desktop
 // to a real page: the accent color and the settings of accessibility as
-// the CSS variables of :root, which the page reads. Which accent a CI
-// desktop has is unknown, so the page is compared with Go, not fixed.
-// A live change of the desktop's settings is not testable here: only the
-// desktop can make one, and the way it tells the app is per platform.
+// mygo-runtime's preferences and the CSS variables of :root, which the
+// page reads. Which accent a CI desktop has is unknown, so the page is
+// compared with Go, not fixed.
 func TestThemePreferencesReachThePage(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	w.Page().LoadHTML("<p>preferences</p>", "")
@@ -643,15 +647,24 @@ func TestThemePreferencesReachThePage(t *testing.T) {
 		return v
 	}
 	waitFor(t, w, `getComputedStyle(document.documentElement).getPropertyValue("--mygo-text-scale").trim()`)
-	if got, want := read("--mygo-text-scale"), fmt.Sprint(mygo.Theme.TextScale()); got != want {
+	p := mygo.Theme.Preferences()
+	if got, want := read("--mygo-text-scale"), fmt.Sprint(p.TextScale); got != want {
 		t.Errorf("--mygo-text-scale = %q, want %q", got, want)
 	}
-	want := ""
-	if c := mygo.Theme.AccentColor(); c.A != 0 {
-		want = c.String()
+	want, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := read("--mygo-accent"); got != want {
-		t.Errorf("--mygo-accent = %q, want %q", got, want)
+	got, err := mygo.EvalAs[string](w.Page(), `JSON.stringify(window.mygo.preferences)`)
+	if err != nil || got != string(want) {
+		t.Errorf("mygo.preferences = %s, %v, want %s", got, err, want)
+	}
+	accent := ""
+	if a := p.Accent; a.A != 0 {
+		accent = fmt.Sprintf("#%02x%02x%02x", a.R, a.G, a.B)
+	}
+	if got := read("--mygo-accent"); got != accent {
+		t.Errorf("--mygo-accent = %q, want %q", got, accent)
 	}
 }
 
@@ -2899,6 +2912,56 @@ func TestContentWindowComposingKeys(t *testing.T) {
 	}
 	pressKey(w, 53, "\x1b")
 	eventually(t, "Escape closing the dialog", func() bool { o, _, _ := state(); return !o })
+}
+
+// TestContentWindowTextKeys has a composer's OnTextKey take Return and
+// Tab as the platform delivers them, reading the text typed before them:
+// the text area inserts no newline, and the focus stays.
+func TestContentWindowTextKeys(t *testing.T) {
+	var frames atomic.Int32
+	draft, other := "", ""
+	var sent []string
+	tabs := 0
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Column(c).Children(func() {
+			ui.TextArea(c, &draft).AutoFocus().OnTextKey(func(k ui.TextKey) bool {
+				switch {
+				case k.Key == ui.KeyEnter && k.Mods == 0:
+					sent = append(sent, k.Text())
+					k.SetText("")
+					return true
+				case k.Key == ui.KeyTab && k.Mods == 0:
+					tabs++
+					return true
+				}
+				return false
+			})
+			ui.TextInput(c, &other)
+		})
+	}
+	state := func() (d, o string, s []string, n int) {
+		mygo.RunOnMain(func() { d, o, s, n = draft, other, slices.Clone(sent), tabs })
+		return
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Text keys", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 1 })
+	if !compose(w, "hello", 0, true) {
+		t.Skip("key automation not available on this platform")
+	}
+	if !pressKey(w, 36, "\r") { // Return
+		t.Skip("key automation not available on this platform")
+	}
+	eventually(t, "Return sending the draft", func() bool { _, _, s, _ := state(); return len(s) == 1 })
+	if d, _, s, _ := state(); s[0] != "hello" || d != "" {
+		t.Fatalf("sent %q, the draft %q", s, d)
+	}
+	pressTab(w, false)
+	compose(w, "x", 0, true)
+	eventually(t, "the text typed after Tab", func() bool { d, _, _, _ := state(); return d == "x" })
+	if _, o, _, n := state(); n != 1 || o != "" {
+		t.Fatalf("Tab taken %d times, the other input %q", n, o)
+	}
 }
 
 // TestContentWindow shows native UI: frames, input from the platform,

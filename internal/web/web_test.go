@@ -148,11 +148,11 @@ func TestDroppedFiles(t *testing.T) {
 	}
 }
 
-// TestWebViewSupported: browsers have no system webview, so the call says
+// TestWebViewAvailable: browsers have no system webview, so the call says
 // so, and an app opens a window of native UI instead of one showing a page
 // it could not show.
-func TestWebViewSupported(t *testing.T) {
-	if New().WebViewSupported() {
-		t.Error("WebViewSupported = true in a browser, which has no webview")
+func TestWebViewAvailable(t *testing.T) {
+	if New().WebViewAvailable() {
+		t.Error("WebViewAvailable = true in a browser, which has no webview")
 	}
 }

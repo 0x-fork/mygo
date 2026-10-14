@@ -69,6 +69,11 @@ func TestWebViewThemePreferences(t *testing.T) {
 		p, _ := m["p"].(map[string]any)
 		return m["n"] == "mygo:preferences" && p["textScale"] == float64(2)
 	})
+	// The web view's next documents start with the new ones.
+	src := onMainValue(func() string { return fv.Opts.UserScripts[1].Source })
+	if !strings.Contains(src, `"textScale":2`) {
+		t.Errorf("web view's preferences script after a change = %s", src)
+	}
 }
 
 func TestWebViewNeedsContent(t *testing.T) {

@@ -113,6 +113,11 @@ type TextInputState struct {
 	// Client supplies full text and geometry for a custom text element. The
 	// Text/Start/End snapshot remains the plain-widget and TextCaret fallback.
 	Client TextInputClient
+	// NoInputMethod keeps input methods out while Active: keys type the
+	// characters of the keyboard's layout as TextInput, and nothing is
+	// composed, as winit's set_ime_allowed(false). Browsers cannot turn
+	// input methods off, and ignore it.
+	NoInputMethod bool
 }
 
 // SurfaceNative holds the native objects of a Surface.

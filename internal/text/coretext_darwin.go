@@ -3,6 +3,7 @@
 package text
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"log"
@@ -428,7 +429,8 @@ type coreText struct {
 	runIndices   []int
 
 	registered map[string][]registeredFace // by lowercased family
-	// names are the families of registered, as the app gave them.
+	// names are the families the app's fonts are listed under, one per
+	// face: the name it gave them, or their own.
 	names []string
 }
 
@@ -579,7 +581,7 @@ func (e *coreText) systemFont(size float32, weight int, italic, mono bool) uintp
 
 // named returns a font of a family the system has, owned, or 0.
 func (e *coreText) named(family string, size float32, weight int, italic bool) uintptr {
-	desc := e.namedDesc(family, weight, italic)
+	desc := namedDesc(family, weight, italic)
 	if desc == 0 {
 		return 0
 	}
@@ -589,7 +591,7 @@ func (e *coreText) named(family string, size float32, weight int, italic bool) u
 
 // namedDesc returns the descriptor of the face of a family the system has
 // that best matches a weight and italics, owned, or 0.
-func (e *coreText) namedDesc(family string, weight int, italic bool) uintptr {
+func namedDesc(family string, weight int, italic bool) uintptr {
 	name := cfString(family)
 	defer ct.release(name)
 	symbolic := int32(0)
@@ -677,7 +679,7 @@ func (e *coreText) ctFont(style Style) uintptr {
 				d := registeredDesc(faces, key)
 				ct.retain(d)
 				descs = append(descs, d)
-			} else if d := e.namedDesc(family, key.Weight, key.Italic); d != 0 {
+			} else if d := namedDesc(family, key.Weight, key.Italic); d != 0 {
 				descs = append(descs, d)
 			}
 		}
@@ -1411,35 +1413,42 @@ func shadeGray(shade Shade) float64 {
 	return 1.055*math.Pow(y, 1/2.4) - 0.055
 }
 
-// families lists the app's families and the system's, the monospaced
-// ones when mono: those whose regular font's symbolic traits say so.
-func (e *coreText) families(mono bool) (app, system []string) {
+// appFamilies lists the families of the app's fonts, monospaced when
+// a registered face's symbolic traits say so.
+func (e *coreText) appFamilies() []FontFamily {
+	var out []FontFamily
 	for _, name := range e.names {
-		if !mono || slices.ContainsFunc(e.registered[strings.ToLower(name)], func(f registeredFace) bool { return f.mono }) {
-			app = append(app, name)
-		}
+		mono := slices.ContainsFunc(e.registered[strings.ToLower(name)], func(f registeredFace) bool { return f.mono })
+		out = append(out, FontFamily{Name: name, Monospaced: mono})
 	}
-	arr := ct.availableFamilyNames()
-	if arr == 0 {
-		return app, nil
-	}
-	defer ct.release(arr)
-	for i := range ct.arrayGetCount(arr) {
-		name := goString(ct.arrayGetValueAtIndex(arr, i))
-		if name == "" || strings.HasPrefix(name, ".") {
-			continue // the system's hidden families
-		}
-		if mono && !e.monospaced(name) {
-			continue
-		}
-		system = append(system, name)
-	}
-	return app, system
+	return out
 }
 
-// monospaced reports whether a family's regular font is monospaced.
-func (e *coreText) monospaced(family string) bool {
-	desc := e.namedDesc(family, 400, false)
+// systemFamilies lists the font manager's families, which hold none of the
+// app's, monospaced when their regular font's symbolic traits say so: Core
+// Text alone, which is thread-safe, without the engine's state.
+func (e *coreText) systemFamilies() func() []FontFamily {
+	return func() []FontFamily {
+		arr := ct.availableFamilyNames()
+		if arr == 0 {
+			return nil
+		}
+		defer ct.release(arr)
+		var out []FontFamily
+		for i := range ct.arrayGetCount(arr) {
+			name := goString(ct.arrayGetValueAtIndex(arr, i))
+			if name == "" || strings.HasPrefix(name, ".") {
+				continue // the system's hidden families
+			}
+			out = append(out, FontFamily{Name: name, Monospaced: monospacedFamily(name)})
+		}
+		return out
+	}
+}
+
+// monospacedFamily reports whether a family's regular font is monospaced.
+func monospacedFamily(family string) bool {
+	desc := namedDesc(family, 400, false)
 	if desc == 0 {
 		return false
 	}
@@ -1503,9 +1512,11 @@ func (e *coreText) register(data []byte, family string) error {
 			if f != "" {
 				key := strings.ToLower(f)
 				e.registered[key] = append(e.registered[key], face)
-				e.names = append(e.names, f)
 			}
 		}
+		// Listed under the name the app gave it, which is the one it
+		// uses, or its own.
+		e.names = append(e.names, cmp.Or(family, name))
 	}
 	e.forgetPrimary()
 	return nil

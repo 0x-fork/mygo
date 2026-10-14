@@ -154,10 +154,25 @@ Then `Font("Inter")` uses it, or set it for every element in the theme's
 the first the system or the app has, and what it lacks with the next that
 has it, before the system's own choice.
 
-`ui.FontFamilies(false)` lists the families text can use, the app's
-registered ones first (under the names it gave and their own), then the
-system's, sorted, as a font setting offers them; `ui.FontFamilies(true)`
-only the monospaced ones, as a terminal's or an editor's does. Browsers do
+`ui.FontFamilies()` lists the families text can use, as a font setting
+offers them: the app's registered ones first, under the names it gave them
+(or their own when it gave none), then the system's, each once and sorted
+without regard to case. Each `ui.FontFamily` tells whether it is
+`Monospaced`, for a terminal's or an editor's font setting, and whether
+the app `Registered` it:
+
+```go
+for _, f := range ui.FontFamilies() {
+	if f.Monospaced {
+		fonts = append(fonts, f.Name)
+	}
+}
+```
+
+The first call asks the system, which takes a while with many fonts
+installed (tens of milliseconds with hundreds), without holding up the
+windows' text; later calls reuse the system's list until `RegisterFont`,
+so fonts installed while the app runs show after a restart. Browsers do
 not tell what fonts they have: there the list holds the registered
 families alone, and a family counts as monospaced once its font has
 loaded.

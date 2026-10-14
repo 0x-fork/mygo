@@ -2,7 +2,7 @@
 // The Go side wraps the bundle in a function that defines __MYGO_CONFIG__.
 import { find, stopFind } from "./find";
 import { createRuntime } from "./runtime";
-import type { BridgeConfig } from "./types";
+import type { BridgeConfig, ThemePreferences } from "./types";
 
 declare const __MYGO_CONFIG__: BridgeConfig;
 
@@ -37,9 +37,9 @@ const INTERACTIVE =
   // The accent color and the size of text the desktop asks for, which the
   // media queries do not tell a page. From document start on: CSS variables
   // on :root, with the accent left unset where the desktop has none.
-  runtime.on<Preferences>("mygo:preferences", (p) =>
+  runtime.on<ThemePreferences>("mygo:preferences", (p) =>
     setRootVars({
-      "--mygo-accent": p.accent || null,
+      "--mygo-accent": p.accent,
       "--mygo-text-scale": String(p.textScale),
     }),
   );
@@ -134,14 +134,6 @@ interface TitleBar {
   height: number;
   left: number;
   right: number;
-}
-
-/** The desktop's settings, as Go reports them. */
-interface Preferences {
-  accent: string;
-  reduceMotion: boolean;
-  highContrast: boolean;
-  textScale: number;
 }
 
 /** The MyGo CSS variables of :root, kept from every source that sets one. */

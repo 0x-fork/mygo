@@ -33,13 +33,6 @@ func (s Services) ReadClipboard() string {
 	return ""
 }
 
-// ReadClipboardImage reads the clipboard's image as PNG, nil without one.
-func (s Services) ReadClipboardImage() []byte {
-	if rt := s.owner.Value(); rt != nil && !rt.closed {
-		return rt.host.readClipboardImage()
-	}
-	return nil
-}
 func (s Services) WriteClipboard(text string) {
 	if rt := s.owner.Value(); rt != nil && !rt.closed {
 		rt.host.writeClipboard(text)
@@ -55,6 +48,16 @@ func (s Services) ReadClipboardData(formats ...transfer.Format) transfer.Data {
 		return rt.host.readClipboardData(formats)
 	}
 	return transfer.Data{}
+}
+
+// ClipboardFormats lists the formats on the clipboard without reading
+// them, as a paste decides what to read: an image comes as transfer.PNG
+// whatever the system's format, which ReadClipboardData converts.
+func (s Services) ClipboardFormats() []transfer.Format {
+	if rt := s.owner.Value(); rt != nil && !rt.closed {
+		return rt.host.clipboardFormats()
+	}
+	return nil
 }
 
 // WriteClipboardData puts data on the clipboard, each representation of

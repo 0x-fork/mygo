@@ -1,6 +1,8 @@
 package mygo
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -8,8 +10,12 @@ import (
 
 // OpenRoot uses an ordinary Windows handle that prevents deletion and rename.
 // Root.OpenRoot shares deletion, so retain that anchored handle instead and
-// release the temporary parent before returning.
+// release the temporary parent before returning. A drive's root has no
+// parent, and can't be renamed anyway.
 func fileWatchOpenRoot(path string) (*os.Root, error) {
+	if filepath.Dir(path) == path {
+		return os.OpenRoot(path)
+	}
 	parent, err := os.OpenRoot(filepath.Dir(path))
 	if err != nil {
 		return nil, err
@@ -18,7 +24,11 @@ func fileWatchOpenRoot(path string) (*os.Root, error) {
 	return parent.OpenRoot(filepath.Base(path))
 }
 
-func fileWatchLeaf(info os.FileInfo) bool {
-	data, ok := info.Sys().(*syscall.Win32FileAttributeData)
-	return ok && data.FileAttributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0
+// fileWatchInaccessible reports whether err says a file can't be looked
+// at: without permission, or held by the system with a sharing mode that
+// leaves out even reading its attributes, as pagefile.sys and
+// hiberfil.sys.
+func fileWatchInaccessible(err error) bool {
+	const errorSharingViolation, errorLockViolation = syscall.Errno(32), syscall.Errno(33)
+	return errors.Is(err, fs.ErrPermission) || errors.Is(err, errorSharingViolation) || errors.Is(err, errorLockViolation)
 }

@@ -19,10 +19,11 @@ var (
 
 // NL_NETWORK_CONNECTIVITY_LEVEL_HINT and NL_NETWORK_CONNECTIVITY_COST_HINT.
 const (
-	nlConnectivityLevelUnknown             = 0
-	nlConnectivityLevelInternetAccess      = 3
-	nlConnectivityLevelConstrainedInternet = 4
+	nlConnectivityLevelUnknown = 0
+	nlConnectivityLevelNone    = 1
+	nlConnectivityLevelHidden  = 5
 
+	nlConnectivityCostFixed    = 2
 	nlConnectivityCostVariable = 3
 )
 
@@ -53,10 +54,24 @@ func (network) Status() platform.NetworkStatus {
 	if r, _, _ := procGetNetworkConnectivityHint.Call(uintptr(unsafe.Pointer(&h))); r != 0 {
 		return platform.NetworkStatus{Online: true}
 	}
+	return networkStatus(h)
+}
+
+// networkStatus reads a connectivity hint as macOS and Linux report
+// theirs. Online is a connection beyond the computer, as their route out:
+// local access (a network, which the system found no way to the internet
+// from), internet access and constrained internet access (behind a
+// captive portal) count, no connectivity and a hidden network, whose
+// routes the system ignores, do not; an unknown level is taken to work,
+// as on an older Windows. Metered follows Microsoft's guidance for
+// metered connections (Windows.Networking.Connectivity's ConnectionCost):
+// any cost but unrestricted, or roaming, over the data limit or
+// approaching it, asks to hold back.
+func networkStatus(h nlNetworkConnectivityHint) platform.NetworkStatus {
 	return platform.NetworkStatus{
-		Online: h.Level == nlConnectivityLevelInternetAccess || h.Level == nlConnectivityLevelConstrainedInternet ||
-			h.Level == nlConnectivityLevelUnknown,
-		Constrained: h.Cost == nlConnectivityCostVariable,
+		Online: h.Level != nlConnectivityLevelNone && h.Level != nlConnectivityLevelHidden,
+		Metered: h.Cost == nlConnectivityCostFixed || h.Cost == nlConnectivityCostVariable ||
+			h.Roaming != 0 || h.OverLimit != 0 || h.ApproachingLimit != 0,
 	}
 }
 

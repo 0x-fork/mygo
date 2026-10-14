@@ -1,9 +1,9 @@
 package mygo
 
 import (
-	"errors"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -47,31 +47,69 @@ type Cookie struct {
 	SameSite CookieSameSite
 }
 
+// CookieFilter chooses cookies for Cookies.List. Its zero value chooses
+// every cookie; each field set narrows the choice.
+type CookieFilter struct {
+	// URL keeps the cookies a request to this http or https URL sends:
+	// those of its host's domain and the path, Secure ones only to https.
+	URL string
+	// Name keeps the cookies of this name.
+	Name string
+	// Domain keeps the cookies of this domain and of its subdomains, with
+	// or without a leading dot: "example.com" keeps those of
+	// "example.com", ".example.com" and "www.example.com".
+	Domain string
+	// Path keeps the cookies of exactly this path.
+	Path string
+}
+
 // CookiesModule reads and changes the cookies of the app's pages. Use the
 // Cookies singleton.
 type CookiesModule struct{}
 
-// Cookies reads and changes the cookies the app's pages share, HTTPOnly
-// ones included, e.g. to sign the user in with a token the backend got:
+// Cookies reads and changes the cookies of the app's pages, HTTPOnly ones
+// included: the default cookie store, which every window shares, and
+// which outlives the app as the system webview keeps it. Set one, e.g., to
+// sign the pages in with a token the backend got, before the first page
+// loads:
 //
 //	err := mygo.Cookies.Set(mygo.Cookie{Name: "session", Value: token,
 //		Domain: "example.com", Secure: true, HTTPOnly: true})
 //
 // The methods are safe from any goroutine once the app is running; on the
-// main thread the app keeps handling events while they wait. On Windows
-// they need a window that shows a web page. Cookies may carry the user's
-// credentials: bind a backend method that does what the page needs rather
-// than giving the page the cookies.
+// main thread the app keeps handling events while they wait. Cookies may
+// carry the user's credentials: bind a backend method that does what the
+// page needs rather than giving the page the cookies.
 var Cookies CookiesModule
 
-// List returns the cookies, sorted by domain, path and name.
-func (CookiesModule) List() ([]Cookie, error) {
+// List returns the cookies f chooses, sorted by domain, path and name:
+//
+//	all, err := mygo.Cookies.List(mygo.CookieFilter{})
+//	sent, err := mygo.Cookies.List(mygo.CookieFilter{URL: "https://example.com/account"})
+//	sessions, err := mygo.Cookies.List(mygo.CookieFilter{Name: "session", Domain: "example.com"})
+func (CookiesModule) List(f CookieFilter) ([]Cookie, error) {
 	needsApp("Cookies.List")
+	if f.URL != "" {
+		u, err := url.Parse(f.URL)
+		if err != nil || u.Scheme != "http" && u.Scheme != "https" || u.Hostname() == "" {
+			return nil, fmt.Errorf("mygo: cookies: List needs an http or https URL, not %q", f.URL)
+		}
+		u.Host = strings.ToLower(u.Host)
+		u.User, u.Fragment, u.RawFragment = nil, "", ""
+		f.URL = u.String()
+	}
+	domain := strings.ToLower(strings.TrimPrefix(f.Domain, "."))
 	result := cookieCall(func(done func(cookieResult)) {
-		backend().App().ListCookies(func(values []platform.Cookie, err error) {
+		backend().App().ListCookies(f.URL, func(values []platform.Cookie, err error) {
 			out := make([]Cookie, 0, len(values))
 			for _, c := range values {
-				out = append(out, Cookie{c.Name, c.Value, strings.ToLower(c.Domain), c.Path, c.Expires, c.Secure, c.HTTPOnly, CookieSameSite(c.SameSite)})
+				c.Domain = strings.ToLower(c.Domain)
+				host := strings.TrimPrefix(c.Domain, ".")
+				if f.Name != "" && c.Name != f.Name || f.Path != "" && c.Path != f.Path ||
+					domain != "" && host != domain && !strings.HasSuffix(host, "."+domain) {
+					continue
+				}
+				out = append(out, Cookie{c.Name, c.Value, c.Domain, c.Path, c.Expires, c.Secure, c.HTTPOnly, CookieSameSite(c.SameSite)})
 			}
 			slices.SortFunc(out, func(a, b Cookie) int {
 				if n := strings.Compare(a.Domain, b.Domain); n != 0 {
@@ -88,42 +126,13 @@ func (CookiesModule) List() ([]Cookie, error) {
 	return result.cookies, result.err
 }
 
-// Get returns the cookie of name, domain and path, and whether there is
-// one. The domain is matched without regard to case and with its leading
-// dot, if any: "example.com" and ".example.com" are different cookies. An
-// empty path is "/". It fails when the engine keeps several such
-// cookies, e.g. partitioned ones of the same name.
-func (CookiesModule) Get(name, domain, path string) (Cookie, bool, error) {
-	needsApp("Cookies.Get")
-	key, err := normalizeCookieKey(name, domain, path)
-	if err != nil {
-		return Cookie{}, false, err
-	}
-	values, err := Cookies.List()
-	if err != nil {
-		return Cookie{}, false, err
-	}
-	var result Cookie
-	found := false
-	for _, c := range values {
-		if c.Name == key.Name && c.Domain == key.Domain && c.Path == key.Path {
-			if found {
-				return Cookie{}, false, fmt.Errorf("mygo: cookies: ambiguous cookie key")
-			}
-			result = c
-			found = true
-		}
-	}
-	return result, found, nil
-}
-
 // Set adds the cookie, or replaces the one of the same name, domain and
 // path. An empty path is "/" and an empty SameSite Lax; SameSite None
-// needs Secure, as do the __Secure- and __Host- name prefixes. The value
-// must be made of the characters a Set-Cookie header allows: encode
-// others, e.g. with base64.RawURLEncoding. An Expires in the past deletes
-// the cookie. The engine may still drop the cookie or expire it earlier,
-// as it would one a server set.
+// needs Secure, as do the __Secure- and __Host- name prefixes. The name
+// and value take what browsers take: neither has control characters, a
+// ";" or spaces at either end, and the name no "=". An Expires in the past
+// deletes the cookie. The engine may still drop the cookie or expire it
+// earlier, as it would one a server set.
 func (CookiesModule) Set(c Cookie) error {
 	needsApp("Cookies.Set")
 	c, err := normalizeCookie(c)
@@ -131,7 +140,7 @@ func (CookiesModule) Set(c Cookie) error {
 		return err
 	}
 	if !c.Expires.IsZero() && !c.Expires.After(time.Now()) {
-		return Cookies.Delete(c.Name, c.Domain, c.Path)
+		return Cookies.Delete(c)
 	}
 	p := platform.Cookie{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: c.Path, Expires: c.Expires, Secure: c.Secure, HTTPOnly: c.HTTPOnly, SameSite: string(c.SameSite)}
 	return cookieCall(func(done func(cookieResult)) {
@@ -139,11 +148,14 @@ func (CookiesModule) Set(c Cookie) error {
 	}).err
 }
 
-// Delete deletes the cookie of name, domain and path, matched as Get
-// matches them. Deleting a cookie that does not exist is not an error.
-func (CookiesModule) Delete(name, domain, path string) error {
+// Delete deletes the cookie of c's name, domain and path; its other fields
+// do not matter, so that it deletes a cookie List returned. The domain is
+// matched without regard to case and with its leading dot, if any:
+// "example.com" and ".example.com" are different cookies. An empty path
+// is "/". Deleting a cookie that does not exist is not an error.
+func (CookiesModule) Delete(c Cookie) error {
 	needsApp("Cookies.Delete")
-	key, err := normalizeCookieKey(name, domain, path)
+	key, err := normalizeCookieKey(c.Name, c.Domain, c.Path)
 	if err != nil {
 		return err
 	}
@@ -156,20 +168,9 @@ func (CookiesModule) Delete(name, domain, path string) error {
 // App.ClearBrowsingData. Pages may set new ones meanwhile.
 func (CookiesModule) Clear() error {
 	needsApp("Cookies.Clear")
-	values, err := Cookies.List()
-	if err != nil {
-		return err
-	}
-	var errs []error
-	for _, c := range values {
-		if err := Cookies.Delete(c.Name, c.Domain, c.Path); err != nil {
-			errs = append(errs, err)
-			if errors.Is(err, errLoopStopped) {
-				break
-			}
-		}
-	}
-	return errors.Join(errs...)
+	return cookieCall(func(done func(cookieResult)) {
+		backend().App().ClearCookies(func(err error) { done(cookieResult{err: err}) })
+	}).err
 }
 
 type cookieResult struct {
@@ -251,7 +252,7 @@ func normalizeCookieKey(name, domain, path string) (platform.CookieKey, error) {
 				return bad("domain")
 			}
 			for _, c := range []byte(label) {
-				if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+				if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
 					return bad("domain")
 				}
 			}
@@ -264,27 +265,32 @@ func normalizeCookieKey(name, domain, path string) (platform.CookieKey, error) {
 		return bad("path")
 	}
 	for _, c := range []byte(path) {
-		if c < 32 || c > 126 || c == ';' {
+		if c < 32 || c == 127 || c == ';' {
 			return bad("path")
 		}
 	}
 	return platform.CookieKey{Name: name, Domain: domain, Path: path}, nil
 }
 
+// cookieText reports whether s may be a cookie's name or value, as
+// browsers parse them (RFC 6265bis section 5.6): no control character but
+// tab, no ";", and no space or tab at either end, which parsing removes.
+func cookieText(s string) bool {
+	for _, b := range []byte(s) {
+		if b < 0x20 && b != '\t' || b == 0x7f || b == ';' {
+			return false
+		}
+	}
+	return strings.Trim(s, " \t") == s
+}
+
 func normalizeCookie(c Cookie) (Cookie, error) {
 	bad := func(what string) (Cookie, error) { return Cookie{}, fmt.Errorf("mygo: cookies: invalid %s", what) }
-	if c.Name == "" {
+	if c.Name == "" || !cookieText(c.Name) || strings.Contains(c.Name, "=") {
 		return bad("name")
 	}
-	for _, b := range []byte(c.Name) {
-		if b <= 32 || b >= 127 || strings.ContainsRune("()<>@,;:\\\"/[]?={}", rune(b)) {
-			return bad("name")
-		}
-	}
-	for _, b := range []byte(c.Value) {
-		if !(b == 0x21 || b >= 0x23 && b <= 0x2b || b >= 0x2d && b <= 0x3a || b >= 0x3c && b <= 0x5b || b >= 0x5d && b <= 0x7e) {
-			return bad("value")
-		}
+	if !cookieText(c.Value) {
+		return bad("value")
 	}
 	key, err := normalizeCookieKey(c.Name, c.Domain, c.Path)
 	if err != nil {

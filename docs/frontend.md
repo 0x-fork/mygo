@@ -141,7 +141,8 @@ await currentWindow.toggleMaximize();
 | `runtime()` | the runtime: `platform` (`"darwin"`, `"linux"` or `"win32"`), `windowId` (the Go window's `ID()`) and `version`; throws outside MyGo |
 | `currentWindow` | the page's window: `minimize`, `maximize`, `unmaximize`, `toggleMaximize`, `isMaximized`, `toggleFullScreen`, `close` and `setTitle` |
 | `onFileDrop(listener)` | files dropped on the window, with their paths |
-| `onPreferences(listener)` | the accent color and the accessibility settings of the desktop, and the changes that follow |
+| `preferences()` | the accent color and the accessibility settings of the desktop; throws outside MyGo |
+| `onPreferences(listener)` | the changes of `preferences()` |
 | `locale()`, `direction()`, `onLocaleChange(listener)` | the language the app shows (`App.Locale`), such as `"zh-Hans"`, its direction, `"ltr"` or `"rtl"`, and its changes; the page has them from document start, as `mygo.locale` and `mygo.dir` |
 
 `mygo-runtime/i18n` formats messages of ICU MessageFormat, as package
@@ -322,18 +323,30 @@ by are what the media queries do not tell a page: they are CSS variables on
 }
 ```
 
-The `mygo:preferences` event, and `onPreferences` of `mygo-runtime`, report
-the settings themselves and the changes that follow, which only the desktop
-can make:
+`preferences()` of `mygo-runtime` returns the settings themselves, current
+from document start on, and `onPreferences` tells their changes, which only
+the desktop makes; a component reads the first and subscribes to the
+second, as with `matchMedia`:
 
 ```ts
-import { onPreferences } from "mygo-runtime";
+import { onPreferences, preferences, type ThemePreferences } from "mygo-runtime";
 
-onPreferences(({ accent, reduceMotion, highContrast, textScale }) => {
-  if (reduceMotion) document.documentElement.classList.add("reduce-motion");
-});
+const apply = ({ reduceTransparency }: ThemePreferences) =>
+  document.documentElement.classList.toggle("opaque", reduceTransparency);
+apply(preferences());
+const off = onPreferences(apply);
 ```
 
+| field | |
+|---|---|
+| `accent` | the accent as `"#rrggbb"`, or `null` where the desktop has none |
+| `reduceMotion` | the desktop asks for less motion, as `prefers-reduced-motion` |
+| `reduceTransparency` | the desktop asks for opaque surfaces: macOS's Reduce Transparency, Windows's transparency effects turned off; false on Linux, which has no such setting |
+| `highContrast` | the desktop asks for more contrast, as `prefers-contrast: more` |
+| `textScale` | how many times larger than usual text should be; `1` is usual |
+
+A page that navigates starts with the values of the moment: the script
+that tells them at document start is replaced when they change.
 `mygo.Theme.Preferences()` reads them on the Go side, see
 [native](native.md#accent-color-and-accessibility).
 

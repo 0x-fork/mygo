@@ -1,6 +1,7 @@
 package text
 
 import (
+	"cmp"
 	"encoding/binary"
 	"image"
 	"math"
@@ -314,6 +315,11 @@ type System struct {
 	// rasterizing text, if the app gave them (SetFontRendering).
 	uiFamily  string
 	rendering *[3]string
+	// families are the system's font families as FontFamilies last listed
+	// them, while listed; RegisterFont forgets them, counting familiesGen.
+	families    []FontFamily
+	listed      bool
+	familiesGen uint64
 	// lang is the language of texts whose style names none (SetLanguage).
 	lang string
 	// fonts caches the font of each style.
@@ -518,6 +524,9 @@ func (s *System) RegisterFont(data []byte, family string) error {
 	if err := s.engine().register(data, family); err != nil {
 		return err
 	}
+	// The system's families may hold the app's under their own names.
+	s.families, s.listed = nil, false
+	s.familiesGen++
 	s.gen++
 	clear(s.fonts)
 	s.clearLayouts()
@@ -525,27 +534,65 @@ func (s *System) RegisterFont(data []byte, family string) error {
 	return nil
 }
 
-// FontFamilies lists the families text can use, the app's registered
-// ones first, then the system's, each once and sorted: the monospaced
-// ones only when mono.
-func (s *System) FontFamilies(mono bool) []string {
+// A FontFamily is a font family text can use.
+type FontFamily struct {
+	Name string
+	// Monospaced is whether its regular font gives every character the
+	// same advance.
+	Monospaced bool
+	// Registered is whether the app registered it (RegisterFont).
+	Registered bool
+}
+
+// FontFamilies lists the families text can use: the app's registered ones
+// first, under the names it gave them, or their own when it gave none,
+// then the system's, each once and sorted without regard to case. The
+// system's are listed once, outside the lock, and kept until RegisterFont.
+func (s *System) FontFamilies() []FontFamily {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	app, system := s.engine().families(mono)
-	seen := map[string]bool{}
-	unique := func(names []string) []string {
-		var out []string
-		for _, f := range names {
-			if key := strings.ToLower(f); !seen[key] {
-				seen[key] = true
+	app := s.engine().appFamilies()
+	system, listed, gen := s.families, s.listed, s.familiesGen
+	var list func() []FontFamily
+	if !listed {
+		list = s.eng.systemFamilies()
+	}
+	s.mu.Unlock()
+	if !listed {
+		if list != nil {
+			system = list()
+		}
+		s.mu.Lock()
+		if s.familiesGen == gen {
+			s.families, s.listed = system, true
+		}
+		s.mu.Unlock()
+	}
+	seen := map[string]int{} // the index of each family, by lowercased name
+	var out []FontFamily
+	add := func(families []FontFamily, registered bool) {
+		from := len(out)
+		for _, f := range families {
+			key := strings.ToLower(f.Name)
+			i, ok := seen[key]
+			switch {
+			case f.Name == "":
+			case !ok:
+				f.Registered = registered
+				seen[key] = len(out)
 				out = append(out, f)
+			case i >= from:
+				// Fonts of one family, as its bold after its regular: it is
+				// monospaced if one of them is.
+				out[i].Monospaced = out[i].Monospaced || f.Monospaced
 			}
 		}
-		slices.Sort(out)
-		return out
+		slices.SortFunc(out[from:], func(a, b FontFamily) int {
+			return cmp.Or(strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)), strings.Compare(a.Name, b.Name))
+		})
 	}
-	app = unique(app)
-	return append(app, unique(system)...)
+	add(app, true)
+	add(system, false)
+	return out
 }
 
 // Preload starts the text engine and finds the system UI font, which the

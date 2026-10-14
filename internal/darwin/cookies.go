@@ -5,6 +5,7 @@ package darwin
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -36,7 +37,17 @@ func readCookie(c id) platform.Cookie {
 	return out
 }
 
-func (a appController) ListCookies(done func([]platform.Cookie, error)) {
+// ListCookies lists every cookie, and matches them with the URL in Go:
+// WKHTTPCookieStore cannot.
+func (a appController) ListCookies(rawURL string, done func([]platform.Cookie, error)) {
+	var u *url.URL
+	if rawURL != "" {
+		var err error
+		if u, err = url.Parse(rawURL); err != nil {
+			done(nil, err)
+			return
+		}
+	}
 	withPool(func() {
 		store, err := cookieStore()
 		if err != nil {
@@ -47,7 +58,9 @@ func (a appController) ListCookies(done func([]platform.Cookie, error)) {
 			var result []platform.Cookie
 			withPool(func() {
 				for _, c := range arrayItems(array) {
-					result = append(result, readCookie(c))
+					if c := readCookie(c); u == nil || platform.CookieMatchesURL(c, u) {
+						result = append(result, c)
+					}
 				}
 			})
 			a.b.runOnMain(func() { done(result, nil) })
@@ -72,7 +85,9 @@ func (a appController) SetCookie(c platform.Cookie, done func(error)) {
 		if c.Secure {
 			scheme = "https"
 		}
-		header := c.Name + "=" + c.Value + "; Path=" + c.Path + "; SameSite=" + c.SameSite
+		// Foundation parses the attributes, with a stand-in name and value:
+		// it would split a value with ", " in it as two cookies.
+		header := "n=v; Path=" + c.Path + "; SameSite=" + c.SameSite
 		if strings.HasPrefix(c.Domain, ".") {
 			header += "; Domain=" + c.Domain
 		}
@@ -91,7 +106,15 @@ func (a appController) SetCookie(c platform.Cookie, done func(error)) {
 			done(fmt.Errorf("mygo: cookies: Set could not construct NSHTTPCookie"))
 			return
 		}
-		native := send(array, "objectAtIndex:", 0)
+		props := send(send(send(array, "objectAtIndex:", 0), "properties"), "mutableCopy")
+		send(props, "setObject:forKey:", uintptr(nsString(c.Name)), uintptr(constString(libFoundation, "NSHTTPCookieName")))
+		send(props, "setObject:forKey:", uintptr(nsString(c.Value)), uintptr(constString(libFoundation, "NSHTTPCookieValue")))
+		native := send(class("NSHTTPCookie"), "cookieWithProperties:", uintptr(props))
+		release(props)
+		if native == 0 {
+			done(fmt.Errorf("mygo: cookies: Set could not construct NSHTTPCookie"))
+			return
+		}
 		parsed := readCookie(native)
 		if parsed.Name != c.Name || parsed.Domain != c.Domain || parsed.Path != c.Path || parsed.Value != c.Value || parsed.Secure != c.Secure || parsed.HTTPOnly != c.HTTPOnly || parsed.SameSite != c.SameSite {
 			// Say what differs, without the value.
@@ -144,5 +167,21 @@ func (a appController) DeleteCookie(key platform.CookieKey, done func(error)) {
 		})
 		send(store, "getAllCookies:", uintptr(block))
 		block.Release()
+	})
+}
+
+// ClearCookies removes the cookies of the default data store, its
+// other data kept.
+func (a appController) ClearCookies(done func(error)) {
+	withPool(func() {
+		if _, err := cookieStore(); err != nil {
+			done(err)
+			return
+		}
+		store := send(class("WKWebsiteDataStore"), "defaultDataStore")
+		types := send(class("NSSet"), "setWithObject:", uintptr(nsString("WKWebsiteDataTypeCookies")))
+		blk := newBlock(func(_ objc.Block) { a.b.runOnMain(func() { done(nil) }) })
+		send(store, "removeDataOfTypes:modifiedSince:completionHandler:", uintptr(types), uintptr(send(class("NSDate"), "distantPast")), uintptr(blk))
+		blk.Release()
 	})
 }

@@ -243,9 +243,19 @@ func TestDiffViewerActiveSide(t *testing.T) {
 		}
 	}
 	d := &DiffState{Old: NewBuffer(oldText.String()), New: NewBuffer(newText.String()), ExpandUnchanged: true}
+	type caret struct {
+		side   DiffSide
+		line   int
+		hunk   int
+		inside bool
+	}
+	at := func() caret {
+		h, in := d.CurrentHunk()
+		return caret{d.ActiveSide(), d.CursorPos().Line, h, in}
+	}
 	// Before the viewer is built, the new side's caret is at the start.
-	if side, p := d.Cursor(); side != DiffNew || p != (Pos{}) || d.CurrentHunk() != -1 {
-		t.Fatalf("before building: %v %+v, hunk %d", side, p, d.CurrentHunk())
+	if c := at(); c != (caret{DiffNew, 0, -1, false}) || d.Cursor() != 0 {
+		t.Fatalf("before building: %+v, offset %d", c, d.Cursor())
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		DiffView(c, d).Fill()
@@ -253,8 +263,8 @@ func TestDiffViewerActiveSide(t *testing.T) {
 	tt.Frame()
 	d.GoToHunk(1)
 	tt.Frame()
-	if side, p := d.Cursor(); side != DiffNew || p.Line != 30 || d.CurrentHunk() != 1 {
-		t.Fatalf("after GoToHunk(1): %v %+v, hunk %d", side, p, d.CurrentHunk())
+	if c := at(); c != (caret{DiffNew, 30, 1, true}) || d.Cursor() != d.New.Offset(Pos{Line: 30}) {
+		t.Fatalf("after GoToHunk(1): %+v, offset %d", c, d.Cursor())
 	}
 	// Between changes, the current one is the one before the caret: the
 	// view shows the second change in its middle, lines of the first
@@ -262,21 +272,22 @@ func TestDiffViewerActiveSide(t *testing.T) {
 	lh := float32(d.eds[1].view.lineHeight)
 	tt.ClickAt(200, 2.5*lh)
 	tt.Frame()
-	if side, p := d.Cursor(); side != DiffOld || p.Line <= 5 || p.Line >= 30 || d.CurrentHunk() != 0 {
-		t.Fatalf("clicked in the old side: %v %+v, hunk %d", side, p, d.CurrentHunk())
+	if c := at(); c.side != DiffOld || c.line <= 5 || c.line >= 30 || c.hunk != 0 || c.inside {
+		t.Fatalf("clicked in the old side: %+v", c)
 	}
 	// The old side stays active as the window loses the keyboard.
 	tt.SetFocused(false)
 	tt.Frame()
-	if side, _ := d.Cursor(); side != DiffOld {
+	if side := d.ActiveSide(); side != DiffOld {
 		t.Fatalf("unfocused: side %v", side)
 	}
-	// GoToHunk moves the caret Cursor reads, so an app's Next Change
+	// GoToHunk moves the caret CursorPos reads, so an app's Next Change
 	// steps from it.
-	d.GoToHunk(d.CurrentHunk() + 1)
+	h, _ := d.CurrentHunk()
+	d.GoToHunk(h + 1)
 	tt.Frame()
-	if side, p := d.Cursor(); side != DiffOld || p.Line != 30 || d.CurrentHunk() != 1 {
-		t.Fatalf("after GoToHunk in the old side: %v %+v, hunk %d", side, p, d.CurrentHunk())
+	if c := at(); c != (caret{DiffOld, 30, 1, true}) {
+		t.Fatalf("after GoToHunk in the old side: %+v", c)
 	}
 	tt.SetFocused(true)
 	tt.Frame()
@@ -293,13 +304,34 @@ func TestDiffViewerActiveSide(t *testing.T) {
 	tt.Frame()
 	d.Find("changed")
 	tt.Frame()
-	if side, p := d.Cursor(); side != DiffNew || p.Line != 30 || !d.eds[1].find.open {
-		t.Fatalf("Find in the new side: %v %+v, open %v", side, p, d.eds[1].find.open)
+	if c := at(); c.side != DiffNew || c.line != 30 || !d.eds[1].find.open {
+		t.Fatalf("Find in the new side: %+v, open %v", c, d.eds[1].find.open)
 	}
 	// A unified view has only the new side's editor.
 	d.Layout = DiffUnified
 	tt.Frame()
-	if side, _ := d.Cursor(); side != DiffNew {
+	if side := d.ActiveSide(); side != DiffNew {
 		t.Fatalf("unified: side %v", side)
+	}
+}
+
+// The caret is in a hunk on the lines it changes, and in a deletion on
+// the line of the side without its lines where they were; after the last
+// line of a hunk, it is after it.
+func TestDiffViewerCurrentHunk(t *testing.T) {
+	d := &DiffState{Old: NewBuffer("a\nb\nc\nd\ne\n"), New: NewBuffer("a\nB\nc\ne\n"), ExpandUnchanged: true}
+	if n := len(d.Hunks()); n != 2 {
+		t.Fatalf("%d hunks, want 2", n)
+	}
+	ed := d.editorOf(DiffNew)
+	for _, c := range []struct {
+		line, hunk int
+		inside     bool
+	}{{0, -1, false}, {1, 0, true}, {2, 0, false}, {3, 1, true}, {4, 1, false}} {
+		off := d.New.Offset(Pos{Line: c.line})
+		ed.setSels([]sel{ed.newSel(off, off)}, revealNone)
+		if h, in := d.CurrentHunk(); h != c.hunk || in != c.inside {
+			t.Errorf("new line %d: hunk %d inside %v, want %d %v", c.line, h, in, c.hunk, c.inside)
+		}
 	}
 }

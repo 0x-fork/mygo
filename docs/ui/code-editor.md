@@ -133,13 +133,33 @@ frame showed, as a half page of Vim's moves by.
 typed, edit commands and the pointer. Returning true takes the event, and
 the editor leaves it; the others go on as without it. An app's own mode of
 editing, as Vim's normal mode, takes keys this way while the editor still
-shows and moves the carets. Letters typed come as `InputText`: on some
-systems their keys come first as `InputKeyDown` too, and taking a key
-doesn't take its text, so a mode reads letters from `InputText`. Text an
-input method composes goes to the editor alone, unless `NoInputMethod` is
-set: then no input method composes in the text, its composition comes to
-`OnInput` as `InputCompose`, and text typed, or committed by an input
-method, as `InputText`, as a mode that reads letters as commands wants.
+shows and moves the carets. Letters typed at the carets come as
+`InputText`: on some systems their keys come first as `InputKeyDown` too,
+and taking a key doesn't take its text, so a mode reads letters from
+`InputText`. What an input method composes, commits or replaces, as the
+accents of macOS's press and hold replace the letter before the caret,
+goes to the editor alone. The key after the first of a chord of
+`Bindings`, as Cmd+K Cmd+0, is the chord's, as VS Code resolves chords
+before an extension's keys.
+
+`NoInputMethod` turns the system's input methods off while the editor has
+the keyboard, as Neovide does in Vim's normal mode: keys type the
+characters of the keyboard's layout, which come to `OnInput` as
+`InputText`, and nothing is composed, so j is j with a Chinese input
+method on. Set it in the modes that read letters as commands and clear it
+in insert mode. Browsers cannot turn input methods off: there they compose
+in the text still.
+
+```go
+app.code.CursorShape = editor.CursorBlock // normal mode
+app.code.NoInputMethod = true
+app.code.OnInput = func(ev ui.InputEvent) bool {
+	if ev.Kind == ui.InputText {
+		return app.vim.normalKeys(ev.Text) // j, k, dd, …
+	}
+	return false
+}
+```
 
 ## Options
 
@@ -150,7 +170,10 @@ method, as `InputText`, as a mode that reads letters as commands wants.
   as breakpoints, and `OnGutterClick` reports clicks on numbers.
 - `LineBackgrounds` fill lines, from `First` to `Last`, with a color under
   the text and the selections, as the statement a key would run; the
-  gutter keeps its own, and lines a fold hides take no room to fill.
+  gutter keeps its own, and lines a fold hides take no room to fill. They
+  keep their line numbers as the text is edited, unlike diagnostics and
+  inlays, which move with it: compute them again when the buffer's
+  `Version` changes.
 - `TabSize` and `Indent` set indentation: tabs or spaces, as the
   language's files usually have them when zero (Go's tabs).
 - `Whitespace` shows spaces and tabs as dots and arrows: within selections
@@ -164,9 +187,11 @@ method, as `InputText`, as a mode that reads letters as commands wants.
   13 DIPs, 1.5 times as high, by default.
 - `NoAutoClose`, `NoFolding`, `NoActiveLine` and `NoScrollPastEnd` turn
   those behaviors off. `Placeholder` shows while the buffer is empty.
-- `CaretShape` paints carets as bars, as blocks over the character after
-  them, as Vim's normal mode does, translucent so that the character shows,
-  or as underlines, as its pending operators do.
+- `CursorShape` paints carets as bars (`CursorBar`), as blocks over the
+  character after them (`CursorBlock`), as Vim's normal mode does,
+  translucent so that the character shows and outlined while the editor
+  hasn't the keyboard, or as underlines (`CursorUnderline`), as its
+  pending operators do.
 - `DiffBase` is the text the buffer's changes show against in the gutter,
   as the file in Git: bars mark the lines added and changed, and a mark
   where lines were deleted. Cmd+F8 goes to the next change, and Cmd+Alt+Z

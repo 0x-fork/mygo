@@ -51,6 +51,8 @@ type Application struct {
 
 	// Dock controls the Dock icon on macOS.
 	Dock *Dock
+	// JumpList controls the jump list of the taskbar button on Windows.
+	JumpList *JumpList
 
 	onReady           listeners[func()]
 	onWindowAllClosed listeners[func()]
@@ -68,7 +70,7 @@ type Application struct {
 }
 
 // App is the application singleton.
-var App = &Application{readyCh: make(chan struct{}), Dock: &Dock{}}
+var App = &Application{readyCh: make(chan struct{}), Dock: &Dock{}, JumpList: &JumpList{}}
 
 // Run starts the native event loop and blocks until the application quits.
 // It must be called from the main goroutine, usually as the last statement

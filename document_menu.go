@@ -1,14 +1,9 @@
 package mygo
 
 import (
-	"encoding/json/v2"
 	"errors"
-	"io"
 	"log"
-	"os"
 	"path/filepath"
-	"slices"
-	"sync"
 )
 
 // hasDocuments reports whether the app made documents (NewDocuments),
@@ -70,13 +65,13 @@ func openDocumentsDialog() {
 		return
 	}
 	for _, p := range paths {
-		openRecentDocument(p)
+		openDocumentPath(p)
 	}
 }
 
-// openRecentDocument opens path with the kind of its extension, or the
+// openDocumentPath opens path with the kind of its extension, or the
 // first kind.
-func openRecentDocument(path string) {
+func openDocumentPath(path string) {
 	kind := defaultDocKind()
 	for _, k := range docKinds() {
 		if k.handles(path) {
@@ -140,99 +135,23 @@ func walkMenu(m *Menu, fn func(*MenuItem)) {
 	}
 }
 
-// The recent documents: those the app opened and saved, newest first,
-// which Open Recent lists, kept in recent-documents.json in PathUserData
-// (macOS keeps its own for the Dock, Windows the jump list's, Linux the
-// recently used files: AddRecentDocument records them there too).
-var recentDocs struct {
-	sync.Mutex
-	loaded bool
-	paths  []string
-}
-
-const maxRecentDocuments = 10
-
-func recentFile() (string, error) {
-	dir, err := App.Path(PathUserData)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "recent-documents.json"), nil
-}
-
-// loadRecentLocked reads the list once. recentDocs is locked.
-func loadRecentLocked() {
-	if recentDocs.loaded {
-		return
-	}
-	recentDocs.loaded = true
-	if f, err := recentFile(); err == nil {
-		if data, err := os.ReadFile(f); err == nil {
-			_ = json.Unmarshal(data, &recentDocs.paths)
-		}
-	}
-}
-
-// RecentDocuments returns the documents the app opened lately, newest
-// first, which the Open Recent menu (RoleOpenRecent) lists.
-func (a *Application) RecentDocuments() []string {
-	recentDocs.Lock()
-	defer recentDocs.Unlock()
-	loadRecentLocked()
-	return slices.Clone(recentDocs.paths)
-}
-
-// addRecent puts path first in the recent documents.
-func addRecent(path string) {
-	recentDocs.Lock()
-	loadRecentLocked()
-	paths := slices.DeleteFunc(slices.Clone(recentDocs.paths), func(p string) bool { return p == path })
-	paths = slices.Insert(paths, 0, path)
-	if len(paths) > maxRecentDocuments {
-		paths = paths[:maxRecentDocuments]
-	}
-	recentDocs.paths = paths
-	recentDocs.Unlock()
-	saveRecent(paths)
-	if App.IsReady() {
-		if err := App.AddRecentDocument(path); err != nil {
-			log.Printf("mygo: documents: %v", err)
-		}
-	}
-}
-
-// clearRecent empties the recent documents.
-func clearRecent() {
-	recentDocs.Lock()
-	recentDocs.loaded = true
-	recentDocs.paths = nil
-	recentDocs.Unlock()
-	saveRecent(nil)
-	_ = App.ClearRecentDocuments()
-}
-
-func saveRecent(paths []string) {
-	if f, err := recentFile(); err == nil {
-		if err := writeAppFile(f, func(w io.Writer) error { return json.MarshalWrite(w, paths) }); err != nil {
-			log.Printf("mygo: documents: %v", err)
-		}
-	}
-	postMain(updateRecentMenus)
-}
-
 // recentMenuItems are the items of the Open Recent submenu.
 func recentMenuItems() []*MenuItem {
 	var items []*MenuItem
 	for _, p := range App.RecentDocuments() {
 		items = append(items, &MenuItem{Label: filepath.Base(p), ToolTip: p, Click: func(*MenuItem, *Window) {
-			go openRecentDocument(p)
+			openRecentDocument(p)
 		}})
 	}
 	if len(items) > 0 {
 		items = append(items, Separator())
 	}
 	return append(items, &MenuItem{Label: menuMessages().MenuClearRecent(), Disabled: len(items) == 0, Click: func(*MenuItem, *Window) {
-		go clearRecent()
+		go func() {
+			if err := App.ClearRecentDocuments(); err != nil {
+				log.Printf("mygo: recent documents: %v", err)
+			}
+		}()
 	}})
 }
 

@@ -23,8 +23,8 @@ type OutlineState[K comparable] struct {
 	List ListState
 	// Open holds the items showing their children.
 	Open Selection[K]
-	// Indent is the width each level adds before a row's arrow, the
-	// theme's Space(4) when zero.
+	// Indent is the width in DIPs each level adds before a row's arrow,
+	// the theme's Space(4) when zero. It must not be negative.
 	Indent float32
 	rows   []outlineRow[K]
 }
@@ -51,6 +51,9 @@ func (s *OutlineState[K]) Depth(row int) int { return s.rows[row].depth }
 // flatten lists the rows the outline shows: roots, and the children of
 // the items open.
 func (s *OutlineState[K]) flatten(roots []K, children func(K) []K) {
+	if !(s.Indent >= 0) {
+		panic("ui: an OutlineState's Indent must not be negative")
+	}
 	s.rows = s.rows[:0]
 	var walk func(items []K, depth, parent int)
 	walk = func(items []K, depth, parent int) {
@@ -159,7 +162,7 @@ func (s *OutlineState[K]) prefix(c *context, i int, children func(K) []K, conten
 	}
 	if r.depth > 0 {
 		indent := s.Indent
-		if indent <= 0 {
+		if indent == 0 {
 			indent = t.Space(4)
 		}
 		coreBox(c).Width(float32(r.depth) * indent).Shrink(0)

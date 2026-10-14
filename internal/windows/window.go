@@ -32,9 +32,9 @@ type window struct {
 	pending      []pendingCall
 	webViewErr   error
 	webViewFails int // creations that failed
-	// scriptIDs are the IDs of the scripts AddScriptToExecuteOnDocumentCreated
-	// added, and scriptGen counts the times SetUserScripts replaced them:
-	// an ID that arrives for scripts replaced since is removed at once.
+	// scriptIDs are the ids of the scripts added to every document, which
+	// SetUserScripts removes; scriptGen counts the replacements, so an id
+	// that arrives after one is removed at once.
 	scriptIDs  []string
 	scriptGen  int
 	closed     bool

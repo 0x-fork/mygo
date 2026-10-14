@@ -294,6 +294,7 @@ type node struct {
 	textClient TextInputClient
 	caret      Rect
 	takesText  bool
+	noIME      bool // InputMethod(false)
 	copyData   func(parts []SelectedText) transfer.Data
 
 	// Content.

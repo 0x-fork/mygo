@@ -3,11 +3,13 @@ package terminal
 import (
 	"math"
 	"runtime"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/plugins/terminal/internal/vt"
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -16,10 +18,15 @@ import (
 // element, as with Fill or Grow; its size sets the terminal's, in cells of
 // the font. A terminal shows in one view at a time.
 //
-// Copy and paste are Command+C and Command+V on macOS, which the Edit
-// menu's roles also send, and Control+Shift+C and Control+Shift+V
-// elsewhere; Shift+Page Up and Shift+Page Down scroll a page of the
-// scrollback, as does the wheel, unless the program takes the mouse. Hold
+// A key goes, in order, to a shortcut of the window or an element around
+// the view (and on macOS to the menus' key equivalents), to
+// Options.OnKey, to the terminal's keybinds (Options.Keybinds, over
+// DefaultKeybinds: Command+C and Command+V copy and paste on macOS, as do
+// Control+Shift+C and Control+Shift+V elsewhere), and to the program.
+// Other Command keys on macOS never reach the program, and go to the
+// app's shortcuts. The Edit menu's roles copy, paste and select all too.
+// The wheel scrolls the scrollback unless the program takes the mouse,
+// and zooms with Control held (Command on macOS; Options.OnZoom). Hold
 // Shift to select while a program takes the mouse, and Command (Control
 // elsewhere) to open a link on click: a hyperlink (OSC 8), a URL printed as
 // text, or a file path with Options.OpenLink.
@@ -110,13 +117,13 @@ type view struct {
 	opening     string
 	openingPath bool
 	// copying is the selection a release ended with Options.CopyOnSelect,
-	// and pasting a secondary click's copy-or-paste, done once t.mu is
+	// and rightClick what a secondary click does, done once t.mu is
 	// released, as opening is.
-	copying  string
-	pasting  bool
-	scrolled float32 // scrolling not yet a whole row
-	zoomed   float32 // wheel with the zoom modifier not yet a notch
-	ticking  bool    // an autoscroll tick is due
+	copying    string
+	rightClick RightClickAction
+	scrolled   float32 // scrolling not yet a whole row
+	zoomed     float32 // wheel with the zoom modifier not yet a notch
+	ticking    bool    // an autoscroll tick is due
 }
 
 type pendingKey struct {
@@ -223,10 +230,6 @@ func (v *view) caret() ui.Rect {
 // menu is the terminal's context menu.
 func (v *view) menu(m *ui.Menu) {
 	t := v.t
-	cmd := ui.Cmd
-	if runtime.GOOS != "darwin" {
-		cmd |= ui.Shift
-	}
 	t.mu.Lock()
 	text, selected := "", false
 	if t.term != nil {
@@ -234,19 +237,28 @@ func (v *view) menu(m *ui.Menu) {
 	}
 	t.mu.Unlock()
 	tx := l10n.In(v.lang)
-	if m.Item(tx.Copy()).Shortcut(cmd, ui.KeyC).Disabled(!selected || text == "").Chosen() {
+	if v.menuItem(m, tx.Copy(), ActionCopy).Disabled(!selected || text == "").Chosen() {
 		v.services.WriteClipboard(text)
 	}
-	if m.Item(tx.Paste()).Shortcut(cmd, ui.KeyV).Chosen() {
+	if v.menuItem(m, tx.Paste(), ActionPaste).Chosen() {
 		v.paste()
 	}
-	if m.Item(tx.SelectAll()).Chosen() {
+	if v.menuItem(m, tx.SelectAll(), ActionSelectAll).Chosen() {
 		v.selectAll()
 	}
 	m.Separator()
 	if m.Item(tx.ClearScrollback()).Chosen() {
 		t.Feed([]byte("\x1b[3J"))
 	}
+}
+
+// menuItem adds an item of the menu, showing the key bound to its action.
+func (v *view) menuItem(m *ui.Menu, label string, a Action) *ui.MenuItem {
+	it := m.Item(label)
+	if b, ok := v.t.shortcut(a); ok {
+		it.Shortcut(b.Mods, b.Key)
+	}
+	return it
 }
 
 // input handles the input of the view as it comes.
@@ -265,7 +277,7 @@ func (v *view) input(ev ui.InputEvent) bool {
 	case ui.InputCommand:
 		switch ev.Text {
 		case "copy":
-			v.copy()
+			v.copy(false)
 		case "paste":
 			v.paste()
 		case "selectAll":
@@ -288,10 +300,18 @@ func (v *view) input(ev ui.InputEvent) bool {
 			v.copying = ""
 			v.services.WriteClipboard(text)
 		}
-		if v.pasting {
+		if a := v.rightClick; a != RightClickContextMenu {
 			// Outside pointerEvent's lock, which copying and pasting take.
-			v.pasting = false
-			if !v.copySelected() {
+			v.rightClick = RightClickContextMenu
+			switch a {
+			case RightClickCopy:
+				v.copy(true)
+			case RightClickCopyOrPaste:
+				if !v.copy(true) {
+					v.paste()
+				}
+			case RightClickPaste:
+				v.clearSelection()
 				v.paste()
 			}
 		}
@@ -311,31 +331,15 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 	}
 	mac := runtime.GOOS == "darwin"
 	mods, key := ev.Mods, ev.Key
-	copyMods := ui.Ctrl | ui.Shift
-	if mac {
-		copyMods = ui.Super
+	if b, ok := t.binding(mods, key); ok {
+		if v.perform(b.Action, b.Performable) || !b.Performable {
+			// Its text and release are the binding's too.
+			k, _ := vtKey(key)
+			v.pending = &pendingKey{key: k, taken: true}
+			return true
+		}
 	}
-	switch {
-	case mods == copyMods && key == ui.KeyC:
-		v.copy()
-		return true
-	case mods == copyMods && key == ui.KeyV:
-		v.paste()
-		return true
-	case !mac && t.opts.InsertKeys && mods == ui.Ctrl && key == ui.KeyInsert:
-		v.copy()
-		return true
-	case !mac && t.opts.InsertKeys && mods == ui.Shift && key == ui.KeyInsert:
-		v.paste()
-		return true
-	case !mac && t.opts.CtrlVPastes && mods == ui.Ctrl && key == ui.KeyV:
-		v.paste()
-		return true
-	case !mac && t.opts.CtrlCCopies && mods == ui.Ctrl && key == ui.KeyC && v.copySelected():
-		return true
-	case mods == ui.Shift && (key == ui.KeyPageUp || key == ui.KeyPageDown) && v.scrollPage(key == ui.KeyPageUp):
-		return true
-	case mods&ui.Super != 0:
+	if mods&ui.Super != 0 {
 		return false // the app's shortcuts
 	}
 	k, unshifted := vtKey(key)
@@ -367,9 +371,48 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 	return true
 }
 
-// scrollPage scrolls the scrollback a page, but for full-screen programs,
-// which get the key, and reports whether it did.
-func (v *view) scrollPage(up bool) bool {
+// perform does what a key bound to an action does, and reports whether
+// it did something (Keybind.Performable). A performable copy lets go of
+// the selection, so that the key's next press reaches the program.
+func (v *view) perform(a Action, performable bool) bool {
+	switch a {
+	case ActionIgnore:
+		return true
+	case ActionCopy:
+		return v.copy(performable)
+	case ActionPaste:
+		return v.paste()
+	case ActionSelectAll:
+		v.selectAll()
+		return true
+	case ActionClearScreen:
+		return v.clearScreen()
+	case ActionIncreaseFontSize:
+		v.zoom(Zoom{Steps: 1})
+		return true
+	case ActionDecreaseFontSize:
+		v.zoom(Zoom{Steps: -1})
+		return true
+	case ActionResetFontSize:
+		v.zoom(Zoom{Reset: true})
+		return true
+	case ActionScrollPageUp, ActionScrollPageDown, ActionScrollToTop, ActionScrollToBottom:
+		return v.scrollBack(a)
+	}
+	return false
+}
+
+// zoom zooms, as OnZoom takes it or the terminal does.
+func (v *view) zoom(z Zoom) {
+	if on := v.t.opts.OnZoom; on != nil && on(z) {
+		return
+	}
+	v.t.zoom(z)
+}
+
+// scrollBack scrolls the scrollback as an action does, but for
+// full-screen programs, which have none, and reports whether it did.
+func (v *view) scrollBack(a Action) bool {
 	t := v.t
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -378,23 +421,59 @@ func (v *view) scrollPage(up bool) bool {
 	}
 	_, rows := t.term.Size()
 	page := max(rows-1, 1)
-	if up {
-		page = -page
+	switch a {
+	case ActionScrollPageUp:
+		t.term.ScrollBy(-page)
+	case ActionScrollPageDown:
+		t.term.ScrollBy(page)
+	case ActionScrollToTop:
+		t.term.ScrollToTop()
+	case ActionScrollToBottom:
+		t.term.ScrollToBottom()
 	}
-	t.term.ScrollBy(page)
+	v.services.Invalidate()
+	return true
+}
+
+// clearScreen clears the scrollback and the screen above the cursor's
+// line, which moves to the top, as Kitty's clear_terminal to_cursor: the
+// prompt the shell shows stays. A full-screen program's screen, which this
+// would break, is left alone, as in Ghostty; it reports whether it
+// cleared.
+func (v *view) clearScreen() bool {
+	t := v.t
+	t.mu.Lock()
+	if t.term == nil || t.term.AltScreen() {
+		t.mu.Unlock()
+		return false
+	}
+	t.term.SetSelection(nil)
+	t.term.ScrollToBottom()
+	x, y := t.term.Cursor()
+	t.mu.Unlock()
+	seq := "\x1b[3J"
+	if y > 0 {
+		// Delete the rows above the cursor's from the top, then put the
+		// cursor back on its line, now the first.
+		seq += "\x1b[H\x1b[" + strconv.Itoa(y) + "M\x1b[1;" + strconv.Itoa(x+1) + "H"
+	}
+	t.Feed([]byte(seq))
 	return true
 }
 
 func (v *view) keyUp(ev ui.InputEvent) bool {
 	k, unshifted := vtKey(ev.Key)
+	if p := v.pending; p != nil && p.taken && p.key == k {
+		// The release of a key OnKey or a keybind took, Command held or
+		// not.
+		v.pending = nil
+		return true
+	}
 	if k == vt.KeyUnidentified || ev.Mods&ui.Super != 0 {
 		return false
 	}
 	if p := v.pending; p != nil && p.key == k {
 		v.pending = nil
-		if p.taken {
-			return true
-		}
 		// No text came, as for Control, Alt and a letter on Windows,
 		// where they may type one: the key alone.
 		action := vt.KeyPress
@@ -500,27 +579,14 @@ func (v *view) sendText(text string) {
 	v.blinkStart = time.Now()
 }
 
-func (v *view) copy() {
+// copy copies the selection, letting go of it with clear, and reports
+// whether there was one.
+func (v *view) copy(clear bool) bool {
 	t := v.t
 	t.mu.Lock()
 	text, ok := "", false
 	if t.term != nil {
-		text, ok = t.term.SelectionText()
-	}
-	t.mu.Unlock()
-	if ok && text != "" {
-		v.services.WriteClipboard(text)
-	}
-}
-
-// copySelected copies the selection and lets go of it, so that the next
-// Control-C interrupts, and reports whether there was one.
-func (v *view) copySelected() bool {
-	t := v.t
-	t.mu.Lock()
-	text, ok := "", false
-	if t.term != nil {
-		if text, ok = t.term.SelectionText(); ok && text != "" {
+		if text, ok = t.term.SelectionText(); ok && text != "" && clear {
 			t.term.SetSelection(nil)
 		}
 	}
@@ -529,30 +595,56 @@ func (v *view) copySelected() bool {
 		return false
 	}
 	v.services.WriteClipboard(text)
-	v.services.Invalidate()
+	if clear {
+		v.services.Invalidate()
+	}
 	return true
 }
 
-func (v *view) paste() {
-	text := v.services.ReadClipboard()
-	if on := v.t.opts.OnPaste; on != nil && on(text) {
-		return
+// paste pastes the clipboard and reports whether it held anything. It
+// reads, on the main thread, as the paste starts, every format for
+// Options.OnPaste, those the program can read for one that reads the
+// clipboard itself (mode 5522), and else only the text, so that pasting
+// into a shell converts no image for nothing. The program's read comes
+// later, from the terminal's goroutine, where the clipboard cannot be
+// read: it reads what was read here.
+func (v *view) paste() bool {
+	t := v.t
+	held := v.services.ClipboardFormats()
+	if len(held) == 0 {
+		return false
 	}
-	contents := map[string][]byte{}
-	if text != "" {
-		contents["text/plain"] = []byte(text)
-	}
-	// The image too, for a program that reads the clipboard itself (mode
-	// 5522), or to tell that only an image was there; others get the text,
-	// without encoding an image on the main thread for nothing.
-	if text == "" || v.t.readsClipboard() {
-		if png := v.services.ReadClipboardImage(); len(png) > 0 {
-			contents["image/png"] = png
+	var d transfer.Data
+	switch {
+	case t.opts.OnPaste != nil:
+		d = v.services.ReadClipboardData()
+		if t.opts.OnPaste(d) {
+			return true
 		}
+	case t.readsClipboard():
+		var formats []transfer.Format
+		for _, f := range held {
+			if offerMIME(f) != "" {
+				formats = append(formats, f)
+			}
+		}
+		d = v.services.ReadClipboardData(formats...)
+	default:
+		d = v.services.ReadClipboardData(transfer.Text)
 	}
-	if len(contents) > 0 {
-		v.t.PasteClipboard(contents)
+	t.pasteData(d, held)
+	return true
+}
+
+// clearSelection lets go of the selection.
+func (v *view) clearSelection() {
+	t := v.t
+	t.mu.Lock()
+	if t.term != nil {
+		t.term.SetSelection(nil)
 	}
+	t.mu.Unlock()
+	v.services.Invalidate()
 }
 
 func (v *view) selectAll() {
@@ -620,10 +712,9 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 	px, py := float64(ev.X*v.scale), float64(ev.Y*v.scale)
 	switch ev.Kind {
 	case ui.InputPointerDown:
-		if ev.Button == 1 && t.opts.RightClickPastes {
-			// As Windows Terminal: copy what is selected, else paste;
+		if ev.Button == 1 && t.opts.RightClick != RightClickContextMenu {
 			// input does it once the lock is released.
-			v.pasting = true
+			v.rightClick = t.opts.RightClick
 			return true
 		}
 		if ev.Button != 0 {
@@ -664,7 +755,7 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 		} else {
 			v.gesture.Release(t.term, nil)
 		}
-		if t.opts.CopyOnSelect {
+		if t.opts.CopyOnSelect == CopyOnSelectClipboard {
 			if text, ok := t.term.SelectionText(); ok {
 				v.copying = text
 			}
@@ -767,23 +858,23 @@ func (v *view) scroll(ev ui.InputEvent) bool {
 	if v.cellH == 0 {
 		return false
 	}
-	if on := t.opts.OnZoom; on != nil && ev.Mods&ui.Cmd != 0 {
+	if ev.Mods&ui.Cmd != 0 {
 		// Rolling up is a step up. DY is the scroll offset's change, so up
 		// comes negative; a wheel's event is a notch, a trackpad's many
 		// small moves, which add up to a step by 40.
 		if !ev.Precise {
 			switch {
 			case ev.DY < 0:
-				on(1)
+				v.zoom(Zoom{Steps: 1})
 			case ev.DY > 0:
-				on(-1)
+				v.zoom(Zoom{Steps: -1})
 			}
 			return true
 		}
 		v.zoomed -= ev.DY
 		if steps := int(v.zoomed / 40); steps != 0 {
 			v.zoomed -= float32(steps) * 40
-			on(steps)
+			v.zoom(Zoom{Steps: steps})
 		}
 		return true
 	}

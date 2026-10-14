@@ -293,7 +293,19 @@ func (w *window) setUp(controller uintptr) {
 		w.focusWebView()
 	}
 
+	if !w.b.holdForCookies(w) {
+		w.becomeReady()
+	}
+}
+
+// becomeReady runs the calls that waited for the web view, its first
+// navigation among them.
+func (w *window) becomeReady() {
+	if w.closed {
+		return
+	}
 	w.ready = true
+	w.b.closeCookieView()
 	pending := w.pending
 	w.pending = nil
 	for i, c := range pending {
@@ -617,8 +629,8 @@ func (w *window) URL() string {
 
 func (w *window) IsLoading() bool { return w.loading }
 
-// addUserScripts gives the webview the scripts of the options, and the
-// script that tells the bridge the room of the caption buttons.
+// addUserScripts adds the user scripts of the options to every document,
+// and the title bar's after them, keeping their ids, which arrive later.
 func (w *window) addUserScripts() {
 	scripts := w.opts.UserScripts
 	if w.caption != nil {
@@ -639,29 +651,34 @@ func (w *window) addUserScripts() {
 			if failed(hr) || id == 0 || w.closed || w.webview == 0 {
 				return
 			}
-			sid := wstr(id)
-			if gen != w.scriptGen {
-				// SetUserScripts replaced the scripts as this one was added.
-				comCall(w.webview, wvRemoveScriptToExecuteOnDocumentCreated, uintptr(unsafe.Pointer(u16(sid))))
-				return
+			if s := wstr(id); w.scriptGen == gen {
+				w.scriptIDs = append(w.scriptIDs, s)
+			} else {
+				// Replaced while it was being added.
+				comCall(w.webview, wvRemoveScriptToExecuteOnDocumentCreated, uintptr(unsafe.Pointer(u16(s))))
 			}
-			w.scriptIDs = append(w.scriptIDs, sid)
 		}, func(h uintptr) uintptr {
 			return comCall(w.webview, wvAddScriptToExecuteOnDocumentCreated, uintptr(unsafe.Pointer(u16(src))), h)
 		})
 	}
 }
 
+// SetUserScripts replaces the user scripts. Scripts run in the order they
+// were added, so all of them are removed and added again.
 func (w *window) SetUserScripts(scripts []platform.UserScript) {
+	if w.closed {
+		return
+	}
 	w.opts.UserScripts = scripts
-	w.withWebView(func() {
-		for _, id := range w.scriptIDs {
-			comCall(w.webview, wvRemoveScriptToExecuteOnDocumentCreated, uintptr(unsafe.Pointer(u16(id))))
-		}
-		w.scriptIDs = nil
-		w.scriptGen++
-		w.addUserScripts()
-	})
+	if w.webview == 0 {
+		return // setUp adds them
+	}
+	w.scriptGen++
+	for _, id := range w.scriptIDs {
+		comCall(w.webview, wvRemoveScriptToExecuteOnDocumentCreated, uintptr(unsafe.Pointer(u16(id))))
+	}
+	w.scriptIDs = nil
+	w.addUserScripts()
 }
 
 func (w *window) Eval(js string) {

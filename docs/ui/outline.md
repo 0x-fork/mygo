@@ -35,7 +35,8 @@ rows as a list's does (`Selected`, `Selection`), and the items `Open`, a
 `Selection` of the items showing their children. The rows' keys are the
 items, so their choice and state follow them as items open and close above
 them. `Rows`, `Item` and `Depth` read the rows shown. `Indent` is the width
-each level adds before a row's arrow, the theme's `Space(4)` when zero.
+each level adds before a row's arrow, the theme's `Space(4)` when zero; it
+must not be negative.
 
 ## Opening and closing
 

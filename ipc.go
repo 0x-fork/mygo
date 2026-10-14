@@ -18,7 +18,6 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/egoist/mygo/internal/callcontext"
 	"github.com/egoist/mygo/internal/tsgen"
 )
 
@@ -240,7 +239,6 @@ func (m *method) call(w *Window, page context.Context, token string, args []rawV
 		// The page closing a channel cancels the call. The channels close
 		// when it returns, before its result is sent.
 		ctx, cancel = context.WithCancel(page)
-		ctx = context.WithValue(ctx, callcontext.PageKey{}, page.Done())
 		defer func() {
 			for _, c := range chans {
 				c.close(closedByGo)

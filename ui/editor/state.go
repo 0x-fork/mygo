@@ -51,10 +51,10 @@ type State struct {
 	NoFolding bool
 	// NoActiveLine stops highlighting the lines with a caret.
 	NoActiveLine bool
-	// CaretShape is the shape of the carets: bars by default, or blocks
+	// CursorShape is the shape of the carets: bars by default, or blocks
 	// over the character after them, as Vim's normal mode has, or
 	// underlines, as its pending operators do.
-	CaretShape CaretShape
+	CursorShape CursorShape
 	// FitContent makes the editor as high as its lines, to show in a
 	// scroll view or a list, rather than scrolling them itself.
 	FitContent bool
@@ -94,17 +94,23 @@ type State struct {
 	GutterMarks []GutterMark
 	// LineBackgrounds fill the rows of lines with colors, under the
 	// text and the selections, as the statement a key runs: not the
-	// gutter, nor the lines folds hide.
+	// gutter, nor the lines folds hide. They keep their line numbers as
+	// the text is edited, unlike diagnostics and inlays, which move with
+	// it: compute them again when the buffer's Version changes.
 	LineBackgrounds []LineBackground
 	// OnInput sees each input event before the editor, as keys for a
 	// mode of the app's such as Vim's: returning true takes it, and the
-	// editor leaves it. Text typed comes as InputText, outside an input
-	// method's composition.
+	// editor leaves it. Text typed at the carets comes as InputText;
+	// what an input method composes, commits or replaces, as the accents
+	// of press and hold, goes to the editor alone. The key after the
+	// first of a chord of Bindings, as Cmd+K Cmd+0, is the chord's.
 	OnInput func(ev ui.InputEvent) bool
-	// NoInputMethod keeps input methods from composing in the text:
-	// what they compose comes to OnInput as InputCompose, and text typed,
-	// or what an input method commits, as InputText, as keys for Vim's
-	// normal mode want.
+	// NoInputMethod turns the system's input methods off while the
+	// editor has the keyboard (ui's InputMethod): keys type the
+	// characters of the keyboard's layout, which come to OnInput as
+	// InputText, and nothing is composed, as Vim's normal mode wants
+	// with a Chinese input method on. Browsers cannot turn input methods
+	// off: there they compose in the text still.
 	NoInputMethod bool
 
 	// RenderFindBar, RenderGoToLine, RenderCompletions and RenderHover
@@ -153,16 +159,20 @@ const (
 	WhitespaceBoundary
 )
 
-// CaretShape is the shape of the carets.
-type CaretShape uint8
+// CursorShape is the shape of an editor's carets, as Zed's CursorShape
+// and the terminal's CursorStyle.
+type CursorShape uint8
 
 const (
-	CaretBar CaretShape = iota
-	// CaretBlock covers the character after the caret, a space's width at
-	// the end of a line, translucent so that the character shows.
-	CaretBlock
-	// CaretUnderline underlines the character after the caret.
-	CaretUnderline
+	// CursorBar is a bar before the character at the caret.
+	CursorBar CursorShape = iota
+	// CursorBlock covers the character after the caret, a space's width
+	// at the end of a line, translucent so that the character shows. An
+	// editor without the keyboard focus outlines it, as Vim's and Zed's
+	// do.
+	CursorBlock
+	// CursorUnderline underlines the character after the caret.
+	CursorUnderline
 )
 
 // GutterMark marks a line in the gutter.
@@ -171,7 +181,9 @@ type GutterMark struct {
 	Color ui.Color
 }
 
-// LineBackground fills lines First to Last, from 0, with Color.
+// LineBackground fills lines First to Last, from 0, with Color. The lines
+// are those of the text when it is set: an edit adding or removing lines
+// above them doesn't move them.
 type LineBackground struct {
 	First, Last int
 	Color       ui.Color
@@ -182,7 +194,7 @@ func (st *State) options() options {
 		readOnly: st.ReadOnly, font: st.Font, lineHeight: st.LineHeight, tabSize: st.TabSize, indent: st.Indent,
 		wrap: st.SoftWrap, wrapColumn: st.WrapColumn, lineNumbers: st.LineNumbers, whitespace: st.Whitespace,
 		wrapGuides: st.WrapGuides, indentGuides: !st.NoIndentGuides, scrollPastEnd: !st.NoScrollPastEnd && !st.FitContent,
-		autoClose: !st.NoAutoClose, folding: !st.NoFolding, activeLine: !st.NoActiveLine, caretShape: st.CaretShape, fitContent: st.FitContent,
+		autoClose: !st.NoAutoClose, folding: !st.NoFolding, activeLine: !st.NoActiveLine, cursorShape: st.CursorShape, fitContent: st.FitContent,
 		placeholder: st.Placeholder, label: st.Label, theme: st.Theme, bindings: st.Bindings, gutterMarks: st.GutterMarks,
 		backgrounds: st.LineBackgrounds, diffBase: st.DiffBase, onCompletion: st.OnCompletion, onHover: st.OnHover, onDefinition: st.OnDefinition,
 		onGutterClick: st.OnGutterClick, contextMenu: st.ContextMenu, onInput: st.OnInput, noInputMethod: st.NoInputMethod, minDigits: 3,

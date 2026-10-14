@@ -2,109 +2,134 @@ package mygo
 
 import (
 	"context"
-	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
 )
 
 // Documents notice what other apps do to their files: one WatchFiles per
-// directory holding open documents, and a look when a document's window
-// is focused, since watches miss changes (VS Code and Notepad++ look
-// then too) and stop in directories with too many files. An unedited
-// document reads its file again, an edited one is in conflict and asks at
-// its next save, a renamed file is followed, and a deleted one is
-// written again by the next save.
+// open document's file, and a look when a document's window is focused,
+// since watches miss changes (VS Code and Notepad++ look then too). An
+// unedited document reads its file again, an edited one is in conflict
+// and asks at its next save, a file renamed in its directory is followed,
+// and a deleted one is written again by the next save. A watch of the
+// file rather than of its directory costs the same whatever else the
+// directory holds: on macOS, kqueue takes a descriptor for each file a
+// watch of the directory covers.
 
 var docWatches struct {
 	sync.Mutex
-	dirs map[string]*docDirWatch
+	files map[string]*docFileWatch
 }
 
-type docDirWatch struct {
+type docFileWatch struct {
 	refs   int
 	cancel context.CancelFunc
 }
 
-// watch watches the directory of b's file, after it opened or moved.
+// watch watches b's file, after it opened or moved.
 func (b *docBase) watch() {
 	b.mu.Lock()
-	dir := ""
-	if b.path != "" && !b.closed {
-		dir = filepath.Dir(b.path)
+	path := ""
+	if !b.closed {
+		path = b.path
 	}
 	old := b.watched
-	b.watched = dir
+	b.watched = path
 	b.mu.Unlock()
-	if dir == old {
+	if path == old {
 		return
 	}
 	docWatches.Lock()
 	defer docWatches.Unlock()
 	if old != "" {
-		if w := docWatches.dirs[old]; w != nil {
+		if w := docWatches.files[old]; w != nil {
 			if w.refs--; w.refs == 0 {
 				w.cancel()
-				delete(docWatches.dirs, old)
+				delete(docWatches.files, old)
 			}
 		}
 	}
-	if dir == "" {
+	if path == "" {
 		return
 	}
-	if w := docWatches.dirs[dir]; w != nil {
+	if w := docWatches.files[path]; w != nil {
 		w.refs++
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	if docWatches.dirs == nil {
-		docWatches.dirs = map[string]*docDirWatch{}
+	if docWatches.files == nil {
+		docWatches.files = map[string]*docFileWatch{}
 	}
-	docWatches.dirs[dir] = &docDirWatch{refs: 1, cancel: cancel}
-	go watchDocumentDir(ctx, dir)
+	docWatches.files[path] = &docFileWatch{refs: 1, cancel: cancel}
+	go watchDocumentFile(ctx, path)
 }
 
-// watchDocumentDir follows the changes of dir until ctx is done.
-func watchDocumentDir(ctx context.Context, dir string) {
-	for ctx.Err() == nil {
-		w, err := WatchFiles(ctx, dir, FileWatchOptions{Debounce: 100 * time.Millisecond})
+// watchDocumentFile follows the changes of the file at path until ctx is
+// done, or its directory goes away.
+func watchDocumentFile(ctx context.Context, path string) {
+	w, err := WatchFiles(ctx, path, FileWatchOptions{Debounce: 100 * time.Millisecond})
+	if err != nil {
+		return // the file is gone: focus checks remain
+	}
+	defer w.Close()
+	// What changed before the watch started, as after a rename.
+	for _, b := range documentsAt(path) {
+		go b.checkDisk()
+	}
+	// The file as last seen, to find it when it is renamed.
+	known, _ := os.Lstat(w.Root())
+	known = StatIdentity(known)
+	for {
+		events, err := w.Next(ctx)
 		if err != nil {
-			return // the directory is gone, or too large: focus checks remain
+			return
 		}
-		for {
-			e, err := w.Next(ctx)
-			if err != nil {
-				w.Close()
-				if errors.Is(err, ErrWatchOverflow) {
-					for _, b := range documentsIn(dir) {
-						go b.checkDisk()
-					}
-					break // watch again
-				}
-				return
+		moved := ""
+		if events[len(events)-1].Op == FileRemove && known != nil {
+			moved = findRenamed(filepath.Dir(w.Root()), known)
+		}
+		for _, b := range documentsAt(path) {
+			if moved != "" {
+				b.moved(moved)
+			} else {
+				go b.checkDisk()
 			}
-			for _, b := range documentsIn(dir) {
-				name := filepath.Base(b.Path())
-				switch {
-				case e.Op == FileRename && e.OldPath == name:
-					b.moved(filepath.Join(dir, filepath.FromSlash(e.Path)))
-				case e.Path == name:
-					go b.checkDisk()
-				}
-			}
+		}
+		if moved != "" {
+			return // moved watches the new path
+		}
+		if info, err := os.Lstat(w.Root()); err == nil {
+			known = StatIdentity(info)
 		}
 	}
 }
 
-// documentsIn returns the open documents whose files are in dir.
-func documentsIn(dir string) []*docBase {
-	var in []*docBase
-	for _, b := range allDocuments() {
-		if p := b.Path(); p != "" && filepath.Dir(p) == dir {
-			in = append(in, b)
+// findRenamed returns the path of the file in dir that is the file info
+// describes, or "".
+func findRenamed(dir string, info os.FileInfo) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if other, err := entry.Info(); err == nil && os.SameFile(info, other) {
+			return filepath.Join(dir, entry.Name())
 		}
 	}
-	return in
+	return ""
+}
+
+// documentsAt returns the open documents of the file at path.
+func documentsAt(path string) []*docBase {
+	var at []*docBase
+	for _, b := range allDocuments() {
+		if b.Path() == path {
+			at = append(at, b)
+		}
+	}
+	return at
 }
 
 // checkDisk compares b's file with what b last read or wrote.

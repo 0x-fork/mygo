@@ -77,13 +77,16 @@ The terminal does what terminal apps do:
   While a program takes the mouse, as editors do, Shift selects.
 - **Copy and paste** are Command+C and Command+V on macOS, which the Edit
   menu's roles also send, and Control+Shift+C and Control+Shift+V
-  elsewhere. Pastes are bracketed when the program asks, so that pasted
-  lines do not run as commands. The context menu has Copy, Paste, Select
-  All and Clear Scrollback. Options add copying on select and Windows'
-  keys (see [Options](#options)).
+  elsewhere, with Control+Insert and Shift+Insert, and on Windows
+  Control+C and Control+V as in Windows Terminal (see [Keys](#keys)).
+  Pastes are bracketed when the program asks, so that pasted lines do not
+  run as commands. The context menu has Copy, Paste, Select All and Clear
+  Scrollback. Options add copying on select and other secondary clicks
+  (see [Options](#options)).
 - **Pasting images**: a program that reads the clipboard itself, as it
   asks with mode 5522 (as coding agents that accept images do), is told
-  what a paste holds, the text and an image as PNG, and reads what it
+  what a paste holds, every format of the clipboard as MIME types (the
+  text, an image as PNG, files as `text/uri-list`, …), and reads what it
   wants, even over SSH. Only the terminal that pasted answers its read,
   with what the clipboard held at the paste; other terminals showing the
   same program, as other windows on a session, stay silent. Other
@@ -92,12 +95,16 @@ The terminal does what terminal apps do:
   Shift+Page Up and Shift+Page Down. Full-screen programs get the wheel as
   arrow keys, or as mouse reports when they take the mouse. Typing scrolls
   back to the bottom.
+- **Zooming**: the wheel with Control held (Command on macOS), and
+  Control (Command) with =, - and 0 make the text larger, smaller, and its
+  size again, a DIP a step, as in Ghostty; `OnZoom` takes zooms instead.
 - **Links**: Command+click (Control+click elsewhere) opens a hyperlink a
   program printed (OSC 8), or a URL printed as text, even while a program
   takes the mouse; the pointer is a hand over them while Command is held.
 - Shortcuts of the app come first: Command shortcuts on macOS are never
   sent to the program, and keys that the window or an element around the
-  terminal handles with `Shortcut` go there.
+  terminal handles with `Shortcut`, or that a menu of the app has as its
+  key equivalent on macOS, go there.
 
 ## Options
 
@@ -140,15 +147,21 @@ term, err := terminal.New(terminal.Options{
   background color of their own still draw it.
 - `OptionAsAlt` makes Option on macOS the Alt key of programs (Meta),
   instead of the key typing accented letters.
-- `CopyOnSelect` copies the selection to the clipboard as the pointer
-  ends it, as Ghostty's `copy-on-select`.
-- `CtrlCCopies`, `CtrlVPastes` and `InsertKeys` add the keys of Windows
-  Terminal, outside macOS: Control+C copies the selection and lets go of
-  it, and still interrupts the program when nothing is selected;
-  Control+V pastes; Control+Insert copies and Shift+Insert pastes.
-  `RightClickPastes` makes a secondary click copy the selection, or paste
-  when there is none, instead of showing the context menu. A program
-  that takes the mouse still gets the click.
+- `CopyOnSelect: terminal.CopyOnSelectClipboard` copies the selection to
+  the clipboard as the pointer ends it, as Ghostty's
+  `copy-on-select = clipboard`. Ghostty's `primary`, Linux's selection
+  clipboard, is not there, as native UI has none.
+- `Keybinds` bind keys to actions, over the defaults (see [Keys](#keys)).
+- `RightClick` is what a secondary click does, as Ghostty's
+  `right-click-action`: the context menu by default,
+  `RightClickPaste`, `RightClickCopy`, `RightClickCopyOrPaste` (copy the
+  selection, or paste when there is none, as Windows Terminal) or
+  `RightClickIgnore`. Copying lets go of the selection. A program that
+  takes the mouse still gets the click, unless Shift is held.
+- `NoClipboardWrite` keeps programs from writing to the clipboard (OSC 52
+  and OSC 5522), as Ghostty's `clipboard-write = deny`. Programs never
+  read it (OSC 52's reads go unanswered, as with
+  `clipboard-read = deny`), except for what a paste offers them.
 - `OnTitle`, `OnExit`, `OnBell` and `OnNotify` run on a goroutine of the
   terminal when the program sets the title, ends, rings the bell or asks
   for a desktop notification. `Done` is closed once the program exited,
@@ -162,21 +175,36 @@ term, err := terminal.New(terminal.Options{
   does without `OpenLink`. An app opens a remote shell's paths in a
   preview of its own this way, rather than the system opening them
   locally.
-- `OnPaste` sees a paste, by the keys or a Paste menu item, on the main
-  thread, with the clipboard's text (empty when it holds none, as with an
-  image), and takes it by returning true: nothing is pasted. An app
-  driving a remote shell uploads the clipboard's files this way and
-  pastes their remote paths instead.
+- `OnPaste` sees a paste of the clipboard, by the keys, a Paste menu item
+  or a secondary click, on the main thread, with every format the
+  clipboard holds as a `transfer.Data`, and takes it by returning true:
+  nothing is pasted. An app driving a remote shell uploads the
+  clipboard's files (`d.Files()`) or image (`d.Read(transfer.PNG)`) this
+  way, and pastes their remote paths with `Paste` instead:
+
+  ```go
+  OnPaste: func(d transfer.Data) bool {
+  	files, _ := d.Files()
+  	if len(files) == 0 {
+  		return false // text pastes as usual
+  	}
+  	go func() { term.Paste(strings.Join(upload(files), " ")) }()
+  	return true
+  },
+  ```
+
 - `OnPasteStatus` tells how a paste to a program that reads the clipboard
-  itself goes, on a goroutine of the terminal: `PasteOffered`, then
-  `PasteSending` with the bytes sent of the total as the program reads,
-  then `PasteSent`; or `PasteNotTaken` when the program does not read
-  within 3 seconds, or `PasteUnsupported` when the clipboard holds only an
-  image and the program does not read the clipboard. An app shows a large
-  image's progress over a slow link this way, and says why nothing
-  pasted.
-- `OnKey` sees a key press on the main thread before the terminal sends
-  it, and takes it by returning true: neither the key nor the text it
+  itself goes, on a goroutine of the terminal, with a `PasteProgress`:
+  `PasteOffered`, then `PasteSending` with `Sent` of `Total` bytes as the
+  program reads (bytes written to it, encoded as the protocol sends them),
+  then `PasteSent`; or `PasteNotTaken` when the program has not read it 5
+  seconds after the offer was written (it may still, until another paste
+  comes), or `PasteNoText` when a paste with no text, as only an image,
+  goes to a program that does not read the clipboard, which pastes
+  nothing. An app shows a large image's progress over a slow link this
+  way, and says why nothing pasted.
+- `OnKey` sees a key press on the main thread before the keybinds and
+  before the terminal sends it, and takes it by returning true: neither the key nor the text it
   types reaches the program. Unlike a `Shortcut` around the view, which
   runs with the next frame, it keeps its place among the keys typed after
   it, as does what it sends with `Send`. Keys that only type text may come
@@ -189,11 +217,65 @@ term, err := terminal.New(terminal.Options{
   screen (alternate scroll, which `\x1b[?1007l` turns off). A `Conn`
   whose history lives at the other end, as a remote multiplexer streaming
   only its screen, sends the wheel there this way.
-- `OnZoom` takes the wheel with Control held (Command on macOS) on the
-  main thread, before `OnScroll` and a program that takes the mouse: it
-  gets how many notches, rolling up positive, as an app that sizes its
-  text by the wheel wants. A wheel's event is a notch; a trackpad's moves
-  add up to them.
+- `OnZoom` sees a zoom on the main thread: the wheel with Control held
+  (Command on macOS), which zooms before `OnScroll` and a program that
+  takes the mouse see it, or a key bound to a font size action. Its
+  `Zoom` has how many `Steps`, rolling up positive (a wheel's event is a
+  notch; a trackpad's moves add up to them), or `Reset`. It takes the zoom
+  by returning true, as an app that sizes all its text at once does;
+  without it, or for a zoom it leaves, the terminal changes its font's
+  size itself, a DIP a step, down to 1, and back to `Font.Size` on a reset.
+  macOS's pinch, which native UI does not report, does not zoom.
+
+## Keys
+
+The terminal binds keys to actions, as Ghostty's `keybind` option does,
+with Ghostty's defaults for the platform, which `terminal.DefaultKeybinds`
+returns:
+
+| Action | macOS | Linux and Windows | Windows also |
+| --- | --- | --- | --- |
+| `ActionCopy` | Cmd+C | Ctrl+Shift+C, Ctrl+Insert | Ctrl+C (performable) |
+| `ActionPaste` | Cmd+V | Ctrl+Shift+V, Shift+Insert | Ctrl+V (performable) |
+| `ActionSelectAll` | Cmd+A | Ctrl+Shift+A | |
+| `ActionClearScreen` | Cmd+K | | Ctrl+Shift+K |
+| `ActionIncreaseFontSize` | Cmd+=, Cmd++ | Ctrl+=, Ctrl++ | |
+| `ActionDecreaseFontSize` | Cmd+- | Ctrl+- | |
+| `ActionResetFontSize` | Cmd+0 | Ctrl+0 | |
+| `ActionScrollPageUp`, `…Down` | Shift+ or Cmd+Page Up/Down | Shift+Page Up/Down | Ctrl+Shift+Page Up/Down |
+| `ActionScrollToTop`, `…Bottom` | Cmd+Home/End | Shift+Home/End (Linux) | Ctrl+Shift+Home/End |
+
+The keys that clear the screen and scroll are performable too, so that a
+full-screen program, as an editor, gets them. `Options.Keybinds` bind more,
+over the defaults: a binding replaces the defaults of its key and
+modifiers, and one to `ActionNone` unbinds them, so that the program gets
+the key; `NoDefaultKeybinds` starts from none, as Ghostty's
+`keybind = clear`:
+
+```go
+term, err := terminal.New(terminal.Options{Keybinds: []terminal.Keybind{
+	// Windows Terminal's Control+C and Control+V on Linux too.
+	{Mods: ui.Ctrl, Key: ui.KeyC, Action: terminal.ActionCopy, Performable: true},
+	{Mods: ui.Ctrl, Key: ui.KeyV, Action: terminal.ActionPaste, Performable: true},
+	// Control+Shift+A reaches the program.
+	{Mods: ui.Ctrl | ui.Shift, Key: ui.KeyA, Action: terminal.ActionNone},
+}})
+```
+
+A `Performable` binding, as Ghostty's `performable:` prefix, takes the key
+only when its action does something: a copy only with a selection, a
+paste only when the clipboard holds something, clearing the screen and
+scrolling only off a full-screen program's screen; otherwise the key goes
+on to the program, as if unbound: Control+C interrupts when nothing is
+selected. A performable copy also lets go of the selection, so that the
+key's next press interrupts. `ActionClearScreen` clears the scrollback and
+the screen above the cursor's line, which moves to the top with the
+shell's prompt, as Kitty's `clear_terminal to_cursor`; `ActionIgnore`
+takes the key and does nothing.
+
+A key goes first to the app's shortcuts, then to `OnKey`, then to the
+keybinds, then to the program. The context menu shows the keys bound to
+its items.
 
 ## Fonts
 
@@ -284,14 +366,18 @@ selection-foreground = #1e1e2e
 The terminal's methods are safe from any goroutine:
 
 - `Send` sends bytes to the program as if typed, and `Paste` pastes text.
-  `PasteClipboard` pastes contents by MIME type, as the paste keys do: to
-  a program that reads the clipboard itself, all of them, else the
-  `text/plain` one.
+  `PasteData` pastes a `transfer.Data`, as the paste keys paste the
+  clipboard: a program that reads the clipboard itself is offered every
+  format, as MIME types, and reads those it wants, when it asks (a
+  `transfer.Lazy` representation is made only then, on a goroutine of
+  the terminal); any other gets the text. `Paste` is `PasteData` with
+  text, which such a program reads as `text/plain`.
 - `Feed` shows bytes as if the program wrote them, text and escape
   sequences.
 - `Title`, `Dir` (the directory the shell reported), `Size` (in cells) and
   `Text` (the screen and its scrollback) read the terminal.
-- `SetFont` and `SetTheme` change the font and the colors.
+- `SetFont` and `SetTheme` change the font and the colors; `SetFont` also
+  sets the size a zoom resets to, and drops the zoom.
 - `Resize` sets the size of a terminal no view shows, and `Snapshot`
   returns what a terminal shows as escape sequences: its scrollback and
   screen with their styles, the cursor and the modes programs set. Fed to

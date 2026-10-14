@@ -88,7 +88,7 @@ var redTheme = &Theme{Background: ui.RGB(255, 255, 255), Cursor: ui.RGB(255, 0, 
 // A block caret covers the character after it, or a space's width at the
 // end of a line, in the color of carets made translucent; an underline
 // caret underlines it.
-func TestCaretShape(t *testing.T) {
+func TestCursorShape(t *testing.T) {
 	ct := newEditorTest(t, "", "|abc\nab")
 	ct.st.Theme, ct.st.NoActiveLine = redTheme, true
 	ct.tt.Frame()
@@ -102,7 +102,7 @@ func TestCaretShape(t *testing.T) {
 	if inBlock(0, 0) {
 		t.Fatal("a bar caret painted a block")
 	}
-	ct.st.CaretShape = CaretBlock
+	ct.st.CursorShape = CursorBlock
 	ct.tt.Frame()
 	if !inBlock(0, 0) || inBlock(0, 1) {
 		t.Fatal("the block caret did not cover the first character alone")
@@ -117,18 +117,25 @@ func TestCaretShape(t *testing.T) {
 		t.Fatal("the block caret at the end of a line is not a space wide")
 	}
 	// An underline under the character, not over it.
-	ct.st.CaretShape = CaretUnderline
+	ct.st.CursorShape = CursorUnderline
 	ct.st.Select(0, 0)
 	ct.tt.Frame()
 	if !red(0, 0, lh-1) || red(0, 0, 2) || red(0, 1, lh-1) {
 		t.Fatal("the underline caret does not underline the first character alone")
+	}
+	// Without the keyboard, a block is outlined, not filled.
+	ct.st.CursorShape = CursorBlock
+	ct.tt.SetFocused(false)
+	ct.tt.Frame()
+	if ct.st.Focused() || inBlock(0, 0) || !red(0, 0, 0.5) || !red(0, 0, lh-0.5) {
+		t.Fatal("the block caret of an unfocused editor is not outlined")
 	}
 }
 
 // A block caret covers a whole character, with its combining marks.
 func TestBlockCaretCombining(t *testing.T) {
 	ct := newEditorTest(t, "", "|e\u0301x")
-	ct.st.Theme, ct.st.NoActiveLine, ct.st.CaretShape = redTheme, true, CaretBlock
+	ct.st.Theme, ct.st.NoActiveLine, ct.st.CursorShape = redTheme, true, CursorBlock
 	ct.tt.Frame()
 	ed := &ct.st.ed
 	l := ed.view.line(0)
@@ -138,9 +145,9 @@ func TestBlockCaretCombining(t *testing.T) {
 	}
 }
 
-// With NoInputMethod, no input method composes in the editor: typed text,
-// composed text too once committed, comes as InputText for OnInput, as
-// keys do in Vim's normal mode.
+// With NoInputMethod, the editor turns the system's input methods off
+// while it takes text: keys type text, which comes as InputText for
+// OnInput, as keys do in Vim's normal mode, and nothing is composed.
 func TestNoInputMethod(t *testing.T) {
 	ct := newEditorTest(t, "", "ab|")
 	ct.st.NoInputMethod = true
@@ -153,17 +160,69 @@ func TestNoInputMethod(t *testing.T) {
 		return false
 	}
 	ct.tt.Frame()
+	if active, off := ct.tt.TextInputActive(); !active || !off {
+		t.Fatalf("text input %v, input methods off %v; want on, off", active, off)
+	}
 	ct.tt.Compose("に", 1)
 	ct.tt.Frame()
 	ct.want("ab|")
-	ct.tt.Type("に")
+	ct.tt.TypeKey(0, ui.KeyJ, "j")
 	ct.tt.Frame()
 	ct.want("ab|")
-	if fmt.Sprint(typed) != "[に]" {
+	if fmt.Sprint(typed) != "[j]" {
 		t.Fatalf("OnInput saw %q", typed)
 	}
-	// The host's text input stays on, else keys would type no text.
-	if _, ok := ct.tt.TextCaret(); !ok {
-		t.Fatal("the host's text input is off: keys type no text")
+	// Back on, input methods compose in the text.
+	ct.st.NoInputMethod = false
+	ct.tt.Frame()
+	if active, off := ct.tt.TextInputActive(); !active || off {
+		t.Fatalf("text input %v, input methods off %v; want on, on", active, off)
+	}
+	ct.tt.Compose("に", 1)
+	ct.tt.Frame()
+	ct.want("abに|")
+}
+
+// An input method replacing text other than the selection, as the accents
+// of press and hold replace the letter before the caret, edits the text
+// itself: OnInput hears only of text typed at the carets.
+func TestOnInputReplacement(t *testing.T) {
+	ct := newEditorTest(t, "", "cafe|")
+	var typed []string
+	ct.st.OnInput = func(ev ui.InputEvent) bool {
+		if ev.Kind == ui.InputText {
+			typed = append(typed, ev.Text)
+		}
+		return false
+	}
+	ct.tt.Frame()
+	ct.st.ed.ReplaceText(&ui.TextInputRange{Start: 3, End: 4}, "é")
+	ct.want("café|")
+	ct.st.ed.ReplaceText(&ui.TextInputRange{Start: 4, End: 4}, "!")
+	ct.want("café!|")
+	if fmt.Sprint(typed) != "[!]" {
+		t.Fatalf("OnInput saw %q, want the text typed at the caret alone", typed)
+	}
+}
+
+// The key after the first of a chord is the chord's, not OnInput's.
+func TestOnInputChord(t *testing.T) {
+	ct := newEditorTest(t, "", "ab|")
+	var keys []ui.Key
+	ct.st.OnInput = func(ev ui.InputEvent) bool {
+		if ev.Kind == ui.InputKeyDown {
+			keys = append(keys, ev.Key)
+		}
+		return false
+	}
+	ct.st.Bindings = []Binding{{Mods: ui.Cmd, Key: ui.KeyK, ThenMods: ui.Cmd, ThenKey: ui.KeyU, Command: Uppercase}}
+	ct.tt.Frame()
+	ct.st.Select(0, 2)
+	ct.key(ui.Cmd, ui.KeyK)
+	ct.key(ui.Cmd, ui.KeyU)
+	ct.key(0, ui.KeyRight)
+	ct.want("AB|")
+	if fmt.Sprint(keys) != fmt.Sprint([]ui.Key{ui.KeyK, ui.KeyRight}) {
+		t.Fatalf("OnInput saw keys %v, want K and Right", keys)
 	}
 }

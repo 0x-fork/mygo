@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"strings"
+	"syscall"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -47,9 +49,11 @@ const (
 	oaGetAt     = 4
 	ocAddObject = 5 // IObjectCollection
 
-	slSetArguments    = 11 // IShellLinkW
-	slSetIconLocation = 17
-	slSetPath         = 20
+	slSetDescription      = 7 // IShellLinkW
+	slSetWorkingDirectory = 9
+	slSetArguments        = 11
+	slSetIconLocation     = 17
+	slSetPath             = 20
 
 	psSetValue = 6 // IPropertyStore
 	psCommit   = 7
@@ -92,10 +96,11 @@ func (a appController) ClearRecentDocuments() error {
 	return nil
 }
 
-// SetJumpListTasks commits the app's jump list with tasks in its Tasks
-// category, and the Recent category, which a custom list shows only when
-// it asks for it.
-func (a appController) SetJumpListTasks(tasks []platform.JumpListTask) error {
+// SetJumpList commits the app's jump list: the Recent category, which a
+// custom list shows only when it asks for it, and the tasks. CommitList
+// replaces the whole list, which package mygo keeps.
+func (a appController) SetJumpList(list platform.JumpList) error {
+	tasks := list.Tasks
 	dl, err := coCreate(clsidDestinationList, iidICustomDestinationList)
 	if err != nil {
 		return err
@@ -154,8 +159,18 @@ func addTasks(oc uintptr, tasks []platform.JumpListTask) error {
 				return hresultError("IShellLinkW::SetPath", hr)
 			}
 			// The jump list shows only tasks with arguments, even empty ones.
-			if hr := comCall(sl, slSetArguments, uintptr(unsafe.Pointer(u16(t.Args)))); failed(hr) {
+			if hr := comCall(sl, slSetArguments, uintptr(unsafe.Pointer(u16(commandLine(t.Args))))); failed(hr) {
 				return hresultError("IShellLinkW::SetArguments", hr)
+			}
+			if t.Description != "" {
+				if hr := comCall(sl, slSetDescription, uintptr(unsafe.Pointer(u16(t.Description)))); failed(hr) {
+					return hresultError("IShellLinkW::SetDescription", hr)
+				}
+			}
+			if t.WorkingDir != "" {
+				if hr := comCall(sl, slSetWorkingDirectory, uintptr(unsafe.Pointer(u16(t.WorkingDir)))); failed(hr) {
+					return hresultError("IShellLinkW::SetWorkingDirectory", hr)
+				}
 			}
 			if t.IconPath != "" {
 				if hr := comCall(sl, slSetIconLocation, uintptr(unsafe.Pointer(u16(t.IconPath))), uintptr(t.IconIndex)); failed(hr) {
@@ -176,6 +191,16 @@ func addTasks(oc uintptr, tasks []platform.JumpListTask) error {
 		}
 	}
 	return nil
+}
+
+// commandLine joins args into a command line that CommandLineToArgvW and
+// Go's os.Args split back into them, as os/exec does.
+func commandLine(args []string) string {
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		quoted[i] = syscall.EscapeArg(a)
+	}
+	return strings.Join(quoted, " ")
 }
 
 // setTitle sets the System.Title of a shell link.

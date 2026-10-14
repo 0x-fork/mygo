@@ -38,11 +38,38 @@ func RegisterFont(data []byte, family string) error {
 	return text.Shared().RegisterFont(data, family)
 }
 
-// FontFamilies lists the font families text can use: the app's registered
-// ones first, then the system's, sorted. With mono, only the monospaced
-// ones, as a terminal or an editor offers.
-func FontFamilies(mono bool) []string {
-	return text.Shared().FontFamilies(mono)
+// A FontFamily is a font family text can use, as FontFamilies lists it.
+type FontFamily struct {
+	// Name is the family as Font and Theme take it.
+	Name string
+	// Monospaced is whether its regular font gives every character the
+	// same advance, as a terminal's or a code editor's font setting
+	// offers.
+	Monospaced bool
+	// Registered is whether the app registered it with RegisterFont, under
+	// Name: the name it gave, or the font's own when it gave none.
+	Registered bool
+}
+
+// FontFamilies lists the font families text can use, as a font setting
+// offers them: the app's registered ones first, then the system's, each
+// once, sorted without regard to case. A font registered under a name the
+// app gave is listed under that name alone. Browsers do not tell what
+// fonts they have: there the list holds the registered families alone,
+// and a family is Monospaced once its font has loaded.
+//
+// The first call asks the system for its families, which takes a while
+// with many fonts installed (tens of milliseconds on a Mac with hundreds),
+// without holding up the windows' text; later calls reuse that list, until
+// RegisterFont, so fonts installed while the app runs show after a
+// restart. It is safe from any goroutine.
+func FontFamilies() []FontFamily {
+	families := text.Shared().FontFamilies()
+	out := make([]FontFamily, len(families))
+	for i, f := range families {
+		out[i] = FontFamily(f)
+	}
+	return out
 }
 
 // AttachContent connects the content to a window; package mygo calls it.
@@ -476,11 +503,11 @@ func (h *windowHost) readClipboard() string {
 	return h.conn.Clipboard.ReadText()
 }
 
-func (h *windowHost) readClipboardImage() []byte {
+func (h *windowHost) clipboardFormats() []transfer.Format {
 	if h.conn.Clipboard == nil {
 		return nil
 	}
-	return h.conn.Clipboard.ReadImage()
+	return h.conn.Clipboard.Formats()
 }
 
 func (h *windowHost) writeClipboard(s string) {

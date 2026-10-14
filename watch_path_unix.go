@@ -2,8 +2,14 @@
 
 package mygo
 
-import "os"
+import (
+	"errors"
+	"io/fs"
+	"os"
+)
 
 func fileWatchOpenRoot(path string) (*os.Root, error) { return os.OpenRoot(path) }
 
-func fileWatchLeaf(info os.FileInfo) bool { return info.Mode()&os.ModeSymlink != 0 }
+// fileWatchInaccessible reports whether err says a file can't be looked
+// at.
+func fileWatchInaccessible(err error) bool { return errors.Is(err, fs.ErrPermission) }

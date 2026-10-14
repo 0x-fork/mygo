@@ -7,9 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -33,21 +38,40 @@ func fileWatchTestNotice(t *testing.T, w *FileWatcher, path string, notice platf
 	t.Fatalf("no watch target for %q", path)
 }
 
-// fileWatchTestNext returns the next event that isn't about the root,
-// whose metadata changes along with its entries.
+// fileWatchTestEvents holds the events of batches not yet looked at.
+var fileWatchTestEvents = map[*FileWatcher][]FileEvent{}
+
+// fileWatchTestNext returns the next event, from the batch Next returned
+// last or the next one.
 func fileWatchTestNext(t *testing.T, w *FileWatcher) FileEvent {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	for {
-		e, err := w.Next(ctx)
+	for len(fileWatchTestEvents[w]) == 0 {
+		batch, err := w.Next(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if e.Path != "." {
-			return e
+		if len(batch) == 0 {
+			t.Fatal("empty batch")
 		}
+		fileWatchTestEvents[w] = batch
 	}
+	e := fileWatchTestEvents[w][0]
+	fileWatchTestEvents[w] = fileWatchTestEvents[w][1:]
+	return e
+}
+
+// fileWatchTestBatch returns the next batch.
+func fileWatchTestBatch(t *testing.T, w *FileWatcher) []FileEvent {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	batch, err := w.Next(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return batch
 }
 
 func TestFileWatchLifecycle(t *testing.T) {
@@ -57,34 +81,49 @@ func TestFileWatchLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer w.Close()
+	if want, _ := filepath.EvalSymlinks(dir); w.Root() != want {
+		t.Fatalf("root = %q, want %q", w.Root(), want)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "a"), []byte("hello"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	e, err := w.Next(ctx)
-	// Directory metadata can change alongside the child creation.
-	if err == nil && e.Path == "." {
-		e, err = w.Next(ctx)
-	}
-	if err != nil || e.Path != "a" || e.Op != FileCreate {
-		t.Fatalf("event = %+v, %v", e, err)
+	// Directories written are not reported: their entries are.
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileCreate, Path: "a"}}) {
+		t.Fatalf("batch = %+v", batch)
 	}
 	wait, cancelWait := context.WithCancel(context.Background())
 	cancelWait()
 	if _, err = w.Next(wait); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
-	w.Close()
-	w.Close()
-	if _, err = w.Next(ctx); err != io.EOF {
+	if err := w.Close(); err != nil {
 		t.Fatal(err)
+	}
+	w.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err = w.Next(ctx); err != io.EOF || w.Err() != nil {
+		t.Fatal(err, w.Err())
 	}
 	select {
 	case <-w.Done():
 	case <-ctx.Done():
 		t.Fatal("cleanup timed out")
+	}
+}
+
+// Canceling the context of a watch stops it as Close does.
+func TestFileWatchContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	w, err := WatchFiles(ctx, t.TempDir(), FileWatchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	<-w.Done()
+	if _, err = w.Next(context.Background()); err != io.EOF || w.Err() != nil {
+		t.Fatal(err, w.Err())
 	}
 }
 
@@ -108,19 +147,8 @@ func TestFileWatchParentSentinel(t *testing.T) {
 		t.Fatalf("sibling hint was not ignored: %v", err)
 	}
 	fileWatchTestNotice(t, w, "..", platform.FileWatchNotice{Name: filepath.Base(w.root)})
-	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	for {
-		e, err := w.Next(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if e.Path == "a" && e.Op == FileCreate {
-			break
-		}
-		if e.Path != "." {
-			t.Fatalf("unexpected event: %+v", e)
-		}
+	if e := fileWatchTestNext(t, w); e != (FileEvent{Op: FileCreate, Path: "a"}) {
+		t.Fatalf("unexpected event: %+v", e)
 	}
 }
 
@@ -139,17 +167,24 @@ func TestFileWatchStaleFailureIgnored(t *testing.T) {
 }
 
 func TestFileWatchValidation(t *testing.T) {
-	for _, o := range []FileWatchOptions{{Buffer: -1}, {MaxEntries: -1}, {MaxDelay: -1}, {Debounce: time.Second, MaxDelay: time.Millisecond}} {
-		if w, err := WatchFiles(context.Background(), t.TempDir(), o); err == nil {
-			w.Close()
-			t.Fatalf("accepted %+v", o)
-		}
+	if w, err := WatchFiles(context.Background(), t.TempDir(), FileWatchOptions{MaxEntries: -1}); err == nil {
+		w.Close()
+		t.Fatal("accepted a negative limit")
 	}
 	if _, err := WatchFiles(nil, t.TempDir(), FileWatchOptions{}); err == nil {
 		t.Fatal("nil context")
 	}
 	if _, err := WatchFiles(context.Background(), "", FileWatchOptions{}); err == nil {
 		t.Fatal("empty path")
+	}
+	// A MaxDelay shorter than Debounce is Debounce.
+	w, err := WatchFiles(context.Background(), t.TempDir(), FileWatchOptions{Debounce: time.Second, MaxDelay: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if w.opts.MaxDelay != time.Second {
+		t.Fatalf("MaxDelay = %v", w.opts.MaxDelay)
 	}
 }
 
@@ -163,29 +198,46 @@ func TestFileWatchRecursiveLimit(t *testing.T) {
 	}
 }
 
-func TestFileWatchOverflow(t *testing.T) {
+// The watch doesn't look again while a batch waits for Next, and what
+// changed meanwhile comes in the next batch.
+func TestFileWatchBackpressure(t *testing.T) {
 	dir := t.TempDir()
-	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Debounce: -1, Buffer: 1})
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Debounce: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer w.Close()
-	for _, p := range []string{"a", "b"} {
-		if err := os.WriteFile(filepath.Join(dir, p), nil, 0600); err != nil {
+	for _, name := range []string{"a", "b"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0600); err != nil {
 			t.Fatal(err)
 		}
+		fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: name, Kind: platform.FileWatchCreate})
+		time.Sleep(20 * time.Millisecond)
 	}
-	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{})
-	select {
-	case <-w.Done():
-	case <-time.After(time.Second):
-		t.Fatal("overflow did not stop")
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileCreate, Path: "a"}}) {
+		t.Fatalf("first batch = %+v", batch)
 	}
-	if _, err = w.Next(context.Background()); !errors.Is(err, ErrWatchOverflow) {
-		t.Fatal(err)
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileCreate, Path: "b"}}) {
+		t.Fatalf("second batch = %+v", batch)
+	}
+	// Many notices while a batch waits look at everything once.
+	for i := range 20 {
+		name := fmt.Sprint("c", i)
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: name, Kind: platform.FileWatchCreate})
+	}
+	seen := 0
+	for seen < 20 {
+		seen += len(fileWatchTestBatch(t, w))
+	}
+	if seen != 20 {
+		t.Fatalf("%d events", seen)
 	}
 }
 
+// A watched directory removed ends the watch after an event saying so.
 func TestFileWatchRootLoss(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "root")
 	if err := os.Mkdir(dir, 0700); err != nil {
@@ -200,45 +252,11 @@ func TestFileWatchRootLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Kind: platform.FileWatchRemove})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	e, err := w.Next(ctx)
-	if err != nil || e.Path != "." || e.Op != FileRemove {
-		t.Fatalf("%+v %v", e, err)
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileRemove, Path: ".", IsDir: true}}) {
+		t.Fatalf("batch = %+v", batch)
 	}
-	if _, err = w.Next(ctx); err == nil || err == io.EOF {
-		t.Fatal(err)
-	}
-}
-
-func TestFileWatchRootReplacement(t *testing.T) {
-	parent := t.TempDir()
-	dir := filepath.Join(parent, "root")
-	if err := os.Mkdir(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Debounce: -1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer w.Close()
-	// The anchored handle must allow renames, but must not silently follow
-	// a different directory subsequently installed at the watched path.
-	if err := os.Rename(dir, filepath.Join(parent, "retired")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	e, err := w.Next(ctx)
-	if err != nil || e.Path != "." || e.Op != FileRemove {
-		t.Fatalf("%+v %v", e, err)
-	}
-	if _, err := w.Next(ctx); !errors.Is(err, errWatchRootChanged) {
-		t.Fatalf("replacement: %v", err)
+	if _, err = w.Next(context.Background()); err != io.EOF || w.Err() != nil {
+		t.Fatal(err, w.Err())
 	}
 }
 
@@ -287,32 +305,23 @@ func TestFileWatchEnrollmentRace(t *testing.T) {
 						t.Fatal(err)
 					}
 					fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "entry", Kind: platform.FileWatchCreate})
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-					defer cancel()
-					for {
-						e, err := w.Next(ctx)
-						if err != nil {
-							t.Fatalf("enrollment race killed watch: %v", err)
-						}
-						if !replace || e.Path == "entry" {
+					// An entry removed meanwhile was never there.
+					for replace {
+						if e := fileWatchTestNext(t, w); e.Path == "entry" {
 							break
 						}
-					}
-					if !raced {
-						t.Fatal("the entry was not enrolled")
 					}
 					if err := os.WriteFile(filepath.Join(dir, "later"), nil, 0600); err != nil {
 						t.Fatal(err)
 					}
 					fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "later", Kind: platform.FileWatchCreate})
 					for {
-						e, err := w.Next(ctx)
-						if err != nil {
-							t.Fatalf("watch did not survive: %v", err)
-						}
-						if e.Path == "later" && e.Op == FileCreate {
+						if e := fileWatchTestNext(t, w); e.Path == "later" && e.Op == FileCreate {
 							break
 						}
+					}
+					if !raced {
+						t.Fatal("the entry was not enrolled")
 					}
 				})
 			}
@@ -352,14 +361,8 @@ func TestFileWatchLooksOnlyWhereNotified(t *testing.T) {
 		t.Fatalf("event = %+v", e)
 	}
 	fileWatchTestNotice(t, w, "d", platform.FileWatchNotice{})
-	for {
-		e := fileWatchTestNext(t, w)
-		if e == (FileEvent{Op: FileCreate, Path: "d/f"}) {
-			break
-		}
-		if e.Path != "d" {
-			t.Fatalf("event = %+v", e)
-		}
+	if e := fileWatchTestNext(t, w); e != (FileEvent{Op: FileCreate, Path: "d/f"}) {
+		t.Fatalf("event = %+v", e)
 	}
 	// Losing changes looks at everything.
 	fb.LastFileWatch().Notify(platform.FileWatchNotice{Err: platform.ErrFileWatchOverflow})
@@ -435,14 +438,8 @@ func TestFileWatchSubtree(t *testing.T) {
 	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "a/b/c", Kind: platform.FileWatchCreate})
 	want := []FileEvent{{Op: FileCreate, Path: "a/b/c", IsDir: true}, {Op: FileCreate, Path: "a/b/c/d", IsDir: true}}
 	for _, want := range want {
-		for {
-			e := fileWatchTestNext(t, w)
-			if e == want {
-				break
-			}
-			if e.Op != FileWrite {
-				t.Fatalf("event = %+v, want %+v", e, want)
-			}
+		if e := fileWatchTestNext(t, w); e != want {
+			t.Fatalf("event = %+v, want %+v", e, want)
 		}
 	}
 	// The root's target lost enrolls it again and looks at everything.
@@ -450,14 +447,8 @@ func TestFileWatchSubtree(t *testing.T) {
 		t.Fatal(err)
 	}
 	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Kind: platform.FileWatchLost})
-	for {
-		e := fileWatchTestNext(t, w)
-		if e == (FileEvent{Op: FileCreate, Path: "a/f"}) {
-			break
-		}
-		if e.Op != FileWrite {
-			t.Fatalf("event = %+v", e)
-		}
+	if e := fileWatchTestNext(t, w); e != (FileEvent{Op: FileCreate, Path: "a/f"}) {
+		t.Fatalf("event = %+v", e)
 	}
 	found := false
 	for _, target := range native.Targets() {
@@ -505,5 +496,269 @@ func TestFileWatchDiff(t *testing.T) {
 	events := fileWatchDiff(old, map[string]os.FileInfo{"b": info}, map[string]bool{"a": true})
 	if len(events) != 2 || events[0].Op != FileRename || events[0].OldPath != "a" || events[1].Op != FileWrite {
 		t.Fatalf("%+v", events)
+	}
+}
+
+// A file is watched through its directory: written, replaced as editors
+// save, removed and created again, then gone with its directory.
+func TestFileWatchFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "dir")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(file, []byte("a"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sibling"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	w, err := WatchFiles(context.Background(), file, FileWatchOptions{Debounce: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	native := w.native.(*fake.FileWatch)
+	enrolled := map[string]bool{}
+	for _, target := range native.Targets() {
+		enrolled[target.Path] = true
+	}
+	if !enrolled[w.Root()] || !enrolled[filepath.Dir(w.Root())] || len(enrolled) != 2 {
+		t.Fatalf("enrolled %v", enrolled)
+	}
+	next := func(want FileEvent) {
+		t.Helper()
+		if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{want}) {
+			t.Fatalf("batch = %+v, want %+v", batch, want)
+		}
+	}
+	quiet := func() {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		defer cancel()
+		if batch, err := w.Next(ctx); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("batch = %+v, %v", batch, err)
+		}
+	}
+	if err := os.WriteFile(file, []byte("bb"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Kind: platform.FileWatchWrite})
+	next(FileEvent{Op: FileWrite, Path: "."})
+	// Other files of the directory are not reported.
+	if err := os.WriteFile(filepath.Join(dir, "sibling"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "..", platform.FileWatchNotice{Name: "sibling", Kind: platform.FileWatchWrite})
+	fileWatchTestNotice(t, w, "..", platform.FileWatchNotice{})
+	quiet()
+	// Replaced, as editors save.
+	if err := os.WriteFile(filepath.Join(dir, "config.json.tmp"), []byte("ccc"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dir, "config.json.tmp"), file); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "..", platform.FileWatchNotice{Name: "config.json", Kind: platform.FileWatchMoveTo})
+	next(FileEvent{Op: FileWrite, Path: "."})
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "..", platform.FileWatchNotice{Name: "config.json", Kind: platform.FileWatchRemove})
+	next(FileEvent{Op: FileRemove, Path: "."})
+	if err := os.WriteFile(file, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "..", platform.FileWatchNotice{Name: "config.json", Kind: platform.FileWatchCreate})
+	next(FileEvent{Op: FileCreate, Path: "."})
+	// The new file is watched in its turn.
+	found := false
+	for _, target := range native.Targets() {
+		found = found || target.Path == w.Root()
+	}
+	if !found {
+		t.Fatal("the new file is not enrolled")
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "..", platform.FileWatchNotice{Kind: platform.FileWatchLost})
+	next(FileEvent{Op: FileRemove, Path: "."})
+	if _, err := w.Next(context.Background()); err != io.EOF || w.Err() != nil {
+		t.Fatal(err, w.Err())
+	}
+}
+
+// What Ignore ignores is never enrolled, counted or reported.
+func TestFileWatchIgnore(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{"node_modules/a/b/c", "node_modules/d", "src/main.go", "debug.log"} {
+		if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(p)), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, p), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var asked []string
+	ignore := func(p string, isDir bool) bool {
+		asked = append(asked, p)
+		return p == "node_modules" && isDir || path.Ext(p) == ".log"
+	}
+	// Only the root, src, src/main.go and src/new.go, created below,
+	// count.
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: true, Debounce: -1, Ignore: ignore, MaxEntries: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	for _, p := range asked {
+		if strings.HasPrefix(p, "node_modules/") {
+			t.Errorf("asked about %s", p)
+		}
+	}
+	for _, target := range w.native.(*fake.FileWatch).Targets() {
+		if strings.Contains(target.Path, "node_modules") || strings.HasSuffix(target.Path, ".log") {
+			t.Errorf("%s enrolled", target.Path)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "node_modules", "e"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other.log"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "other.log", Kind: platform.FileWatchCreate})
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "node_modules", Kind: platform.FileWatchWrite})
+	if err := os.WriteFile(filepath.Join(dir, "src", "new.go"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "src", platform.FileWatchNotice{Name: "new.go", Kind: platform.FileWatchCreate})
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileCreate, Path: "src/new.go"}}) {
+		t.Fatalf("batch = %+v", batch)
+	}
+}
+
+// Notices in an ignored directory, which a Subtree target reports, are
+// dropped.
+func TestFileWatchIgnoreSubtree(t *testing.T) {
+	fb.FileWatchSubtree = true
+	defer func() { fb.FileWatchSubtree = false }()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".git", "objects"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: true, Debounce: -1, Ignore: func(p string, isDir bool) bool { return p == ".git" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := os.WriteFile(filepath.Join(dir, ".git", "objects", "x"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: ".git/objects/x", Kind: platform.FileWatchCreate})
+	if err := os.WriteFile(filepath.Join(dir, "y"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "y", Kind: platform.FileWatchCreate})
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileCreate, Path: "y"}}) {
+		t.Fatalf("batch = %+v", batch)
+	}
+}
+
+// Changes of permissions alone are not writes.
+func TestFileWatchMetadata(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "a")
+	if err := os.WriteFile(file, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Debounce: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := os.Chmod(file, 0400); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "a", platform.FileWatchNotice{})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if batch, err := w.Next(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("batch = %+v, %v", batch, err)
+	}
+	fileWatchTestNotice(t, w, "a", platform.FileWatchNotice{Kind: platform.FileWatchWrite})
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileWrite, Path: "a"}}) {
+		t.Fatalf("batch = %+v", batch)
+	}
+}
+
+// What the watch can't look at, as a directory without permission or a
+// file the system holds (pagefile.sys), is skipped rather than ending the
+// watch.
+func TestFileWatchInaccessible(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "busy"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	locked := runtime.GOOS != "windows" && os.Geteuid() != 0
+	if locked {
+		for _, p := range []string{"locked/a", "unsearchable/b"} {
+			if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(p)), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, p), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Chmod(filepath.Join(dir, "locked"), 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(filepath.Join(dir, "unsearchable"), 0400); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			os.Chmod(filepath.Join(dir, "locked"), 0700)
+			os.Chmod(filepath.Join(dir, "unsearchable"), 0700)
+		})
+	}
+	var busy error = fs.ErrPermission
+	if runtime.GOOS == "windows" {
+		busy = syscall.Errno(32) // ERROR_SHARING_VIOLATION
+	}
+	fb.FileWatchAddHook = func(target platform.FileWatchTarget) error {
+		if filepath.Base(target.Path) == "busy" {
+			return busy
+		}
+		return nil
+	}
+	defer func() { fb.FileWatchAddHook = nil }()
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: true, Debounce: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	for _, target := range w.native.(*fake.FileWatch).Targets() {
+		if filepath.Base(target.Path) == "busy" {
+			t.Error("busy enrolled")
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "x"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "x", Kind: platform.FileWatchCreate})
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{})
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileCreate, Path: "x"}}) {
+		t.Fatalf("batch = %+v", batch)
+	}
+	if locked {
+		fileWatchTestNotice(t, w, "unsearchable", platform.FileWatchNotice{})
+		if err := os.Remove(filepath.Join(dir, "x")); err != nil {
+			t.Fatal(err)
+		}
+		fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "x"})
+		if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileRemove, Path: "x"}}) {
+			t.Fatalf("batch = %+v", batch)
+		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/internal/scene"
+	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
 )
@@ -452,9 +453,9 @@ func TestRegisterFont(t *testing.T) {
 	}
 }
 
-// TestFontFamilies lists the app's families first, under the names it
-// registered fonts with and their own, then the system's, and with mono
-// keeps the monospaced ones, the app's included.
+// TestFontFamilies lists the app's families first, each under the name
+// it registered it with, or its own, then the system's, telling the
+// monospaced ones, and lists the system's again after RegisterFont.
 func TestFontFamilies(t *testing.T) {
 	s := newSystem()
 	if err := s.RegisterFont(goregular.TTF, "MyGo Test Families"); err != nil {
@@ -463,16 +464,41 @@ func TestFontFamilies(t *testing.T) {
 	if err := s.RegisterFont(gomono.TTF, ""); err != nil {
 		t.Fatal(err)
 	}
-	all, mono := s.FontFamilies(false), s.FontFamilies(true)
-	if app := []string{"Go", "Go Mono", "MyGo Test Families"}; len(all) < len(app) || !slices.Equal(all[:len(app)], app) {
-		t.Fatalf("the registered families are not first: %q", all[:min(4, len(all))])
+	start := time.Now()
+	all := s.FontFamilies()
+	t.Logf("%d families in %v", len(all), time.Since(start))
+	app := []FontFamily{{Name: "Go Mono", Monospaced: true, Registered: true}, {Name: "MyGo Test Families", Registered: true}}
+	if len(all) < len(app) || !slices.Equal(all[:len(app)], app) {
+		t.Fatalf("the registered families are not first: %+v", all[:min(4, len(all))])
 	}
-	if len(mono) == 0 || mono[0] != "Go Mono" || slices.Contains(mono, "Go") || slices.Contains(mono, "MyGo Test Families") {
-		t.Errorf("monospaced: %q", mono[:min(4, len(mono))])
+	name := func(f FontFamily) string { return f.Name }
+	names := func(fs []FontFamily) []string {
+		out := make([]string, len(fs))
+		for i, f := range fs {
+			out[i] = name(f)
+		}
+		return out
 	}
-	if len(mono) >= len(all) || !slices.IsSorted(all[3:]) || !slices.IsSorted(mono[1:]) {
-		t.Errorf("%d families, %d monospaced, sorted %v", len(all), len(mono), slices.IsSorted(all[3:]))
+	if slices.Contains(names(all), "Go") {
+		t.Error("a font registered under a name the app gave is listed under its own too")
 	}
+	system := all[len(app):]
+	if slices.ContainsFunc(system, func(f FontFamily) bool { return f.Registered }) ||
+		!slices.IsSortedFunc(system, func(a, b FontFamily) int { return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) }) {
+		t.Errorf("the system's families are not sorted without regard to case: %q", names(system)[:min(8, len(system))])
+	}
+	start = time.Now()
+	if again := s.FontFamilies(); !slices.Equal(again, all) {
+		t.Error("listing again changed the families")
+	}
+	t.Logf("again in %v", time.Since(start))
+	if err := s.RegisterFont(gobold.TTF, ""); err != nil {
+		t.Fatal(err)
+	}
+	if i := slices.IndexFunc(s.FontFamilies(), func(f FontFamily) bool { return f.Name == "Go" }); i != 0 {
+		t.Errorf("a font registered after listing is at %d", i)
+	}
+
 	// A monospaced and a proportional family every such system has.
 	known, ok := map[string][2]string{
 		"windows": {"Consolas", "Segoe UI"},
@@ -481,12 +507,11 @@ func TestFontFamilies(t *testing.T) {
 	if !ok {
 		return // the families of Linux desktops vary
 	}
-	fixed, sans := known[0], known[1]
-	if !slices.Contains(all, fixed) || !slices.Contains(mono, fixed) {
-		t.Errorf("%s: listed %v, as monospaced %v", fixed, slices.Contains(all, fixed), slices.Contains(mono, fixed))
-	}
-	if !slices.Contains(all, sans) || slices.Contains(mono, sans) {
-		t.Errorf("%s: listed %v, as monospaced %v", sans, slices.Contains(all, sans), slices.Contains(mono, sans))
+	for i, want := range known {
+		j := slices.IndexFunc(system, func(f FontFamily) bool { return f.Name == want })
+		if j < 0 || system[j].Monospaced != (i == 0) {
+			t.Errorf("%s: at %d of the system's families, %+v", want, j, system[max(j, 0)])
+		}
 	}
 }
 

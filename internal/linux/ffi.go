@@ -843,6 +843,9 @@ var (
 // and 20 ms of startup.
 func webKit() error {
 	webKitOnce.Do(func() { errWebKit = loadWebKit() })
+	if errWebKit == nil && theBackend != nil {
+		cookiesOnce.Do(persistCookies)
+	}
 	return errWebKit
 }
 

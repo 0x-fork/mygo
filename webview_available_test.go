@@ -8,24 +8,24 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// TestWebViewSupported: the call reports what the backend says, so an app
+// TestWebViewAvailable: the call reports what the backend says, so an app
 // can ask before it creates its first window showing a page, as NewWindow
 // panics where the platform has no webview.
-func TestWebViewSupported(t *testing.T) {
-	if !WebViewSupported() {
-		t.Error("WebViewSupported = false with a webview the fake has")
+func TestWebViewAvailable(t *testing.T) {
+	if !WebViewAvailable() {
+		t.Error("WebViewAvailable = false with a webview the fake has")
 	}
 	onMain(func() { fb.NoWebView = true })
 	t.Cleanup(func() { onMain(func() { fb.NoWebView = false }) })
-	if WebViewSupported() {
-		t.Error("WebViewSupported = true with NoWebView set")
+	if WebViewAvailable() {
+		t.Error("WebViewAvailable = true with NoWebView set")
 	}
 }
 
-// TestWebViewSupportedChoosesWindowKind: what the call is for, the guard an
+// TestWebViewAvailableChoosesWindowKind: what the call is for, the guard an
 // app writes, opens the window the machine can show, and both kinds work
 // here: with no webview it opens one showing native UI, which needs none.
-func TestWebViewSupportedChoosesWindowKind(t *testing.T) {
+func TestWebViewAvailableChoosesWindowKind(t *testing.T) {
 	for _, noWebView := range []bool{false, true} {
 		name := "webview"
 		if noWebView {
@@ -36,7 +36,7 @@ func TestWebViewSupportedChoosesWindowKind(t *testing.T) {
 			t.Cleanup(func() { onMain(func() { fb.NoWebView = false }) })
 
 			var w *Window
-			if WebViewSupported() {
+			if WebViewAvailable() {
 				w = NewWindow(WindowOptions{URL: "https://example.com"})
 			} else {
 				w = NewWindow(WindowOptions{Content: ui.View(func(c *ui.Context) { ui.Box(c) })})

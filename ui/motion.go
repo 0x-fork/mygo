@@ -545,7 +545,9 @@ type Keyframe struct {
 	Ease  Easing
 }
 
-// RepeatForever repeats a sequence of Keyframes for as long as it plays.
+// RepeatForever repeats a sequence of Keyframes, or a Timeline, for as
+// long as the view builds it (KeyframeOptions.Repeat,
+// TimelineOptions.Repeat).
 const RepeatForever = -1
 
 // KeyframeOptions controls playback.

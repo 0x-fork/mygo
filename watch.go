@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -19,8 +18,10 @@ type FileOp string
 const (
 	// FileCreate is a file or directory that appeared.
 	FileCreate FileOp = "create"
-	// FileWrite is a file or directory whose content or metadata may have
-	// changed.
+	// FileWrite is a file whose content may have changed: its size or
+	// modification time changed, or the system said it was written.
+	// Changes of permissions and other metadata are not reported, nor
+	// are directories written, whose changes are their entries'.
 	FileWrite FileOp = "write"
 	// FileRemove is a file or directory that went away.
 	FileRemove FileOp = "remove"
@@ -29,15 +30,15 @@ const (
 	FileRename FileOp = "rename"
 )
 
-// FileEvent is a change in a watched directory. A watch compares what it
-// sees with what it saw before, so events say what is different, not every
-// step that made it so: a file written twice in a row is one write, and
-// one created and removed in between is nothing. Treat them as hints to
-// read the files again.
+// FileEvent is a change in a watched file or directory. A watch compares
+// what it sees with what it saw before, so events say what is different,
+// not every step that made it so: a file written twice in a row is one
+// write, and one created and removed in between is nothing. Treat them as
+// hints to read the files again.
 type FileEvent struct {
 	Op FileOp `json:"op"`
 	// Path is the path relative to the watched directory, separated by
-	// slashes; "." is the directory itself.
+	// slashes; "." is the watched directory or file itself.
 	Path string `json:"path"`
 	// OldPath is where a FileRename moved from.
 	OldPath string `json:"oldPath,omitzero"`
@@ -46,29 +47,29 @@ type FileEvent struct {
 	IsDir bool `json:"isDir"`
 }
 
-// FileWatchOptions configures WatchFiles. The zero value watches a
-// directory without the directories in it.
+// FileWatchOptions configures WatchFiles. The zero value watches a file,
+// or a directory without the directories in it.
 type FileWatchOptions struct {
 	// Recursive watches the directories in the directory too.
 	Recursive bool
+	// Ignore, when set, is asked about every file and directory the
+	// watch finds, by its path relative to the watched directory,
+	// separated by slashes, and whether it is a directory. What it
+	// ignores is not watched, reported or counted in MaxEntries, nor is
+	// anything in a directory it ignores, which is never opened: return
+	// true for node_modules and .git. It runs on a goroutine of the
+	// watch, and must be quick.
+	Ignore func(path string, isDir bool) bool
 	// Debounce is how long a watch waits for changes to stop before it
-	// reports them: 50 ms by default. Negative reports them right away.
+	// reports them: 50 ms when zero, right away when negative.
 	Debounce time.Duration
 	// MaxDelay is the longest changes wait while more keep coming: 500 ms
-	// by default. It can't be shorter than Debounce.
+	// when zero, and never less than Debounce.
 	MaxDelay time.Duration
-	// Buffer is how many events wait for Next before the watch stops with
-	// ErrWatchOverflow: 1024 by default.
-	Buffer int
 	// MaxEntries is how many files and directories a watch covers before
-	// it stops with ErrWatchLimit: 8192 by default.
+	// it stops with ErrWatchLimit: 8192 when zero.
 	MaxEntries int
 }
-
-// ErrWatchOverflow is what a watch stops with when more events waited for
-// Next than FileWatchOptions.Buffer. Read the files again and start a new
-// watch.
-var ErrWatchOverflow = errors.New("mygo: file watch overflow")
 
 // ErrWatchLimit is what a watch stops with when its directory has more
 // than FileWatchOptions.MaxEntries files and directories.
@@ -77,11 +78,14 @@ var ErrWatchLimit = errors.New("mygo: file watch entry limit exceeded")
 // FileWatcher is a watch WatchFiles started. Its methods are safe from any
 // goroutine.
 type FileWatcher struct {
-	mu      sync.Mutex
-	events  []FileEvent
-	waiters []*fileWaiter
+	mu sync.Mutex
+	// batch is the changes waiting for Next, nil when none do: the watch
+	// doesn't look again until Next takes them, which taken tells.
+	batch   []FileEvent
+	waiters []chan fileResult
 	stopped bool
 	err     error
+	taken   chan struct{}
 	done    chan struct{}
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -95,10 +99,9 @@ type FileWatcher struct {
 	opts     FileWatchOptions
 }
 type fileResult struct {
-	event FileEvent
-	err   error
+	events []FileEvent
+	err    error
 }
-type fileWaiter struct{ result chan fileResult }
 
 var fileWatches = struct {
 	sync.Mutex
@@ -106,10 +109,17 @@ var fileWatches = struct {
 	active  map[*FileWatcher]bool
 }{active: make(map[*FileWatcher]bool)}
 
-// WatchFiles watches the directory at path, and with opts.Recursive the
-// directories in it, but not those that symlinks or Windows junctions
-// point to. It returns once everything is watched; what is already there
-// is not reported. Canceling ctx stops the watch, as Close does.
+// WatchFiles watches the file or directory at path, and with
+// opts.Recursive the directories in it, but not those that symlinks or
+// Windows junctions point to. It returns once everything is watched; what
+// is already there is not reported. Canceling ctx stops the watch, as
+// Close does.
+//
+// A file is watched through its directory, so that a file replaced, as
+// editors save, is reported as written, one removed as removed, and one
+// that appears again as created. When the directory itself (or the
+// directory of the file) is removed, renamed or replaced, the watch
+// reports a FileRemove of "." and ends: Next returns io.EOF.
 //
 // It can be called from any goroutine, and on the main thread once the app
 // runs. The app stops its watches when it quits.
@@ -121,11 +131,8 @@ func WatchFiles(ctx context.Context, path string, opts FileWatchOptions) (*FileW
 	if path == "" {
 		return nil, errors.New("mygo: empty watch path")
 	}
-	if opts.Buffer < 0 || opts.MaxEntries < 0 || opts.MaxDelay < 0 {
+	if opts.MaxEntries < 0 {
 		return nil, errors.New("mygo: negative watch limit")
-	}
-	if opts.Buffer == 0 {
-		opts.Buffer = 1024
 	}
 	if opts.MaxEntries == 0 {
 		opts.MaxEntries = 8192
@@ -133,15 +140,11 @@ func WatchFiles(ctx context.Context, path string, opts FileWatchOptions) (*FileW
 	if opts.Debounce == 0 {
 		opts.Debounce = 50 * time.Millisecond
 	}
-	if opts.Debounce < 0 {
-		opts.Debounce = 0
-	}
+	opts.Debounce = max(opts.Debounce, 0)
 	if opts.MaxDelay == 0 {
 		opts.MaxDelay = 500 * time.Millisecond
 	}
-	if opts.MaxDelay < opts.Debounce {
-		return nil, errors.New("mygo: MaxDelay must be at least Debounce")
-	}
+	opts.MaxDelay = max(opts.MaxDelay, opts.Debounce)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -154,7 +157,7 @@ func WatchFiles(ctx context.Context, path string, opts FileWatchOptions) (*FileW
 		return nil, err
 	}
 	life, cancel := context.WithCancel(ctx)
-	w := &FileWatcher{ctx: life, cancel: cancel, root: root, opts: opts, done: make(chan struct{}), raw: make(chan platform.FileWatchNotice, 4096), overflow: make(chan struct{}, 1)}
+	w := &FileWatcher{ctx: life, cancel: cancel, root: root, opts: opts, taken: make(chan struct{}, 1), done: make(chan struct{}), raw: make(chan platform.FileWatchNotice, 4096), overflow: make(chan struct{}, 1)}
 	fileWatches.Lock()
 	if fileWatches.stopped {
 		fileWatches.Unlock()
@@ -204,25 +207,34 @@ func (w *FileWatcher) notice(n platform.FileWatchNotice) {
 	}
 }
 
-// Next waits for the next change. It returns io.EOF once the watch is
-// closed, or the error that stopped it. Canceling ctx cancels the wait,
-// not the watch. On the main thread it keeps processing events while it
-// waits.
-func (w *FileWatcher) Next(ctx context.Context) (FileEvent, error) {
+// Root returns the path the watch watches, absolute and with its symlinks
+// resolved (macOS's /tmp is /private/tmp), to which the paths of events
+// are relative.
+func (w *FileWatcher) Root() string { return w.root }
+
+// Next waits for the next changes and returns them, a batch of the events
+// that one look found once changes stopped for Debounce. The watch doesn't
+// look again until Next has taken a batch, so nothing is lost when Next is
+// called late: what changed meanwhile comes in the next batch.
+//
+// It returns io.EOF once the watch is closed, or ended because its
+// directory went away, and the error that stopped it otherwise. Canceling
+// ctx cancels the wait, not the watch. On the main thread it keeps
+// processing events while it waits.
+func (w *FileWatcher) Next(ctx context.Context) ([]FileEvent, error) {
 	if ctx == nil {
-		return FileEvent{}, errors.New("mygo: nil wait context")
+		return nil, errors.New("mygo: nil wait context")
 	}
 	if err := ctx.Err(); err != nil {
-		return FileEvent{}, err
+		return nil, err
 	}
-	waiter := &fileWaiter{make(chan fileResult, 1)}
 	w.mu.Lock()
-	if len(w.events) > 0 {
-		e := w.events[0]
-		w.events[0] = FileEvent{}
-		w.events = w.events[1:]
+	if w.batch != nil {
+		batch := w.batch
+		w.batch = nil
 		w.mu.Unlock()
-		return e, nil
+		w.take()
+		return batch, nil
 	}
 	if w.stopped {
 		err := w.err
@@ -230,8 +242,9 @@ func (w *FileWatcher) Next(ctx context.Context) (FileEvent, error) {
 			err = io.EOF
 		}
 		w.mu.Unlock()
-		return FileEvent{}, err
+		return nil, err
 	}
+	waiter := make(chan fileResult, 1)
 	w.waiters = append(w.waiters, waiter)
 	w.mu.Unlock()
 	stop := context.AfterFunc(ctx, func() {
@@ -246,30 +259,42 @@ func (w *FileWatcher) Next(ctx context.Context) (FileEvent, error) {
 		}
 		w.mu.Unlock()
 		if found {
-			deliver(waiter.result, fileResult{err: ctx.Err()})
+			deliver(waiter, fileResult{err: ctx.Err()})
 		}
 	})
 	defer stop()
-	r := await(waiter.result)
-	return r.event, r.err
+	r := await(waiter)
+	return r.events, r.err
 }
 
-// Close stops the watch and drops the changes not yet returned by Next. It
-// doesn't wait for the watch to release what it holds; Done does.
-func (w *FileWatcher) Close() { w.stop(nil, true) }
+// take tells the goroutine of the watch that a batch was taken.
+func (w *FileWatcher) take() {
+	select {
+	case w.taken <- struct{}{}:
+	default:
+	}
+}
+
+// Close stops the watch and drops the changes not yet returned by Next,
+// which then returns io.EOF. It doesn't wait for the watch to release
+// what it holds; Done does. It returns nil.
+func (w *FileWatcher) Close() error {
+	w.stop(nil, true)
+	return nil
+}
 
 // Done is closed once the watch has stopped and released its handles.
 func (w *FileWatcher) Done() <-chan struct{} { return w.done }
 
-// Err returns the error that stopped the watch, or nil if it is still
-// running or was closed.
+// Err returns the error that stopped the watch: nil while it runs, and
+// once it was closed, its context canceled, or its directory went away.
 func (w *FileWatcher) Err() error { w.mu.Lock(); defer w.mu.Unlock(); return w.err }
 
 func (w *FileWatcher) stop(err error, discard bool) {
 	w.mu.Lock()
 	if w.stopped {
 		if discard {
-			w.events = nil
+			w.batch = nil
 		}
 		w.mu.Unlock()
 		return
@@ -277,7 +302,7 @@ func (w *FileWatcher) stop(err error, discard bool) {
 	w.stopped = true
 	w.err = err
 	if discard {
-		w.events = nil
+		w.batch = nil
 	}
 	waiters := w.waiters
 	w.waiters = nil
@@ -286,42 +311,37 @@ func (w *FileWatcher) stop(err error, discard bool) {
 		err = io.EOF
 	}
 	for _, waiter := range waiters {
-		deliver(waiter.result, fileResult{err: err})
+		deliver(waiter, fileResult{err: err})
 	}
 	w.cancel()
 }
 
-func (w *FileWatcher) emit(events []FileEvent) error {
+// emit hands events to a waiting Next, or keeps them for the next one.
+func (w *FileWatcher) emit(events []FileEvent) {
+	if len(events) == 0 {
+		return
+	}
 	w.mu.Lock()
 	if w.stopped {
 		w.mu.Unlock()
-		return context.Canceled
+		return
 	}
-	if len(events)-min(len(events), len(w.waiters)) > w.opts.Buffer-len(w.events) {
+	if len(w.waiters) == 0 {
+		w.batch = append(w.batch, events...)
 		w.mu.Unlock()
-		return ErrWatchOverflow
+		return
 	}
-	var deliveries []struct {
-		ch chan fileResult
-		e  FileEvent
-	}
-	for _, e := range events {
-		if len(w.waiters) > 0 {
-			v := w.waiters[0]
-			w.waiters = w.waiters[1:]
-			deliveries = append(deliveries, struct {
-				ch chan fileResult
-				e  FileEvent
-			}{v.result, e})
-		} else {
-			w.events = append(w.events, e)
-		}
-	}
+	waiter := w.waiters[0]
+	w.waiters = w.waiters[1:]
 	w.mu.Unlock()
-	for _, d := range deliveries {
-		deliver(d.ch, fileResult{event: d.e})
-	}
-	return nil
+	deliver(waiter, fileResult{events: events})
+}
+
+// waiting reports whether a batch waits for Next.
+func (w *FileWatcher) waiting() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.batch != nil
 }
 
 func stopFileWatches() {
@@ -342,12 +362,13 @@ func stopFileWatches() {
 
 // run is the goroutine of the watch: it enrolls the tree, then waits for
 // what the backend reports and, once nothing more came for opts.Debounce
-// (or opts.MaxDelay passed), looks at it.
+// (or opts.MaxDelay passed) and Next took the last batch, looks at it.
 func (w *FileWatcher) run(ready chan error) {
 	var terminal error
+	discard := true
 	scan := newFileWatchScan(w)
 	defer func() {
-		w.stop(terminal, errors.Is(terminal, ErrWatchOverflow) || errors.Is(terminal, ErrWatchLimit))
+		w.stop(terminal, discard)
 		scan.close()
 		w.native.Close()
 		fileWatches.Lock()
@@ -356,14 +377,12 @@ func (w *FileWatcher) run(ready chan error) {
 		close(w.done)
 	}()
 	events, err := scan.start()
-	if err == nil {
-		err = w.emit(events)
-	}
 	if err != nil {
 		terminal = err
 		deliver(ready, err)
 		return
 	}
+	w.emit(events)
 	deliver(ready, nil)
 	var timer *time.Timer
 	var timerC <-chan time.Time
@@ -385,10 +404,31 @@ func (w *FileWatcher) run(ready chan error) {
 		}
 		timerC = timer.C
 	}
+	// due says changes settled while a batch waited for Next.
+	due := false
+	// look looks at what changed and reports it; false ends the watch.
+	look := func() bool {
+		due = false
+		events, err := scan.update()
+		if err == nil {
+			w.emit(events)
+			return true
+		}
+		if w.ctx.Err() != nil {
+			return false
+		}
+		if scan.gone() {
+			// The directory went away: say so, then end as closed.
+			w.emit(scan.goneEvents())
+			discard = false
+			return false
+		}
+		terminal = err
+		return false
+	}
 	for {
 		select {
 		case <-w.ctx.Done():
-			terminal = w.ctx.Err()
 			return
 		case <-w.overflow:
 			scan.all = true
@@ -403,19 +443,13 @@ func (w *FileWatcher) run(ready chan error) {
 			}
 		case <-timerC:
 			timerC = nil
-			events, err := scan.update()
-			if err != nil {
-				terminal = err
-				info, statErr := os.Lstat(w.root)
-				if errors.Is(statErr, os.ErrNotExist) || statErr == nil && !os.SameFile(info, scan.identity) {
-					if err := w.emit([]FileEvent{{Op: FileRemove, Path: ".", IsDir: true}}); err != nil {
-						terminal = err
-					}
-				}
+			if w.waiting() {
+				due = true
+			} else if !look() {
 				return
 			}
-			if err = w.emit(events); err != nil {
-				terminal = err
+		case <-w.taken:
+			if due && timerC == nil && !look() {
 				return
 			}
 		}

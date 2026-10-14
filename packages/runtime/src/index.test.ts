@@ -14,6 +14,7 @@ import {
   onFileDrop,
   onLocaleChange,
   onPreferences,
+  preferences,
   runtime,
   type DocumentState,
   type FileDrop,
@@ -48,6 +49,7 @@ const fake: Runtime = {
   platform: "darwin",
   windowId: 1,
   version: "0.1.0",
+  preferences: { accent: null, reduceMotion: false, reduceTransparency: true, highContrast: false, textScale: 1 },
   locale: "en",
   dir: "ltr",
   window: {
@@ -134,13 +136,14 @@ test("onDocumentState and onDocumentReload", () => {
   expect(listeners.has("mygo:document-reload")).toBe(false);
 });
 
-test("onPreferences", () => {
+test("preferences and onPreferences", () => {
   (globalThis as { mygo?: Runtime }).mygo = fake;
+  expect(preferences()).toEqual(fake.preferences);
   const got: ThemePreferences[] = [];
   const off = onPreferences((p) => got.push(p));
-  const preferences = { accent: "#ff8000", reduceMotion: true, highContrast: false, textScale: 1.25 };
-  listeners.get("mygo:preferences")?.(preferences);
-  expect(got).toEqual([preferences]);
+  const changed = { accent: "#ff8000", reduceMotion: true, reduceTransparency: false, highContrast: false, textScale: 1.25 };
+  listeners.get("mygo:preferences")?.(changed);
+  expect(got).toEqual([changed]);
   off();
   expect(listeners.has("mygo:preferences")).toBe(false);
 });

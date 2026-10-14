@@ -286,7 +286,7 @@ func (d *DiffState) SetSelectedLines(r DiffLineRange, ok bool) {
 	d.selected, d.hasSel = r, ok
 }
 
-// GoToHunk puts the caret of the active side (see Cursor) at the start
+// GoToHunk puts the caret of the active side (ActiveSide) at the start
 // of hunk i and scrolls it to the middle of the view.
 func (d *DiffState) GoToHunk(i int) {
 	d.ensure()
@@ -294,7 +294,7 @@ func (d *DiffState) GoToHunk(i int) {
 		return
 	}
 	h := d.model.hunks[i]
-	side := d.activeSide()
+	side := d.ActiveSide()
 	ed := d.editorOf(side)
 	line := h.B0
 	if side == DiffOld {
@@ -305,55 +305,71 @@ func (d *DiffState) GoToHunk(i int) {
 	ed.setSels([]sel{ed.newSel(off, off)}, revealCenter)
 }
 
-// Run runs a command in the editor of the active side (see Cursor), as
+// Run runs a command in the editor of the active side (ActiveSide), as
 // its key would, and reports whether it did something: Find opens its
 // find bar, as an app's menu item does.
 func (d *DiffState) Run(cmd Command) bool {
-	ed := d.editorOf(d.activeSide())
+	ed := d.editorOf(d.ActiveSide())
 	return ed.retry(func() bool { return ed.run(cmd) })
 }
 
-// Find opens the find bar of the active side's editor with query, and
-// selects its first match after the caret.
+// Find opens the find bar of the active side's editor (ActiveSide) with
+// query, and selects its first match after the caret.
 func (d *DiffState) Find(query string) {
-	ed := d.editorOf(d.activeSide())
+	ed := d.editorOf(d.ActiveSide())
 	f := &ed.find
 	f.open, f.query, f.stale = true, query, true
 	f.step(ed, 1)
 }
 
-// Cursor returns the active side, and the line and column of its newest
-// caret. The active side is the one that has the keyboard, or had it
-// last; the new side before either had it, and in a unified view.
-func (d *DiffState) Cursor() (DiffSide, Pos) {
-	side := d.activeSide()
-	ed := d.editorOf(side)
-	return side, posOf(ed.view.text, ed.primary().head)
-}
-
-// CurrentHunk returns the hunk the caret of Cursor is in, else the last
-// before it, as "2 of 5" counts changes; -1 before the first.
-func (d *DiffState) CurrentHunk() int {
-	side, p := d.Cursor()
-	cur := -1
-	for i, h := range d.model.hunks {
-		start := h.B0
-		if side == DiffOld {
-			start = h.A0
-		}
-		if start > p.Line {
-			break
-		}
-		cur = i
-	}
-	return cur
-}
-
-func (d *DiffState) activeSide() DiffSide {
+// ActiveSide returns the side that has the keyboard, or had it last: the
+// new side before either had it, and in a unified view. Cursor,
+// CursorPos, CurrentHunk, GoToHunk, Run and Find act in its editor.
+func (d *DiffState) ActiveSide() DiffSide {
 	if d.oldActive && d.Layout == DiffSplit {
 		return DiffOld
 	}
 	return DiffNew
+}
+
+// Cursor returns the offset of the newest caret of the active side, in
+// its text.
+func (d *DiffState) Cursor() int {
+	return d.editorOf(d.ActiveSide()).primary().head
+}
+
+// CursorPos returns the line and column of the newest caret of the
+// active side, in its text.
+func (d *DiffState) CursorPos() Pos {
+	ed := d.editorOf(d.ActiveSide())
+	return posOf(ed.view.text, ed.primary().head)
+}
+
+// CurrentHunk returns the hunk the caret of the active side is in, with
+// inside true, as for Revert; else the last hunk before the caret, as
+// "2 of 5" counts changes and Next Change steps from (GoToHunk(i+1)), or
+// -1 before the first. On a side the hunk has no lines of, as the new
+// side of a deletion, the caret is in it on the line where its lines
+// were.
+func (d *DiffState) CurrentHunk() (i int, inside bool) {
+	side := d.ActiveSide()
+	ed := d.editorOf(side)
+	line := ed.view.text.LineOf(ed.primary().head)
+	if j := d.model.hunkAt(line, side == DiffOld); j >= 0 {
+		return j, true
+	}
+	i = -1
+	for j, h := range d.model.hunks {
+		start := h.B0
+		if side == DiffOld {
+			start = h.A0
+		}
+		if start > line {
+			break
+		}
+		i = j
+	}
+	return i, false
 }
 
 // editorOf returns the editor of a side, made ready to act in before the

@@ -13,9 +13,16 @@
  *
  * @module
  */
-import type { Channel as ChannelType, Direction, LocaleChange, Runtime, WindowControls } from "./types";
+import type {
+  Channel as ChannelType,
+  Direction,
+  LocaleChange,
+  Runtime,
+  ThemePreferences,
+  WindowControls,
+} from "./types";
 
-export type { Direction, LocaleChange, Platform, Runtime, WindowControls } from "./types";
+export type { Direction, LocaleChange, Platform, Runtime, ThemePreferences, WindowControls } from "./types";
 
 declare global {
   interface Window {
@@ -217,22 +224,33 @@ export function onDocumentReload(listener: () => void): () => void {
   return on<unknown>("mygo:document-reload", () => listener());
 }
 
-/** The accent color and the accessibility settings of the desktop. */
-export interface ThemePreferences {
-  /** The accent color as "#rrggbb", or "" where the desktop has none. */
-  accent: string;
-  /** Whether the desktop asks for less animation. */
-  reduceMotion: boolean;
-  /** Whether the desktop uses a contrast theme. */
-  highContrast: boolean;
-  /** The factor the desktop asks text to grow by; 1 is usual. */
-  textScale: number;
+/**
+ * Returns the accent color and the accessibility settings of the desktop
+ * (`mygo.Theme.Preferences()` in Go), current from document start on.
+ * Throws outside MyGo, as {@link runtime} does.
+ *
+ * ```ts
+ * const { accent, reduceTransparency } = preferences();
+ * ```
+ *
+ * CSS gets the accent and the text scale from the `--mygo-accent` and
+ * `--mygo-text-scale` variables of `:root`.
+ */
+export function preferences(): ThemePreferences {
+  return runtime().preferences;
 }
 
-/** Calls listener when the accent color or the accessibility settings of the
- * desktop change. The first paint gets them from the --mygo-accent and
- * --mygo-text-scale CSS variables of :root; `onPreferences` sees the changes
- * that follow, and on DOMContentLoaded. */
+/**
+ * Subscribes to changes of the desktop's preferences, which
+ * {@link preferences} returns; the listener gets the new ones. Returns a
+ * function that unsubscribes.
+ *
+ * ```ts
+ * const apply = (p: ThemePreferences) => root.classList.toggle("opaque", p.reduceTransparency);
+ * apply(preferences());
+ * onPreferences(apply);
+ * ```
+ */
 export function onPreferences(listener: (preferences: ThemePreferences) => void): () => void {
   return on<ThemePreferences>("mygo:preferences", listener);
 }

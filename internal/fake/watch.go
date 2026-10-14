@@ -27,7 +27,7 @@ func (b *Backend) NewFileWatch(notify func(platform.FileWatchNotice)) (platform.
 	if b.FileWatchError != nil {
 		return nil, b.FileWatchError
 	}
-	w := &FileWatch{targets: map[uint64]platform.FileWatchTarget{}, notify: notify, Subtree: b.FileWatchSubtree}
+	w := &FileWatch{targets: map[uint64]platform.FileWatchTarget{}, notify: notify, Subtree: b.FileWatchSubtree, AddHook: b.FileWatchAddHook}
 	b.FileWatches = append(b.FileWatches, w)
 	return w, nil
 }

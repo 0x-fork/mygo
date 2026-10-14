@@ -9,7 +9,7 @@ const (
 	// Repeat marks the auto-repeat of a key held down. A key that types
 	// text comes before the text, an InputText event, on macOS and
 	// Windows; on Linux, only the text comes while the element takes text
-	// (TextCaret).
+	// (TextCaret) with input methods on (InputMethod).
 	InputKeyDown InputKind = iota + 1
 	InputKeyUp
 	// InputText is text typed, or committed by an input method.
@@ -94,6 +94,19 @@ func (e *node) HandleInput(fn func(ev InputEvent) bool) *node {
 // InputText and Compose events (HandleInput) bring the text.
 func (e *node) TextCaret(r Rect) *node {
 	e.caret, e.takesText = r, true
+	return e
+}
+
+// InputMethod sets whether the system's input methods compose text for the
+// element while it has the keyboard focus, as they do by default for one
+// that takes text (HandleTextInput, TextCaret). Turned off, keys type the
+// characters of the keyboard's layout, which come as InputText, and
+// nothing is composed: a mode that reads letters as commands, as Vim's
+// normal mode, gets j as j with a Chinese input method on, as Neovide and
+// winit's set_ime_allowed(false) have it. Browsers cannot turn input
+// methods off, and compose still.
+func (e *node) InputMethod(on bool) *node {
+	e.noIME = !on
 	return e
 }
 

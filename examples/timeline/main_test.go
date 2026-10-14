@@ -1,8 +1,9 @@
 package main
 
 import (
+	"slices"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -13,8 +14,8 @@ import (
 func TestTimelineIntro(t *testing.T) {
 	s := &app{}
 	tt := ui.NewTester(s.view, windowW, windowH)
-	if want := 870 * time.Millisecond; s.span != want {
-		t.Fatalf("the intro lasts %v, want %v", s.span, want)
+	if !slices.ContainsFunc(tt.Texts(), func(s string) bool { return strings.HasSuffix(s, " / 870 ms") }) {
+		t.Fatalf("the intro does not show that it lasts 870ms: %q", tt.Texts())
 	}
 
 	if err := tt.Click("Pause"); err != nil {

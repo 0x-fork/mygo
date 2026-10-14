@@ -3,6 +3,7 @@
 package linux
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -18,6 +19,10 @@ import (
 // whose attributes are the service and account. libsecret loads with the
 // first secret, independently of GTK, so secrets work before Init and
 // from any thread: its synchronous calls run their own main context.
+//
+// Without a store, the errors are platform.ErrUnsupported: no libsecret
+// (or one too old), no session bus, or no Secret Service on it, which
+// D-Bus reports as an unknown service or a name without an owner.
 type secrets struct{}
 
 // libsecret's functions, loaded once.
@@ -42,23 +47,48 @@ type secretAPI struct {
 	lookupBinary func(schema, attributes, cancellable ptr, gerr *ptr) ptr
 	clear        func(schema, attributes, cancellable ptr, gerr *ptr) bool
 
+	// GIO's, to tell that there is no Secret Service: the session bus, and
+	// the domain of D-Bus's errors.
+	busGetSync     func(busType int32, cancellable ptr, gerr *ptr) ptr
+	dbusErrorQuark uint32
+	busMu          sync.Mutex
+	bus            ptr // the session bus, once connected (a reference kept)
+
 	// schema is keytar's: org.freedesktop.Secret.Generic with the string
 	// attributes service and account.
 	schema ptr
 }
 
+// noStoreError is having no credential store, for the reason it wraps:
+// platform.ErrUnsupported.
+type noStoreError struct{ err error }
+
+func (e noStoreError) Error() string   { return "no credential store: " + e.err.Error() }
+func (e noStoreError) Unwrap() []error { return []error{platform.ErrUnsupported, e.err} }
+
+func noStore(err error) error { return noStoreError{err} }
+
 var libsecret = sync.OnceValue(func() *secretAPI {
 	s := &secretAPI{}
 	glib, err := open("libglib-2.0.so.0")
 	if err != nil {
-		s.err = err
+		s.err = noStore(err)
+		return s
+	}
+	gio, err := open("libgio-2.0.so.0")
+	if err != nil {
+		s.err = noStore(err)
 		return s
 	}
 	lib, err := open("libsecret-1.so.0")
 	if err != nil {
-		s.err = fmt.Errorf("%w (install libsecret: libsecret-1-0 on Debian/Ubuntu, libsecret on Fedora)", err)
+		s.err = noStore(fmt.Errorf("%w (install libsecret: libsecret-1-0 on Debian/Ubuntu, libsecret on Fedora)", err))
 		return s
 	}
+	var dbusErrorQuark func() uint32
+	mustBind(gio, &s.busGetSync, "g_bus_get_sync")
+	mustBind(gio, &dbusErrorQuark, "g_dbus_error_quark")
+	s.dbusErrorQuark = dbusErrorQuark()
 	mustBind(glib, &s.hashTableNewFull, "g_hash_table_new_full")
 	mustBind(glib, &s.hashTableInsert, "g_hash_table_insert")
 	mustBind(glib, &s.hashTableUnref, "g_hash_table_unref")
@@ -70,7 +100,7 @@ var libsecret = sync.OnceValue(func() *secretAPI {
 		name string
 	}{{&s.strHash, "g_str_hash"}, {&s.strEqual, "g_str_equal"}, {&s.freeFn, "g_free"}} {
 		if *sym.p, err = purego.Dlsym(glib, sym.name); err != nil {
-			s.err = err
+			s.err = noStore(err)
 			return s
 		}
 	}
@@ -83,7 +113,7 @@ var libsecret = sync.OnceValue(func() *secretAPI {
 		bind(lib, &s.lookupBinary, "secret_password_lookupv_binary_sync") &&
 		bind(lib, &s.clear, "secret_password_clearv_sync")
 	if !ok {
-		s.err = fmt.Errorf("libsecret is too old: secrets need libsecret 0.19 or later")
+		s.err = noStore(errors.New("libsecret is too old: secrets need libsecret 0.19 or later"))
 		return s
 	}
 	types := s.hashTableNewFull(s.strHash, s.strEqual, s.freeFn, 0)
@@ -103,20 +133,59 @@ func (s *secretAPI) attributes(service, account string) ptr {
 	return t
 }
 
-// gErr converts and frees a GError without needing GTK's bindings.
+// ready returns the API once there is a session bus to reach the Secret
+// Service on, which libsecret connects to as well: GIO shares the
+// connection, which this keeps.
+func (s *secretAPI) ready() (*secretAPI, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	s.busMu.Lock()
+	defer s.busMu.Unlock()
+	if s.bus == 0 {
+		var gerr ptr
+		if s.bus = s.busGetSync(2, 0, &gerr); s.bus == 0 { // G_BUS_TYPE_SESSION
+			err := s.gErr(gerr)
+			if err == nil {
+				err = errors.New("no session bus")
+			}
+			return nil, noStore(fmt.Errorf("no session bus: %w", err))
+		}
+	}
+	return s, nil
+}
+
+// D-Bus's errors (GDBusError) of a bus without the Secret Service.
+const (
+	dbusErrorServiceUnknown = 2
+	dbusErrorNameHasNoOwner = 3
+	dbusErrorNoServer       = 11
+)
+
+// gErr converts and frees a GError (GQuark domain, gint code, gchar
+// *message) without needing GTK's bindings.
 func (s *secretAPI) gErr(e ptr) error {
 	if e == 0 {
 		return nil
 	}
-	msg := goStr(*(*ptr)(unsafe.Add(*(*unsafe.Pointer)(unsafe.Pointer(&e)), 8)))
+	base := *(*unsafe.Pointer)(unsafe.Pointer(&e))
+	domain, code := *(*uint32)(base), *(*int32)(unsafe.Add(base, 4))
+	msg := goStr(*(*ptr)(unsafe.Add(base, 8)))
 	s.errorFree(e)
-	return fmt.Errorf("secret service: %s", msg)
+	err := fmt.Errorf("secret service: %s", msg)
+	if domain == s.dbusErrorQuark {
+		switch code {
+		case dbusErrorServiceUnknown, dbusErrorNameHasNoOwner, dbusErrorNoServer:
+			return noStore(err)
+		}
+	}
+	return err
 }
 
 func (secrets) SetSecret(service, account string, secret []byte) error {
-	s := libsecret()
-	if s.err != nil {
-		return s.err
+	s, err := libsecret().ready()
+	if err != nil {
+		return err
 	}
 	attrs := s.attributes(service, account)
 	defer s.hashTableUnref(attrs)
@@ -138,9 +207,9 @@ func (secrets) SetSecret(service, account string, secret []byte) error {
 }
 
 func (secrets) Secret(service, account string) ([]byte, error) {
-	s := libsecret()
-	if s.err != nil {
-		return nil, s.err
+	s, err := libsecret().ready()
+	if err != nil {
+		return nil, err
 	}
 	attrs := s.attributes(service, account)
 	defer s.hashTableUnref(attrs)
@@ -166,9 +235,9 @@ func (secrets) Secret(service, account string) ([]byte, error) {
 }
 
 func (secrets) DeleteSecret(service, account string) error {
-	s := libsecret()
-	if s.err != nil {
-		return s.err
+	s, err := libsecret().ready()
+	if err != nil {
+		return err
 	}
 	attrs := s.attributes(service, account)
 	defer s.hashTableUnref(attrs)

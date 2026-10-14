@@ -265,7 +265,8 @@ if toast.Arrived("fade") {
 pages of the frame go to their targets at once, as SwiftUI's
 disablesAnimations: for a change that should not show as motion, as
 restoring a window's state or jumping to a search result. Call it before
-building what changes.
+building what changes. `Keyframes` and timelines play on their own rather
+than towards a target, and go on as they were; seek a timeline to jump it.
 
 ## Keyframes
 
@@ -307,18 +308,26 @@ this frame:
 ```go
 card := ui.Column(c)
 tl := card.Timeline("intro", ui.TimelineOptions{Run: app.opened})
-x := tl.To(ui.Tween{From: -200, To: 0, Duration: 400 * time.Millisecond, Ease: ui.EaseOut})
-fade := tl.To(ui.Tween{From: 0, To: 1, Duration: 300 * time.Millisecond},
-	ui.OverlapPrevious(150*time.Millisecond))
+x := tl.Tween(ui.Tween{From: -200, To: 0, Duration: 400 * time.Millisecond})
+fade := tl.Tween(ui.Tween{From: 0, To: 1, Duration: 300 * time.Millisecond},
+	ui.AfterPrevious(-150*time.Millisecond))
 card.Translate(x, 0).Opacity(fade)
 ```
 
-A tween with no placement follows the one before it at once, so here the
-second starts at 400ms. `OverlapPrevious(150*time.Millisecond)` starts it
-150ms before the first ends, `WithPrevious()` with it, `AfterPrevious(50*time.Millisecond)`
-50ms after it, `At(500*time.Millisecond)` at a time of the timeline, and
-`AtLabel("rows", 100*time.Millisecond)` at a label. `Tween.Delay` holds a
-tween at its `From` for a while after where it was placed.
+A tween eases out (`EaseOut`) unless its `Ease` says otherwise, as an
+`Animation` does. A tween with no placement follows the one before it at
+once, so here the second would start at 400ms; placements put it
+elsewhere, as GSAP's position parameter does:
+
+| Placement | Starts the tween |
+| --- | --- |
+| `AfterPrevious(50*time.Millisecond)` | 50ms after the one before it ends; a negative offset overlaps it, as `-150ms` above starts the fade at 250ms |
+| `WithPrevious(0)` | where the one before it starts, to move along with it, or an offset after that |
+| `AtLabel("rows", 100*time.Millisecond)` | 100ms after a label |
+| `AtTime(500*time.Millisecond)` | at a time of the timeline |
+
+Nothing starts before the timeline does: a placement before its start is
+at its start.
 
 ### Labels and stagger
 
@@ -327,9 +336,9 @@ from it staggers them by index:
 
 ```go
 tl := list.Timeline("rows", ui.TimelineOptions{Run: app.shown})
-tl.Label("rows", ui.At(300*time.Millisecond))
+tl.Label("rows", ui.AtTime(300*time.Millisecond))
 for i := range app.rows {
-	app.rows[i] = tl.To(ui.Tween{From: 0, To: 1, Duration: 200 * time.Millisecond},
+	app.rows[i] = tl.Tween(ui.Tween{From: 0, To: 1, Duration: 200 * time.Millisecond},
 		ui.AtLabel("rows", time.Duration(i)*40*time.Millisecond))
 }
 for i, shown := range app.rows {
@@ -347,7 +356,8 @@ pause was. `Reverse` plays it backward from where the playhead is to its
 start, as a panel that closes the way it opened (`Reverse: !app.open`), and
 a timeline played over while reversed plays from its end. `Seek` and
 `Progress` hold it at a time or a part of the timeline for as long as they
-are given, going on from there when they are not. What the options say takes
+are given, going on from there when they are not; give one of them at
+most. What the options say takes
 effect in the frame it is said in, so a button that pauses or plays the
 timeline again shows in the frame it was clicked in:
 
@@ -363,22 +373,29 @@ tl := card.Timeline("intro", o)
 `KeyframeOptions.Repeat` is, `RepeatForever` for as long as the view builds
 it, with `Alternate` playing every other time backward; `Delay` holds the
 timeline at its first value for a while before it plays, and `RepeatDelay`
-the value it got to between plays. `Done` reports that it came to rest, at
+the value it got to between plays. `Settled` reports that it rests, at
 its end or, in reverse, at its start, and `Arrived` is true in the one frame
-in which it did, as `Settled` and `Arrived` are for a value.
+in which it came to rest, as `Settled(key)` and `Arrived(key)` are for a
+value.
 
 Change `Run` to play the timeline again, or a changed one. Building it
 without changing `Run` keeps the playhead where it is, so a view may
 rearrange its tweens from frame to frame: the timeline plays the ones it
 arranged this frame. Arranging a longer one goes on from where the playhead
-is, and it is not `Done` until the timeline it arranged has played. A
+is, and it is not `Settled` until the timeline it arranged has played. A
 timeline goes with its element's state when the view stops building the
-element.
+element. An element asks for each of its timelines once per build, and the
+`*Timeline` it returns is good while the view builds that frame.
 
-While the desktop asks for less motion, the timeline is at once where it
-would come to rest, every tween at its `To`, or at its `From` when it plays
-back to its start, as values, poses and `Keyframes` are, and it asks for no
-frame. It draws frames only while it plays, timed by `c.Now()`.
+While the desktop asks for less motion, a timeline that would play is at
+once where it would come to rest, every tween at its `To`, or at its `From`
+when it plays back to its start, as values, poses and `Keyframes` are, and
+it asks for no frame. What the view does with the playhead itself still
+works, as a drag still moves a `Draggable` element: `Seek` and `Progress`
+put it where a scrubber asks, and `Paused` holds it there.
+`DisableAnimations` does not change a timeline, which plays on its own as
+`Keyframes` do; `Seek` jumps it. A timeline draws frames only while it
+plays, timed by `c.Now()`.
 
 ## Scrolling
 

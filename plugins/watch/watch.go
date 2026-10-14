@@ -1,68 +1,101 @@
 // Package watch is the watch plugin of MyGo: it lets pages watch for
-// changes to files in the directories the app names (see
+// changes to the files and directories the app names (see
 // @mygo-plugins/watch). Go code and native UI call mygo.WatchFiles
 // directly.
 package watch
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/internal/callcontext"
-	"github.com/egoist/mygo/internal/platform"
 )
 
-// Root is a directory pages may watch.
+// Root is a directory, or a file, pages may watch.
 type Root struct {
-	// Path is the directory's absolute path.
+	// Path is the absolute path of the directory or file.
 	Path string
-	// Recursive lets pages watch the directories in it too.
+	// Recursive lets pages watch the directories in it too, and what is
+	// in them.
+	Recursive bool
+	// Ignore, when set, is asked about every file and directory a watch
+	// of the root finds, by its path relative to the root, separated by
+	// slashes, as mygo.FileWatchOptions.Ignore is.
+	Ignore func(path string, isDir bool) bool
+}
+
+// Request is a watch a page asks for.
+type Request struct {
+	// Root is the name of the root.
+	Root string
+	// Path is what to watch in the root, relative to it and separated by
+	// slashes: "." for the root itself.
+	Path string
+	// Recursive asks to watch the directories in it too.
 	Recursive bool
 }
 
 // Options configures the plugin.
 type Options struct {
-	// Roots are the directories pages may watch, by the names they use:
-	// lowercase letters, digits and dashes, starting with a letter.
+	// Roots are the directories and files pages may watch, by the names
+	// they use: lowercase letters, digits and dashes, starting with a
+	// letter.
 	Roots map[string]Root
+	// Resolve, when set, is asked for the root of a name that is not in
+	// Roots, with the call's context, so that the app can grant roots
+	// while it runs, such as a folder the user chose in a dialog. It
+	// returns false for names it doesn't know.
+	Resolve func(ctx context.Context, name string) (Root, bool)
 	// Allow, when set, is asked before each watch with the call's context
-	// and the root's name, and can refuse it.
-	Allow func(ctx context.Context, root string) bool
+	// and the request, and can refuse it.
+	Allow func(ctx context.Context, r Request) bool
 	// MaxWatchesPerPage is how many watches a page may have at a time: 8
-	// by default. All pages may have 128.
+	// when zero.
 	MaxWatchesPerPage int
+	// MaxWatches is how many watches all pages may have at a time: 128
+	// when zero.
+	MaxWatches int
 }
 
 // Plugin is the plugin without roots, which lets pages watch nothing.
 var Plugin = New(Options{})
 
 type watcher interface {
-	Next(context.Context) (mygo.FileEvent, error)
-	Close()
-	Done() <-chan struct{}
-	Err() error
+	Next(context.Context) ([]mygo.FileEvent, error)
+	Close() error
+	Root() string
 }
+
+// active is a running watch, which counts against its page's quota while
+// its call's context is not done: the page context ends with navigation,
+// before the watch has stopped.
+type active struct {
+	page any
+	ctx  context.Context
+}
+
 type service struct {
 	opts       Options
 	identities map[string]os.FileInfo
 	factory    func(context.Context, string, mygo.FileWatchOptions) (watcher, error)
 	mu         sync.Mutex
-	pages      map[<-chan struct{}]int
-	total      int
+	active     map[*active]bool
 }
 
 // New returns the plugin with opts. mygo.Use panics when a root is not an
-// absolute path to a directory, after resolving its symlinks.
+// absolute path to a directory or a file, after resolving its symlinks.
 func New(opts Options) mygo.Plugin {
 	roots := make(map[string]Root, len(opts.Roots))
 	for k, v := range opts.Roots {
@@ -72,7 +105,10 @@ func New(opts Options) mygo.Plugin {
 	if opts.MaxWatchesPerPage == 0 {
 		opts.MaxWatchesPerPage = 8
 	}
-	s := &service{opts: opts, identities: make(map[string]os.FileInfo), pages: make(map[<-chan struct{}]int), factory: func(ctx context.Context, path string, o mygo.FileWatchOptions) (watcher, error) {
+	if opts.MaxWatches == 0 {
+		opts.MaxWatches = 128
+	}
+	s := &service{opts: opts, identities: make(map[string]os.FileInfo), active: make(map[*active]bool), factory: func(ctx context.Context, path string, o mygo.FileWatchOptions) (watcher, error) {
 		return mygo.WatchFiles(ctx, path, o)
 	}}
 	return mygo.Plugin{Name: "watch", Service: s, Setup: s.setup}
@@ -81,22 +117,14 @@ func New(opts Options) mygo.Plugin {
 var alias = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
 func (s *service) setup() error {
-	if s.opts.MaxWatchesPerPage < 0 {
-		return errors.New("watch: negative page quota")
+	if s.opts.MaxWatchesPerPage < 0 || s.opts.MaxWatches < 0 {
+		return errors.New("watch: negative quota")
 	}
 	for name, root := range s.opts.Roots {
 		if !alias.MatchString(name) {
 			return fmt.Errorf("watch: invalid root alias %q", name)
 		}
-		if !filepath.IsAbs(root.Path) {
-			return fmt.Errorf("watch: root %q: root must be absolute", name)
-		}
-		canonical, err := filepath.EvalSymlinks(root.Path)
-		if err != nil {
-			return fmt.Errorf("watch: root %q: %w", name, err)
-		}
-		root.Path = canonical
-		info, err := validateRoot(root.Path)
+		root, info, err := canonical(root)
 		if err != nil {
 			return fmt.Errorf("watch: root %q: %w", name, err)
 		}
@@ -105,6 +133,23 @@ func (s *service) setup() error {
 	}
 	return nil
 }
+
+// canonical resolves the symlinks of root's path, and returns what it is.
+func canonical(root Root) (Root, os.FileInfo, error) {
+	if !filepath.IsAbs(root.Path) {
+		return root, nil, errors.New("root must be absolute")
+	}
+	resolved, err := filepath.EvalSymlinks(root.Path)
+	if err != nil {
+		return root, nil, err
+	}
+	root.Path = resolved
+	info, err := validateRoot(root.Path)
+	return root, info, err
+}
+
+// validateRoot checks that path is a file or a directory in ordinary
+// directories, none a symlink or a Windows junction, and returns it.
 func validateRoot(path string) (os.FileInfo, error) {
 	if !filepath.IsAbs(path) {
 		return nil, errors.New("root must be absolute")
@@ -115,147 +160,257 @@ func validateRoot(path string) (os.FileInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || isReparse(info) {
+		// Lstat doesn't take symlinks and junctions for directories.
+		if !info.IsDir() && (p != path || !info.Mode().IsRegular()) {
 			return nil, errors.New("root components must be ordinary directories")
 		}
 		if filepath.Dir(p) == p {
 			break
 		}
 	}
-	f, err := os.OpenRoot(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	return f.Stat(".")
+	info, err := os.Lstat(path)
+	return mygo.StatIdentity(info), err
 }
 
+// validPath reports whether p is a path relative to a root, separated by
+// slashes, that stays in it.
+func validPath(p string) bool {
+	if p == "." {
+		return true
+	}
+	if !fs.ValidPath(p) || strings.Contains(p, `\`) || runtime.GOOS == "windows" && strings.Contains(p, ":") {
+		return false
+	}
+	return filepath.IsLocal(filepath.FromSlash(p))
+}
+
+// resolve checks what p names in root, through its directories without
+// following symlinks, and returns its path and whether it is a directory.
+func resolve(root Root, p string) (string, bool, error) {
+	if p == "." {
+		info, err := os.Lstat(root.Path)
+		if err != nil {
+			return "", false, err
+		}
+		return root.Path, info.IsDir(), nil
+	}
+	r, err := os.OpenRoot(root.Path)
+	if err != nil {
+		return "", false, err
+	}
+	defer r.Close()
+	parts := strings.Split(p, "/")
+	for i := range parts {
+		info, err := r.Lstat(filepath.FromSlash(strings.Join(parts[:i+1], "/")))
+		if err != nil {
+			return "", false, err
+		}
+		if !info.IsDir() && (i < len(parts)-1 || !info.Mode().IsRegular()) {
+			return "", false, errDenied
+		}
+		if i == len(parts)-1 {
+			return filepath.Join(root.Path, filepath.FromSlash(p)), info.IsDir(), nil
+		}
+	}
+	panic("unreachable")
+}
+
+// samePath reports whether a and b are the same path, which on Windows
+// EvalSymlinks gives the case of the names on disk.
+func samePath(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// request is what the page sends.
 type request struct {
 	Root       string `json:"root"`
+	Path       string `json:"path"`
 	Recursive  bool   `json:"recursive"`
 	DebounceMS int    `json:"debounceMs"`
 }
+
+// part is what Go streams: "ready" once everything is watched, then
+// "events", a part per batch.
 type part struct {
-	Type    string           `json:"type"`
-	Events  []mygo.FileEvent `json:"events,omitzero"`
-	Code    string           `json:"code,omitzero"`
-	Message string           `json:"message,omitzero"`
+	Type   string           `json:"type"`
+	Events []mygo.FileEvent `json:"events,omitzero"`
 }
 
-func failure(code string) error { return fmt.Errorf("watch:%s:filesystem watch %s", code, code) }
-func codeFor(err error) string {
+// outcome is how a watch ended, the result of Watch: the code of what
+// failed or stopped it, or none.
+type outcome struct {
+	Code    string `json:"code,omitzero"`
+	Message string `json:"message,omitzero"`
+}
+
+// failure is the code of a failure, as pages see it: never a path.
+type failure string
+
+func (f failure) Error() string { return "filesystem watch " + strings.ReplaceAll(string(f), "-", " ") }
+
+const (
+	errDenied      failure = "denied"
+	errLimit       failure = "limit"
+	errNotFound    failure = "not-found"
+	errUnsupported failure = "unsupported"
+	errEncoding    failure = "path-encoding"
+	errIO          failure = "io"
+)
+
+func codeFor(err error) failure {
+	if f, ok := errors.AsType[failure](err); ok {
+		return f
+	}
 	switch {
-	case errors.Is(err, mygo.ErrWatchOverflow):
-		return "overflow"
 	case errors.Is(err, mygo.ErrWatchLimit):
-		return "limit"
-	case errors.Is(err, platform.ErrUnsupported):
-		return "unsupported"
+		return errLimit
+	case errors.Is(err, errors.ErrUnsupported):
+		return errUnsupported
+	case errors.Is(err, fs.ErrNotExist):
+		return errNotFound
 	default:
-		return "io"
+		return errIO
 	}
 }
 
-// Watch watches a root for the calling page, streaming "ready" once
-// everything is watched, then the events, until the page closes parts or
-// goes away. Errors are "watch:<code>:<message>", without paths.
-func (s *service) Watch(ctx context.Context, req request, parts *mygo.Channel[part]) error {
-	return s.run(ctx, req, parts.Send, parts.Close)
-}
-func (s *service) run(ctx context.Context, req request, send func(part) error, unblock func()) error {
-	root, ok := s.opts.Roots[req.Root]
-	if !ok || req.Recursive && !root.Recursive || s.opts.Allow != nil && !s.opts.Allow(ctx, req.Root) {
-		return failure("denied")
+// Watch watches what the request names for the calling page, streaming
+// "ready" once everything is watched, then the batches of events, until
+// the page closes parts or goes away, or the watch ends. It returns what
+// failed, if anything.
+func (s *service) Watch(ctx context.Context, req request, parts *mygo.Channel[part]) outcome {
+	page := mygo.CallerPage(ctx)
+	if page == nil {
+		return outcome{Code: string(errDenied), Message: errDenied.Error()}
 	}
-	if req.DebounceMS < 0 || req.DebounceMS > 60000 {
-		return failure("limit")
+	return s.run(ctx, page, req, parts.Send, parts.Close)
+}
+
+func (s *service) run(ctx context.Context, page any, req request, send func(part) error, unblock func()) outcome {
+	err := s.watch(ctx, page, req, send, unblock)
+	if err == nil || ctx.Err() != nil {
+		return outcome{}
+	}
+	f := codeFor(err)
+	return outcome{Code: string(f), Message: f.Error()}
+}
+
+// root returns the root named name, which it checks is still what it was.
+func (s *service) root(ctx context.Context, name string) (Root, error) {
+	if !alias.MatchString(name) {
+		return Root{}, errDenied
+	}
+	if root, ok := s.opts.Roots[name]; ok {
+		info, err := validateRoot(root.Path)
+		if err != nil {
+			return Root{}, err
+		}
+		// A directory replaced since setup is another one; a file is
+		// replaced whenever an editor saves it.
+		if known := s.identities[name]; known.IsDir() && !os.SameFile(info, known) {
+			return Root{}, errIO
+		}
+		return root, nil
+	}
+	if s.opts.Resolve == nil {
+		return Root{}, errDenied
+	}
+	root, ok := s.opts.Resolve(ctx, name)
+	if !ok {
+		return Root{}, errDenied
+	}
+	root, _, err := canonical(root)
+	return root, err
+}
+
+func (s *service) watch(ctx context.Context, page any, req request, send func(part) error, unblock func()) error {
+	if req.Path == "" {
+		req.Path = "."
+	}
+	if !validPath(req.Path) || !alias.MatchString(req.Root) {
+		return errDenied
+	}
+	if req.DebounceMS > 60000 {
+		return errLimit
+	}
+	root, err := s.root(ctx, req.Root)
+	if err != nil {
+		return err
+	}
+	target, isDir, err := resolve(root, req.Path)
+	if err != nil {
+		return err
+	}
+	// A root that isn't Recursive lets pages watch itself and the files
+	// in it, not the directories.
+	if req.Recursive && !root.Recursive || !root.Recursive && req.Path != "." && (isDir || strings.Contains(req.Path, "/")) {
+		return errDenied
+	}
+	if s.opts.Allow != nil && !s.opts.Allow(ctx, Request{Root: req.Root, Path: req.Path, Recursive: req.Recursive}) {
+		return errDenied
 	}
 	if ctx.Err() != nil {
 		return nil
 	}
-	page, _ := ctx.Value(callcontext.PageKey{}).(<-chan struct{})
-	if page == nil {
-		return failure("denied")
-	}
+	entry := &active{page: page, ctx: ctx}
 	s.mu.Lock()
-	if s.total >= 128 || s.pages[page] >= s.opts.MaxWatchesPerPage {
-		s.mu.Unlock()
-		return failure("limit")
+	count := 0
+	for a := range s.active {
+		if a.page == page && a.ctx.Err() == nil {
+			count++
+		}
 	}
-	s.total++
-	s.pages[page]++
+	if len(s.active) >= s.opts.MaxWatches || count >= s.opts.MaxWatchesPerPage {
+		s.mu.Unlock()
+		return errLimit
+	}
+	s.active[entry] = true
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
-		s.total--
-		s.pages[page]--
-		if s.pages[page] == 0 {
-			delete(s.pages, page)
-		}
+		delete(s.active, entry)
 		s.mu.Unlock()
 	}()
-	info, err := validateRoot(root.Path)
-	if err != nil || s.identities[req.Root] == nil || !os.SameFile(info, s.identities[req.Root]) {
-		return failure("io")
-	}
-	debounce := time.Duration(req.DebounceMS) * time.Millisecond
-	if debounce == 0 {
-		debounce = -1
+	opts := mygo.FileWatchOptions{Recursive: req.Recursive, Debounce: time.Duration(req.DebounceMS) * time.Millisecond}
+	if ignore := root.Ignore; ignore != nil {
+		opts.Ignore = func(p string, isDir bool) bool { return ignore(path.Join(req.Path, p), isDir) }
 	}
 	life, cancel := context.WithCancel(ctx)
 	defer cancel()
-	w, err := s.factory(life, root.Path, mygo.FileWatchOptions{Recursive: req.Recursive, Debounce: debounce, MaxDelay: max(500*time.Millisecond, debounce)})
+	w, err := s.factory(life, target, opts)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
-		return failure(codeFor(err))
+		return err
 	}
-	defer func() { w.Close(); <-w.Done() }()
+	defer w.Close()
+	if !samePath(w.Root(), target) {
+		return errDenied // a symlink appeared since
+	}
+	// The page going away unblocks a send waiting for it.
 	stop := context.AfterFunc(ctx, func() { w.Close(); unblock() })
 	defer stop()
-	monitorDone := make(chan struct{})
-	defer close(monitorDone)
-	go func() {
-		select {
-		case <-w.Done():
-			if w.Err() != nil {
-				unblock()
-			}
-		case <-monitorDone:
-		}
-	}()
-	outcome := func(err error) error {
-		if terminal := w.Err(); terminal != nil && !errors.Is(terminal, context.Canceled) && !errors.Is(terminal, context.DeadlineExceeded) {
-			return failure(codeFor(terminal))
-		}
-		if ctx.Err() != nil || errors.Is(err, io.EOF) {
-			return nil
-		}
-		return failure(codeFor(err))
-	}
-	if err = send(part{Type: "ready"}); err != nil {
-		return outcome(err)
+	if send(part{Type: "ready"}) != nil {
+		return nil
 	}
 	for {
-		event, err := w.Next(life)
+		batch, err := w.Next(life)
 		if err != nil {
-			result := outcome(err)
-			if result != nil && ctx.Err() == nil {
-				_ = send(part{Type: "error", Code: codeFor(err), Message: "filesystem watch stopped"})
+			if errors.Is(err, io.EOF) || ctx.Err() != nil {
+				return nil // closed, or the root went away
 			}
-			return result
+			return err
 		}
-		if !utf8.ValidString(event.Path) || !utf8.ValidString(event.OldPath) {
-			return failure("path-encoding")
+		for _, e := range batch {
+			if !utf8.ValidString(e.Path) || !utf8.ValidString(e.OldPath) {
+				return errEncoding
+			}
 		}
-		p := part{Type: "events", Events: []mygo.FileEvent{event}}
-		encoded, err := json.Marshal(p)
-		if err != nil || len(encoded) > 64<<10 {
-			return failure("limit")
-		}
-		if err = send(p); err != nil {
-			return outcome(err)
+		if send(part{Type: "events", Events: batch}) != nil {
+			return nil
 		}
 	}
 }

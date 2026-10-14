@@ -143,9 +143,11 @@ func (d *vnodeWatch) notice(e syscall.Kevent_t) (platform.FileWatchNotice, bool)
 	case e.Flags&syscall.EV_ERROR != 0 && e.Data != 0, e.Fflags&syscall.NOTE_REVOKE != 0:
 		// The volume went away, or kqueue gave up on the descriptor.
 		notice.Kind = platform.FileWatchLost
-	case e.Fflags&(syscall.NOTE_WRITE|syscall.NOTE_EXTEND|syscall.NOTE_ATTRIB|syscall.NOTE_LINK) != 0:
+	case e.Fflags&(syscall.NOTE_WRITE|syscall.NOTE_EXTEND) != 0:
 		notice.Kind = platform.FileWatchWrite
 	}
+	// Other changes (NOTE_ATTRIB, NOTE_LINK, NOTE_RENAME, NOTE_DELETE) are
+	// dirty: the core looks, and metadata alone is not a write.
 	return notice, true
 }
 

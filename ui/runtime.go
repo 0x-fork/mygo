@@ -29,13 +29,12 @@ type host interface {
 	setTextInput(t platform.TextInputState)
 	updateAccessibility(tree *platform.AccessTree)
 	readClipboard() string
-	// readClipboardImage reads the clipboard's image as PNG, nil without
-	// one.
-	readClipboardImage() []byte
 	writeClipboard(string)
 	// readClipboardData reads the representations of formats on the
-	// clipboard, all for nil; writeClipboardData puts data there.
+	// clipboard, all for nil; writeClipboardData puts data there;
+	// clipboardFormats lists them.
 	readClipboardData(formats []transfer.Format) transfer.Data
+	clipboardFormats() []transfer.Format
 	writeClipboardData(transfer.Data)
 	startDrag()
 	startDataDrag(transfer.Data, any, transfer.DragOptions, float32, float32) error
@@ -905,7 +904,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	s.cursor, s.tip = e.cursor, e.tip
 	s.webView = e.webView
 	s.role = e.role
-	s.input, s.caret, s.takesText = e.inputFn, e.caret, e.takesText
+	s.input, s.caret, s.takesText, s.noIME = e.inputFn, e.caret, e.takesText, e.noIME
 	s.copyData = e.copyData
 	if s.textClient != e.textClient {
 		if s.textAdapter != nil {

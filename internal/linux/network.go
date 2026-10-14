@@ -19,9 +19,12 @@ func (network) Status() platform.NetworkStatus {
 	if m == 0 {
 		return platform.NetworkStatus{}
 	}
+	// network-available is a default route, of IPv4 or IPv6: a
+	// connectivity other than G_NETWORK_CONNECTIVITY_LOCAL, as macOS's
+	// satisfied path.
 	return platform.NetworkStatus{
-		Online:      gNetworkMonitorGetNetworkAvailable(m),
-		Constrained: gNetworkMonitorGetNetworkMetered(m),
+		Online:  gNetworkMonitorGetNetworkAvailable(m),
+		Metered: gNetworkMonitorGetNetworkMetered(m),
 	}
 }
 

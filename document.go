@@ -401,7 +401,7 @@ type docBase struct {
 	window                      *Window
 	closed                      bool
 	// discarded tells that the user chose not to save the changes of the
-	// closing document; watched is the directory watched for it.
+	// closing document; watched is the file watched for it.
 	discarded bool
 	watched   string
 	// dirtySince is when the oldest change not autosaved was made.

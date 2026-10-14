@@ -24,7 +24,7 @@ func TestFileWatchPluginPages(t *testing.T) {
 			t.Fatal(err)
 		}
 		waitFor(t, w, "window.plugins && !window.watcher")
-		if _, err := w.Page().Eval(`(async()=>{window.watcher=await plugins.watch("project",{debounceMs:0});window.seen=[];window.consume=(async()=>{for await(const e of watcher)seen.push(e.path)})();return true})()`); err != nil {
+		if _, err := w.Page().Eval(`(async()=>{window.watcher=await plugins.watch("project",{debounceMs:-1});window.seen=[];window.consume=(async()=>{for await(const batch of watcher)for(const e of batch)seen.push(e.path)})();return true})()`); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -70,14 +70,24 @@ func TestFileWatch(t *testing.T) {
 			t.Error("watch cleanup timed out")
 		}
 	}()
-	wait := func(op mygo.FileOp, path string) {
+	var pending []mygo.FileEvent
+	next := func() mygo.FileEvent {
 		t.Helper()
-		for {
-			e, err := w.Next(ctx)
+		for len(pending) == 0 {
+			batch, err := w.Next(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if e.Op == op && e.Path == path {
+			pending = batch
+		}
+		e := pending[0]
+		pending = pending[1:]
+		return e
+	}
+	wait := func(op mygo.FileOp, path string) {
+		t.Helper()
+		for {
+			if e := next(); e.Op == op && e.Path == path {
 				return
 			}
 		}
@@ -111,17 +121,8 @@ func TestFileWatch(t *testing.T) {
 	if err := os.Rename(filepath.Join(dir, "child"), filepath.Join(dir, "moved")); err != nil {
 		t.Fatal(err)
 	}
-	for {
-		e, err := w.Next(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if e.Op == mygo.FileRename && e.OldPath == "child" && e.Path == "moved" {
-			break
-		}
-		if e.Path != "." {
-			t.Fatalf("event %+v", e)
-		}
+	if e := next(); e != (mygo.FileEvent{Op: mygo.FileRename, OldPath: "child", Path: "moved", IsDir: true}) {
+		t.Fatalf("event %+v", e)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "moved", "deeper", "deepest", "file"), nil, 0600); err != nil {
 		t.Fatal(err)
@@ -135,4 +136,63 @@ func TestFileWatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	wait(mygo.FileCreate, "last")
+	// Permissions alone are not a write.
+	if err := os.Chmod(filepath.Join(dir, "last"), 0400); err != nil {
+		t.Fatal(err)
+	}
+	quiet, cancelQuiet := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancelQuiet()
+	if batch, err := w.Next(quiet); err == nil {
+		t.Fatalf("chmod reported %+v", batch)
+	}
+}
+
+// A file is watched through its directory: written in place, saved as
+// editors do, removed and created again.
+func TestFileWatchFile(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(file, []byte("a"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	w, err := mygo.WatchFiles(ctx, file, mygo.FileWatchOptions{Debounce: 10 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	next := func(want mygo.FileEvent) {
+		t.Helper()
+		batch, err := w.Next(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(batch) != 1 || batch[0] != want {
+			t.Fatalf("batch %+v, want %+v", batch, want)
+		}
+	}
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(file, "bb")
+	next(mygo.FileEvent{Op: mygo.FileWrite, Path: "."})
+	write(filepath.Join(dir, "sibling"), "x")
+	write(file+".tmp", "ccc")
+	if err := os.Rename(file+".tmp", file); err != nil {
+		t.Fatal(err)
+	}
+	next(mygo.FileEvent{Op: mygo.FileWrite, Path: "."})
+	// The replacement is watched in its turn.
+	write(file, "dddd")
+	next(mygo.FileEvent{Op: mygo.FileWrite, Path: "."})
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	next(mygo.FileEvent{Op: mygo.FileRemove, Path: "."})
+	write(file, "e")
+	next(mygo.FileEvent{Op: mygo.FileCreate, Path: "."})
 }

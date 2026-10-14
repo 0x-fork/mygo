@@ -88,7 +88,7 @@ func (b *Backend) Init(h platform.AppHandler, _ platform.AppOptions) error {
 		b.sync(func() { b.h.ThemeChanged() })
 		return nil
 	})
-	for _, q := range []string{"(prefers-color-scheme: dark)", "(prefers-reduced-motion: reduce)", "(prefers-contrast: more)"} {
+	for _, q := range []string{"(prefers-color-scheme: dark)", "(prefers-reduced-motion: reduce)", "(prefers-reduced-transparency: reduce)", "(prefers-contrast: more)"} {
 		js.Global().Call("matchMedia", q).Call("addEventListener", "change", changed)
 	}
 	// The languages the user reads: the browser's.
@@ -214,7 +214,7 @@ func (*Backend) NewTray(platform.TrayHandler) (platform.Tray, error) { return ni
 func (*Backend) RegisterHotkey(int, string) error                    { return errUnsupported }
 func (*Backend) UnregisterHotkey(int)                                {}
 func (*Backend) NotificationsSupported() bool                        { return false }
-func (*Backend) WebViewSupported() bool                              { return false }
+func (*Backend) WebViewAvailable() bool                              { return false }
 func (*Backend) RemoveNotification(string)                           {}
 func (*Backend) RemoveAllNotifications()                             {}
 
@@ -536,9 +536,10 @@ func (theme) FontRendering() platform.FontRendering { return platform.FontRender
 
 func (theme) Preferences() platform.Preferences {
 	return platform.Preferences{
-		ReduceMotion: matches("(prefers-reduced-motion: reduce)"),
-		HighContrast: matches("(prefers-contrast: more)"),
-		TextScale:    1,
+		ReduceMotion:       matches("(prefers-reduced-motion: reduce)"),
+		ReduceTransparency: matches("(prefers-reduced-transparency: reduce)"),
+		HighContrast:       matches("(prefers-contrast: more)"),
+		TextScale:          1,
 	}
 }
 

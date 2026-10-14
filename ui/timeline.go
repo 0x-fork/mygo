@@ -1,6 +1,9 @@
 package ui
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // A Timeline plays several tweens along one playhead, so that motion that
 // belongs together is written, controlled and tested together: a card
@@ -11,15 +14,16 @@ import "time"
 //
 //	card := ui.Column(c)
 //	tl := card.Timeline("intro", ui.TimelineOptions{Run: app.opened})
-//	x := tl.To(ui.Tween{From: -200, To: 0, Duration: 400 * time.Millisecond, Ease: ui.EaseOut})
-//	y := tl.To(ui.Tween{From: 20, To: 0, Duration: 300 * time.Millisecond},
-//		ui.OverlapPrevious(150*time.Millisecond))
+//	x := tl.Tween(ui.Tween{From: -200, To: 0, Duration: 400 * time.Millisecond})
+//	y := tl.Tween(ui.Tween{From: 20, To: 0, Duration: 300 * time.Millisecond},
+//		ui.AfterPrevious(-150*time.Millisecond))
 //	card.Translate(x, y)
 //
 // An element keeps its timelines as it keeps its Keyframes, from frame to
 // frame while the view builds it, and they go with it: build a timeline in
 // the same order every frame, and change Run to play it again, or a
-// changed one.
+// changed one. A *Timeline is valid only while the view builds the frame
+// it was returned in: ask the element for it again in the next.
 type Timeline struct {
 	c         *context
 	st        *timelineState
@@ -29,14 +33,12 @@ type Timeline struct {
 }
 
 // A Tween is a value going from From to To along Ease over Duration, which
-// a Timeline places and plays. With no Ease it moves at one speed.
+// a Timeline places and plays. With no Ease it eases out (EaseOut), as an
+// Animation does.
 type Tween struct {
 	From, To float32
 	Duration time.Duration
 	Ease     Easing
-	// Delay holds the tween at its From for a while after where it was
-	// placed.
-	Delay time.Duration
 }
 
 // TimelineOptions says how a timeline plays. What it changes applies to the
@@ -65,7 +67,7 @@ type TimelineOptions struct {
 	// Seek holds the playhead at a time of the timeline, and Progress at
 	// a part of its duration, for a scrubber or a jump: while either is
 	// set the timeline does not play, and it goes on from there when it
-	// is not.
+	// is not. Set one of them at most.
 	Seek     *time.Duration
 	Progress *float32
 }
@@ -76,14 +78,25 @@ type TimelineOptions struct {
 //
 //	card := ui.Column(c)
 //	tl := card.Timeline("intro", ui.TimelineOptions{Run: app.opened})
-//	x := tl.To(ui.Tween{From: -200, To: 0, Duration: 400 * time.Millisecond, Ease: ui.EaseOut})
+//	x := tl.Tween(ui.Tween{From: -200, To: 0, Duration: 400 * time.Millisecond})
 //	card.Translate(x, 0)
 //
-// Key tells apart the timelines of the element, as it does its Keyframes.
-// Play the timeline again, or a changed one, by changing o.Run.
+// Key tells apart the timelines of the element, as it does its Keyframes,
+// and an element asks for each of its timelines once per build. Play the
+// timeline again, or a changed one, by changing o.Run. The *Timeline is
+// valid while the view builds this frame.
+//
+// While the desktop asks for less motion (Preferences.ReduceMotion), a
+// timeline that would play is at once where it would come to rest, but
+// Seek, Progress and Paused still put and hold its playhead, as a drag
+// still moves a Draggable element. DisableAnimations does not change a
+// timeline, which plays on its own, as Keyframes do: jump it with Seek.
 func (e *node) Timeline(key any, o TimelineOptions) *Timeline {
 	if o.Repeat < RepeatForever || o.Delay < 0 || o.RepeatDelay < 0 {
 		panic("ui: a Timeline Repeat must be RepeatForever or nonnegative, and its delays nonnegative")
+	}
+	if o.Seek != nil && o.Progress != nil {
+		panic("ui: a Timeline takes Seek or Progress, not both")
 	}
 	if !e.hasState() {
 		return nil
@@ -96,6 +109,11 @@ func (e *node) Timeline(key any, o TimelineOptions) *Timeline {
 		st = &timelineState{}
 		e.st.timelines[key] = st
 	}
+	rt := e.c.rt
+	if st.node == e && st.frame == rt.frame && st.pass == rt.pass {
+		panic(fmt.Sprintf("ui: an element asked for its Timeline %#v twice in one build: give each timeline a key of its own", key))
+	}
+	st.node = e
 	tl := st.handle
 	if tl == nil {
 		tl = &Timeline{}
@@ -108,21 +126,22 @@ func (e *node) Timeline(key any, o TimelineOptions) *Timeline {
 	return tl
 }
 
-// To adds tw to the timeline at at, which with no placement follows the
-// tween before it at once, and returns the value it shows in this frame.
-// Before the tween's time it shows its From, after it its To.
+// Tween adds tw to the timeline where at places it, following the tween
+// before it at once with no placement, and returns the value it shows in
+// this frame: its From before its time, its To after it.
 //
-//	x := tl.To(ui.Tween{From: 0, To: 120, Duration: 300 * time.Millisecond})
-//	y := tl.To(ui.Tween{From: 20, To: 0, Duration: 200 * time.Millisecond},
-//		ui.OverlapPrevious(150*time.Millisecond))
-func (t *Timeline) To(tw Tween, at ...Placement) float32 {
+//	x := tl.Tween(ui.Tween{From: 0, To: 120, Duration: 300 * time.Millisecond})
+//	y := tl.Tween(ui.Tween{From: 20, To: 0, Duration: 200 * time.Millisecond},
+//		ui.AfterPrevious(-150*time.Millisecond))
+func (t *Timeline) Tween(tw Tween, at ...Placement) float32 {
+	finiteMotion("tween", float64(tw.From), float64(tw.To))
+	if tw.Duration < 0 {
+		panic("ui: animation durations must not be negative")
+	}
 	if t == nil {
 		return tw.From
 	}
-	if tw.Duration < 0 || tw.Delay < 0 {
-		panic("ui: animation durations must not be negative")
-	}
-	start := t.place(at) + tw.Delay
+	start := t.place(at)
 	seg := tweenSeg{start: start, dur: tw.Duration, from: tw.From, to: tw.To, ease: tw.Ease}
 	t.segs = append(t.segs, seg)
 	st := t.st
@@ -144,9 +163,9 @@ func (t *Timeline) To(tw Tween, at ...Placement) float32 {
 // Label marks a time of the timeline for a tween to start at with AtLabel.
 // With no placement it marks where the tween before it ends.
 //
-//	tl.Label("intro", ui.At(0))
+//	tl.Label("intro", ui.AtTime(0))
 //	...
-//	tl.To(ui.Tween{...}, ui.AtLabel("intro", 200*time.Millisecond))
+//	tl.Tween(ui.Tween{...}, ui.AtLabel("intro", 200*time.Millisecond))
 func (t *Timeline) Label(name string, at ...Placement) {
 	if t == nil {
 		return
@@ -196,10 +215,10 @@ func (t *Timeline) Progress() float32 {
 	return min(max(float32(st.t)/float32(d), 0), 1)
 }
 
-// Done reports whether the timeline came to rest, at its end with its
-// repeats played out, or at its start while it plays in Reverse, for the
-// view to go on as with Element.Settled.
-func (t *Timeline) Done() bool {
+// Settled reports whether the timeline rests, at its end with its repeats
+// played out, or at its start while it plays in Reverse, as
+// Element.Settled does for a value.
+func (t *Timeline) Settled() bool {
 	if t == nil || !t.st.done {
 		return false
 	}
@@ -230,9 +249,7 @@ func (t *Timeline) place(at []Placement) time.Duration {
 	var pos time.Duration
 	switch p.kind {
 	case placeWith:
-		pos = t.prevStart
-	case placeOverlap:
-		pos = t.prevEnd - p.at
+		pos = t.prevStart + p.at
 	case placeAt:
 		pos = p.at
 	case placeLabel:
@@ -289,7 +306,7 @@ func (t *Timeline) show(s tweenSeg) float32 {
 	}
 	ease := s.ease
 	if ease == nil {
-		ease = Linear
+		ease = EaseOut
 	}
 	return lerp(s.from, s.to, ease(float32(now-s.start)/float32(s.dur)))
 }
@@ -363,10 +380,23 @@ func (t *Timeline) cue(o TimelineOptions) {
 		}
 	}
 	st.reverse = o.Reverse
-	if c.rt.preferences().ReduceMotion {
+	held := false
+	if o.Seek != nil {
+		st.raw, held = o.Delay+*o.Seek, true
+	}
+	if o.Progress != nil {
+		st.raw, held = o.Delay+time.Duration(float64(*o.Progress)*float64(st.duration)), true
+	}
+	if held {
+		// A scrubber puts the playhead where it asks, also on a timeline
+		// that less motion put at once where it comes to rest.
+		st.over = false
+	} else if !o.Paused && c.rt.preferences().ReduceMotion {
 		// Values and poses go to their targets at once, and a sequence
-		// ends at its last value: the timeline is over where it would
-		// have come to rest, in this frame.
+		// ends at its last value: a timeline that would play is over where
+		// it would have come to rest, in this frame. What the view asks of
+		// its playhead, holding it or putting it somewhere, it still does,
+		// as a drag still moves a Draggable element.
 		st.over = true
 	}
 	if st.over {
@@ -382,13 +412,6 @@ func (t *Timeline) cue(o TimelineOptions) {
 			st.rested = c.rt.frame
 		}
 		return
-	}
-	held := false
-	if o.Seek != nil {
-		st.raw, held = o.Delay+*o.Seek, true
-	}
-	if o.Progress != nil {
-		st.raw, held = o.Delay+time.Duration(float64(*o.Progress)*float64(st.duration)), true
 	}
 	// Nothing plays past the end, so that playing back, or a longer
 	// timeline, goes on from it at once.
@@ -441,13 +464,16 @@ func (st *timelineState) end(o TimelineOptions) (time.Duration, bool) {
 	return plays*st.duration + (plays-1)*o.RepeatDelay, true
 }
 
-// A Placement says where along the timeline a tween or a label starts: at
-// a time, at a label, or relative to what came before it. With no
-// placement, what comes next follows the one before it at once.
+// A Placement says where along the timeline a tween or a label starts:
+// relative to the tween before it, at a label, or at a time, as GSAP's
+// position parameter. With no placement, what comes next follows the
+// tween before it at once, as AfterPrevious(0). Nothing starts before the
+// timeline does: a placement before its start is at its start.
 //
-//	tl.To(ui.Tween{...}, ui.At(500*time.Millisecond))
-//	tl.To(ui.Tween{...}, ui.OverlapPrevious(150*time.Millisecond))
-//	tl.To(ui.Tween{...}, ui.AtLabel("intro", 200*time.Millisecond))
+//	tl.Tween(ui.Tween{...}, ui.AfterPrevious(-150*time.Millisecond)) // overlaps it by 150ms
+//	tl.Tween(ui.Tween{...}, ui.WithPrevious(100*time.Millisecond))
+//	tl.Tween(ui.Tween{...}, ui.AtLabel("intro", 200*time.Millisecond))
+//	tl.Tween(ui.Tween{...}, ui.AtTime(500*time.Millisecond))
 type Placement struct {
 	kind  placeKind
 	at    time.Duration
@@ -460,40 +486,35 @@ type placeKind uint8
 const (
 	placeAfter placeKind = iota // after the one before it, which is nothing
 	placeWith
-	placeOverlap
 	placeAt
 	placeLabel
 )
 
-// AfterPrevious starts a tween d after the one before it ends.
-func AfterPrevious(d time.Duration) Placement { return Placement{kind: placeAfter, at: d} }
+// AfterPrevious starts a tween offset after the tween before it ends, or
+// with a negative offset that long before, to overlap it, as GSAP's "+=" and
+// "-=".
+func AfterPrevious(offset time.Duration) Placement {
+	return Placement{kind: placeAfter, at: offset}
+}
 
-// OverlapPrevious starts a tween d before the one before it ends.
-func OverlapPrevious(d time.Duration) Placement { return Placement{kind: placeOverlap, at: d} }
+// WithPrevious starts a tween offset after the tween before it starts, to
+// move something along with it, as GSAP's "<".
+func WithPrevious(offset time.Duration) Placement {
+	return Placement{kind: placeWith, at: offset}
+}
 
-// WithPrevious starts a tween where the one before it starts, to move
-// something along with it.
-func WithPrevious() Placement { return Placement{kind: placeWith} }
+// AtTime starts a tween at time t of the timeline.
+func AtTime(t time.Duration) Placement { return Placement{kind: placeAt, at: t} }
 
-// At starts a tween d into the timeline.
-func At(d time.Duration) Placement { return Placement{kind: placeAt, at: d} }
-
-// AtLabel starts a tween at a Label of the timeline, offset by offset, as
-// rows staggered from one label each start i times a step after it:
+// AtLabel starts a tween offset after a Label of the timeline, as rows
+// staggered from one label each start i times a step after it:
 //
 //	for i := range rows {
-//		rows[i] = tl.To(ui.Tween{From: 0, To: 1, Duration: 200 * time.Millisecond},
+//		rows[i] = tl.Tween(ui.Tween{From: 0, To: 1, Duration: 200 * time.Millisecond},
 //			ui.AtLabel("rows", time.Duration(i)*40*time.Millisecond))
 //	}
-func AtLabel(label string, offset ...time.Duration) Placement {
-	if len(offset) > 1 {
-		panic("ui: AtLabel takes at most one offset")
-	}
-	p := Placement{kind: placeLabel, label: label}
-	if len(offset) == 1 {
-		p.at = offset[0]
-	}
-	return p
+func AtLabel(name string, offset time.Duration) Placement {
+	return Placement{kind: placeLabel, label: name, at: offset}
 }
 
 // tweenSeg is one tween as the timeline placed it.
@@ -509,6 +530,7 @@ type tweenSeg struct {
 // (state.timelines), and it goes with the element's state.
 type timelineState struct {
 	handle   *Timeline
+	node     *node         // the element that last asked for it, to catch it asking twice
 	frame    uint64        // the frame the playhead last moved in
 	pass     int           // the pass it was built in, to build once per pass
 	at       time.Time     // the time of that frame's clock

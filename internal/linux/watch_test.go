@@ -110,3 +110,56 @@ func TestInotifyWatch(t *testing.T) {
 	next(platform.FileWatchNotice{Target: 1, Kind: platform.FileWatchMoveFrom, Name: "a"})
 	next(platform.FileWatchNotice{Target: 1, Kind: platform.FileWatchMoveTo, Name: "b"})
 }
+
+// Watches share the inotify instance of the process, and the descriptor
+// of a directory they both watch, which one removing leaves to the other.
+func TestInotifyShared(t *testing.T) {
+	dir := t.TempDir()
+	watch := func() (platform.FileWatch, chan platform.FileWatchNotice) {
+		t.Helper()
+		notices := make(chan platform.FileWatchNotice, 16)
+		w, err := (&Backend{}).NewFileWatch(func(n platform.FileWatchNotice) { notices <- n })
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Lstat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Add(platform.FileWatchTarget{ID: 7, Path: dir, Directory: true, Info: info}); err != nil {
+			t.Fatal(err)
+		}
+		return w, notices
+	}
+	a, an := watch()
+	b, bn := watch()
+	defer b.Close()
+	inotifyShared.Lock()
+	in := inotifyShared.instance
+	users := in.users
+	inotifyShared.Unlock()
+	if users < 2 {
+		t.Fatalf("%d users", users)
+	}
+	next := func(notices chan platform.FileWatchNotice, name string) {
+		t.Helper()
+		select {
+		case n := <-notices:
+			if n.Target != 7 || n.Name != name || n.Kind != platform.FileWatchCreate {
+				t.Fatalf("notice %+v", n)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("no notice")
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "x"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	next(an, "x")
+	next(bn, "x")
+	a.Close()
+	if err := os.Mkdir(filepath.Join(dir, "y"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	next(bn, "y")
+}

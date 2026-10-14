@@ -57,7 +57,8 @@ framework safely. Read it before changing anything under `internal/`.
 ├── protocol.go         custom schemes served by http.Handler, FileServer
 ├── frontend.go         the app's frontend: relative URLs, devUrl, mygo://localhost
 ├── menu.go             Menu/MenuItem model, roles, native item updates
-├── cookies.go          Cookies: the pages' cookies, checked and keyed by name, domain and path
+├── cookies.go          Cookies: the pages' cookies, checked, keyed by name, domain and path, filtered by CookieFilter
+├── recent_docs.go jumplist.go: recent documents (Open Recent and the system's lists), the jump list
 ├── dialog.go modules.go clipboard.go: shell, clipboard, screen, theme, tray, shortcuts, notifications
 ├── watch.go watch_scan.go: WatchFiles, and what a watch saw of its directory
 ├── document*.go        NewDocuments: documents, their saving, recovery copies, watches, menus
@@ -933,12 +934,14 @@ build` like mygo-runtime and released with the same version.
   Connections belong to their page and close on navigation or app quit.
   `mygo-plugin.json` names the six native-library assets, which the CLI
   bundles like libghostty-vt, with checksums for the library assets. Go and native UI apps can also open connections directly.
-- **watch** gives pages `mygo.WatchFiles` watches of the directories the
-  app names, by their names. `Watch` streams the events through a channel
-  for as long as the watch lasts. A page's watches count against its quota
-  by the `Done` channel of its page context, which ipc.go gives plugins in
-  the call's context (`internal/callcontext`), as navigating starts a new
-  one; they stop with the page context.
+- **watch** gives pages `mygo.WatchFiles` watches of the directories and
+  files the app names, by their names (`Roots`, or `Resolve` for those
+  granted while it runs). `Watch` streams a part per batch through a
+  channel for as long as the watch lasts, and returns how it ended, a code
+  the page turns into a `WatchError`. A page's watches count against its
+  quota by `mygo.CallerPage` while their call's context is not done, as
+  navigating ends the page context before the watches have stopped; they
+  stop with it.
 
 - **terminal** is a terminal for native UI: a `Terminal` runs a program in
   a pseudo-terminal and emulates it with libghostty-vt, Ghostty's terminal
@@ -999,7 +1002,16 @@ build` like mygo-runtime and released with the same version.
     methods, finds its key from US layout. Mouse reports go through the
     mouse encoder while the program asks for them; otherwise a selection
     gesture of libghostty-vt turns presses and drags into selections, with
-    the clicks it counts itself.
+    the clicks it counts itself. Keys meet the terminal's keybinds before
+    the encoder: Ghostty's defaults for the platform with the app's over
+    them, as Ghostty layers its config. A paste reads the clipboard on the
+    main thread as it starts (every format for `OnPaste` or a program in
+    mode 5522, else the text), and the terminal keeps a snapshot: the
+    program's read (OSC 5522) is answered during `Write`, on the reader's
+    goroutine under the terminal's lock, where waiting for the main
+    thread could deadlock. The binding gathers the library's reply and
+    hands it over in one piece, which the input queue writes in pieces
+    that report their progress.
   - *Shipping the library.* `mygo-plugin.json` names its build for each
     platform, published as release assets with their SHA-256 checksums.
     The CLI puts them into apps
@@ -1603,6 +1615,26 @@ and compares its identity with what the scan saw, then the scan stats it
 again, so that an entry replaced in between (an editor's atomic save) is
 looked at again rather than watched in place of the other.
 
+A watched file is watched through its directory, enrolled as `..` with
+the file as `.`: the scan's `os.Root` is the directory, and notices of the
+directory naming other entries are dropped. A file replaced at its path is
+reported as written. `Ignore` is asked before an entry is stat'ed, from
+the directory listing's type, so an ignored directory is never opened;
+the directories it ignored are kept per listed directory, so that the
+notices of a `Subtree` target about what is in them are dropped.
+
+An entry the scan can't look at, a directory without permission or a
+file Windows holds (`pagefile.sys`, a sharing violation), is left as it
+was seen, if at all, and what is in it unwatched, rather than ending the
+watch; only the watched directory itself must be readable.
+
+`Next` returns a batch, the events of one update. An update doesn't run
+while a batch waits for `Next` (`taken` tells the goroutine when one was
+taken): notices still mark what to look at, a set that falls back to
+looking at everything past `MaxEntries`, so a slow reader loses nothing
+and holds one batch. A directory gone ends the watch with a `FileRemove`
+of `.` and `io.EOF`, as `Close` and the watch's context do.
+
 The watch's goroutine is the only user of its scan and of its backend's
 watcher, whose methods `internal/watchdriver` runs on a goroutine of its
 own: it adds and removes targets between waits for the system, which
@@ -1614,11 +1646,16 @@ main thread, so watches work before the app runs and don't wait on it.
 - macOS: kqueue `EVFILT_VNODE` on a descriptor opened `O_EVTONLY` for every
   file and directory, since a directory tells that its entries changed but
   not which, and a file's writes only reach its own descriptor.
-- Linux: an inotify instance per watch with a watch per directory, which
-  names the child that changed. The same directory added twice shares a
-  watch descriptor, and a removed descriptor's events still queued before
-  its `IN_IGNORED` must not be taken for a new one's, so the backend keeps
-  generations of targets per descriptor.
+- Linux: one inotify instance for the process, as fsnotify, with a watch
+  per directory, which names the child that changed: watches cost watch
+  descriptors, not instances, of which many systems allow 128 per user
+  for all apps. A goroutine reads it through the runtime's poller and
+  queues each watch's notices, which its driver's `Wait` returns. The
+  same directory added twice, by one watch or several, shares a watch
+  descriptor, and a removed descriptor's events still queued before its
+  `IN_IGNORED` must not be taken for a new one's, so the backend keeps
+  generations of targets, each its watch and ID, per descriptor; the
+  last target of a descriptor removes it.
 - Windows: `ReadDirectoryChangesW` on overlapped handles, completing on a
   completion port per watch. Windows refuses to rename a directory while a
   handle is open on something beneath it, so a recursive watch is one
@@ -1629,6 +1666,16 @@ main thread, so watches work before the app runs and don't wait on it.
   The handles can't be given to the os package, which would tie them to the
   Go runtime's completion port. A handle closed still completes its I/O,
   which writes to its buffer, so a session lives until its completion.
+  A drive's root has no parent to watch, and can't be renamed. The
+  directories that `Lstat` takes for directories are watched, which leaves
+  out junctions and mount points but not the placeholders of cloud files
+  (OneDrive), reparse points that are no name surrogates.
+
+Backends report a write (`FileWatchWrite`) only for content: kqueue's
+`NOTE_WRITE` and `NOTE_EXTEND`, inotify's `IN_MODIFY` and `IN_CLOSE_WRITE`,
+and Windows without `FILE_NOTIFY_CHANGE_ATTRIBUTES`. Attribute changes are
+dirty, and the core compares only size and modification time, so that
+indexers and antivirus touching metadata report nothing.
 
 ## Documents (`document*.go`)
 
@@ -1667,10 +1714,12 @@ files (`Backend.ReplaceFile`).
   takes the sessions whose lock it gets, reopens their documents edited
   (in conflict when the file's stamp changed), writes them into its own
   session, then removes the old ones.
-- *Watches.* One `WatchFiles` per folder of open documents, shared by
-  reference count; an event naming a document's file makes it look at the
-  disk (`checkDisk`), as focusing its window does. A rename within the
-  folder is followed.
+- *Watches.* One `WatchFiles` per file of open documents, shared by
+  reference count, which costs the same whatever else its folder holds
+  (kqueue takes a descriptor per file a folder's watch covers); a batch
+  makes the document look at the disk (`checkDisk`), as focusing its
+  window does, and so does the watch once it started. A removal looks in
+  the folder for the file's identity, to follow a rename.
 - *Closing and quitting* never nest an event loop: `OnClose` of a
   document's window prevents a close that must save or ask, does it on a
   goroutine (dialogs are sheets on macOS), then destroys the window. The
@@ -1685,7 +1734,10 @@ files (`Backend.ReplaceFile`).
   roles; `refreshDocumentMenus` enables them for the focused window's
   document when focus or a document's state changes, and
   `updateRecentMenus` rebuilds the Open Recent submenus from
-  `recent-documents.json`.
+  `recent-documents.json` (`recent_docs.go`), which `App.AddRecentDocument`
+  and `ClearRecentDocuments` write, for documents and other apps alike,
+  before telling the system; in an app without documents an item goes to
+  `OnOpenFile`.
 
 ## Native UI (`ui`)
 
@@ -2044,9 +2096,20 @@ either.
   it, moving over it or scrolling over it; once it takes a press, the
   moves and the release come to it, as to a pressed element. Its
   `TextCaret` turns on the input method at that caret, with no text around
-  it. `ui.Shape` lays out text without the cache of layouts, for widgets
+  it; `InputMethod(false)` (`TextInputState.NoInputMethod`) keeps text on
+  but input methods off, as winit's `set_ime_allowed(false)`: macOS skips
+  `interpretKeyEvents:` and inserts the event's `characters`, Windows
+  disassociates the IMM context and keeps `WM_CHAR`, and GTK takes the
+  focus from the IM context and sends the keyval's character; browsers
+  cannot. `ui.Shape` lays out text without the cache of layouts, for widgets
   that keep their glyphs, and `Painter.Glyphs` draws them where they
   placed them.
+  A text input's `OnTextKey` gets the keys that type no text as they
+  come too, after `HandleInput`, but first applies the input queued for
+  the editor (`widgetTextInput.prepare`, as the platform's queries do),
+  so that fn reads the text typed before the key; a key it takes is
+  taken as `HandleInput`'s are. Shortcuts around the focus claim keys
+  first unless the editor wants them (`editor.wants`), as Enter.
   `HandleTextInput` connects a custom element's application-owned
   `TextInputClient` to the same platform services. A stable, focus-checked
   adapter supplies absolute UTF-16 text ranges, selection, marked text,
@@ -2101,11 +2164,19 @@ either.
   `Handler.ThemeChanged`, as the appearance's does; package `ui` reads them
   once until the next, the default theme follows them (`Theme.follow`), and
   `Animate` follows reduced motion. Package `mygo` reads them the same way:
-  `Theme.Preferences()` (and `AccentColor`, `ReduceMotion`, `HighContrast`,
-  `TextScale`) keeps them until the next change, and every page hears them
-  through the `mygo:preferences` event and the `--mygo-accent` and
-  `--mygo-text-scale` CSS variables, the accent left unset where the desktop
-  has none.
+  `Theme.Preferences()` keeps them until the next change, with reduced
+  transparency too, which package `ui` does not follow. Pages get them as
+  `ThemePreferences`' JSON (its `MarshalJSON`, the accent a CSS color or
+  `null`), which is mygo-runtime's `ThemePreferences`: `tsgen` imports that
+  type for it rather than declaring one (`runtimeTypes`). A user script
+  after the bridge delivers the `mygo:preferences` event at document start;
+  the bridge keeps the latest for `preferences()` and sets the
+  `--mygo-accent` and `--mygo-text-scale` CSS variables, the accent left
+  unset where the desktop has none. When they change, the core sends the
+  event to every page and replaces that script (`Page.SetUserScripts`:
+  WebKit's content controllers remove all their scripts, WebView2 by the
+  ids it reports), so a document loaded later paints with the new values
+  from the start.
 - **Lists** (`ui/list.go`) build only the rows in view and keep their
   place by a row, the anchor, and how far its top is above where the
   content starts, not by an offset into their content: rows are measured,
@@ -3571,10 +3642,10 @@ which npm allows only for packages that exist: the first release uses an
 | global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
 | notifications | UserNotifications, packaged apps only; `Group` is the `threadIdentifier`; the delegate is attached at launch, for the click that launched the app | org.freedesktop.Notifications over D-Bus; no `Group` | notification-area balloons (toasts); no `Group` |
 | notification removal | `removeDeliveredNotificationsWithIdentifiers:`; `ClearNotifications` removes all, earlier runs' too | `CloseNotification` on the bus, for those of this run | hides the balloon, which goes away by itself anyway |
-| WebViewSupported | `WKWebView` is there, which macOS always has | WebKitGTK 4.1 (or 4.0), JavaScriptCore and libsoup load, as `webKit` loads them for a window showing a page | `internal/webview2` finds a runtime, or a `WebView2Loader.dll` next to the executable exports what `createEnvironment` calls; once an environment was made, whether that worked. A runtime whose files are there but whose browser is not passes, and fails later, making the web view |
-| secrets | Security.framework generic passwords in the login keychain (`SecItem*`), service and account as keytar | libsecret's `org.freedesktop.Secret.Generic` schema (attributes `service`, `account`), loaded on first use, libsecret 0.19 or later | Credential Manager generic credentials (`CredWriteW`), target `service/account` |
+| WebViewAvailable (any goroutine, before `Run` too) | `WKWebView` is there, which macOS always has | WebKitGTK 4.1 (or 4.0), JavaScriptCore and libsoup load, as `webKit` loads them for a window showing a page | `internal/webview2` finds a runtime, or a `WebView2Loader.dll` next to the executable exports what `createEnvironment` calls; once an environment was made, whether that worked. A runtime whose files are there but whose browser is not passes, and fails later, making the web view |
+| secrets | Security.framework generic passwords in the login keychain (`SecItem*`), service and account as keytar | libsecret's `org.freedesktop.Secret.Generic` schema (attributes `service`, `account`), loaded on first use, libsecret 0.19 or later; no libsecret, no session bus (`g_bus_get_sync`) or no Secret Service on it (`G_DBUS_ERROR_SERVICE_UNKNOWN`, `NAME_HAS_NO_OWNER`, `NO_SERVER`) is `ErrUnsupported` | Credential Manager generic credentials (`CredWriteW`), target `service/account` |
 | vibrancy | all materials, behind pages and native UI | ignored | Windows 11 22H2 Mica, Acrylic, Tabbed, behind pages and native UI, in windows created with a material, which have no menu bar |
-| accent color and accessibility preferences | `NSColor.controlAccentColor` (10.14+), `accessibilityDisplayShouldReduceMotion` (10.12+) and `accessibilityDisplayShouldIncreaseContrast` (10.10+), with `NSSystemColorsDidChangeNotification` and `NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification`; no text scale | GTK's `gtk-enable-animations` and theme name, and the settings portal's accent, contrast and GNOME's `text-scaling-factor` (`ReadAll`, `SettingChanged`) | DWM's `AccentColor`, `SPI_GETCLIENTAREAANIMATION`, `SPI_GETHIGHCONTRAST` and Accessibility's `TextScaleFactor`, with `WM_SETTINGCHANGE` |
+| accent color and accessibility preferences | `NSColor.controlAccentColor` (10.14+), `accessibilityDisplayShouldReduceMotion` (10.12+), `accessibilityDisplayShouldReduceTransparency` and `accessibilityDisplayShouldIncreaseContrast` (10.10+), with `NSSystemColorsDidChangeNotification` and `NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification`; no text scale | GTK's `gtk-enable-animations` and theme name, and the settings portal's accent, contrast and GNOME's `text-scaling-factor` (`ReadAll`, `SettingChanged`); no reduced transparency | DWM's `AccentColor`, `SPI_GETCLIENTAREAANIMATION`, Personalize's `EnableTransparency`, `SPI_GETHIGHCONTRAST` and Accessibility's `TextScaleFactor`, with `WM_SETTINGCHANGE` |
 | preferred languages | the global `AppleLanguages` (`CFPreferencesCopyValue`), not the app's | `LANGUAGE`, then `LC_ALL`, `LC_MESSAGES`, `LANG`; read when asked, no changes reported | `GetUserPreferredUILanguages`, `WM_SETTINGCHANGE` "intl" |
 | regional formats | `autoupdatingCurrentLocale`, its calendar's first weekday, the hour of the skeleton "j"; `NSCurrentLocaleDidChangeNotification` and System Settings' distributed notifications | glibc's `nl_langinfo_l` of `LC_TIME` (`_NL_TIME_FIRST_WEEKDAY`, `T_FMT`), else by region | `GetLocaleInfoEx` of the user's default: `LOCALE_IFIRSTDAYOFWEEK`, `LOCALE_STIMEFORMAT` |
 | the app's language kept | `AppleLanguages` of the app's defaults | the file `locale` in PathUserData | the file `locale` in PathUserData, and the process's preferred UI languages |
@@ -3591,20 +3662,20 @@ which npm allows only for packages that exist: the first release uses an
 | window icon | ignored | `gtk_window_set_icon` | `WM_SETICON` at the window's DPI |
 | URL schemes | Info.plist (`urlSchemes`); `RegisterURLScheme` makes the app the default handler | desktop entry + `mimeapps.list` | `HKCU\Software\Classes` |
 | downloads | `shouldPerformDownload`, non-displayable or attachment responses → `WKDownload` delegate | `download-started` / `decide-destination` on the web context; response policy for attachments | `DownloadStarting` (`ICoreWebView2_4`), replacing WebView2's download UI |
-| Cookies | the default `WKWebsiteDataStore`'s `WKHTTPCookieStore` | the default web context's `WebKitCookieManager` (2.42+, kept in memory); libsoup 3 or 2.4 to match WebKitGTK 4.1 or 4.0 | `ICoreWebView2CookieManager` (`ICoreWebView2_2`) of a window's web view; `put_Expires` called with `comCallFloat` |
+| Cookies | the default `WKWebsiteDataStore`'s `WKHTTPCookieStore`, URLs matched in Go (`platform.CookieMatchesURL`), `Set` through `NSHTTPCookie`'s parser with a stand-in name and value; `Clear` with `removeDataOfTypes:` | the default web context's `WebKitCookieManager` (2.42+; `get_cookies` for a URL), kept in `cookies.sqlite` of the user data directory (`set_persistent_storage`, as WebKitGTK keeps them in memory otherwise); libsoup 3 or 2.4 to match WebKitGTK 4.1 or 4.0; `Clear` with `webkit_website_data_manager_clear` | `ICoreWebView2CookieManager` (`ICoreWebView2_2`) of a window's web view, or before one shows a page of a hidden web view of the app window, closed once one does; a window's first navigation waits for the calls under way; `ClearBrowsingData` goes the same way; changes are polled with `GetCookies` until they show, failing after 2 s; `GetCookies(uri)`, `DeleteAllCookies`; `put_Expires` called with `comCallFloat` |
 | ClearBrowsingData | default `WKWebsiteDataStore`, all types | the web context's website data manager | the WebView2 profile's `ClearBrowsingDataAll` (needs a window) |
 | permissions | `WKUIDelegate` media capture (camera, microphone) | `permission-request` (camera, microphone, geolocation, notifications) | `PermissionRequested` (the same four; WebView2 asks about others) |
 | file associations | `CFBundleDocumentTypes`; files arrive with `application:openURLs:` | desktop entry `MimeType` (`%U`), a shared-mime-info package in the .deb for types the app defines | ProgIDs and `OpenWithProgids` written by the installer |
 | document windows | `representedURL` (proxy icon, Command-click folder menu) and `setDocumentEdited:` (the dot), then the traffic lights are laid out again | the core puts `*` before the title | the core puts `*` before the title |
 | replacing a document's file | `-[NSFileManager replaceItemAtURL:withItemAtURL:…]` (permissions, dates, extended attributes, ACLs, identity) | rename after `chmod` and `lchown` to the target's | `ReplaceFileW`, retried on sharing violations |
 | recent documents | `noteNewRecentDocumentURL:` / `clearRecentDocuments:` of the shared `NSDocumentController` (the Dock menu) | `gtk_recent_manager_add_item`, removing the items of `g_get_application_name()` | `SHAddToRecentDocs` (`SHARD_PATHW`), `IApplicationDestinations::RemoveAllDestinations`; the process keeps the AppUserModelID the shell derives from its path, which the installer's shortcuts have too |
-| jump list tasks | ignored | ignored | `ICustomDestinationList`: the Recent category, `AddUserTasks` with an `IShellLinkW` per task (`PKEY_Title`), `CommitList` |
+| jump list | ignored | ignored | `ICustomDestinationList`, committed whole from what `App.JumpList` keeps: the Recent category, `AddUserTasks` with an `IShellLinkW` per task (`PKEY_Title`, description, working directory, arguments quoted with `syscall.EscapeArg`), `CommitList` |
 | Dock menu | `applicationDockMenu:` | ignored | ignored |
 | PrintToPDF | `printOperationWithPrintInfo:` save job (`NSJobSavingURL`), fit to width | `WebKitPrintOperation` to GTK's "Print to File" | DevTools `Page.printToPDF` |
 | power events | NSWorkspace sleep/wake, `com.apple.screenIsLocked` distributed notifications | logind `PrepareForSleep` (system bus), screen saver `ActiveChanged` (GNOME, freedesktop) | `WM_POWERBROADCAST`, `WM_WTSSESSION_CHANGE` |
 | KeepAwake | `NSProcessInfo` activity (shows in `pmset -g assertions`) | XDG portal `Inhibit`, else `org.freedesktop.ScreenSaver.Inhibit` | `PowerCreateRequest` |
 | IsOnBattery, IdleTime | IOKit power sources, `CGEventSourceSecondsSinceLastEventType` | `/sys/class/power_supply`; Mutter idle monitor or `GetSessionIdleTime` | `GetSystemPowerStatus`, `GetLastInputInfo` |
-| network status | `nw_path_monitor` on a queue of its own, the first `Status` waiting for its first path | `GNetworkMonitor`, `network-available` and `network-metered` | `GetNetworkConnectivityHint`, `NotifyNetworkConnectivityHintChange` |
+| network status | `nw_path_monitor` on a queue of its own, the first `Status` waiting (up to a second) for its first path; online when the path is satisfied, metered when it is expensive or constrained | `GNetworkMonitor`, `network-available` (a default route) and `network-metered` | `GetNetworkConnectivityHint`, `NotifyNetworkConnectivityHintChange`; online from local access up (not none or hidden), metered for a fixed or variable cost, roaming, over or near the data limit |
 | window position | honored | ignored by Wayland compositors | honored |
 | resize borders without a title bar | the window's own | the outer 5 px of the page | invisible, outside the window; along the top of a hidden title bar, a child window |
 | content protection, click-through | yes | ignored | yes |

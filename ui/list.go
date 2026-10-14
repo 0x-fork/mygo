@@ -90,16 +90,19 @@ type ListState struct {
 	// Sort, when set, is the column a Table's rows are sorted by: a click
 	// on the header of a Sortable column sorts by it, ascending, and
 	// another reverses the order, which the header shows. Sort the rows as
-	// it says, when it changes. SortBy sorts by several columns.
+	// it says, when it changes. SortBy sorts by several columns, which
+	// Sort, set with it, follows.
 	Sort *SortOrder
-	// SortBy, set in place of Sort, sorts a Table's rows by several
-	// columns, the first first. A click on a Sortable column's header sorts
-	// by it alone, as with Sort, and reverses it when it was first; a
-	// Cmd-click (Ctrl-click on Linux and Windows) adds it after the others,
-	// ascending, another makes it descending, and a third takes it out. The
-	// headers show their direction and, when there are several, their
-	// place. It gets a new slice as it changes, so one the app kept stays as
-	// it was. When both are set, SortBy is used and Sort is left alone.
+	// SortBy sorts a Table's rows by several columns, the first first. A
+	// click on a Sortable column's header sorts by it alone, as with Sort,
+	// and reverses it when it was first; a Cmd-click (Ctrl-click on Linux
+	// and Windows) or a Shift-click adds it after the others, ascending,
+	// another makes it descending, and a third takes it out. The headers
+	// show their direction and, when there are several, their place. It
+	// gets a new slice as it changes, so one the app kept stays as it was.
+	// When Sort is set too, the table keeps it the first of SortBy, the
+	// zero SortOrder when SortBy is empty, for the app to read the column
+	// that sorts first.
 	SortBy *[]SortOrder
 	// Columns keeps the order and the widths the user gave a Table's
 	// columns, by ID: restore it from saved settings, and save it as it
@@ -109,9 +112,11 @@ type ListState struct {
 	// the theme's Radius, as a List's are, rather than leaving them square
 	// from edge to edge.
 	RoundRows bool
-	// HeaderMenu, when set, gives a Table's column headers a context menu,
-	// built as ContextMenu's is: col is the column's index in the columns
-	// given to Table, not in the order the user moved them into.
+	// HeaderMenu, when set, gives a Table's header a context menu, built
+	// as ContextMenu's is: col is the index of the column clicked in the
+	// columns given to Table, not in the order the user moved them into,
+	// or -1 for the part of the header past the columns, as AppKit's
+	// clickedColumn. A menu built without items does not open.
 	HeaderMenu func(m *Menu, col int)
 
 	// The place: the first row in view, and how far the list is scrolled

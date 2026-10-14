@@ -46,6 +46,27 @@ export interface Channel<T = unknown> extends AsyncIterable<T> {
   close(): void;
 }
 
+/**
+ * The accent color and the accessibility settings of the desktop, as
+ * `mygo.ThemePreferences` encodes them.
+ */
+export interface ThemePreferences {
+  /** The accent color of the desktop's controls as "#rrggbb", or null where the desktop has none. */
+  accent: string | null;
+  /** Whether the desktop asks for less motion; `prefers-reduced-motion` tells it too. */
+  reduceMotion: boolean;
+  /**
+   * Whether the desktop asks for opaque surfaces in place of translucent
+   * ones: macOS's Reduce Transparency, Windows's transparency effects
+   * turned off. Linux desktops have no such setting.
+   */
+  reduceTransparency: boolean;
+  /** Whether the desktop asks for more contrast; `prefers-contrast` tells it too. */
+  highContrast: boolean;
+  /** How many times larger than usual text should be; 1 is usual. */
+  textScale: number;
+}
+
 /** The runtime MyGo injects into every page as `window.mygo`. */
 export interface Runtime {
   /** Calls a bound Go method, e.g. `call("Greeter.Greet", "Ada")`. */
@@ -65,6 +86,11 @@ export interface Runtime {
   readonly windowId: number;
   /** MyGo version. */
   readonly version: string;
+  /**
+   * The desktop's preferences, current from document start on; the
+   * `mygo:preferences` event tells their changes.
+   */
+  readonly preferences: ThemePreferences;
   /**
    * The language the app shows, a BCP 47 tag such as "en" or "zh-Hans"
    * (`App.Locale`): of the languages the app is written in, the one the

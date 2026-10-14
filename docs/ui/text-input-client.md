@@ -22,6 +22,9 @@ MyGo does not copy a whole document on each edit or choose formatting behavior.
 The existing `HandleInput`, `TextCaret`, `TextInput` and `TextArea` APIs remain
 available. `TextCaret` is useful for terminals and other widgets that need a
 candidate-window location but do not provide a text document.
+`InputMethod(false)` turns input methods off for either while keys still
+type text, which then reaches `ReplaceText` with no composition, as a
+modal editor's normal mode wants; browsers cannot turn them off.
 
 The built-in `TextInput` and `TextArea` also implement this client contract.
 Their `*string` bindings publish committed text when the widget builds;

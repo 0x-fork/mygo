@@ -234,31 +234,44 @@ the user saved in the app's preferences: the app then starts in it.
 ## Accent color and accessibility
 
 `mygo.Theme.Preferences()` returns the accent color of the desktop's own
-controls and the accessibility settings they follow:
+controls and the accessibility settings they follow, all read at once:
 
 ```go
 p := mygo.Theme.Preferences()
-p.Accent       // mygo.Color{R, G, B, A}, A 0 where the desktop has none
-p.ReduceMotion // the desktop asks for less animation
-p.HighContrast // the desktop uses a contrast theme
-p.TextScale    // the factor text grows by; 1 is the usual size
-
-if c := mygo.Theme.AccentColor(); c.A != 0 {
-	log.Println("accent:", c) // "#ff8000", or "#ff800080" when it has an alpha
-}
+p.Accent             // a color.NRGBA (image/color), A 0 where the desktop has none
+p.ReduceMotion       // the desktop asks for less motion
+p.ReduceTransparency // the desktop asks for opaque surfaces, e.g. no vibrancy
+p.HighContrast       // the desktop asks for more contrast
+p.TextScale          // how many times larger text should be; 1 is the usual size
 ```
 
-`AccentColor`, `ReduceMotion`, `HighContrast` and `TextScale` answer the same
-settings one at a time, and `mygo.Color.String()` is the color as CSS writes
-it. `Theme.OnUpdated` fires when the desktop changes any of them, as
+The accent is 8-bit sRGB with straight alpha; `ui.RGB(p.Accent.R, p.Accent.G, p.Accent.B)`
+makes it a `ui.Color` for drawing of your own.
+
+`ReduceMotion` is macOS's Reduce Motion, Windows's animation effects and
+GNOME's animations turned off; `ReduceTransparency` macOS's Reduce
+Transparency and Windows's transparency effects turned off, which Linux
+desktops do not have, so it is false there; `HighContrast` macOS's
+Increase Contrast, Windows's contrast themes and the higher contrast of
+the settings portal (or a HighContrast GTK theme) on Linux. macOS has no
+text scale, so `TextScale` is 1 there. The accent is missing on Linux
+desktops whose settings portal has none, and in browsers.
+
+`Theme.OnUpdated` fires when the desktop changes any of them, as
 `SetSource` does. Reading them can call out to the desktop (the settings
 portal on Linux), so MyGo reads them once and keeps them until the next
-change.
+change. Package `ui`'s default theme already follows the accent, the
+contrast and the text scale, and `Animate` reduced motion. Like the other
+calls that need the running app, `Preferences` panics in `main` before
+`App.Run`, and another goroutine calling it waits for the app to start.
 
-Pages hear them as the `--mygo-accent` and `--mygo-text-scale` CSS variables
-and the `mygo:preferences` event, see [the frontend guide](frontend.md);
+Pages get them from document start on, as `preferences()` of
+`mygo-runtime` and the `--mygo-accent` and `--mygo-text-scale` CSS
+variables, see [the frontend guide](frontend.md#accent-color-and-accessibility);
 `prefers-reduced-motion` and `prefers-contrast` already follow the desktop.
-macOS has no text scale, so `Theme.TextScale()` is 1 there.
+A `ThemePreferences` sent through an event or returned by a bound method
+is that same JSON, and the generated client types it with mygo-runtime's
+`ThemePreferences`.
 
 ## Power
 
@@ -284,26 +297,33 @@ report it.
 ## Network
 
 `mygo.Network` tells whether the computer is online and whether the
-connection is expensive — a phone hotspot or a metered one, where an app
-should hold off on large downloads:
+connection is metered — a phone hotspot or a plan that counts the data,
+where an app should hold off on large downloads:
 
 ```go
 status := mygo.Network.Status()
-if status.Online && !status.Constrained {
+if status.Online && !status.Metered {
 	syncNow()
 }
 
 mygo.Network.OnChanged(func(s mygo.NetworkStatus) {
-	log.Printf("online: %v, constrained: %v", s.Online, s.Constrained)
+	log.Printf("online: %v, metered: %v", s.Online, s.Metered)
 })
 ```
 
-`Online` means the system has a connection that leads beyond the
-computer, which does not prove that a server answers: macOS and Linux
-count any route out, and Windows asks whether the internet is reachable.
-`Constrained` is an expensive connection or Low Data Mode on macOS, a
-metered one on Linux and a variable-cost one on Windows. In browsers
-`Online` is `navigator.onLine`, and `Constrained` is false. Changes are
+`Online` means the system has a connection to a network beyond the
+computer, as the browsers' `navigator.onLine` does, which does not prove
+that a server answers: a network behind a captive portal, or one whose
+way to the internet is down, counts. macOS and Linux count a route out
+(a satisfied path, GLib's `network-available`), Windows a connectivity
+level of local access or more. `Metered` is an expensive path (cellular, a
+phone's hotspot) or Low Data Mode on macOS, a metered connection on Linux,
+and on Windows a connection whose cost is fixed or variable, or that
+roams, is over its data limit or approaches it. In browsers `Online` is
+`navigator.onLine`, and `Metered` is false.
+
+`Status` is safe from any goroutine; on macOS the first call waits for
+the system's first answer, which comes within milliseconds. Changes are
 watched from the first `OnChanged` on, whose listener runs on the main
 thread, only when the status changed; it returns a function that removes
 the listener.
@@ -313,7 +333,8 @@ UI, broadcast a typed event from the listener, so the generated client
 receives it:
 
 ```go
-// Connectivity is pushed to every window when the connection changes.
+// Connectivity is pushed to every window when the connection changes, as
+// {online, metered}.
 var Connectivity = mygo.NewEvent[mygo.NetworkStatus]("connectivity")
 
 func init() {
@@ -343,63 +364,116 @@ mygo.Secrets.Delete("github-token") // on sign out; nil when there is none
 ```
 
 A secret may be at most `mygo.MaxSecretSize` (2560) bytes, the most the
-Credential Manager keeps, and a key at most 256 bytes. The methods are safe from any goroutine, also
-before `Run`, and may block while the system asks the user something, e.g.
-to unlock the keyring; on the main thread the app keeps handling events
-meanwhile. To use them from the page, bind a backend method that calls
-them, so that only what the page needs crosses into it.
+Credential Manager keeps, and a key at most 256 bytes. To keep more,
+encrypt it into a file in the user data directory with a key kept in
+`Secrets`. The methods are safe from any goroutine, also before `Run`, and
+may block while the system asks the user something, e.g. to unlock the
+keyring; on the main thread the app keeps handling events meanwhile. To
+use them from the page, bind a backend method that calls them, so that
+only what the page needs crosses into it.
 
-Secrets are stored under the app's identifier (its name in development)
-as the service and the key as the account, as Electron's keytar stores
-them, so an app moving from Electron keeps its users signed in. They
-protect against other users and stolen disks, not against other apps of
-the same user: macOS asks the user before another app reads them, and
-before a rebuilt app does when it is not signed with the same identity,
-while Linux and Windows let them read. Linux needs libsecret (the
-`libsecret-1-0` package on Debian and Ubuntu) and a running Secret
-Service; without them the methods return an error.
+A store keeps a secret under a service and an account: `Secrets` takes the
+key for the account and the app's identifier (`identifier` of
+`mygo.config.ts`) for the service. The development app of `mygo dev` is
+`<identifier>.dev`, so it keeps its secrets apart from the installed app's;
+an app run without an identifier, as with `go run`, uses its name.
+`Secrets.Service` chooses another service, to share secrets with another
+program of the app, such as its command line tool, or to read those an
+Electron app stored with keytar, which keeps them as `Secrets` does under
+the service the app passed it:
+
+```go
+// keytar.getPassword("MyApp", "refresh-token") in the Electron app
+token, err := mygo.Secrets.Service("MyApp").Get("refresh-token")
+```
+
+Secrets protect against other users and stolen disks, not against other
+apps of the same user: macOS asks the user before another app reads them,
+and before a rebuilt app does when it is not signed with the same
+identity, while Linux and Windows let them read.
+
+Where there is no credential store, the methods fail with an error for
+which `errors.Is(err, errors.ErrUnsupported)` holds: in browsers, and on
+Linux without libsecret (the `libsecret-1-0` package on Debian and Ubuntu),
+a session bus or a Secret Service on it, as on servers and minimal
+desktops. An app can then fall back, e.g. ask for the secret each time:
+
+```go
+token, err := mygo.Secrets.Get("github-token")
+switch {
+case errors.Is(err, errors.ErrUnsupported):
+	// No credential store: ask the user, keep it in memory.
+case errors.Is(err, mygo.ErrSecretNotFound):
+	// Ask the user to sign in.
+}
+```
 
 ## Watching files
 
-`mygo.WatchFiles` watches a directory, and with `Recursive` the
-directories in it, for changes to the files in it. It returns once
-everything is watched, and `Next` waits for each change; use it on a
+`mygo.WatchFiles` watches a file or a directory, and with `Recursive` the
+directories in it, for changes. It returns once everything is watched, and
+`Next` waits for the next changes and returns them in a batch; use it on a
 goroutine of its own:
 
 ```go
-w, err := mygo.WatchFiles(ctx, dir, mygo.FileWatchOptions{Recursive: true})
+w, err := mygo.WatchFiles(ctx, dir, mygo.FileWatchOptions{
+	Recursive: true,
+	Ignore: func(p string, isDir bool) bool {
+		return isDir && (path.Base(p) == "node_modules" || path.Base(p) == ".git")
+	},
+})
 if err != nil {
 	return err
 }
 go func() {
 	defer w.Close()
 	for {
-		event, err := w.Next(ctx)
+		events, err := w.Next(ctx)
 		if err != nil {
-			return // io.EOF once closed
+			return // io.EOF once closed, or once dir went away
 		}
-		log.Println(event.Op, event.Path)
+		for _, e := range events {
+			log.Println(e.Op, e.Path)
+		}
 	}
 }()
 ```
 
-An event's `Path` is relative to the directory and separated by slashes,
-`.` for the directory itself, and `Op` is `mygo.FileCreate`, `FileWrite`,
-`FileRemove` or `FileRename`, with `OldPath` where a rename moved from.
-What is already there is not reported. Changes wait for 50 ms of quiet
-(`Debounce`) before they are reported, and never more than 500 ms
+An event's `Path` is relative to what is watched (`w.Root()`, its path
+with symlinks resolved) and separated by slashes, `.` for itself, and `Op`
+is `mygo.FileCreate`, `FileWrite`, `FileRemove` or `FileRename`, with
+`OldPath` where a rename moved from. What is already there is not
+reported. Changes wait for 50 ms of quiet (`Debounce`, right away when
+negative) before they are reported, and never more than 500 ms
 (`MaxDelay`). A watch compares what it sees with what it saw, so events say
 what is different, not every step that made it so: treat them as hints to
-read the files again.
+read the files again. A write is a file whose size or modification time
+changed, or that the system says was written: permissions and other
+metadata, which indexers and antivirus touch, are not reported, nor are
+directories written, whose changes are their entries'.
 
-Canceling the context given to `WatchFiles`, or `Close`, stops the watch;
-`Done` is closed once it has released its handles, and the app stops its
-watches when it quits. A watch stops with `mygo.ErrWatchOverflow` when more
-than 1024 events (`Buffer`) waited for `Next`, after which read the files
-again and start a new one, and with `mygo.ErrWatchLimit` when the directory
-has more than 8192 files and directories (`MaxEntries`). The
-[watch plugin](plugins/watch.md) gives pages watches of the directories an
-app chooses, and says how each platform watches.
+A watch doesn't look again until `Next` has taken the last batch: when the
+app is busy, what changed meanwhile comes in the next batch, so nothing is
+lost and nothing piles up. What the watch can't look at, such as a
+directory without permission, is left out rather than ending it.
+`Ignore` leaves out files and directories by
+their path: a directory it ignores is never opened, and doesn't count in
+`MaxEntries`.
+
+A file is watched through its directory, as [fsnotify](https://github.com/fsnotify/fsnotify)
+recommends: a file replaced, as editors save, is a write of `.`, one
+removed a removal, and one that appears again a creation. When the
+directory itself, or the directory of the file, is removed, renamed or
+replaced, the last batch has a `FileRemove` of `.`, and `Next` then returns
+`io.EOF`.
+
+`Close`, or canceling the context given to `WatchFiles`, stops the watch:
+`Next` returns `io.EOF`, and `Done` is closed once it has released its
+handles. The app stops its watches when it quits. A watch stops with
+`mygo.ErrWatchLimit` when the directory has more than 8192 files and
+directories (`MaxEntries`). The [watch plugin](plugins/watch.md) gives
+pages watches of the directories and files an app chooses, and says how
+each platform watches.
 
 ## Global shortcuts
 

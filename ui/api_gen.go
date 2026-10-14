@@ -300,7 +300,8 @@ func (_handle *Context) Direction() Direction {
 // routers go to their targets at once, as SwiftUI's disablesAnimations:
 // for a change that should not show as motion, as restoring a window's
 // state or jumping to a search result. Call it before building what
-// changes.
+// changes. Keyframes and timelines, which play on their own rather than
+// towards a target, go on as they were: Seek a Timeline to jump it.
 func (_handle *Context) DisableAnimations() {
 	_ctx := _handle.build()
 	if _ctx == nil {
@@ -1791,8 +1792,8 @@ func SwitchBase(c *Context, on *bool) Element {
 // moves them by dragging the headers, which s.Columns keeps; columns wider
 // than the table scroll sideways, the header with them. With s.Sort, a
 // click on the header of a Sortable column sorts the rows by it; with
-// s.SortBy, a Cmd-click sorts by it after the others; with s.HeaderMenu,
-// the headers have a context menu.
+// s.SortBy, a Cmd-click or a Shift-click sorts by it after the others;
+// with s.HeaderMenu, the header has a context menu.
 //
 //	cols := []ui.TableColumn{{Title: "Name", Sortable: true}, {Title: "Size", Width: 90, Align: ui.End, Sortable: true}}
 //	app.files.Selected, app.files.Sort = &app.file, &app.sort
@@ -3669,6 +3670,24 @@ func (_handle Element) InView() bool {
 	return _node.InView()
 }
 
+// InputMethod sets whether the system's input methods compose text for the
+// element while it has the keyboard focus, as they do by default for one
+// that takes text (HandleTextInput, TextCaret). Turned off, keys type the
+// characters of the keyboard's layout, which come as InputText, and
+// nothing is composed: a mode that reads letters as commands, as Vim's
+// normal mode, gets j as j with a Chinese input method on, as Neovide and
+// winit's set_ime_allowed(false) have it. Browsers cannot turn input
+// methods off, and compose still.
+func (_handle Element) InputMethod(on bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.InputMethod(on))
+}
+
 // InsetShadow adds an inner box shadow, as CSS's box-shadow: inset: offset
 // by x and y, blurred by blur and grown inward by spread DIPs. It shows
 // only inside the box's padding edge, within its border and rounded
@@ -4167,35 +4186,6 @@ func (_handle Element) NoWrap() Element {
 	return wrapElement(_node.NoWrap())
 }
 
-// OnEnter has fn see an Enter in the text input before the editor takes
-// it, on the main thread as the key comes. fn reports whether it took the
-// Enter; one taken changes nothing: a text area inserts no newline, and a
-// single-line input does not submit. Like ReadOnly, it holds for the input
-// that comes until the next frame.
-//
-// fn may run between frames, where an Element kept from the view is no
-// longer valid: it reads and replaces the text through e instead, as a
-// chat composer sends with Enter, clears what it sent, and breaks the line
-// with Shift+Enter:
-//
-//	ui.TextArea(c, &app.draft).OnEnter(func(e ui.Enter) bool {
-//		if e.Mods&ui.Shift != 0 {
-//			return false
-//		}
-//		app.send(e.Text())
-//		e.SetText("")
-//		return true
-//	})
-func (_handle Element) OnEnter(fn func(e Enter) bool) Element {
-	_node := _handle.node()
-	if _node == nil {
-		return Element{}
-	}
-	_ctx := _node.c
-	_ = _ctx
-	return wrapElement(_node.OnEnter(fn))
-}
-
 // OnPaste has fn see a paste into a text input, by Cmd+V, Ctrl+V or a
 // Paste menu item, before it is inserted, on the main thread as the paste
 // comes: text is the clipboard's text, empty when it holds none, as with
@@ -4212,6 +4202,48 @@ func (_handle Element) OnPaste(fn func(text string) bool) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.OnPaste(fn))
+}
+
+// OnTextKey has fn see a key pressed in the text input before the input
+// takes it, on the main thread as the key comes, with the text typed
+// before it in place, as AppKit's doCommandBySelector and a web page's
+// keydown on a text field: Enter that sends a message, Up that edits the
+// last one, Tab that accepts a completion, Escape that cancels, Cmd+Enter.
+// fn reports whether it took the key; one taken changes nothing but what
+// fn sets: a text area inserts no newline, a single-line input does not
+// submit, Tab does not move the focus. One left goes on as it would
+// without fn.
+//
+// fn sees the keys that type no text: those with Cmd or Ctrl, and Enter,
+// Tab, Escape, Backspace, Delete, the arrows and the other keys that move
+// the caret, as pressed (macOS's Control keys that move the caret too).
+// While an input method composes, its keys are its own. Keys that the
+// window or an element around the focus handles as a Shortcut go to the
+// shortcut first, as with HandleInput, unless the input edits with them,
+// as with Enter and the arrows. Like ReadOnly, OnTextKey holds for the
+// input that comes until the next frame.
+//
+// fn runs between frames, where an Element kept from the view is no longer
+// valid: it reads and replaces the text through k instead, as a chat
+// composer sends with Enter, clears what it sent, and breaks the line with
+// Shift+Enter:
+//
+//	ui.TextArea(c, &app.draft).OnTextKey(func(k ui.TextKey) bool {
+//		if k.Key != ui.KeyEnter || k.Mods != 0 {
+//			return false // Shift+Enter breaks the line
+//		}
+//		app.send(k.Text())
+//		k.SetText("")
+//		return true
+//	})
+func (_handle Element) OnTextKey(fn func(k TextKey) bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.OnTextKey(fn))
 }
 
 // Opacity makes the element and its children translucent.
@@ -4984,10 +5016,12 @@ func (_handle Element) TextColor(c Color) Element {
 }
 
 // TextRanges styles runs of a text input's text, in the frames that call
-// it. Where ranges overlap, the one starting first shows, or given first
-// when they start together. They follow the text as it is: an app that
-// finds them in the text finds them again as it changes. A password shows
-// none; an input method's composition shows unstyled between them.
+// it. Ranges may overlap and nest, as the attributes of an attributed
+// string do: where they do, each of Color and Weight is that of the last
+// range given that sets it, across the calls of the frame. They follow the
+// text as it is: an app that finds them in the text finds them again as it
+// changes. A password shows none; an input method's composition shows
+// unstyled between them.
 func (_handle Element) TextRanges(ranges ...TextRange) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -5017,11 +5051,19 @@ func (_handle Element) TextSelection() (int, int) {
 //
 //	card := ui.Column(c)
 //	tl := card.Timeline("intro", ui.TimelineOptions{Run: app.opened})
-//	x := tl.To(ui.Tween{From: -200, To: 0, Duration: 400 * time.Millisecond, Ease: ui.EaseOut})
+//	x := tl.Tween(ui.Tween{From: -200, To: 0, Duration: 400 * time.Millisecond})
 //	card.Translate(x, 0)
 //
-// Key tells apart the timelines of the element, as it does its Keyframes.
-// Play the timeline again, or a changed one, by changing o.Run.
+// Key tells apart the timelines of the element, as it does its Keyframes,
+// and an element asks for each of its timelines once per build. Play the
+// timeline again, or a changed one, by changing o.Run. The *Timeline is
+// valid while the view builds this frame.
+//
+// While the desktop asks for less motion (Preferences.ReduceMotion), a
+// timeline that would play is at once where it would come to rest, but
+// Seek, Progress and Paused still put and hold its playhead, as a drag
+// still moves a Draggable element. DisableAnimations does not change a
+// timeline, which plays on its own, as Keyframes do: jump it with Seek.
 func (_handle Element) Timeline(key any, o TimelineOptions) *Timeline {
 	_node := _handle.node()
 	if _node == nil {

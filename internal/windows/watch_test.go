@@ -5,6 +5,7 @@ package windows
 import (
 	"encoding/binary"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -158,4 +159,29 @@ func TestDirectoryWatchClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Rename(dir+"-renamed", dir)
+}
+
+// A junction is not watched in place of the directory it points to.
+func TestDirectoryWatchJunction(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+		t.Skipf("mklink: %v: %s", err, out)
+	}
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := (&Backend{}).NewFileWatch(func(platform.FileWatchNotice) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := w.Add(platform.FileWatchTarget{ID: 1, Path: link, Directory: true, Info: info}); err == nil {
+		t.Fatal("watched a junction")
+	}
 }

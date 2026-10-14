@@ -181,7 +181,8 @@ document-based apps do from [documents](documents.md).
 
 ## Recent documents
 
-Record the documents the user opens, so that the system offers them again:
+Record the documents the user opens, so that the app and the system offer
+them again:
 
 ```go
 if err := mygo.App.AddRecentDocument(path); err != nil {
@@ -189,17 +190,22 @@ if err := mygo.App.AddRecentDocument(path); err != nil {
 }
 ```
 
-macOS lists them in the app's Dock menu, Linux in the user's recently used
+`App.RecentDocuments()` returns them, newest first, ten at most, also
+those of earlier runs, without the files that no longer exist; the Open
+Recent menu (`RoleOpenRecent`, see [menus](menus.md)) lists them. macOS
+lists them in the app's Dock menu too, Linux in the user's recently used
 files (`~/.local/share/recently-used.xbel`, the Recent of file choosers and
 file managers), and Windows in the Recent category of the app's
-[jump list](#jump-lists), for the file types the app is
-registered to open (see [file associations](#file-associations)). Choosing
-an entry of the Dock menu or the jump list opens the file with the app,
-which gets it through `OnOpenFile`.
+[jump list](#jump-lists), for the file types the app is registered to open
+(see [file associations](#file-associations)). Choosing one of them, in the
+Open Recent menu, the Dock menu or the jump list, opens the file with the
+app, which gets it through `OnOpenFile`. [Documents](documents.md) record
+the files they open and save, and open those chosen themselves; other
+apps, such as those that open folders, record what they open.
 
-`ClearRecentDocuments` removes the documents the app recorded, for example
-when the user asks to clear its history. On Linux the user's other recent
-files stay.
+`ClearRecentDocuments` removes them all, for example when the user asks to
+clear the app's history, as the Open Recent menu's Clear Menu does. On
+Linux the user's other recent files stay.
 
 ## Start at login
 
@@ -283,24 +289,39 @@ On Windows, right-clicking the app's taskbar button shows its jump list:
 the documents the user opened recently (see
 [recent documents](#recent-documents)) and tasks, programs to run with
 arguments, often the app itself, such as a text editor's "New note".
-`App.SetJumpListTasks` sets the tasks; Windows keeps them after the app
+`App.JumpList.SetTasks` sets the tasks; Windows keeps them after the app
 quits, so setting them once at startup is enough:
 
 ```go
-if err := mygo.App.SetJumpListTasks([]mygo.JumpListTask{
-	{Title: "New note", Args: "--new"},
+mygo.App.OnOpenURL(func(rawURL string) {
+	if rawURL == "myapp://new-note" {
+		newNote()
+	}
+})
+// ... once the app is ready:
+if err := mygo.App.JumpList.SetTasks([]mygo.JumpListTask{
+	{Title: "New note", Description: "Write a new note", Args: []string{"myapp://new-note"}},
 	{Title: "Notepad", Path: `C:\Windows\notepad.exe`},
 }); err != nil {
 	log.Println(err)
 }
 ```
 
-`Path` is the app's own executable unless set, and the icon is the
-program's own unless `IconPath` (with `IconIndex`) names another. A task
-that runs the app starts another instance with `Args`: with
-[a single instance](#a-single-instance), the first one gets them through
-`OnSecondInstance`. No tasks removes them. `SetJumpListTasks` does nothing
-on macOS and Linux.
+A task that runs the app starts it again with `Args`: when the app is not
+running, the new instance gets them; when it is, with
+[a single instance](#a-single-instance) the running one does. A URL of
+one of the app's [schemes](#deep-links) reaches `OnOpenURL` either way,
+and a file of its types `OnOpenFile`, so tasks are best made of them.
+Other arguments go to the new instance's `os.Args`, and to the running
+one's `OnSecondInstance`: handle them in both places. Each argument is
+passed as it is, and MyGo quotes them for the command line.
+
+`Path` is the app's own executable unless set, `WorkingDir` the
+directory it runs in, `Description` the tooltip, and the icon is the
+program's own unless `IconPath` (with `IconIndex`) names another. No
+tasks removes them. Windows replaces the whole jump list whenever the app
+changes a part of it, so `App.JumpList` keeps the parts and commits them
+together. Its methods do nothing on macOS and Linux.
 
 ## Browsing data
 
@@ -311,9 +332,11 @@ until they reload.
 
 ### Cookies
 
-`mygo.Cookies` reads and changes the cookies the app's pages share,
-`HttpOnly` ones included, for example to sign the pages in with a token
-the backend got, or to read the session a page's sign-in set:
+`mygo.Cookies` reads and changes the cookies of the app's pages, `HttpOnly`
+ones included: the default cookie store, which all windows share and
+which the system webview keeps from one run to the next. Set one, for
+example, to sign the pages in with a token the backend got, before the
+first page loads, or read the session a page's sign-in set:
 
 ```go
 err := mygo.Cookies.Set(mygo.Cookie{
@@ -325,30 +348,46 @@ err := mygo.Cookies.Set(mygo.Cookie{
 	Expires:  time.Now().Add(30 * 24 * time.Hour),
 })
 
-c, ok, err := mygo.Cookies.Get("session", "example.com", "/")
+// The cookies a request to the URL sends.
+sent, err := mygo.Cookies.List(mygo.CookieFilter{URL: "https://example.com/account"})
+// Those named session of example.com and its subdomains.
+sessions, err := mygo.Cookies.List(mygo.CookieFilter{Name: "session", Domain: "example.com"})
+// Every cookie, sorted by domain, path and name.
+all, err := mygo.Cookies.List(mygo.CookieFilter{})
 
-cookies, err := mygo.Cookies.List() // sorted by domain, path and name
-
-err = mygo.Cookies.Delete("session", "example.com", "/")
+err = mygo.Cookies.Delete(mygo.Cookie{Name: "session", Domain: "example.com"})
 err = mygo.Cookies.Clear() // every cookie, but not the pages' storage
 ```
 
-A cookie's name, domain and path identify it. A domain without a leading
+A cookie's name, domain and path identify it: `Set` replaces the cookie of
+the same name, domain and path, and `Delete` deletes it, whatever its other
+fields, so it deletes a cookie `List` returned. A domain without a leading
 dot is a host's, sent to that host only; with one, `.example.com`, the
-cookie goes to its subdomains too. Domains are ASCII (punycode for
-others) and an empty path is `/`. `Set` replaces the cookie of the same
-name, domain and path; an empty `SameSite` is `Lax`, and `None` needs
-`Secure`. The value takes the characters a `Set-Cookie` header allows:
-encode others, for example in base64. A zero `Expires` makes a cookie
-that lasts until the app quits, and one in the past deletes the cookie.
+cookie goes to its subdomains too. Domains are ASCII (punycode for others)
+and an empty path is `/`. An empty `SameSite` is `Lax`, and `None` needs
+`Secure`. Names and values take what browsers take: anything but control
+characters, `;`, and spaces at either end, and names no `=`. A zero
+`Expires` makes a cookie that lasts until the app quits, and one in the
+past deletes the cookie.
+
+A filter's fields narrow the list: `URL`, an http or https URL, keeps the
+cookies a request to it sends, matched by the engine where it can (by
+domain, path and `Secure` as RFC 6265 says on macOS); `Name` keeps those
+of a name; `Domain` those of a domain and its subdomains, with or without
+a leading dot; `Path` those of exactly a path.
 
 The methods are safe from any goroutine once the app is running, and on
 the main thread the app keeps handling events while they wait. Cookies
 may carry the user's credentials: rather than binding the module to the
 pages, bind a backend method that does what the page needs.
 
-Windows keeps the cookies in the web views, so the methods need a window
-that shows a web page, and fail without one. On Linux they need
-WebKitGTK 2.42 or newer, and `Set` libsoup 2.70 or newer. WebKitGTK's
-default context keeps cookies in memory, so they last until the app
-quits.
+On Windows, WebView2 gives cookies only through a web view: before a
+window shows a page, the methods, and `App.ClearBrowsingData`, make a
+hidden one, which also makes the WebView2 browser process start, and a
+window's first page waits for the calls under way when its web view is
+made. WebView2 applies changes after its calls return, so the methods
+wait until the change shows, and fail when it does not within two
+seconds, as when the engine refuses a cookie. On Linux they need
+WebKitGTK 2.42 or newer, and `Set` libsoup 2.70 or newer; WebKitGTK keeps
+the cookies in `cookies.sqlite` of the app's user data directory
+(`~/.config/<Name>`).

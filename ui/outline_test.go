@@ -121,6 +121,13 @@ func TestOutlineIndent(t *testing.T) {
 			t.Errorf("Indent %v: the child %v right of its parent, want %v", indent, got, want)
 		}
 	}
+	defer func() {
+		if recover() == nil {
+			t.Error("a negative Indent did not panic")
+		}
+	}()
+	s := OutlineState[string]{Indent: -1}
+	coreNewTester(func(c *context) { coreOutline(c, &s, []string{"src"}, children, func(string) {}) }, 400, 400)
 }
 
 func TestOutlineBuildsWhatShows(t *testing.T) {

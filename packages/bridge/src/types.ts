@@ -1,7 +1,15 @@
 // The public types are those of the mygo-runtime package.
 import type { Direction, Platform } from "../../runtime/src/types";
 
-export type { Channel, Direction, LocaleChange, Platform, Runtime, WindowControls } from "../../runtime/src/types";
+export type {
+  Channel,
+  Direction,
+  LocaleChange,
+  Platform,
+  Runtime,
+  ThemePreferences,
+  WindowControls,
+} from "../../runtime/src/types";
 
 /** Configuration injected by the Go side in front of the bridge. */
 export interface BridgeConfig {

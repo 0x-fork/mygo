@@ -121,6 +121,10 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 		if !ed.gesture.active {
 			p.After(blinkInterval - phase%blinkInterval)
 		}
+	} else if ed.o.cursorShape == CursorBlock {
+		// Outlined, not blinking, as Vim's and Zed's blocks without the
+		// keyboard.
+		f.caretsOn = true
 	}
 	ed.paintBlocks(p, r, &f)
 	text := ui.Rect{X: r.X + ed.gutterW, Y: r.Y, W: r.W - ed.gutterW, H: r.H}
@@ -439,10 +443,15 @@ func (ed *editor) paintLine(p *ui.Painter, r ui.Rect, f *frame, line int, g line
 					continue
 				}
 				x := ox + v.xOf(l, row, d)
-				switch ed.o.caretShape {
-				case CaretBlock:
-					p.Fill(ui.Rect{X: x, Y: y, W: ed.caretWidth(l, row, s.head, x-ox), H: lh}, ct.Cursor.Alpha(0.4), 0)
-				case CaretUnderline:
+				switch ed.o.cursorShape {
+				case CursorBlock:
+					r := ui.Rect{X: x, Y: y, W: ed.caretWidth(l, row, s.head, x-ox), H: lh}
+					if ed.focused {
+						p.Fill(r, ct.Cursor.Alpha(0.4), 0)
+					} else {
+						p.Stroke(r, ct.Cursor, 0, 1)
+					}
+				case CursorUnderline:
 					p.Fill(ui.Rect{X: x, Y: y + lh - 2, W: ed.caretWidth(l, row, s.head, x-ox), H: 2}, ct.Cursor, 0)
 				default:
 					p.Fill(ui.Rect{X: x - 1, Y: y, W: 2, H: lh}, ct.Cursor, 0)

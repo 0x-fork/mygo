@@ -374,8 +374,8 @@ type dwrite struct {
 	aliased      bool
 
 	// The fonts the app registers: their files, a collection of them,
-	// the family name of each name they are registered under, and those
-	// names as the app gave them.
+	// the family name of each name they are registered under, and the
+	// names they are listed under: the one the app gave, or their own.
 	loader  uintptr
 	files   []uintptr
 	custom  uintptr
@@ -1392,10 +1392,12 @@ func (e *dwrite) register(data []byte, family string) error {
 	for _, name := range names {
 		e.aliases[strings.ToLower(name)] = name
 	}
-	e.names = append(e.names, names...)
 	if family != "" {
 		e.aliases[strings.ToLower(family)] = names[0]
+		// Listed under the name the app gave it, which is the one it uses.
 		e.names = append(e.names, family)
+	} else {
+		e.names = append(e.names, names...)
 	}
 	for k, f := range e.formats {
 		if k.custom {
@@ -1433,44 +1435,75 @@ func (e *dwrite) newCollection(files []uintptr) (uintptr, error) {
 	return coll, nil
 }
 
-// families lists the app's families and the system's, the monospaced
-// ones when mono: those whose regular font IDWriteFont1 (Windows 8 and
-// later) calls so.
-func (e *dwrite) families(mono bool) (app, system []string) {
-	var fixed []string // the app's monospaced families
-	if mono && e.custom != 0 {
-		fixed = collectionFamilies(e.custom, true)
+// appFamilies lists the families of the app's fonts, monospaced when
+// their regular font in the app's collection is.
+func (e *dwrite) appFamilies() []FontFamily {
+	if len(e.names) == 0 {
+		return nil
 	}
-	for _, name := range e.names {
-		if !mono || slices.Contains(fixed, e.aliases[strings.ToLower(name)]) {
-			app = append(app, name)
-		}
+	mono := map[string]bool{} // by the family's own name
+	for _, f := range collectionFamilies(e.custom) {
+		mono[f.Name] = f.Monospaced
 	}
-	return app, collectionFamilies(e.system, mono)
+	out := make([]FontFamily, len(e.names))
+	for i, name := range e.names {
+		out[i] = FontFamily{Name: name, Monospaced: mono[e.aliases[strings.ToLower(name)]]}
+	}
+	return out
+}
+
+// systemFamilies lists the system collection's families, which hold none
+// of the app's, monospaced when their regular font IDWriteFont1 (Windows 8
+// and later) calls so: DirectWrite's shared factory is thread-safe.
+func (e *dwrite) systemFamilies() func() []FontFamily {
+	coll := e.system
+	if coll == 0 {
+		return nil
+	}
+	call(coll, comAddRef)
+	return func() []FontFamily {
+		defer release(coll)
+		return collectionFamilies(coll)
+	}
 }
 
 // familyNames returns the English names of a collection's families.
-func familyNames(coll uintptr) []string { return collectionFamilies(coll, false) }
-
-// collectionFamilies returns the English names of a collection's
-// families, only the monospaced ones when mono.
-func collectionFamilies(coll uintptr, mono bool) []string {
+func familyNames(coll uintptr) []string {
 	var names []string
+	eachFamily(coll, func(fam uintptr, name string) { names = append(names, name) })
+	return names
+}
+
+// collectionFamilies returns the families of a collection, by their
+// English names.
+func collectionFamilies(coll uintptr) []FontFamily {
+	var out []FontFamily
+	eachFamily(coll, func(fam uintptr, name string) {
+		out = append(out, FontFamily{Name: name, Monospaced: monospaced(fam)})
+	})
+	return out
+}
+
+// eachFamily calls fn with each family of a collection and its English
+// name.
+func eachFamily(coll uintptr, fn func(fam uintptr, name string)) {
+	if coll == 0 {
+		return
+	}
 	n := uint32(call(coll, collectionGetFontFamilyCount))
 	for i := range n {
 		var fam, strs uintptr
 		if failed(call(coll, collectionGetFontFamily, uintptr(i), uintptr(unsafe.Pointer(&fam)))) {
 			continue
 		}
-		if (!mono || monospaced(fam)) && !failed(call(fam, familyGetFamilyNames, uintptr(unsafe.Pointer(&strs)))) {
+		if !failed(call(fam, familyGetFamilyNames, uintptr(unsafe.Pointer(&strs)))) {
 			if name := englishName(strs); name != "" {
-				names = append(names, name)
+				fn(fam, name)
 			}
 			release(strs)
 		}
 		release(fam)
 	}
-	return names
 }
 
 // monospaced reports whether a family's regular font is monospaced.

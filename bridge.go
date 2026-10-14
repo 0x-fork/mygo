@@ -8,6 +8,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/internal/bridge"
@@ -30,6 +31,10 @@ func (w *Window) bridgeScript() string {
 		Dir:      appDir(),
 	})
 }
+
+// preferencesScriptIndex is the place of preferencesScript in a window's
+// user scripts, right after the bridge, which it tells.
+const preferencesScriptIndex = 1
 
 // pageScripts are the scripts a page of the window gets at document start:
 // the bridge, the preferences of the page and the preload script.
@@ -72,45 +77,43 @@ func pagesLocaleChanged(locale string) {
 		if w.content != nil || w.native == nil {
 			continue
 		}
-		w.native.SetUserScripts(w.pageScripts())
+		w.userScripts = w.pageScripts()
+		w.native.SetUserScripts(w.userScripts)
 		w.enqueue(msg, true)
 	}
 }
 
-// pagePreferences is the page's view of the desktop's settings: the accent
-// as a CSS color, and no accent at all where the desktop has none.
-func pagePreferences(p ThemePreferences) bridge.Preferences {
-	accent := ""
-	if p.Accent.A != 0 {
-		accent = p.Accent.String()
-	}
-	return bridge.Preferences{
-		Accent:       accent,
-		ReduceMotion: p.ReduceMotion,
-		HighContrast: p.HighContrast,
-		TextScale:    p.TextScale,
-	}
-}
-
-// preferencesScript installs the desktop preferences after the bridge.
+// preferencesScript tells a page the desktop's preferences at document
+// start. Main thread only.
 func preferencesScript() string {
-	return bridge.PreferencesScript(pagePreferences(Theme.preferences()))
+	b, _ := json.Marshal(Theme.preferences())
+	return bridge.PreferencesScript(b)
 }
 
-// sendPreferences keeps existing pages up to date. Main thread only.
-func (w *Window) sendPreferences(prefs ThemePreferences) {
-	if w.content != nil || w.native == nil {
+// sendPreferences tells the pages that the desktop's preferences changed.
+// Main thread only.
+func sendPreferences() {
+	prefs, script := Theme.preferences(), preferencesScript()
+	for _, w := range pageWindows() {
+		w.sendPreferences(prefs, script)
+	}
+}
+
+// sendPreferences tells the page of w that the preferences changed, if
+// they did: the documents it loads next through its user script, which
+// the backend replaces, so that their first paint has them, and the
+// current one through the event. Main thread only.
+func (w *Window) sendPreferences(prefs ThemePreferences, script string) {
+	if w.content != nil || w.native == nil || len(w.userScripts) <= preferencesScriptIndex ||
+		w.userScripts[preferencesScriptIndex].Source == script {
 		return
 	}
-	if msg, err := encodeEvent(bridge.PreferencesEvent, pagePreferences(prefs)); err == nil {
+	scripts := slices.Clone(w.userScripts)
+	scripts[preferencesScriptIndex].Source = script
+	w.userScripts = scripts
+	w.native.SetUserScripts(scripts)
+	if msg, err := encodeEvent(bridge.PreferencesEvent, prefs); err == nil {
 		w.enqueue(msg, true)
-	}
-}
-
-func sendPreferences() {
-	prefs := Theme.preferences()
-	for _, w := range pageWindows() {
-		w.sendPreferences(prefs)
 	}
 }
 
@@ -236,7 +239,6 @@ func (w *Window) handleMessage(msg string) {
 		// The script at document start may tell a later page the room of
 		// the controls before a change.
 		w.sendTitleBar()
-		w.sendPreferences(Theme.preferences())
 		w.sendLocale()
 		w.flush()
 		fire(&w.onDOMReady)

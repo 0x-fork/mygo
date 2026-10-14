@@ -9,8 +9,12 @@ import (
 )
 
 // SecretsModule keeps small secrets, such as access tokens and API keys,
-// in the system's credential store. Use the Secrets singleton.
-type SecretsModule struct{}
+// in the system's credential store. Use the Secrets singleton, or
+// Secrets.Service for the secrets of another service.
+type SecretsModule struct {
+	// service is the store's service, "" for the app's identifier.
+	service string
+}
 
 // Secrets keeps small secrets in the system's credential store: the
 // login Keychain on macOS, the Secret Service on Linux (GNOME Keyring,
@@ -23,11 +27,19 @@ type SecretsModule struct{}
 //	token, err := mygo.Secrets.Get("github-token")
 //	if errors.Is(err, mygo.ErrSecretNotFound) { … ask the user to sign in }
 //
-// Secrets belong to the app: the service is its identifier (its name
-// when it has none, as in development) and the key the account, which is
-// how Electron's keytar stores them, so an app moving from Electron finds
-// its secrets. Other apps of the user may still read them, on Linux
-// without asking.
+// A store keeps a secret under a service and an account, which Secrets
+// takes the key for. The service is the app's identifier (identifier of
+// mygo.config.ts); under `mygo dev`, whose app is "<identifier>.dev", the
+// development app's, so it keeps secrets apart from the installed app;
+// and without an identifier, as with `go run`, the app's name
+// (App.Name). Service chooses another. Other apps of the user may still
+// read them, on Linux without asking.
+//
+// Where there is no credential store, the methods fail with an error for
+// which errors.Is(err, errors.ErrUnsupported) holds: in browsers, and on
+// Linux without libsecret, a session bus or a Secret Service on it, as on
+// many servers and minimal desktops. An app can then keep the secret
+// elsewhere, or ask for it each time.
 //
 // The methods are safe from any goroutine and work before Run. They may
 // block while the system asks the user, e.g. to unlock the keyring or,
@@ -41,33 +53,52 @@ var ErrSecretNotFound = platform.ErrSecretNotFound
 
 // MaxSecretSize is the largest secret Secrets.Set stores, in bytes: the
 // most the Windows Credential Manager keeps, so that an app behaves the
-// same everywhere.
+// same everywhere. To keep more, encrypt it into a file of PathUserData
+// with a key kept in Secrets.
 const MaxSecretSize = 2560
 
-// maxSecretKeyLen is the longest key, in bytes, well within the
-// Credential Manager's 513 characters for the user name.
+// maxSecretKeyLen is the longest key and service, in bytes, well within
+// the Credential Manager's 513 characters for the user name.
 const maxSecretKeyLen = 256
+
+// Service returns Secrets for the secrets of service, in place of the
+// app's identifier: to share them with another program of the app, such
+// as a command line tool, or to read those an Electron app stored with
+// keytar, which takes the same service and account and stores them as
+// Secrets does, under the service the app passed to it. An empty service
+// is the app's.
+//
+//	token, err := mygo.Secrets.Service("MyApp").Get("refresh-token") // keytar.getPassword("MyApp", "refresh-token")
+func (SecretsModule) Service(service string) SecretsModule { return SecretsModule{service: service} }
+
+// serviceName returns the store's service, after checking it.
+func (s SecretsModule) serviceName() (string, error) {
+	if s.service == "" {
+		return appID(), nil
+	}
+	return s.service, checkSecretName("service", s.service)
+}
 
 // Set stores value under key, replacing what it had. The key must not be
 // empty or longer than 256 bytes; the value may be at most MaxSecretSize
 // bytes.
-func (SecretsModule) Set(key string, value []byte) error {
-	if err := checkSecretKey(key); err != nil {
+func (s SecretsModule) Set(key string, value []byte) error {
+	service, err := s.check(key)
+	if err != nil {
 		return err
 	}
 	if len(value) > MaxSecretSize {
 		return fmt.Errorf("mygo: secret %q has %d bytes, more than MaxSecretSize (%d)", key, len(value), MaxSecretSize)
 	}
-	service := appID()
 	return offMain(func() error { return wrapSecretErr(backend().Secrets().SetSecret(service, key, value)) })
 }
 
 // Get returns the secret stored under key, or ErrSecretNotFound.
-func (SecretsModule) Get(key string) ([]byte, error) {
-	if err := checkSecretKey(key); err != nil {
+func (s SecretsModule) Get(key string) ([]byte, error) {
+	service, err := s.check(key)
+	if err != nil {
 		return nil, err
 	}
-	service := appID()
 	type result struct {
 		v   []byte
 		err error
@@ -81,30 +112,39 @@ func (SecretsModule) Get(key string) ([]byte, error) {
 
 // Delete removes the secret stored under key. Deleting a key without a
 // secret is not an error.
-func (SecretsModule) Delete(key string) error {
-	if err := checkSecretKey(key); err != nil {
+func (s SecretsModule) Delete(key string) error {
+	service, err := s.check(key)
+	if err != nil {
 		return err
 	}
-	service := appID()
 	return offMain(func() error { return wrapSecretErr(backend().Secrets().DeleteSecret(service, key)) })
 }
 
-func checkSecretKey(key string) error {
+// check checks key and returns the service.
+func (s SecretsModule) check(key string) (string, error) {
+	if err := checkSecretName("key", key); err != nil {
+		return "", err
+	}
+	return s.serviceName()
+}
+
+func checkSecretName(what, name string) error {
 	switch {
-	case key == "":
-		return errors.New("mygo: empty secret key")
-	case len(key) > maxSecretKeyLen:
-		return fmt.Errorf("mygo: secret key has %d bytes, more than %d", len(key), maxSecretKeyLen)
-	case strings.ContainsRune(key, 0):
-		return fmt.Errorf("mygo: secret key %q contains NUL", key)
+	case name == "":
+		return fmt.Errorf("mygo: empty secret %s", what)
+	case len(name) > maxSecretKeyLen:
+		return fmt.Errorf("mygo: secret %s has %d bytes, more than %d", what, len(name), maxSecretKeyLen)
+	case strings.ContainsRune(name, 0):
+		return fmt.Errorf("mygo: secret %s %q contains NUL", what, name)
 	}
 	return nil
 }
 
-// wrapSecretErr keeps ErrSecretNotFound as is and names the store in
-// other errors.
+// wrapSecretErr names the store in the errors of the backend, which keep
+// what they wrap (errors.ErrUnsupported), and leaves ErrSecretNotFound,
+// which needs no more words, as it is.
 func wrapSecretErr(err error) error {
-	if err == nil || errors.Is(err, ErrSecretNotFound) || strings.HasPrefix(err.Error(), "mygo: ") {
+	if err == nil || errors.Is(err, ErrSecretNotFound) {
 		return err
 	}
 	return fmt.Errorf("mygo: secrets: %w", err)

@@ -429,3 +429,65 @@ func TestTableHeaderMenu(t *testing.T) {
 		t.Errorf("chose the item for column %d", chosen)
 	}
 }
+
+// Set with SortBy, Sort follows its first column, for the app to read
+// the column that sorts first; a Shift-click adds a column as a Cmd-click
+// does, as web grids do.
+func TestTableSortFollowsSortBy(t *testing.T) {
+	var by []SortOrder
+	var sort SortOrder
+	s := ListState{Sort: &sort, SortBy: &by}
+	cols := []TableColumn{{Title: "Name", Sortable: true}, {Title: "Kind", Width: 100, Sortable: true}}
+	tt := coreNewTester(tableView(&s, cols, []string{"a.txt", "b.txt"}), 500, 300)
+	check := func(step string, first SortOrder, want ...SortOrder) {
+		t.Helper()
+		if !slices.Equal(by, want) || sort != first {
+			t.Fatalf("%s: SortBy %+v, Sort %+v; want %+v, %+v", step, by, sort, want, first)
+		}
+	}
+	tt.Click("Name")
+	check("a click on Name", SortOrder{Column: "Name"}, SortOrder{Column: "Name"})
+	tt.ClickWith(Shift, "Kind")
+	check("a Shift-click on Kind", SortOrder{Column: "Name"}, SortOrder{Column: "Name"}, SortOrder{Column: "Kind"})
+	tt.ClickWith(Cmd, "Name")
+	tt.ClickWith(Shift, "Name")
+	check("Name taken out", SortOrder{Column: "Kind"}, SortOrder{Column: "Kind"})
+	tt.ClickWith(Shift, "Kind")
+	tt.ClickWith(Shift, "Kind")
+	check("sorted by none", SortOrder{})
+	// The app setting SortBy itself.
+	by = []SortOrder{{Column: "Kind", Descending: true}}
+	tt.Frame()
+	check("SortBy set by the app", SortOrder{Column: "Kind", Descending: true}, SortOrder{Column: "Kind", Descending: true})
+}
+
+// The header past the columns has HeaderMenu's menu for column -1, which
+// does not open when it has no items.
+func TestTableHeaderMenuPastTheColumns(t *testing.T) {
+	built := 0
+	items := true
+	s := ListState{HeaderMenu: func(m *Menu, col int) {
+		built = col
+		if items {
+			m.Item("Reset Columns")
+		}
+	}}
+	cols := []TableColumn{{Title: "Name", Width: 120}, {Title: "Kind", Width: 100}}
+	tt := coreNewTester(tableView(&s, cols, []string{"a.txt"}), 500, 300)
+	kind, _ := tt.Find("Kind")
+	tt.RightClickAt(450, kind.Y+kind.H/2)
+	if m := tt.Menu(); len(m) != 1 || m[0] != "Reset Columns" || built != -1 {
+		t.Fatalf("past the columns: the menu %q, built for column %d", m, built)
+	}
+	tt.CloseMenu()
+	items = false
+	tt.RightClickAt(450, kind.Y+kind.H/2)
+	if m := tt.Menu(); m != nil {
+		t.Fatalf("a menu without items opened: %q", m)
+	}
+	items = true
+	tt.RightClick("Kind")
+	if built != 1 {
+		t.Fatalf("a column's header built the menu for column %d", built)
+	}
+}

@@ -4,7 +4,11 @@ package linux
 
 import (
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -16,6 +20,9 @@ var (
 	cookieManager                                                                        func(ptr) ptr
 	cookieList                                                                           func(ptr, ptr, ptr, ptr)
 	cookieListFinish                                                                     func(ptr, ptr, *ptr) ptr
+	cookieGet                                                                            func(ptr, *byte, ptr, ptr, ptr)
+	cookieGetFinish                                                                      func(ptr, ptr, *ptr) ptr
+	cookieSetPersistentStorage                                                           func(ptr, *byte, int32)
 	cookieAdd, cookieDelete                                                              func(ptr, ptr, ptr, ptr, ptr)
 	cookieAddFinish, cookieDeleteFinish                                                  func(ptr, ptr, *ptr) int32
 	soupCookieNew                                                                        func(*byte, *byte, *byte, *byte, int32) ptr
@@ -35,6 +42,9 @@ func bindCookies() {
 	bind(libWebKit, &cookieManager, "webkit_web_context_get_cookie_manager")
 	bind(libWebKit, &cookieList, "webkit_cookie_manager_get_all_cookies")
 	bind(libWebKit, &cookieListFinish, "webkit_cookie_manager_get_all_cookies_finish")
+	bind(libWebKit, &cookieGet, "webkit_cookie_manager_get_cookies")
+	bind(libWebKit, &cookieGetFinish, "webkit_cookie_manager_get_cookies_finish")
+	bind(libWebKit, &cookieSetPersistentStorage, "webkit_cookie_manager_set_persistent_storage")
 	bind(libWebKit, &cookieAdd, "webkit_cookie_manager_add_cookie")
 	bind(libWebKit, &cookieAddFinish, "webkit_cookie_manager_add_cookie_finish")
 	bind(libWebKit, &cookieDelete, "webkit_cookie_manager_delete_cookie")
@@ -69,27 +79,61 @@ func bindCookies() {
 	}
 }
 
-func linuxCookieManager(operation, needs string, available bool) (ptr, error) {
+var cookiesOnce sync.Once
+
+// persistCookies keeps the cookies of the default web context in
+// cookies.sqlite of the app's user data directory, as macOS and Windows
+// keep theirs: WebKitGTK keeps them in memory unless told where to store
+// them. It runs once WebKitGTK is loaded, before any web view loads a page.
+func persistCookies() {
+	if cookieManager == nil || cookieSetPersistentStorage == nil {
+		return
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		log.Printf("mygo: cookies: %v", err)
+		return
+	}
+	dir = filepath.Join(dir, theBackend.name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Printf("mygo: cookies: %v", err)
+		return
+	}
+	const sqlite = 1 // WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE
+	cookieSetPersistentStorage(cookieManager(webkitWebContextGetDefault()), cs(filepath.Join(dir, "cookies.sqlite")), sqlite)
+}
+
+// linuxCookieManager loads WebKitGTK and returns the cookie manager of
+// the default web context, when the functions available checks, once
+// bound, are there.
+func linuxCookieManager(operation, needs string, available func() bool) (ptr, error) {
 	if err := webKit(); err != nil {
 		return 0, fmt.Errorf("mygo: cookies: %s: %w", operation, err)
 	}
-	if !available || cookieManager == nil || soupCookieNew == nil || soupCookieFree == nil {
+	if !available() || cookieManager == nil || soupCookieNew == nil || soupCookieFree == nil {
 		return 0, fmt.Errorf("mygo: cookies: %s needs %s: %w", operation, needs, platform.ErrUnsupported)
 	}
 	return cookieManager(webkitWebContextGetDefault()), nil
 }
 
-// allCookies lists the cookies of the default web context. done owns the
-// SoupCookies and frees them.
-func allCookies(operation string, done func([]ptr, error)) {
-	manager, err := linuxCookieManager(operation, "WebKitGTK 2.42 or newer", cookieList != nil && cookieListFinish != nil && cookieListFree != nil && soupCookieName != nil && soupCookieValue != nil && soupCookieDomain != nil && soupCookiePath != nil && soupCookieExpires != nil && soupCookieSecure != nil && soupCookieHTTPOnly != nil && cookieDateUnix != nil)
+// allCookies lists the cookies of the default web context, those a
+// request to uri sends unless it is empty. done owns the SoupCookies and
+// frees them.
+func allCookies(operation, uri string, done func([]ptr, error)) {
+	manager, err := linuxCookieManager(operation, "WebKitGTK 2.42 or newer", func() bool {
+		return cookieList != nil && cookieListFinish != nil && cookieGet != nil && cookieGetFinish != nil && cookieListFree != nil && soupCookieName != nil && soupCookieValue != nil && soupCookieDomain != nil && soupCookiePath != nil && soupCookieExpires != nil && soupCookieSecure != nil && soupCookieHTTPOnly != nil && cookieDateUnix != nil
+	})
 	if err != nil {
 		done(nil, err)
 		return
 	}
 	request := pending.add(func(source, result ptr) {
 		var ge ptr
-		list := cookieListFinish(source, result, &ge)
+		finish := cookieListFinish
+		if uri != "" {
+			finish = cookieGetFinish
+		}
+		list := finish(source, result, &ge)
 		// WebKit transfers the GList (data, next, prev) and its cookies.
 		var cookies []ptr
 		for node := list; node != 0; {
@@ -105,6 +149,10 @@ func allCookies(operation string, done func([]ptr, error)) {
 		}
 		done(cookies, nil)
 	})
+	if uri != "" {
+		cookieGet(manager, cs(uri), 0, cbAsyncReady, request)
+		return
+	}
 	cookieList(manager, 0, cbAsyncReady, request)
 }
 
@@ -114,8 +162,8 @@ func freeCookies(cookies []ptr) {
 	}
 }
 
-func (a appController) ListCookies(done func([]platform.Cookie, error)) {
-	allCookies("List", func(cookies []ptr, err error) {
+func (a appController) ListCookies(uri string, done func([]platform.Cookie, error)) {
+	allCookies("List", uri, func(cookies []ptr, err error) {
 		if err != nil {
 			done(nil, err)
 			return
@@ -144,7 +192,9 @@ func (a appController) ListCookies(done func([]platform.Cookie, error)) {
 }
 
 func (a appController) SetCookie(c platform.Cookie, done func(error)) {
-	manager, err := linuxCookieManager("Set", "WebKitGTK 2.20 and libsoup 2.70 or newer", cookieAdd != nil && cookieAddFinish != nil && soupCookieSetSecure != nil && soupCookieSetHTTPOnly != nil && soupCookieSetSameSite != nil && soupCookieSetExpires != nil && cookieDateNew != nil && cookieDateFree != nil)
+	manager, err := linuxCookieManager("Set", "WebKitGTK 2.20 and libsoup 2.70 or newer", func() bool {
+		return cookieAdd != nil && cookieAddFinish != nil && soupCookieSetSecure != nil && soupCookieSetHTTPOnly != nil && soupCookieSetSameSite != nil && soupCookieSetExpires != nil && cookieDateNew != nil && cookieDateFree != nil
+	})
 	if err != nil {
 		done(err)
 		return
@@ -190,13 +240,17 @@ func (a appController) SetCookie(c platform.Cookie, done func(error)) {
 }
 
 func (a appController) DeleteCookie(key platform.CookieKey, done func(error)) {
+	if err := webKit(); err != nil {
+		done(fmt.Errorf("mygo: cookies: Delete: %w", err))
+		return
+	}
 	if cookieDelete == nil || cookieDeleteFinish == nil || soupCookieCopy == nil {
 		done(fmt.Errorf("mygo: cookies: Delete needs WebKitGTK 2.42 or newer: %w", platform.ErrUnsupported))
 		return
 	}
 	// libsoup deletes the cookie of the same name, path and value: find
 	// the stored one, whose value the key lacks.
-	allCookies("Delete", func(cookies []ptr, err error) {
+	allCookies("Delete", "", func(cookies []ptr, err error) {
 		if err != nil {
 			done(err)
 			return
@@ -225,6 +279,26 @@ func (a appController) DeleteCookie(key platform.CookieKey, done func(error)) {
 		})
 		cookieDelete(cookieManager(webkitWebContextGetDefault()), match, 0, cbAsyncReady, request)
 	})
+}
+
+// ClearCookies clears the cookies of the default web context's website
+// data, its other data kept.
+func (a appController) ClearCookies(done func(error)) {
+	if err := webKit(); err != nil {
+		done(fmt.Errorf("mygo: cookies: Clear: %w", err))
+		return
+	}
+	const cookies = 1 << 8 // WEBKIT_WEBSITE_DATA_COOKIES
+	manager := webkitWebContextGetWebsiteDataManager(webkitWebContextGetDefault())
+	id := pending.add(func(source, res ptr) {
+		var ge ptr
+		var ok int32
+		if webkitWebsiteDataManagerClearFinish(source, res, &ge) {
+			ok = 1
+		}
+		done(cookieFinishError("Clear", ok, ge))
+	})
+	webkitWebsiteDataManagerClear(manager, cookies, 0, 0, cbAsyncReady, id)
 }
 
 func cookieFinishError(operation string, ok int32, ge ptr) error {

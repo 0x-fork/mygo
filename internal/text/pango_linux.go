@@ -354,8 +354,9 @@ type pangoEngine struct {
 	scaled map[scaledKey]uintptr
 
 	registered map[string]bool // files of registered fonts
-	// names are the names the app registered fonts under, as it gave them,
-	// and their own; appFamily the family of each, by lowercased name.
+	// names are the names the app's fonts are listed under: the one the
+	// app gave, or their own; appFamily the own family of each, by
+	// lowercased name.
 	names     []string
 	appFamily map[string]string
 	// uiFamily is the desktop's interface font, which system-ui stands for
@@ -957,11 +958,11 @@ func (e *pangoEngine) draw(f *Font, id uint32, scale, dx float32, subpixel bool)
 	return b
 }
 
-// families lists the app's families and the font map's, the monospaced
-// ones when mono, as fontconfig knows them, without the generic families
+// fontMapFamilies lists the font map's families as fontconfig knows
+// them, with the app's under their own names, without the generic families
 // Pango adds (Sans, Serif, Monospace, System-ui), which are aliases rather
-// than fonts. The font map's hold the app's under their own names.
-func (e *pangoEngine) families(mono bool) (app, system []string) {
+// than fonts.
+func (e *pangoEngine) fontMapFamilies() []FontFamily {
 	l := &pangoLib
 	var arr *uintptr
 	var n int32
@@ -969,25 +970,51 @@ func (e *pangoEngine) families(mono bool) (app, system []string) {
 	if arr != nil {
 		defer l.gFree(uintptr(unsafe.Pointer(arr)))
 	}
-	fixed := map[string]bool{} // whether each family is monospaced, by lowercased name
+	var out []FontFamily
 	for _, fam := range unsafe.Slice(arr, int(n)) {
 		name := cString(l.fontFamilyGetName(fam))
 		switch strings.ToLower(name) {
 		case "", "sans", "serif", "monospace", "system-ui":
 			continue
 		}
-		isMono := l.fontFamilyIsMonospace(fam)
-		fixed[strings.ToLower(name)] = isMono
-		if !mono || isMono {
-			system = append(system, name)
+		out = append(out, FontFamily{Name: name, Monospaced: l.fontFamilyIsMonospace(fam)})
+	}
+	return out
+}
+
+// appFamilies lists the families of the app's fonts, monospaced as
+// fontconfig says their own families are.
+func (e *pangoEngine) appFamilies() []FontFamily {
+	if len(e.names) == 0 {
+		return nil
+	}
+	mono := map[string]bool{} // by lowercased name
+	for _, f := range e.fontMapFamilies() {
+		mono[strings.ToLower(f.Name)] = f.Monospaced
+	}
+	out := make([]FontFamily, len(e.names))
+	for i, name := range e.names {
+		out[i] = FontFamily{Name: name, Monospaced: mono[strings.ToLower(e.appFamily[strings.ToLower(name)])]}
+	}
+	return out
+}
+
+// systemFamilies lists the font map's families without the app's, which it
+// holds under their own names, as it is: a Pango font map is not
+// thread-safe, so it lists them under the lock, as quickly as fontconfig
+// does.
+func (e *pangoEngine) systemFamilies() func() []FontFamily {
+	app := map[string]bool{}
+	for _, own := range e.appFamily {
+		app[strings.ToLower(own)] = true
+	}
+	var out []FontFamily
+	for _, f := range e.fontMapFamilies() {
+		if !app[strings.ToLower(f.Name)] {
+			out = append(out, f)
 		}
 	}
-	for _, name := range e.names {
-		if !mono || fixed[strings.ToLower(e.appFamily[strings.ToLower(name)])] {
-			app = append(app, name)
-		}
-	}
-	return app, system
+	return func() []FontFamily { return out }
 }
 
 // register adds a font file to fontconfig's fonts for the app, from the
@@ -1035,12 +1062,14 @@ func (e *pangoEngine) register(data []byte, family string) error {
 				return errors.New("mygo: cannot add font under another family name")
 			}
 		}
+		// Listed under the name the app gave it, which is the one it uses.
 		e.appFamily[strings.ToLower(family)] = names[0]
 		e.names = append(e.names, family)
-	}
-	for _, name := range names {
-		e.appFamily[strings.ToLower(name)] = name
-		e.names = append(e.names, name)
+	} else {
+		for _, name := range names {
+			e.appFamily[strings.ToLower(name)] = name
+			e.names = append(e.names, name)
+		}
 	}
 	l.fontMapConfigChanged(e.fontMap)
 	// Fonts and descriptions found before may resolve differently now.

@@ -149,3 +149,45 @@ func TestDocumentWindow(t *testing.T) {
 		t.Errorf("recent documents %q", mygo.App.RecentDocuments())
 	}
 }
+
+// TestDocumentOtherApps checks that a document follows what other apps do
+// to its file, through the watch of the file: a save as editors do it, a
+// rename and a removal.
+func TestDocumentOtherApps(t *testing.T) {
+	mygo.App.SetPath(mygo.PathUserData, t.TempDir())
+	defer mygo.App.SetPath(mygo.PathUserData, "")
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	path := filepath.Join(dir, "other.e2enote")
+	if err := os.WriteFile(path, []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := notes().Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if w := doc.Window(); w != nil && !w.IsDestroyed() {
+			w.Destroy()
+		}
+	})
+	if err := os.WriteFile(path+".tmp", []byte("two, longer"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path+".tmp", path); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the document to read the new file", func() bool { return doc.Content() == "two, longer" })
+	renamed := filepath.Join(dir, "renamed.e2enote")
+	if err := os.Rename(path, renamed); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the document to follow the rename", func() bool { return doc.Path() == renamed })
+	if err := os.WriteFile(renamed, []byte("three"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the document to read the renamed file", func() bool { return doc.Content() == "three" })
+	if err := os.Remove(renamed); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the document to be deleted", func() bool { return doc.State().Deleted })
+}

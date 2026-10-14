@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -47,8 +48,8 @@ func TestTimelinePlaysTweensOneAfterTheOther(t *testing.T) {
 	var dur time.Duration
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("intro", TimelineOptions{})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
-		y = tl.To(Tween{From: -50, To: 50, Duration: 300 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
+		y = tl.Tween(Tween{From: -50, To: 50, Duration: 300 * time.Millisecond, Ease: Linear})
 		dur = tl.Duration()
 	})
 	if dur != 700*time.Millisecond {
@@ -71,15 +72,15 @@ func TestTimelinePlacesTweens(t *testing.T) {
 	var after, overlap, with, abs float32
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("places", TimelineOptions{})
-		after = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		after = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 		// 250ms to 450ms: 150ms before the one before it ends.
-		with = tl.To(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond},
-			OverlapPrevious(150*time.Millisecond))
+		with = tl.Tween(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond, Ease: Linear},
+			AfterPrevious(-150*time.Millisecond))
 		// 550ms to 750ms: 100ms after the one before it ends.
-		overlap = tl.To(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond},
+		overlap = tl.Tween(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond, Ease: Linear},
 			AfterPrevious(100*time.Millisecond))
 		// 550ms to 950ms: where the one before it starts.
-		abs = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond}, WithPrevious())
+		abs = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear}, WithPrevious(0))
 	})
 	closeFloat(t, after, 0)
 	closeFloat(t, overlap, 0)
@@ -109,15 +110,15 @@ func TestTimelinePlacesTweens(t *testing.T) {
 	closeFloat(t, abs, 50)
 }
 
-func TestTimelineAbsolutePlacementAndDelay(t *testing.T) {
+func TestTimelineAbsolutePlacement(t *testing.T) {
 	var abs, delayed float32
 	var dur time.Duration
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("abs", TimelineOptions{})
-		abs = tl.To(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond}, At(200*time.Millisecond))
-		// Placed at 400ms and held at its From for another 100ms.
-		delayed = tl.To(Tween{From: 10, To: 20, Duration: 200 * time.Millisecond, Delay: 100 * time.Millisecond},
-			At(400*time.Millisecond))
+		abs = tl.Tween(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond, Ease: Linear}, AtTime(200*time.Millisecond))
+		// Placed at 500ms, after the 200ms to 400ms of the one before it.
+		delayed = tl.Tween(Tween{From: 10, To: 20, Duration: 200 * time.Millisecond, Ease: Linear},
+			AtTime(500*time.Millisecond))
 		dur = tl.Duration()
 	})
 	if dur != 700*time.Millisecond {
@@ -142,11 +143,11 @@ func TestTimelineLabels(t *testing.T) {
 	var dur time.Duration
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("labels", TimelineOptions{})
-		a = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		a = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 		tl.Label("intro") // where a ends, at 400ms
-		b = tl.To(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond}, AtLabel("intro"))
-		tl.Label("far", At(800*time.Millisecond))
-		cv = tl.To(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond},
+		b = tl.Tween(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond, Ease: Linear}, AtLabel("intro", 0))
+		tl.Label("far", AtTime(800*time.Millisecond))
+		cv = tl.Tween(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond, Ease: Linear},
 			AtLabel("far", 100*time.Millisecond))
 		dur = tl.Duration()
 	})
@@ -167,16 +168,44 @@ func TestTimelineLabels(t *testing.T) {
 }
 
 func TestTimelineEase(t *testing.T) {
-	var linear, squared float32
+	var linear, squared, plain float32
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("ease", TimelineOptions{})
-		linear = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
-		squared = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: func(t float32) float32 { return t * t }},
-			At(0))
+		linear = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
+		squared = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: func(t float32) float32 { return t * t }},
+			AtTime(0))
+		plain = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond}, AtTime(0))
 	})
 	step(tt, now, 200*time.Millisecond)
 	closeFloat(t, linear, 50)
-	closeFloat(t, squared, 25) // the ease, not the time, shapes it
+	closeFloat(t, squared, 25)             // the ease, not the time, shapes it
+	closeFloat(t, plain, 100*EaseOut(0.5)) // no Ease eases out, as an Animation
+}
+
+func TestTimelinePlacesRelativeToThePrevious(t *testing.T) {
+	var first, overlap, with float32
+	var dur time.Duration
+	tt, now := timelineTester(func(c *context) {
+		tl := coreBox(c).Timeline("relative", TimelineOptions{})
+		first = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear}, AtTime(100*time.Millisecond))
+		// 300ms to 500ms: a negative offset overlaps the one before it.
+		overlap = tl.Tween(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond, Ease: Linear},
+			AfterPrevious(-200*time.Millisecond))
+		// 400ms to 600ms: 100ms after the one before it starts.
+		with = tl.Tween(Tween{From: 0, To: 100, Duration: 200 * time.Millisecond, Ease: Linear},
+			WithPrevious(100*time.Millisecond))
+		dur = tl.Duration()
+	})
+	if dur != 600*time.Millisecond {
+		t.Fatalf("Duration = %v, want 600ms", dur)
+	}
+	step(tt, now, 400*time.Millisecond)
+	closeFloat(t, first, 75)
+	closeFloat(t, overlap, 50)
+	closeFloat(t, with, 0)
+	step(tt, now, 100*time.Millisecond) // 500ms
+	closeFloat(t, overlap, 100)
+	closeFloat(t, with, 50)
 }
 
 func TestTimelineTimeAndProgress(t *testing.T) {
@@ -185,8 +214,8 @@ func TestTimelineTimeAndProgress(t *testing.T) {
 	var done bool
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("progress", TimelineOptions{})
-		tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
-		tm, p, done = tl.Time(), tl.Progress(), tl.Done()
+		tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
+		tm, p, done = tl.Time(), tl.Progress(), tl.Settled()
 	})
 	if tm != 0 || p != 0 || done {
 		t.Fatalf("a new timeline is at %v, %v, done %v", tm, p, done)
@@ -208,7 +237,7 @@ func TestTimelinePauseAndResume(t *testing.T) {
 	paused := false
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("pause", TimelineOptions{Paused: paused})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 	})
 	step(tt, now, 100*time.Millisecond)
 	closeFloat(t, x, 25)
@@ -231,7 +260,7 @@ func TestTimelineSeekAndProgressHoldThePlayhead(t *testing.T) {
 	var progress *float32
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("seek", TimelineOptions{Seek: seek, Progress: progress})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 	})
 	step(tt, now, 100*time.Millisecond)
 	closeFloat(t, x, 25)
@@ -270,8 +299,8 @@ func TestTimelineReverse(t *testing.T) {
 	reverse := false
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("reverse", TimelineOptions{Reverse: reverse})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
-		done = tl.Done()
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
+		done = tl.Settled()
 	})
 	step(tt, now, 100*time.Millisecond)
 	closeFloat(t, x, 25)
@@ -299,7 +328,7 @@ func TestTimelineReversesFromItsEnd(t *testing.T) {
 	reverse := false
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("close", TimelineOptions{Reverse: reverse})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 	})
 	step(tt, now, 400*time.Millisecond)
 	closeFloat(t, x, 100)
@@ -323,7 +352,7 @@ func TestTimelineStartsReversedAtItsStart(t *testing.T) {
 	reverse, run := true, uint64(0)
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("open", TimelineOptions{Reverse: reverse, Run: run})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 	})
 	closeFloat(t, x, 0)
 	resting(t, tt)
@@ -342,7 +371,7 @@ func TestTimelineRepeatAndAlternate(t *testing.T) {
 	var x float32
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("repeat", TimelineOptions{Repeat: 1})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 	})
 	step(tt, now, 200*time.Millisecond)
 	closeFloat(t, x, 50)
@@ -358,7 +387,7 @@ func TestTimelineRepeatAndAlternate(t *testing.T) {
 	var tm time.Duration
 	tt, now = timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("alternate", TimelineOptions{Repeat: 1, Alternate: true})
-		y = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		y = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 		tm = tl.Time()
 	})
 	step(tt, now, 200*time.Millisecond)
@@ -380,8 +409,8 @@ func TestTimelineRepeatForever(t *testing.T) {
 	var done bool
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("forever", TimelineOptions{Repeat: RepeatForever})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
-		done = tl.Done()
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
+		done = tl.Settled()
 	})
 	step(tt, now, 100*time.Millisecond)
 	closeFloat(t, x, 25)
@@ -401,9 +430,9 @@ func TestTimelineStagger(t *testing.T) {
 	var dur time.Duration
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("stagger", TimelineOptions{})
-		tl.Label("rows", At(0))
+		tl.Label("rows", AtTime(0))
 		for i := range v {
-			v[i] = tl.To(Tween{From: 0, To: 1, Duration: 100 * time.Millisecond},
+			v[i] = tl.Tween(Tween{From: 0, To: 1, Duration: 100 * time.Millisecond, Ease: Linear},
 				AtLabel("rows", time.Duration(i)*50*time.Millisecond))
 		}
 		dur = tl.Duration()
@@ -434,8 +463,8 @@ func TestTimelineCompletion(t *testing.T) {
 	var done, arrived bool
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("done", TimelineOptions{})
-		x = tl.To(Tween{From: 0, To: 1, Duration: 100 * time.Millisecond})
-		done, arrived = tl.Done(), tl.Arrived()
+		x = tl.Tween(Tween{From: 0, To: 1, Duration: 100 * time.Millisecond, Ease: Linear})
+		done, arrived = tl.Settled(), tl.Arrived()
 	})
 	if done || arrived {
 		t.Fatal("a new timeline is done or arrived")
@@ -464,7 +493,7 @@ func TestTimelineRestartsWhenRunChanges(t *testing.T) {
 	var run uint64
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("run", TimelineOptions{Run: run})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 	})
 	step(tt, now, 300*time.Millisecond)
 	closeFloat(t, x, 75)
@@ -483,10 +512,10 @@ func TestTimelineFollowsAChangedDefinition(t *testing.T) {
 	two := false
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("definition", TimelineOptions{})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 		y = 0
 		if two {
-			y = tl.To(Tween{From: 0, To: 10, Duration: 200 * time.Millisecond})
+			y = tl.Tween(Tween{From: 0, To: 10, Duration: 200 * time.Millisecond, Ease: Linear})
 		}
 	})
 	step(tt, now, 300*time.Millisecond)
@@ -507,8 +536,8 @@ func TestTimelineLessMotion(t *testing.T) {
 	var done bool
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("less", TimelineOptions{})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
-		done = tl.Done()
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
+		done = tl.Settled()
 	})
 	closeFloat(t, x, 0)
 	tt.SetPreferences(Preferences{ReduceMotion: true})
@@ -523,12 +552,41 @@ func TestTimelineLessMotion(t *testing.T) {
 	resting(t, tt)
 }
 
+func TestTimelineLessMotionKeepsDirectManipulation(t *testing.T) {
+	// A scrubber and a pause still move and hold the playhead with less
+	// motion: only the timeline playing on its own goes to rest at once.
+	var x float32
+	var o TimelineOptions
+	tt, now := timelineTester(func(c *context) {
+		tl := coreBox(c).Timeline("less-held", o)
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
+	})
+	tt.SetPreferences(Preferences{ReduceMotion: true})
+	closeFloat(t, x, 100)
+	at := 100 * time.Millisecond
+	o.Seek = &at
+	step(tt, now, 16*time.Millisecond)
+	closeFloat(t, x, 25) // the scrubber moves it, even from where it rested
+	part := float32(0.5)
+	o.Seek, o.Progress = nil, &part
+	step(tt, now, 16*time.Millisecond)
+	closeFloat(t, x, 50)
+	o.Progress, o.Paused = nil, true
+	step(tt, now, time.Second)
+	closeFloat(t, x, 50) // paused, it holds where the scrubber left it
+	resting(t, tt)
+	o.Paused = false
+	step(tt, now, 16*time.Millisecond)
+	closeFloat(t, x, 100) // let go, it is at once where it comes to rest
+	resting(t, tt)
+}
+
 func TestTimelineLessMotionRestarts(t *testing.T) {
 	var x float32
 	var run uint64
 	tt, _ := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("less-run", TimelineOptions{Run: run})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 	})
 	tt.SetPreferences(Preferences{ReduceMotion: true})
 	closeFloat(t, x, 100)
@@ -542,7 +600,7 @@ func TestTimelineWithoutTweensStops(t *testing.T) {
 	var done bool
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("empty", TimelineOptions{})
-		done = tl.Done()
+		done = tl.Settled()
 	})
 	// Nothing is known to play yet: the next frame is the one that shows
 	// the timeline has nothing to play.
@@ -563,7 +621,7 @@ func TestTimelineGoesWithTheView(t *testing.T) {
 		}
 		e := coreBox(c)
 		id = e.id
-		x = e.Timeline("gone", TimelineOptions{}).To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = e.Timeline("gone", TimelineOptions{}).Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 	})
 	step(tt, now, 200*time.Millisecond)
 	closeFloat(t, x, 50)
@@ -583,7 +641,7 @@ func TestTimelinesOfTwoElements(t *testing.T) {
 	tt, now := timelineTester(func(c *context) {
 		for i := range v {
 			tl := coreBox(c).Timeline("card", TimelineOptions{Run: runs[i]})
-			v[i] = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+			v[i] = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 		}
 	})
 	step(tt, now, 200*time.Millisecond)
@@ -601,7 +659,7 @@ func TestTimelineLetsASeekGoWhereItHeld(t *testing.T) {
 	var seek *time.Duration
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("held", TimelineOptions{Seek: seek})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 	})
 	where := 100 * time.Millisecond
 	seek = &where
@@ -634,7 +692,7 @@ func TestTimelineLessMotionRestsWhereItWould(t *testing.T) {
 			var x, p float32
 			tt, now := timelineTester(func(c *context) {
 				tl := coreBox(c).Timeline("less", tc.o)
-				x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+				x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 				p = tl.Progress()
 			})
 			tt.SetPreferences(Preferences{ReduceMotion: true})
@@ -653,7 +711,7 @@ func TestTimelineGoesOnAfterFramesAtRest(t *testing.T) {
 	span := 400 * time.Millisecond
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("rest", TimelineOptions{})
-		x = tl.To(Tween{From: 0, To: 100, Duration: span})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: span, Ease: Linear})
 	})
 	step(tt, now, 400*time.Millisecond)
 	step(tt, now, time.Second)
@@ -666,11 +724,11 @@ func TestTimelineGoesOnAfterFramesAtRest(t *testing.T) {
 
 func TestTimelineNilIsSafe(t *testing.T) {
 	var tl *Timeline
-	if got := tl.To(Tween{From: 3, To: 9, Duration: time.Second}); got != 3 {
+	if got := tl.Tween(Tween{From: 3, To: 9, Duration: time.Second, Ease: Linear}); got != 3 {
 		t.Fatalf("a nil Timeline showed %v, want its From", got)
 	}
 	tl.Label("nowhere")
-	if tl.Duration() != 0 || tl.Time() != 0 || tl.Progress() != 0 || tl.Done() || tl.Arrived() {
+	if tl.Duration() != 0 || tl.Time() != 0 || tl.Progress() != 0 || tl.Settled() || tl.Arrived() {
 		t.Fatal("a nil Timeline answered")
 	}
 }
@@ -681,25 +739,31 @@ func TestTimelinePanics(t *testing.T) {
 		view func(*context)
 	}{
 		{"a negative duration", func(c *context) {
-			coreBox(c).Timeline("t", TimelineOptions{}).To(Tween{From: 0, To: 1, Duration: -time.Millisecond})
+			coreBox(c).Timeline("t", TimelineOptions{}).Tween(Tween{From: 0, To: 1, Duration: -time.Millisecond, Ease: Linear})
 		}},
-		{"a negative delay", func(c *context) {
-			coreBox(c).Timeline("t", TimelineOptions{}).To(Tween{From: 0, To: 1, Duration: time.Second, Delay: -time.Millisecond})
+		{"Seek and Progress", func(c *context) {
+			at, part := time.Duration(0), float32(0)
+			coreBox(c).Timeline("t", TimelineOptions{Seek: &at, Progress: &part})
+		}},
+		{"one key twice in a build", func(c *context) {
+			b := coreBox(c)
+			b.Timeline("t", TimelineOptions{})
+			b.Timeline("t", TimelineOptions{})
+		}},
+		{"a value that is not finite", func(c *context) {
+			coreBox(c).Timeline("t", TimelineOptions{}).Tween(Tween{From: 0, To: float32(math.Inf(1)), Duration: time.Second})
 		}},
 		{"two placements", func(c *context) {
-			coreBox(c).Timeline("t", TimelineOptions{}).To(Tween{From: 0, To: 1, Duration: time.Second}, At(0), At(time.Second))
+			coreBox(c).Timeline("t", TimelineOptions{}).Tween(Tween{From: 0, To: 1, Duration: time.Second, Ease: Linear}, AtTime(0), AtTime(time.Second))
 		}},
 		{"a label that was not marked", func(c *context) {
-			coreBox(c).Timeline("t", TimelineOptions{}).To(Tween{From: 0, To: 1, Duration: time.Second}, AtLabel("nowhere"))
+			coreBox(c).Timeline("t", TimelineOptions{}).Tween(Tween{From: 0, To: 1, Duration: time.Second, Ease: Linear}, AtLabel("nowhere", 0))
 		}},
 		{"a Repeat below RepeatForever", func(c *context) {
-			coreBox(c).Timeline("t", TimelineOptions{Repeat: -2}).To(Tween{From: 0, To: 1, Duration: time.Second})
+			coreBox(c).Timeline("t", TimelineOptions{Repeat: -2}).Tween(Tween{From: 0, To: 1, Duration: time.Second, Ease: Linear})
 		}},
 		{"a negative timeline delay", func(c *context) {
-			coreBox(c).Timeline("t", TimelineOptions{Delay: -time.Millisecond}).To(Tween{From: 0, To: 1, Duration: time.Second})
-		}},
-		{"two label offsets", func(c *context) {
-			AtLabel("a", 0, time.Second)
+			coreBox(c).Timeline("t", TimelineOptions{Delay: -time.Millisecond}).Tween(Tween{From: 0, To: 1, Duration: time.Second, Ease: Linear})
 		}},
 	}
 	for _, tc := range cases {
@@ -721,8 +785,8 @@ func TestTimelinePlaysOnceAtOnce(t *testing.T) {
 	var done bool
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("instant", TimelineOptions{})
-		x = tl.To(Tween{From: 0, To: 100})
-		done = tl.Done()
+		x = tl.Tween(Tween{From: 0, To: 100, Ease: Linear})
+		done = tl.Settled()
 	})
 	step(tt, now, time.Millisecond)
 	closeFloat(t, x, 100)
@@ -739,9 +803,9 @@ func TestTimelineEndsATweenThatTakesNoTime(t *testing.T) {
 	var done bool
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("instant-end", TimelineOptions{})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
-		last = tl.To(Tween{From: 0, To: 1})
-		done = tl.Done()
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
+		last = tl.Tween(Tween{From: 0, To: 1, Ease: Linear})
+		done = tl.Settled()
 	})
 	closeFloat(t, last, 0) // its time has not come yet
 	step(tt, now, 400*time.Millisecond)
@@ -758,7 +822,7 @@ func TestTimelinePausedTimeIsNotPlayedTime(t *testing.T) {
 	paused := false
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("pause-idle", TimelineOptions{Paused: paused})
-		x = tl.To(Tween{From: 0, To: 100, Duration: time.Second})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: time.Second, Ease: Linear})
 	})
 	step(tt, now, 250*time.Millisecond)
 	closeFloat(t, x, 25)
@@ -784,7 +848,7 @@ func TestTimelineStartsWhereItIsAsked(t *testing.T) {
 	part := float32(0.25)
 	tt, _ := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("part-at-once", TimelineOptions{Progress: &part})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 	})
 	closeFloat(t, x, 25)
 	resting(t, tt)
@@ -792,7 +856,7 @@ func TestTimelineStartsWhereItIsAsked(t *testing.T) {
 	where := 100 * time.Millisecond
 	tt, _ = timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("seek-at-once", TimelineOptions{Seek: &where})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 	})
 	closeFloat(t, x, 25)
 	resting(t, tt)
@@ -804,8 +868,8 @@ func TestTimelinePlaysOnADefinitionThatGoesOn(t *testing.T) {
 	span := 400 * time.Millisecond
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("grow", TimelineOptions{})
-		x = tl.To(Tween{From: 0, To: 100, Duration: span})
-		done = tl.Done()
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: span, Ease: Linear})
+		done = tl.Settled()
 	})
 	step(tt, now, 400*time.Millisecond)
 	closeFloat(t, x, 100)
@@ -831,7 +895,7 @@ func TestTimelineArrivesAgainAfterSeekingBack(t *testing.T) {
 	var where *time.Duration
 	tt, now := timelineTester(func(c *context) {
 		tl := coreBox(c).Timeline("arrive-again", TimelineOptions{Seek: where})
-		x = tl.To(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: 400 * time.Millisecond, Ease: Linear})
 		arrived = tl.Arrived()
 	})
 	step(tt, now, 400*time.Millisecond)
@@ -864,7 +928,7 @@ func TestTimelineAppliesOptionsInTheFrameTheyChange(t *testing.T) {
 	var x float32
 	tt, now := timelineClickTester(func(c *context) {
 		tl := coreBox(c).Timeline("restart", TimelineOptions{Run: run})
-		x = tl.To(Tween{From: 0, To: 100, Duration: time.Second})
+		x = tl.Tween(Tween{From: 0, To: 100, Duration: time.Second, Ease: Linear})
 		if coreButton(c, "Restart").Clicked() {
 			run++
 		}

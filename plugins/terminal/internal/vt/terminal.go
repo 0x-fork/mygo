@@ -20,6 +20,9 @@ type Terminal struct {
 	// silent is set while a clipboard read goes unanswered: the refusal
 	// the library writes for it is dropped.
 	silent bool
+	// reply gathers what the library writes while it answers a clipboard
+	// read, which WritePTY then gets at once.
+	reply *[]byte
 }
 
 // ClipboardRead is a program's request to read the clipboard.
@@ -65,7 +68,8 @@ type Effects struct {
 	// the MIME types asked for, and the types available when the program
 	// asks for the list. With answer false the program gets no reply at
 	// all, as from a terminal that is not the one to answer; a reply
-	// with no contents refuses it (EPERM).
+	// with no contents refuses it (EPERM). The reply, encoded, comes to
+	// WritePTY in one call as ClipboardRead returns.
 	ClipboardRead func(req ClipboardRead) (reply ClipboardReply, answer bool)
 	// Size reports the size of the screen in cells and of a cell in
 	// pixels, for size reports.
@@ -559,6 +563,10 @@ func makeCallbacks() {
 				t.silent = false
 				return 0
 			}
+			if t.reply != nil {
+				*t.reply = append(*t.reply, p...)
+				return 0
+			}
 			t.effects.WritePTY(p)
 		}
 		return 0
@@ -600,7 +608,13 @@ func makeCallbacks() {
 				reply.available, reply.availableLen = uintptr(unsafe.Pointer(&available[0])), uintptr(len(available))
 			}
 		}
+		var written []byte
+		t.reply = &written
 		call(r.reply, req, uintptr(unsafe.Pointer(&reply)))
+		t.reply = nil
+		if len(written) > 0 && t.effects.WritePTY != nil {
+			t.effects.WritePTY(written)
+		}
 		runtime.KeepAlive(keep)
 		runtime.KeepAlive(out)
 		runtime.KeepAlive(contents)
