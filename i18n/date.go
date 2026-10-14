@@ -94,7 +94,7 @@ func NewDateFormatter(locale string, o DateOptions) *DateFormatter {
 		return f
 	}
 	k := keyOf(locale)
-	d := k.dat()
+	d := k.dates()
 	f = &DateFormatter{key: k, data: d, sys: d.numbers(k.latn)}
 	f.pattern = datePattern(k, d, o)
 	f.items = parsePattern(f.pattern)
@@ -399,7 +399,7 @@ var periodRuleCache sync.Map // string -> *dayPeriodRules
 // periodRules returns the rules of day periods of a locale: of the
 // locale, else of its language; nil when CLDR has none MyGo keeps.
 func periodRules(lang, tag string) *dayPeriodRules {
-	loadTables()
+	loadDates()
 	i, ok := search(tables.periodLangs, tag)
 	if !ok {
 		i, ok = search(tables.periodLangs, lang)

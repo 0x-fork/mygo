@@ -205,8 +205,8 @@ func BenchmarkMonths(b *testing.B) {
 
 func BenchmarkLoadTables(b *testing.B) {
 	for b.Loop() {
-		tables.once = sync.Once{}
-		loadTables()
+		tables.once, tables.datesOnce = sync.Once{}, sync.Once{}
+		loadDates()
 	}
 }
 

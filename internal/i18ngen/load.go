@@ -41,6 +41,12 @@ type Options struct {
 	// to, each in a package of github.com/egoist/mygo/locales, which the
 	// accessors of an app's catalogs import for the app's languages.
 	Translations []string
+	// Own is set for MyGo's own strings (internal/l10n), whose accessors
+	// embed messages/, the catalog of the source language without its
+	// metadata (MessagesJSON), and make the catalog through
+	// internal/i18nlink, which links no formatting of dates: every app
+	// carries them.
+	Own bool
 }
 
 // Catalog is the catalogs of the languages of an app or a library.
@@ -59,6 +65,8 @@ type Catalog struct {
 	// app's languages, which its accessors import: those of
 	// Options.Translations that suit a language of the catalogs best.
 	Translations []string
+	// Own is Options.Own.
+	Own bool
 }
 
 // File is the catalog of one language.
@@ -179,7 +187,7 @@ func Load(fsys fs.FS, opts Options) (*Catalog, Diagnostics, error) {
 	if opts.Source == "" {
 		opts.Source = "en"
 	}
-	l := &loader{opts: opts, c: &Catalog{Namespace: opts.Namespace, Files: map[string]*File{}}}
+	l := &loader{opts: opts, c: &Catalog{Namespace: opts.Namespace, Own: opts.Own, Files: map[string]*File{}}}
 	src := i18n.Normalize(opts.Source)
 	if src == "" || src != opts.Source || i18n.IsPseudo(src) {
 		l.errorf(opts.Dir, 0, "the source language %q is not a BCP 47 tag in its canonical form (as en, de-CH or zh-Hans)", opts.Source)

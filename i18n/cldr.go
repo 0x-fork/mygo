@@ -13,65 +13,100 @@ import (
 
 // The formatting data of the locales of CLDR's modern coverage, which
 // format_tables.go holds as the slots in which each locale differs from
-// its parent (see i18n/internal/gen). A locale's data is put together the
-// first time it formats something and kept.
+// its parent (see i18n/internal/gen), in two halves: the numbers, which
+// every app that formats a message uses, and the dates, with the names
+// of languages, which an app links only if it formats them. A locale's
+// data is put together the first time it formats something, its dates
+// the first time it formats a date, and kept.
 
 // localeData is the formatting data of a locale.
 type localeData struct {
-	tag string // the locale of CLDR, as "en-GB"
-	v   [slotCount]string
+	index int    // in tables.locales
+	tag   string // the locale of CLDR, as "en-GB"
+	// v holds the slots of the numbers, and those of the dates once
+	// withDates filled them.
+	v [slotCount]string
 
 	numOnce sync.Once
 	num     [2]*numberSystem // the default numbering system, and latn
+
+	datesOnce sync.Once
 
 	dtpgOnce sync.Once
 	dtpg     *patternGenerator
 }
 
 // tables are the tables of format_tables.go, inflated and split on first
-// use.
+// use: the locales and the numbers, then the dates.
 var tables struct {
-	once                                        sync.Once
-	locales, autonymTags, hourKeys, weekRegions []string
-	skeletons, periodLangs                      []string
-	parents, entries, autonyms, pool            string
-	starts                                      []uint32 // where each string of the pool starts
+	once                           sync.Once
+	locales, hourKeys, weekRegions []string
+	parents                        string
+	numbers                        pool
+
+	datesOnce                           sync.Once
+	dates                               pool
+	autonymTags, skeletons, periodLangs []string
+	autonyms                            string
 }
 
+// pool is the entries of a half of the data, and its strings.
+type pool struct {
+	entries, strings string
+	starts           []uint32 // where each string starts
+}
+
+// unpack inflates a blob of packed tables and returns its tables.
+func unpack(packed string, lens ...int) []string {
+	raw, err := io.ReadAll(flate.NewReader(strings.NewReader(packed)))
+	if err != nil {
+		panic("i18n: the formatting data does not inflate: " + err.Error())
+	}
+	all := string(raw)
+	out := make([]string, len(lens))
+	for i, n := range lens {
+		out[i], all = all[:n], all[n:]
+	}
+	return out
+}
+
+// newPool returns the pool of entries, the lengths of count strings and
+// the strings.
+func newPool(entries, lens, strs string, count int) pool {
+	p := pool{entries: entries, strings: strs, starts: make([]uint32, count+1)}
+	for i := 0; i < count; i++ {
+		p.starts[i+1] = p.starts[i] + uint32(lens[i])
+	}
+	return p
+}
+
+// at returns string i of the pool.
+func (p *pool) at(i uint32) string { return p.strings[p.starts[i]:p.starts[i+1]] }
+
+// loadTables loads the locales, their numbers and the week and time data.
 func loadTables() {
 	tables.once.Do(func() {
-		raw, err := io.ReadAll(flate.NewReader(strings.NewReader(fmtPacked)))
-		if err != nil {
-			panic("i18n: the formatting data does not inflate: " + err.Error())
-		}
-		all := string(raw)
-		next := func(n int) string {
-			s := all[:n]
-			all = all[n:]
-			return s
-		}
-		tables.locales = append([]string{""}, strings.Fields(next(packedLocalesLen))...)
-		tables.parents = next(packedParentsLen)
-		tables.entries = next(packedEntriesLen)
-		tables.autonymTags = strings.Fields(next(packedAutonymTagsLen))
-		tables.autonyms = next(packedAutonymsLen)
-		lens := next(packedLensLen)
-		tables.pool = next(packedPoolLen)
+		t := unpack(fmtPackedNumbers, packedLocalesLen, packedParentsLen, packedNumberEntriesLen, packedNumberLensLen, packedNumberPoolLen)
+		tables.locales = append([]string{""}, strings.Fields(t[0])...)
+		tables.parents = t[1]
+		tables.numbers = newPool(t[2], t[3], t[4], fmtNumberStringCount)
 		tables.hourKeys = strings.Fields(fmtHourKeys)
 		tables.weekRegions = strings.Fields(fmtWeekRegions)
-		tables.skeletons = strings.Fields(fmtSkeletons)
-		tables.periodLangs = strings.Fields(fmtPeriodLangs)
-		tables.starts = make([]uint32, fmtStringCount+1)
-		for i := 0; i < fmtStringCount; i++ {
-			tables.starts[i+1] = tables.starts[i] + uint32(lens[i])
-		}
 	})
 }
 
-// fmtString returns string i of the pool.
-func fmtString(i uint32) string {
+// loadDates loads the tables of the dates and of the names of languages,
+// and those of loadTables.
+func loadDates() {
 	loadTables()
-	return tables.pool[tables.starts[i]:tables.starts[i+1]]
+	tables.datesOnce.Do(func() {
+		t := unpack(fmtPackedDates, packedDateEntriesLen, packedDateLensLen, packedDatePoolLen, packedAutonymTagsLen, packedAutonymsLen)
+		tables.dates = newPool(t[0], t[1], t[2], fmtDateStringCount)
+		tables.autonymTags = strings.Fields(t[3])
+		tables.autonyms = t[4]
+		tables.skeletons = strings.Fields(fmtSkeletons)
+		tables.periodLangs = strings.Fields(fmtPeriodLangs)
+	})
 }
 
 // uint16At returns the big-endian uint16 at index i of a table of them.
@@ -81,32 +116,46 @@ func uint16At(table string, i int) int {
 
 var localeDatas [fmtLocaleCount]atomic.Pointer[localeData]
 
-// dataAt returns the data of locale i.
+// dataAt returns the data of locale i, with its numbers.
 func dataAt(i int) *localeData {
 	if d := localeDatas[i].Load(); d != nil {
 		return d
 	}
 	loadTables()
-	d := &localeData{tag: tables.locales[i]}
-	// The locale's entries, then its parents', the root's last: the
-	// nearest wins.
+	d := &localeData{index: i, tag: tables.locales[i]}
+	d.fill(&tables.numbers, fmtNumberStarts[:])
+	if !localeDatas[i].CompareAndSwap(nil, d) {
+		return localeDatas[i].Load()
+	}
+	return d
+}
+
+// withDates returns d with the slots of its dates, filled the first time.
+func (d *localeData) withDates() *localeData {
+	d.datesOnce.Do(func() {
+		loadDates()
+		d.fill(&tables.dates, fmtDateStarts[:])
+	})
+	return d
+}
+
+// fill sets the slots of a half of the data, p, whose entries of each
+// locale start at starts: the locale's entries, then its parents', the
+// root's last; the nearest wins.
+func (d *localeData) fill(p *pool, starts []uint16) {
 	var set [slotCount]bool
-	for j := i; ; j = uint16At(tables.parents, j) {
-		for e := int(fmtStarts[j]); e < int(fmtStarts[j+1]); e++ {
-			v := uint32(tables.entries[3*e])<<16 | uint32(tables.entries[3*e+1])<<8 | uint32(tables.entries[3*e+2])
+	for j := d.index; ; j = uint16At(tables.parents, j) {
+		for e := int(starts[j]); e < int(starts[j+1]); e++ {
+			v := uint32(p.entries[3*e])<<16 | uint32(p.entries[3*e+1])<<8 | uint32(p.entries[3*e+2])
 			if s := v >> 15; !set[s] {
 				set[s] = true
-				d.v[s] = fmtString(v & (1<<15 - 1))
+				d.v[s] = p.at(v & (1<<15 - 1))
 			}
 		}
 		if j == 0 {
 			break
 		}
 	}
-	if !localeDatas[i].CompareAndSwap(nil, d) {
-		return localeDatas[i].Load()
-	}
-	return d
 }
 
 // localeKey is how a locale formats: the locale of CLDR whose data it
@@ -224,6 +273,9 @@ func readUnicodeExtension(k *localeKey, ext string) {
 
 func (k *localeKey) dat() *localeData { return dataAt(k.data) }
 
+// dates returns the data of the locale, with its dates.
+func (k *localeKey) dates() *localeData { return k.dat().withDates() }
+
 // weekData returns the first day of the week and the minimal days of the
 // first week of the year in a region, by CLDR's week data.
 func weekData(region string) (time.Weekday, int) {
@@ -340,7 +392,7 @@ func dayWidth(w Width) int {
 // months, takes standAlone: some languages write it otherwise inside a
 // date ("января" of "5 января" but "январь" alone, in Russian).
 func Months(locale string, w Width, standAlone bool) [12]string {
-	d := keyOf(locale).dat()
+	d := keyOf(locale).dates()
 	ctx := 0
 	if standAlone {
 		ctx = 1
@@ -355,7 +407,7 @@ func Months(locale string, w Width, standAlone bool) [12]string {
 // time.Weekday (Sunday first), in a width, standing alone or inside a
 // date as Months does.
 func Weekdays(locale string, w Width, standAlone bool) [7]string {
-	d := keyOf(locale).dat()
+	d := keyOf(locale).dates()
 	ctx := 0
 	if standAlone {
 		ctx = 1
@@ -370,7 +422,7 @@ func Weekdays(locale string, w Width, standAlone bool) [7]string {
 // noon and after, in a width: "AM" and "PM" in English, "上午" and "下午" in
 // Chinese.
 func DayPeriods(locale string, w Width) (am, pm string) {
-	d := keyOf(locale).dat()
+	d := keyOf(locale).dates()
 	base := slotDayPeriods + monthWidth(w)*len(periodNames)
 	return d.v[base], d.v[base+1]
 }
@@ -391,21 +443,21 @@ func Autonym(tag string) string {
 	if IsPseudo(t) {
 		return t
 	}
-	loadTables()
+	loadDates()
 	if i, ok := search(tables.autonymTags, t); ok {
-		return fmtString(uint32(uint16At(tables.autonyms, i)))
+		return tables.dates.at(uint32(uint16At(tables.autonyms, i)))
 	}
 	// A locale CLDR has no name of: the name of the locale whose data it
 	// formats with, zh-Hant's for zh-TW, sr-Latn-ME's for sr-ME, else of
 	// its parents.
 	if k := keyOf(t); k.lang == Base(t) {
 		if i, ok := search(tables.autonymTags, tables.locales[k.data]); ok {
-			return fmtString(uint32(uint16At(tables.autonyms, i)))
+			return tables.dates.at(uint32(uint16At(tables.autonyms, i)))
 		}
 	}
 	for _, c := range chain(t) {
 		if i, ok := search(tables.autonymTags, c); ok {
-			return fmtString(uint32(uint16At(tables.autonyms, i)))
+			return tables.dates.at(uint32(uint16At(tables.autonyms, i)))
 		}
 	}
 	return ""

@@ -4,12 +4,18 @@ package l10n
 
 import (
 	"embed"
+	"io/fs"
 
 	"github.com/egoist/mygo/i18n"
+	"github.com/egoist/mygo/internal/i18nlink"
 )
 
-//go:embed *.json
-var files embed.FS
+// messages holds messages/en.json, the messages of en without their
+// descriptions, which go generate writes for the catalog: every app carries
+// it.
+//
+//go:embed messages/*.json
+var messages embed.FS
 
 // Catalog holds the messages in en, the source language, and those of the
 // translations added to it (Catalog.Add). Apps change them, or translate
@@ -17,10 +23,15 @@ var files embed.FS
 var Catalog *i18n.Catalog
 
 func init() {
-	var err error
-	if Catalog, err = i18n.NewLibraryCatalog(files, "en", "mygo"); err != nil {
+	files, err := fs.Sub(messages, "messages")
+	if err != nil {
 		panic(err)
 	}
+	c, err := i18nlink.NewLibraryCatalog(files, "en", "mygo")
+	if err != nil {
+		panic(err)
+	}
+	Catalog = c.(*i18n.Catalog)
 }
 
 // Messages say the messages in one language.

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/egoist/mygo/internal/i18nlink"
 )
 
 // A Catalog holds the messages of an app, or of a library, in the
@@ -87,6 +89,12 @@ type candidates struct {
 // a file that does not, is left out, and its keys fall back as missing ones
 // do: `mygo generate` and `mygo i18n check` report them.
 func NewCatalog(fsys fs.FS, source string) (*Catalog, error) {
+	linkTimes()
+	return newCatalog(fsys, source)
+}
+
+// newCatalog is NewCatalog without linking the formatting of dates.
+func newCatalog(fsys fs.FS, source string) (*Catalog, error) {
 	src := Normalize(source)
 	if src == "" || IsPseudo(src) {
 		return nil, fmt.Errorf("i18n: the source language %q is not a language", source)
@@ -189,10 +197,17 @@ func (c *Catalog) Add(fsys fs.FS) error {
 // app, then to the library's. A library's catalog is not registered: the
 // languages an app ships are its own.
 func NewLibraryCatalog(fsys fs.FS, source, namespace string) (*Catalog, error) {
+	linkTimes()
+	return newLibraryCatalog(fsys, source, namespace)
+}
+
+// newLibraryCatalog is NewLibraryCatalog without linking the formatting
+// of dates, for MyGo's own strings (internal/i18nlink), which have none.
+func newLibraryCatalog(fsys fs.FS, source, namespace string) (*Catalog, error) {
 	if namespace == "" || strings.ContainsAny(namespace, ".@ ") {
 		return nil, fmt.Errorf("i18n: %q is not a namespace", namespace)
 	}
-	c, err := NewCatalog(fsys, source)
+	c, err := newCatalog(fsys, source)
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +394,7 @@ func (l *langMsgs) load() map[string]*Message {
 		if json.Unmarshal(v, &s) != nil {
 			continue
 		}
-		if m, err := ParseMessage(s); err == nil {
+		if m, err := parseMessage(s); err == nil {
 			msgs[key] = m
 		}
 	}
@@ -444,4 +459,10 @@ func Locale() string {
 		return (*f)()
 	}
 	return ""
+}
+
+func init() {
+	i18nlink.NewLibraryCatalog = func(fsys fs.FS, source, namespace string) (any, error) {
+		return newLibraryCatalog(fsys, source, namespace)
+	}
 }

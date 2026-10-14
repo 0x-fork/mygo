@@ -2,9 +2,11 @@ package i18ngen
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"go/format"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -14,6 +16,30 @@ import (
 
 // GoFile is the file of the Go accessors, in the catalogs' directory.
 const GoFile = "catalog_gen.go"
+
+// MessagesDir is the directory, in the catalogs', of the catalog of the
+// source language without its metadata that the accessors of MyGo's own
+// strings embed (Options.Own).
+const MessagesDir = "messages"
+
+// MessagesJSON returns the catalog of f without its metadata: its
+// messages, in their order, as the accessors of MyGo's own strings embed
+// them (Options.Own).
+func MessagesJSON(f *File) []byte {
+	var b bytes.Buffer
+	b.WriteString("{\n")
+	for i, key := range f.Keys {
+		k, _ := json.Marshal(key)
+		v, _ := json.Marshal(f.Messages[key])
+		fmt.Fprintf(&b, "  %s: %s", k, v)
+		if i < len(f.Keys)-1 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteString("}\n")
+	return b.Bytes()
+}
 
 // Go returns the Go accessors of a catalog, the source of GoFile in
 // package pkg: an embed of the catalogs, a function per key that says its
@@ -36,7 +62,13 @@ func Go(c *Catalog, pkg string) ([]byte, error) {
 	if usesTime {
 		w("\t\"time\"\n")
 	}
+	if c.Own {
+		w("\t\"io/fs\"\n")
+	}
 	w("\n\t\"github.com/egoist/mygo/i18n\"\n")
+	if c.Own {
+		w("\t\"github.com/egoist/mygo/internal/i18nlink\"\n")
+	}
 	if len(c.Translations) > 0 {
 		w("\n\t// MyGo's own strings in the app's languages.\n")
 		for _, tag := range c.Translations {
@@ -44,7 +76,12 @@ func Go(c *Catalog, pkg string) ([]byte, error) {
 		}
 	}
 	w(")\n\n")
-	w("//go:embed *.json\nvar files embed.FS\n\n")
+	if c.Own {
+		w("%s", comment(fmt.Sprintf("messages holds %s, the messages of %s without their descriptions, which go generate writes for the catalog: every app carries it.", path.Join(MessagesDir, c.Source+".json"), c.Source)))
+		w("//go:embed %s/*.json\nvar messages embed.FS\n\n", MessagesDir)
+	} else {
+		w("//go:embed *.json\nvar files embed.FS\n\n")
+	}
 	doc := fmt.Sprintf("Catalog holds the messages in %s, the source language, and %s.", c.Source, languageList(c.Languages[1:]))
 	if len(c.Languages) == 1 && c.Namespace != "" {
 		doc = fmt.Sprintf("Catalog holds the messages in %s, the source language, and those of the translations added to it (Catalog.Add).", c.Source)
@@ -56,11 +93,16 @@ func Go(c *Catalog, pkg string) ([]byte, error) {
 	}
 	w("%s", comment(doc))
 	w("var Catalog *i18n.Catalog\n\n")
-	w("func init() {\n\tvar err error\n")
-	if c.Namespace == "" {
+	switch {
+	case c.Own:
+		w("func init() {\n\tfiles, err := fs.Sub(messages, %q)\n\tif err != nil {\n\t\tpanic(err)\n\t}\n", MessagesDir)
+		w("\tc, err := i18nlink.NewLibraryCatalog(files, %q, %q)\n\tif err != nil {\n\t\tpanic(err)\n\t}\n\tCatalog = c.(*i18n.Catalog)\n}\n\n", c.Source, c.Namespace)
+	case c.Namespace == "":
+		w("func init() {\n\tvar err error\n")
 		w("\tif Catalog, err = i18n.NewCatalog(files, %q); err != nil {\n\t\tpanic(err)\n\t}\n", c.Source)
 		w("\ti18n.Register(Catalog)\n}\n\n")
-	} else {
+	default:
+		w("func init() {\n\tvar err error\n")
 		w("\tif Catalog, err = i18n.NewLibraryCatalog(files, %q, %q); err != nil {\n\t\tpanic(err)\n\t}\n}\n\n", c.Source, c.Namespace)
 	}
 	w("// Messages say the messages in one language.\ntype Messages struct{ locale string }\n\n")

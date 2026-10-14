@@ -63,6 +63,10 @@ var ipc struct {
 	services []*service
 	methods  map[string]*method
 	events   []*eventInfo
+	// writeClient is WriteTypeScript once the app bound a service or
+	// declared an event, which App.Run calls under MYGO_GENERATE: an app
+	// that binds nothing writes no client, and links no generator.
+	writeClient func(path string) error
 }
 
 var (
@@ -90,6 +94,7 @@ var (
 // The service is named after its type; Bind panics if the name is taken or a
 // method uses a type that cannot be encoded as JSON (channels, functions).
 func Bind(services ...any) {
+	linkClient()
 	for _, s := range services {
 		if err := bind("", s, false); err != nil {
 			panic(err)
@@ -100,9 +105,20 @@ func Bind(services ...any) {
 // BindAs is Bind with an explicit service name, for services whose type
 // names collide.
 func BindAs(name string, service any) {
+	linkClient()
 	if err := bind(name, service, false); err != nil {
 		panic(err)
 	}
+}
+
+// linkClient makes App.Run write the TypeScript client under
+// MYGO_GENERATE, for Bind and BindAs: only apps that bind something link
+// the generator (go/parser and all), which plugins' services, bound by
+// MyGo, and apps of native UI have no use for.
+func linkClient() {
+	ipc.Lock()
+	ipc.writeClient = WriteTypeScript
+	ipc.Unlock()
 }
 
 func bind(name string, svc any, internal bool) error {
@@ -461,6 +477,7 @@ func NewEvent[T any](name string) *Event[T] {
 		}
 	}
 	ipc.events = append(ipc.events, &eventInfo{name: name, typ: t, pc: pc, file: file, line: line})
+	ipc.writeClient = WriteTypeScript
 	return &Event[T]{name: name}
 }
 

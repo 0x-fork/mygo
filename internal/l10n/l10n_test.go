@@ -22,7 +22,7 @@ import (
 // generated from them: the accessors, the list of the translations and
 // their packages.
 func TestCatalogs(t *testing.T) {
-	c, diags, err := i18ngen.Load(FS(), i18ngen.Options{Dir: "internal/l10n", Source: "en", Namespace: Namespace})
+	c, diags, err := i18ngen.Load(FS(), i18ngen.Options{Dir: "internal/l10n", Source: "en", Namespace: Namespace, Own: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,6 +35,18 @@ func TestCatalogs(t *testing.T) {
 	}
 	if old, _ := os.ReadFile(i18ngen.GoFile); !bytes.Equal(old, src) {
 		t.Errorf("%s is out of date: go generate ./internal/l10n", i18ngen.GoFile)
+	}
+	messages := filepath.Join(i18ngen.MessagesDir, "en.json")
+	if old, _ := os.ReadFile(messages); !bytes.Equal(old, i18ngen.MessagesJSON(c.Files["en"])) {
+		t.Errorf("%s is out of date: go generate ./internal/l10n", messages)
+	}
+	// The catalog links no formatting of dates (internal/i18nlink).
+	for _, k := range c.Keys {
+		for _, p := range k.Params {
+			if p.Type == "DateTime" {
+				t.Errorf("%s formats a date, %s, which MyGo's own strings do not link: pass a string", k.Name, p.Name)
+			}
+		}
 	}
 
 	all := fstest.MapFS{}

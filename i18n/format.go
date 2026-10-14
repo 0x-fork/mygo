@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -115,7 +116,7 @@ func (f *formatter) argument(b *strings.Builder, n *node, pound *pluralValue) {
 			if n.kind == nodeTime {
 				kind = "time"
 			}
-			f.placeholder(b, formatDate(f.locale, t, kind, n.style))
+			f.placeholder(b, formatTime(f.locale, t, kind, n.style))
 		} else {
 			f.placeholder(b, valueString(f.locale, v))
 		}
@@ -305,7 +306,7 @@ func valueString(locale string, v any) string {
 	case string:
 		return v
 	case time.Time:
-		return formatDate(locale, v, "datetime", "short")
+		return formatTime(locale, v, "datetime", "short")
 	case error:
 		return v.Error()
 	case fmt.Stringer:
@@ -355,6 +356,32 @@ func formatNumber(locale string, n number, style string) string {
 		o.MinFractionDigits, o.MaxFractionDigits = min(len(frac), 100), min(len(frac), 100)
 	}
 	return NewNumberFormatter(locale, o).formatDecimal(n.decimal)
+}
+
+// timeFormat formats the dates and times of messages: formatDate, once
+// linkTimes linked it.
+var timeFormat atomic.Pointer[func(locale string, t time.Time, kind, style string) string]
+
+// linkTimes links the formatting of dates and times into messages, for
+// the catalogs and messages an app makes: NewCatalog, NewLibraryCatalog
+// and ParseMessage call it. MyGo's own strings, which every app formats,
+// have no dates, so an app that formats none does not link the patterns
+// and names of dates of CLDR's locales.
+func linkTimes() {
+	if timeFormat.Load() == nil {
+		f := formatDate
+		timeFormat.Store(&f)
+	}
+}
+
+// formatTime writes a time of a message for locale (see formatDate), as
+// RFC 3339 before linkTimes linked the formatting of dates, which no
+// message of MyGo's own strings needs.
+func formatTime(locale string, t time.Time, kind, style string) string {
+	if f := timeFormat.Load(); f != nil {
+		return (*f)(locale, t, kind, style)
+	}
+	return t.Format(time.RFC3339)
 }
 
 // formatDate writes a time for locale: its date, its time, or both

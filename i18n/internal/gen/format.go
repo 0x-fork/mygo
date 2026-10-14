@@ -399,41 +399,27 @@ func writeFormatTables(out, cache string, core map[string][]byte) error {
 		}
 	}
 
-	// The pool of strings, in the order of first use; "" is 0.
-	pool := []string{""}
-	poolIndex := map[string]int{"": 0}
-	intern := func(s string) int {
-		if i, ok := poolIndex[s]; ok {
-			return i
-		}
-		pool = append(pool, s)
-		poolIndex[s] = len(pool) - 1
-		return len(pool) - 1
-	}
-	// entries: [0] the root, then the locales in order.
-	var entries []uint32
-	starts := []int{0}
-	diff := func(values, base []string) {
-		for s := range values {
-			if values[s] != base[s] {
-				entries = append(entries, uint32(s)<<20|uint32(intern(values[s])))
+	// The data is split in two halves, each with its own pool of
+	// strings and its own entries: the numbers, which every app that
+	// formats a message links, and the dates and the names of languages,
+	// which only apps that format them do.
+	numberHalf := newHalf(func(s int) bool { return s >= sl.numbers && s < sl.skeletons })
+	dateHalf := newHalf(func(s int) bool { return s < sl.numbers || s >= sl.skeletons })
+	for _, h := range []*half{numberHalf, dateHalf} {
+		h.diff(root, make([]string, sl.count))
+		// A locale's entries over its parent's resolved values are its
+		// own values, "" included: a slot it lacks is "" even where its
+		// parent's is not.
+		for i, r := range records {
+			base := root
+			if parentOf[i] >= 0 {
+				base = records[parentOf[i]].values
 			}
+			h.diff(r.values, base)
 		}
-		starts = append(starts, len(entries))
-	}
-	diff(root, make([]string, sl.count))
-	// A locale's entries over its parent's resolved values are its own
-	// values, "" included: a slot it lacks is "" even where its parent's
-	// is not.
-	for i, r := range records {
-		base := root
-		if parentOf[i] >= 0 {
-			base = records[parentOf[i]].values
+		if len(h.pool) >= 1<<15 || sl.count >= 1<<9 || len(h.entries) >= 1<<16 {
+			return fmt.Errorf("%d strings or %d slots do not fit the entries", len(h.pool), sl.count)
 		}
-		diff(r.values, base)
-	}
-	if len(pool) >= 1<<15 || sl.count >= 1<<9 || len(entries) >= 1<<16 {
-		return fmt.Errorf("%d strings or %d slots do not fit the entries", len(pool), sl.count)
 	}
 
 	// Week data and hour cycles, by region.
@@ -493,7 +479,9 @@ func writeFormatTables(out, cache string, core map[string][]byte) error {
 		localeTags = append(localeTags, r.tag)
 	}
 	fmt.Fprintf(&b, "// fmtLocaleCount is the number of locales with formatting data.\nconst fmtLocaleCount = %d\n\n", len(localeTags)+1)
-	// The big tables are packed together, compressed (fmtPacked).
+	// The big tables are packed, compressed, in two blobs: the
+	// locales and the numbers (fmtPackedNumbers), the dates and the names
+	// of languages (fmtPackedDates).
 	var packed []packedSection
 	packed = append(packed, packedSection{"Locales", "the locales, sorted and separated by spaces, after the synthetic root \"\" (index 0)", strings.Join(localeTags, " ")})
 	var pb []byte
@@ -502,15 +490,14 @@ func writeFormatTables(out, cache string, core map[string][]byte) error {
 		pb = append(pb, byte((parentOf[i]+1)>>8), byte(parentOf[i]+1))
 	}
 	packed = append(packed, packedSection{"Parents", "the index of the locale each inherits from, 0 for the root and for the root's, two bytes each, big-endian", string(pb)})
-	b.WriteString("// fmtStarts are where the entries of each locale start in fmtEntries,\n// counted in entries.\nvar fmtStarts = [...]uint16{\n")
-	writeInts(&b, starts)
-	b.WriteString("}\n\n")
-	var eb []byte
-	for _, e := range entries {
-		slot, str := e>>20, e&(1<<20-1)
-		eb = append(eb, byte((slot<<15|str)>>16), byte((slot<<15|str)>>8), byte(slot<<15|str))
+	numberSections, err := numberHalf.sections("Number", "numbers")
+	if err != nil {
+		return err
 	}
-	packed = append(packed, packedSection{"Entries", "the slots in which a locale differs from its parent, three bytes each, big-endian: the slot in the top 9 bits, the index of its string in the 15 others", string(eb)})
+	packed = append(packed, numberSections...)
+	if err := writePacked(&b, "fmtPackedNumbers", "the locales and their numbers", packed); err != nil {
+		return err
+	}
 
 	// Autonyms: of each locale, and of the default content locales of
 	// its language (en-US, zh-Hans-CN), in itself.
@@ -525,32 +512,32 @@ func writeFormatTables(out, cache string, core map[string][]byte) error {
 			}
 		}
 	})
-	packed = append(packed, packedSection{"AutonymTags", "the locales whose names in themselves Autonyms has, sorted and separated by spaces", strings.Join(autoTags, " ")})
 	var ab []byte
 	for _, t := range autoTags {
-		i := intern(autonyms[t])
+		i := dateHalf.intern(autonyms[t])
 		ab = append(ab, byte(i>>8), byte(i))
 	}
-	packed = append(packed, packedSection{"Autonyms", "the index of each name in the pool, two bytes each", string(ab)})
-
-	// The pool.
-	if len(pool) >= 1<<15 {
-		return fmt.Errorf("%d strings do not fit the entries", len(pool))
+	if len(dateHalf.pool) >= 1<<15 {
+		return fmt.Errorf("%d strings do not fit the entries", len(dateHalf.pool))
 	}
-	var all strings.Builder
-	var lens []byte
-	for _, s := range pool {
-		if len(s) > 255 {
-			return fmt.Errorf("the string %q is longer than 255 bytes", s)
-		}
-		all.WriteString(s)
-		lens = append(lens, byte(len(s)))
-	}
-	fmt.Fprintf(&b, "// fmtStringCount is the number of strings of the pool.\nconst fmtStringCount = %d\n\n", len(pool))
-	packed = append(packed, packedSection{"Lens", "the lengths of the strings of the pool, a byte each", string(lens)},
-		packedSection{"Pool", "the strings of the formatting data", all.String()})
-	if err := writePacked(&b, packed); err != nil {
+	dateSections, err := dateHalf.sections("Date", "dates")
+	if err != nil {
 		return err
+	}
+	packed = append(dateSections,
+		packedSection{"AutonymTags", "the locales whose names in themselves Autonyms has, sorted and separated by spaces", strings.Join(autoTags, " ")},
+		packedSection{"Autonyms", "the index of each name in the pool of the dates, two bytes each", string(ab)})
+	if err := writePacked(&b, "fmtPackedDates", "the dates of the locales and the names of languages", packed); err != nil {
+		return err
+	}
+	for _, h := range []struct {
+		name string
+		h    *half
+	}{{"Number", numberHalf}, {"Date", dateHalf}} {
+		fmt.Fprintf(&b, "// fmt%sStarts are where the entries of each locale start in those of the\n// %ss, counted in entries.\nvar fmt%sStarts = [...]uint16{\n", h.name, strings.ToLower(h.name), h.name)
+		writeInts(&b, h.h.starts)
+		b.WriteString("}\n\n")
+		fmt.Fprintf(&b, "// fmt%sStringCount is the number of strings of the pool of the %ss.\nconst fmt%sStringCount = %d\n\n", h.name, strings.ToLower(h.name), h.name, len(h.h.pool))
 	}
 
 	// Week data.
@@ -685,21 +672,79 @@ func writeFormatTables(out, cache string, core map[string][]byte) error {
 	return os.WriteFile(filepath.Join(out, "format_tables.go"), src, 0o644)
 }
 
-// packedSection is a table of fmtPacked.
+// half is the entries of the slots of one half of the data, over a
+// pool of strings of its own.
+type half struct {
+	has     func(slot int) bool
+	pool    []string // in the order of first use; "" is 0
+	index   map[string]int
+	entries []uint32 // [0] the root, then the locales in order
+	starts  []int
+}
+
+func newHalf(has func(slot int) bool) *half {
+	return &half{has: has, pool: []string{""}, index: map[string]int{"": 0}, starts: []int{0}}
+}
+
+func (h *half) intern(s string) int {
+	if i, ok := h.index[s]; ok {
+		return i
+	}
+	h.pool = append(h.pool, s)
+	h.index[s] = len(h.pool) - 1
+	return len(h.pool) - 1
+}
+
+// diff adds the entries of a locale: its slots of the half whose values
+// differ from base's.
+func (h *half) diff(values, base []string) {
+	for s := range values {
+		if h.has(s) && values[s] != base[s] {
+			h.entries = append(h.entries, uint32(s)<<20|uint32(h.intern(values[s])))
+		}
+	}
+	h.starts = append(h.starts, len(h.entries))
+}
+
+// sections returns the entries and the pool of the half as the sections
+// <name>Entries, <name>Lens and <name>Pool.
+func (h *half) sections(name, what string) ([]packedSection, error) {
+	var eb []byte
+	for _, e := range h.entries {
+		slot, str := e>>20, e&(1<<20-1)
+		eb = append(eb, byte((slot<<15|str)>>16), byte((slot<<15|str)>>8), byte(slot<<15|str))
+	}
+	var all strings.Builder
+	var lens []byte
+	for _, s := range h.pool {
+		if len(s) > 255 {
+			return nil, fmt.Errorf("the string %q is longer than 255 bytes", s)
+		}
+		all.WriteString(s)
+		lens = append(lens, byte(len(s)))
+	}
+	return []packedSection{
+		{name + "Entries", "the slots of the " + what + " in which a locale differs from its parent, three bytes each, big-endian: the slot in the top 9 bits, the index of its string in the 15 others", string(eb)},
+		{name + "Lens", "the lengths of the strings of the pool of the " + what + ", a byte each", string(lens)},
+		{name + "Pool", "the strings of the " + what, all.String()},
+	}, nil
+}
+
+// packedSection is a table of a blob of packed tables.
 type packedSection struct {
 	name, doc, data string
 }
 
-// writePacked writes the sections compressed with DEFLATE as fmtPacked,
-// and the length of each.
-func writePacked(b *bytes.Buffer, sections []packedSection) error {
+// writePacked writes the sections compressed with DEFLATE as the
+// constant name, and the length of each.
+func writePacked(b *bytes.Buffer, name, what string, sections []packedSection) error {
 	var raw bytes.Buffer
-	b.WriteString("// fmtPacked holds the big tables, compressed with DEFLATE, one after the\n// other: package i18n inflates them once, as it first formats. Their lengths:\nconst (\n")
+	fmt.Fprintf(b, "// %s holds %s:\n// tables compressed with DEFLATE, one after the other, which package\n// i18n inflates once, as it first uses them. Their lengths:\nconst (\n", name, what)
 	for _, s := range sections {
 		fmt.Fprintf(b, "\tpacked%sLen = %d // %s\n", s.name, len(s.data), s.doc)
 		raw.WriteString(s.data)
 	}
-	b.WriteString(")\n\nconst fmtPacked = ")
+	fmt.Fprintf(b, ")\n\nconst %s = ", name)
 	var z bytes.Buffer
 	w, err := flate.NewWriter(&z, flate.BestCompression)
 	if err != nil {

@@ -364,7 +364,7 @@ func (d *localeData) generator() *patternGenerator {
 			g.add(d.v[slotDateFormats+i], "", false)
 			g.add(d.v[slotTimeFormats+i], "", false)
 		}
-		loadTables()
+		loadDates()
 		for i, skel := range tables.skeletons {
 			if p := d.v[slotSkeletons+i]; p != "" {
 				g.add(p, skel, true)

@@ -85,7 +85,7 @@ var App = &Application{readyCh: make(chan struct{}), Dock: &Dock{}, JumpList: &J
 // loop.
 func (a *Application) Run() error {
 	if out := os.Getenv("MYGO_GENERATE"); out != "" {
-		return WriteTypeScript(out)
+		return writeClient(out)
 	}
 	if !isMainThread() {
 		return errors.New("mygo: App.Run must be called from the main goroutine")

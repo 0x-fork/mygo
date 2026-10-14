@@ -66,6 +66,13 @@ type msgCase struct {
 
 // ParseMessage parses a message of ICU MessageFormat.
 func ParseMessage(s string) (*Message, error) {
+	linkTimes()
+	return parseMessage(s)
+}
+
+// parseMessage is ParseMessage for the catalogs, which link the
+// formatting of dates as they are made.
+func parseMessage(s string) (*Message, error) {
 	p := &msgParser{s: s}
 	nodes, err := p.message(0, false)
 	if err != nil {

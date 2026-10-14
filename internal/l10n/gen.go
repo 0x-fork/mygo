@@ -1,7 +1,7 @@
 //go:build ignore
 
 // Gen writes catalog_gen.go, the accessors of MyGo's own strings, with the
-// generator of apps' catalogs, languages_gen.go, the languages MyGo is
+// generator of apps' catalogs, messages/en.json, the messages they embed, the languages MyGo is
 // translated to, and the package of each translation in
 // ../../locales/<tag>: `go generate ./internal/l10n`.
 package main
@@ -22,7 +22,7 @@ import (
 
 func main() {
 	log.SetFlags(0)
-	opts := i18ngen.Options{Dir: "internal/l10n", Source: "en", Namespace: "mygo"}
+	opts := i18ngen.Options{Dir: "internal/l10n", Source: "en", Namespace: "mygo", Own: true}
 	c, diags, err := i18ngen.Load(os.DirFS("."), opts)
 	if err != nil {
 		log.Fatal(err)
@@ -33,6 +33,7 @@ func main() {
 		log.Fatal(err)
 	}
 	write(i18ngen.GoFile, src)
+	write(filepath.Join(i18ngen.MessagesDir, "en.json"), i18ngen.MessagesJSON(c.Files["en"]))
 
 	// The translations, each with the source to check them against.
 	all := fstest.MapFS{}

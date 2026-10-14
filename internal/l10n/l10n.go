@@ -6,7 +6,8 @@
 // to its other languages, with keys "mygo.<key>" in its own catalogs, as
 // "mygo.cancel" in its de.json.
 //
-// en.json, the source, is always linked. The translations to the other
+// en.json, the source, is always linked, as messages/en.json: its
+// messages without their descriptions, which only `mygo generate` reads. The translations to the other
 // languages (Languages) are packages of their own, in locales/<tag> at the
 // root of the module, which an app imports for the languages it ships, as
 // the code `mygo generate` writes for its catalogs does: an app does not
@@ -16,7 +17,10 @@
 // (internal/i18ngen).
 package l10n
 
-import "io/fs"
+import (
+	"embed"
+	"io/fs"
+)
 
 //go:generate go run gen.go
 
@@ -32,6 +36,11 @@ func Add(fsys fs.FS) {
 	}
 }
 
-// FS returns the catalogs, which `mygo generate` checks the keys
-// "mygo.<key>" of apps against.
-func FS() fs.FS { return files }
+// sources are the catalogs as they are written, with their descriptions.
+//
+//go:embed *.json
+var sources embed.FS
+
+// FS returns the catalogs as they are written, which `mygo generate`
+// checks the keys "mygo.<key>" of apps against: only it links them.
+func FS() fs.FS { return sources }
