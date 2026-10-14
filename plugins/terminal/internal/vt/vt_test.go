@@ -272,11 +272,11 @@ func TestPasteEvent(t *testing.T) {
 	var out bytes.Buffer
 	term, err := NewTerminal(80, 24, Effects{
 		WritePTY: func(p []byte) { out.Write(p) },
-		ClipboardRead: func(req ClipboardRead) (ClipboardReply, bool) {
+		ClipboardRead: func(req ClipboardRead) (ClipboardReply, ClipboardAnswer) {
 			if !req.Granted {
-				return ClipboardReply{}, false
+				return ClipboardReply{}, ClipboardRefused
 			}
-			return ClipboardReply{Contents: map[string][]byte{"image/png": png, "text/plain": []byte("hi")}}, true
+			return ClipboardReply{Contents: map[string][]byte{"image/png": png, "text/plain": []byte("hi")}}, ClipboardAnswered
 		},
 	})
 	if err != nil {
@@ -341,5 +341,152 @@ func TestPasteEvent(t *testing.T) {
 	term.Write([]byte("\x1b]52;c;?\x1b\\"))
 	if term.silent {
 		t.Error("an OSC 52 read left the terminal silent")
+	}
+}
+
+// A deferred read (ClipboardDeferred) holds the library's refusal back,
+// and AnswerClipboard answers it, allowed or denied, with the selector,
+// terminator and refusal the library wrote.
+func TestDeferredClipboardRead(t *testing.T) {
+	loadLib(t)
+	var out bytes.Buffer
+	var deferred *DeferredClipboardRead
+	term, err := NewTerminal(80, 24, Effects{
+		WritePTY: func(p []byte) { out.Write(p) },
+		ClipboardRead: func(req ClipboardRead) (ClipboardReply, ClipboardAnswer) {
+			deferred = &DeferredClipboardRead{}
+			return ClipboardReply{Deferred: deferred}, ClipboardDeferred
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Free()
+	text := map[string][]byte{"text/plain": []byte("hello")}
+	for _, c := range []struct {
+		name     string
+		read     string
+		allow    bool
+		contents map[string][]byte
+		want     string
+	}{
+		{"allow c", "\x1b]52;c;?\x1b\\", true, text, "\x1b]52;c;aGVsbG8=\x1b\\"},
+		{"deny c", "\x1b]52;c;?\x1b\\", false, nil, "\x1b]52;c;\x1b\\"},
+		{"deny s bel", "\x1b]52;s;?\x07", false, nil, "\x1b]52;s;\x07"},
+		{"allow p", "\x1b]52;p;?\x1b\\", true, text, "\x1b]52;p;aGVsbG8=\x1b\\"},
+		{"allow empty", "\x1b]52;c;?\x1b\\", true, nil, "\x1b]52;c;\x1b\\"},
+	} {
+		out.Reset()
+		deferred = nil
+		term.Write([]byte(c.read))
+		if out.Len() != 0 {
+			t.Fatalf("%s: a deferred read wrote %q before it was answered", c.name, out.String())
+		}
+		if deferred == nil {
+			t.Fatalf("%s: the read was not deferred", c.name)
+		}
+		term.AnswerClipboard(deferred, c.allow, c.contents, nil)
+		if got := out.String(); got != c.want {
+			t.Errorf("%s: answered %q, want %q", c.name, got, c.want)
+		}
+	}
+	// A nil handle answers nothing.
+	out.Reset()
+	term.AnswerClipboard(nil, true, text, nil)
+	if out.Len() != 0 {
+		t.Errorf("a nil deferred read wrote %q", out.String())
+	}
+}
+
+// A deferred Kitty protocol read is answered exactly as the library would
+// answer a reply: compare a read answered synchronously with the same read
+// deferred and answered through AnswerClipboard, for an id, a listing,
+// chunks, and a denial.
+func TestDeferredClipboardReadKitty(t *testing.T) {
+	loadLib(t)
+	png := bytes.Repeat([]byte("\x89PNG\r\n\x1a\n0123456789"), 300) // over one 4096-byte chunk
+	contents := map[string][]byte{"image/png": png, "text/plain": []byte("hi")}
+	available := []string{"text/plain", "image/png"}
+	b64 := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+
+	want := func(t *testing.T, read string, req func(ClipboardRead) (ClipboardReply, ClipboardAnswer)) string {
+		t.Helper()
+		var out bytes.Buffer
+		term, err := NewTerminal(80, 24, Effects{
+			WritePTY:      func(p []byte) { out.Write(p) },
+			ClipboardRead: req,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer term.Free()
+		term.Write([]byte(read))
+		return out.String()
+	}
+	for _, c := range []struct {
+		name  string
+		read  string
+		reply ClipboardReply
+		deny  bool
+	}{
+		{"plain", "\x1b]5522;type=read;" + b64("text/plain") + "\x1b\\", ClipboardReply{Contents: contents}, false},
+		{"id", "\x1b]5522;type=read:id=abc.123;" + b64("text/plain") + "\x1b\\", ClipboardReply{Contents: contents}, false},
+		{"listing", "\x1b]5522;type=read:id=9;" + b64("text/plain image/png .") + "\x1b\\", ClipboardReply{Contents: contents, Available: available}, false},
+		{"listing only", "\x1b]5522;type=read;Lg==\x1b\\", ClipboardReply{Available: available}, false},
+		{"primary", "\x1b]5522;type=read:loc=primary:id=x;dGV4dC9wbGFpbg==\x1b\\", ClipboardReply{Contents: contents}, false},
+		{"bel", "\x1b]5522;type=read:id=7;" + b64("text/plain") + "\x07", ClipboardReply{Contents: contents}, false},
+		{"deny", "\x1b]5522;type=read:id=d;" + b64("text/plain") + "\x1b\\", ClipboardReply{}, true},
+	} {
+		sync := want(t, c.read, func(req ClipboardRead) (ClipboardReply, ClipboardAnswer) {
+			return c.reply, ClipboardAnswered
+		})
+		var deferred *DeferredClipboardRead
+		out := &bytes.Buffer{}
+		term, err := NewTerminal(80, 24, Effects{
+			WritePTY: func(p []byte) { out.Write(p) },
+			ClipboardRead: func(req ClipboardRead) (ClipboardReply, ClipboardAnswer) {
+				deferred = &DeferredClipboardRead{}
+				return ClipboardReply{Deferred: deferred}, ClipboardDeferred
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		term.Write([]byte(c.read))
+		if out.Len() != 0 {
+			t.Fatalf("%s: a deferred read wrote %q before it was answered", c.name, out.String())
+		}
+		term.AnswerClipboard(deferred, !c.deny, c.reply.Contents, c.reply.Available)
+		term.Free()
+		if got := out.String(); got != sync {
+			t.Errorf("%s: deferred %q, synchronous %q", c.name, got, sync)
+		}
+		if sync == "" {
+			t.Errorf("%s: the library answered nothing", c.name)
+		}
+	}
+
+	// A listing the clipboard has nothing for is still sent, as the
+	// library's own encoder writes it.
+	var listing *DeferredClipboardRead
+	out := &bytes.Buffer{}
+	term, err := NewTerminal(80, 24, Effects{
+		WritePTY: func(p []byte) { out.Write(p) },
+		ClipboardRead: func(req ClipboardRead) (ClipboardReply, ClipboardAnswer) {
+			listing = &DeferredClipboardRead{}
+			return ClipboardReply{Deferred: listing}, ClipboardDeferred
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	term.Write([]byte("\x1b]5522;type=read;Lg==\x1b\\"))
+	term.AnswerClipboard(listing, true, nil, nil)
+	term.Free()
+	wantEmpty := "\x1b]5522;type=read:status=OK\x1b\\" +
+		"\x1b]5522;type=read:status=DATA:mime=Lg==\x1b\\" +
+		"\x1b]5522;type=read:status=DONE\x1b\\"
+	if got := out.String(); got != wantEmpty {
+		t.Errorf("an empty listing: %q, want %q", got, wantEmpty)
 	}
 }

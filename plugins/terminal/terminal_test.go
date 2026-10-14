@@ -1516,3 +1516,208 @@ func TestNoClipboardWrite(t *testing.T) {
 		term.Close()
 	}
 }
+
+// TestClipboardReadAllow: with ClipboardRead ClipboardAllow the terminal
+// answers a program's read of the clipboard (OSC 52) with it, from the
+// view, on the main thread.
+func TestClipboardReadAllow(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	term, err := New(Options{Conn: conn, ClipboardRead: ClipboardAllow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.SetClipboard("hello")
+	term.Feed([]byte("\x1b]52;c;?\x1b\\"))
+	tt.Frame()
+	want := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("hello")) + "\x1b\\"
+	if got := conn.take(len(want)); got != want {
+		t.Errorf("the program read %q, want %q", got, want)
+	}
+}
+
+// TestClipboardReadDeny: reads are refused by default and with
+// ClipboardDeny: an empty OSC 52 reply, without reading the clipboard.
+func TestClipboardReadDeny(t *testing.T) {
+	loadLib(t)
+	for _, opts := range []Options{{}, {ClipboardRead: ClipboardDeny}} {
+		conn := newPipe()
+		opts.Conn = conn
+		term, err := New(opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+		tt.SetClipboard("secret")
+		term.Feed([]byte("\x1b]52;c;?\x1b\\"))
+		tt.Frame()
+		if got := conn.take(1); got != "\x1b]52;c;\x1b\\" {
+			t.Errorf("ClipboardRead %v: the program read %q", opts.ClipboardRead, got)
+		}
+		if got := tt.Clipboard(); got != "secret" {
+			t.Errorf("the read changed the clipboard to %q", got)
+		}
+		term.Close()
+	}
+}
+
+// TestClipboardReadAsk: with ClipboardRead ClipboardAsk,
+// Options.OnClipboardRequest sees the read, with what it asks for, and
+// Allow or Deny answers it, in the hook or later, from any goroutine.
+func TestClipboardReadAsk(t *testing.T) {
+	loadLib(t)
+	for _, answer := range []int8{1, 2, 0, 3} {
+		conn := newPipe()
+		var requests []ClipboardRequest
+		var answerNow func()
+		term, err := New(Options{
+			Conn:          conn,
+			ClipboardRead: ClipboardAsk,
+			OnClipboardRequest: func(req ClipboardRequest) {
+				requests = append(requests, req)
+				switch answer {
+				case 1:
+					req.Allow()
+				case 2:
+					req.Deny()
+				case 0:
+					answerNow = req.Allow // later, from the test's goroutine
+				case 3:
+					answerNow = req.Deny
+				}
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+		tt.SetClipboard("hello")
+		term.Feed([]byte("\x1b]52;c;?\x1b\\"))
+		tt.Frame()
+		if len(requests) != 1 {
+			t.Fatalf("the hook saw %d requests", len(requests))
+		}
+		if req := requests[0]; !slices.Equal(req.Mimes, []string{"text/plain"}) || req.List || req.Text != "hello" {
+			t.Errorf("the hook saw %+v", req)
+		}
+		if answer == 0 || answer == 3 {
+			answerNow()
+			tt.Frame()
+		}
+		want := "\x1b]52;c;\x1b\\"
+		if answer == 1 || answer == 0 {
+			want = "\x1b]52;c;aGVsbG8=\x1b\\"
+		}
+		if got := conn.take(len(want)); got != want {
+			t.Errorf("answer %d: the program read %q, want %q", answer, got, want)
+		}
+		term.Close()
+	}
+}
+
+// TestClipboardReadOrder: reads are answered in the order they came, since
+// an OSC 52 reply doesn't tell which read it answers: one the app is asked
+// about holds back those after it.
+func TestClipboardReadOrder(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	var requests []ClipboardRequest
+	term, err := New(Options{
+		Conn:               conn,
+		ClipboardRead:      ClipboardAsk,
+		OnClipboardRequest: func(req ClipboardRequest) { requests = append(requests, req) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.SetClipboard("hello")
+	term.Feed([]byte("\x1b]52;c;?\x1b\\\x1b]52;p;?\x1b\\"))
+	tt.Frame()
+	if len(requests) != 1 || requests[0].Primary {
+		t.Fatalf("asked %+v before the first read was answered", requests)
+	}
+	requests[0].Deny()
+	tt.Frame()
+	if got := conn.take(1); got != "\x1b]52;c;\x1b\\" {
+		t.Errorf("the first read was answered %q", got)
+	}
+	if len(requests) != 2 || !requests[1].Primary {
+		t.Fatalf("the second read was not asked about: %+v", requests)
+	}
+	requests[1].Allow()
+	tt.Frame()
+	want := "\x1b]52;p;aGVsbG8=\x1b\\"
+	if got := conn.take(len(want)); got != want {
+		t.Errorf("the second read was answered %q, want %q", got, want)
+	}
+}
+
+// TestClipboardReadPrompt: without OnClipboardRequest the terminal asks
+// with its own prompt, whose default button (Enter) allows and whose
+// Escape denies, keeping the read pending across frames until then.
+func TestClipboardReadPrompt(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	term, err := New(Options{Conn: conn, ClipboardRead: ClipboardAsk})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.SetClipboard("hello")
+	term.Feed([]byte("\x1b]52;c;?\x1b\\"))
+	tt.Frame() // the prompt opens
+	if got := conn.take(1); got != "" {
+		t.Fatalf("the prompt answered %q on its own", got)
+	}
+	if !tt.HasText("hello") {
+		t.Error("the prompt does not show the clipboard's text")
+	}
+	tt.Key(0, ui.KeyEnter)
+	want := "\x1b]52;c;aGVsbG8=\x1b\\"
+	if got := conn.take(len(want)); got != want {
+		t.Errorf("Enter allowed the read: %q, want %q", got, want)
+	}
+	// Escape dismisses the alert, which denies the read.
+	term.Feed([]byte("\x1b]52;c;?\x1b\\"))
+	tt.Frame()
+	tt.Key(0, ui.KeyEscape)
+	if got := conn.take(1); got != "\x1b]52;c;\x1b\\" {
+		t.Errorf("Escape answered %q, want an empty clipboard", got)
+	}
+}
+
+// TestClipboardReadKitty: the Kitty clipboard protocol's reads (OSC 5522)
+// follow the same policy: allowed reads are answered with the text, and
+// refused ones with EPERM.
+func TestClipboardReadKitty(t *testing.T) {
+	loadLib(t)
+	read := "\x1b]5522;type=read;" + base64.StdEncoding.EncodeToString([]byte("text/plain")) + "\x1b\\"
+	for _, policy := range []ClipboardAccess{ClipboardAllow, ClipboardDeny} {
+		conn := newPipe()
+		term, err := New(Options{Conn: conn, ClipboardRead: policy})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+		tt.SetClipboard("hello")
+		term.Feed([]byte("\x1b[?5522h"))
+		term.Feed([]byte(read))
+		tt.Frame()
+		want := "\x1b]5522;type=read:status=EPERM\x1b\\"
+		if policy == ClipboardAllow {
+			mime := base64.StdEncoding.EncodeToString([]byte("text/plain"))
+			want = "\x1b]5522;type=read:status=OK\x1b\\" +
+				"\x1b]5522;type=read:status=DATA:mime=" + mime + ";aGVsbG8=\x1b\\" +
+				"\x1b]5522;type=read:status=DONE\x1b\\"
+		}
+		if got := conn.take(len(want)); got != want {
+			t.Errorf("ClipboardRead %v: the program read %q, want %q", policy, got, want)
+		}
+		term.Close()
+	}
+}

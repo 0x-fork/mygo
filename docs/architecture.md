@@ -1020,7 +1020,11 @@ build` like mygo-runtime and released with the same version.
     goroutine under the terminal's lock, where waiting for the main
     thread could deadlock. The binding gathers the library's reply and
     hands it over in one piece, which the input queue writes in pieces
-    that report their progress.
+    that report their progress. Any other read of the clipboard
+    (`ClipboardRead`: OSC 52's "?" and OSC 5522, unless a paste granted
+    it) is queued instead: the binding holds the library's own refusal
+    back, and the view, on the main thread, reads the clipboard and
+    writes the answer, which the reader's lock makes safe.
   - *Shipping the library.* `mygo-plugin.json` names its build for each
     platform, published as release assets with their SHA-256 checksums.
     The CLI puts them into apps

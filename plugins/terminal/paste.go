@@ -78,9 +78,15 @@ func (o *pasteOffer) read(mime string) []byte {
 	if !slices.Contains(o.mimes, mime) {
 		return nil
 	}
-	b, err := o.data.Read(transfer.Format(mime))
+	return readFormat(o.data, mime)
+}
+
+// readFormat reads what data holds of a MIME type, as the protocols
+// carry it: a file list answers text/uri-list.
+func readFormat(d transfer.Data, mime string) []byte {
+	b, err := d.Read(transfer.Format(mime))
 	if errors.Is(err, transfer.ErrFormat) && mime == string(transfer.URIList) {
-		b, err = o.data.Read(transfer.FileList)
+		b, err = d.Read(transfer.FileList)
 	}
 	if err != nil {
 		return nil
@@ -146,28 +152,77 @@ func (t *Terminal) pasteStatus(p PasteProgress) {
 	}
 }
 
-// clipboardRead answers a program's read of the clipboard: only what a
-// paste offered, for the program the paste told, once; any other read
-// goes unanswered, as other windows of the same program may be the ones
-// to answer. t.mu is held.
-func (t *Terminal) clipboardRead(req vt.ClipboardRead) (vt.ClipboardReply, bool) {
+// clipboardRequest is a program's read of the clipboard that waits for
+// the main thread: t.mu guards it (the reader queues it, a frame takes it
+// and answers it, and Allow and Deny set answer from any goroutine).
+type clipboardRequest struct {
+	t        *Terminal
+	deferred *vt.DeferredClipboardRead
+	mimes    []string
+	list     bool
+	primary  bool
+	ask      bool // the app is asked before it is answered
+	text     string
+	// answer is 0 until Allow (1) or Deny (2), the first of which wins;
+	// asked tells that Options.OnClipboardRequest was called with it.
+	answer int8
+	asked  bool
+}
+
+// clipboardRead answers a program's read of the clipboard. What a paste
+// offered the program is answered as it was; a read with a password that
+// this terminal cannot grant is left to the terminal the paste was made
+// in, which stays silent otherwise; and other reads follow
+// Options.ClipboardRead: refused, or answered with the clipboard read on
+// the main thread (ClipboardDeferred), which may first ask the app.
+// t.mu is held.
+func (t *Terminal) clipboardRead(req vt.ClipboardRead) (vt.ClipboardReply, vt.ClipboardAnswer) {
 	o := t.offer
-	if !req.Granted || o == nil {
-		return vt.ClipboardReply{}, false
-	}
-	t.offer = nil
-	reply := vt.ClipboardReply{Contents: map[string][]byte{}}
-	for _, mime := range req.Mimes {
-		if b := o.read(mime); len(b) > 0 {
-			reply.Contents[mime] = b
+	if req.Granted && o != nil {
+		t.offer = nil
+		reply := vt.ClipboardReply{Contents: map[string][]byte{}}
+		for _, mime := range req.Mimes {
+			if b := o.read(mime); len(b) > 0 {
+				reply.Contents[mime] = b
+			}
 		}
+		if req.List {
+			reply.Available = slices.Clone(o.mimes)
+		}
+		// The reply, encoded, comes to WritePTY as this returns.
+		t.replying = len(reply.Contents) > 0
+		return reply, vt.ClipboardAnswered
 	}
-	if req.List {
-		reply.Available = slices.Clone(o.mimes)
+	if req.CanRemember {
+		// The read carries a paste event's password, which this terminal
+		// does not know: it is another window's paste follow-up, and the
+		// terminal that pasted answers it. Staying silent keeps this one
+		// from answering twice.
+		return vt.ClipboardReply{}, vt.ClipboardRefused
 	}
-	// The reply, encoded, comes to WritePTY as this returns.
-	t.replying = len(reply.Contents) > 0
-	return reply, true
+	if t.opts.ClipboardRead == ClipboardDeny {
+		// A policy denial is the answer — the library writes an empty
+		// OSC 52 reply, or EPERM for OSC 5522 — so it goes through the
+		// replied path, not ClipboardRefused, which keeps the terminal
+		// silent for another window to answer.
+		return vt.ClipboardReply{}, vt.ClipboardAnswered
+	}
+	r := &clipboardRequest{
+		t:        t,
+		deferred: &vt.DeferredClipboardRead{},
+		mimes:    slices.Clone(req.Mimes),
+		list:     req.List,
+		primary:  req.Primary,
+		ask:      t.opts.ClipboardRead == ClipboardAsk,
+	}
+	if r.ask && req.List && len(req.Mimes) == 0 {
+		// A read of the types available is served without asking, as
+		// Kitty does.
+		r.ask = false
+	}
+	t.clipReads = append(t.clipReads, r)
+	t.redraw()
+	return vt.ClipboardReply{Deferred: r.deferred}, vt.ClipboardDeferred
 }
 
 // sendReply queues a paste's reply in pieces, each telling how far it went

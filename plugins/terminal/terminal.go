@@ -13,9 +13,11 @@
 // alternate screen of full-screen programs, the keyboard as legacy
 // sequences or the Kitty keyboard protocol, mouse reporting, bracketed
 // paste, focus reports, synchronized output, hyperlinks (OSC 8), titles,
-// the working directory (OSC 7) and the clipboard (OSC 52). Selecting with
-// the pointer copies as Ghostty does: a drag selects cells, a double click
-// words and a triple click lines; Option (macOS) or Alt drags a rectangle.
+// the working directory (OSC 7) and the clipboard (OSC 52, OSC 5522),
+// which programs write through by default and read as Options.ClipboardRead
+// allows. Selecting with the pointer copies as Ghostty does: a drag selects
+// cells, a double click words and a triple click lines; Option (macOS) or
+// Alt drags a rectangle.
 //
 // libghostty-vt is a native library loaded at run time, with no cgo: `mygo
 // build` and `mygo dev` put the build this package binds into the app, and
@@ -97,10 +99,16 @@ type Options struct {
 	// takes the mouse gets the click instead, unless Shift is held.
 	RightClick RightClickAction
 	// NoClipboardWrite keeps programs from writing to the clipboard (OSC
-	// 52, OSC 5522), as Ghostty's clipboard-write = deny. Their reads of
-	// the clipboard go unanswered, as with clipboard-read = deny, except
-	// for what a paste offers them (see PasteData).
+	// 52, OSC 5522), as Ghostty's clipboard-write = deny. Writes go
+	// through unless it is set; reads are governed by ClipboardRead.
 	NoClipboardWrite bool
+	// ClipboardRead is what programs get when they read the clipboard
+	// (OSC 52 with "?", OSC 5522): ClipboardDeny by default, so reads
+	// stay refused — refused with EPERM for OSC 5522 — until an app opts
+	// in, where Ghostty asks by default: a terminal that can ask needs a
+	// view, and one nobody shows leaves reads pending. What a paste
+	// offered a program is answered whatever the policy (see PasteData).
+	ClipboardRead ClipboardAccess
 	// Transparent leaves the terminal's background undrawn, so that what
 	// is under the view shows through, as the window's material or an
 	// element's translucent background, as Ghostty's background-opacity
@@ -127,6 +135,14 @@ type Options struct {
 	// which pastes nothing, tells PasteNoText. An app shows a large
 	// image's progress, or why nothing pasted, this way.
 	OnPasteStatus func(p PasteProgress)
+	// OnClipboardRequest asks the app before a program reads the
+	// clipboard, when ClipboardRead is ClipboardAsk; without it the
+	// terminal draws its own prompt in the view. It runs on the main
+	// thread, with what the program asked for; Allow or Deny answers the
+	// request, in the hook or later and from any goroutine, and the first
+	// of them wins. A request the hook leaves unanswered stays pending,
+	// as does a read of a terminal no view shows.
+	OnClipboardRequest func(req ClipboardRequest)
 
 	// OpenLink takes what a Command+click (Control+click elsewhere)
 	// opens: a hyperlink (OSC 8), a URL printed as text, or, only with
@@ -173,6 +189,22 @@ type Options struct {
 	// zooming off.
 	OnZoom func(z Zoom) bool
 }
+
+// ClipboardAccess is what programs get when they read the clipboard
+// (Options.ClipboardRead).
+type ClipboardAccess int
+
+const (
+	// ClipboardDeny refuses a read: an empty clipboard for OSC 52, an
+	// EPERM status for the Kitty protocol's OSC 5522. It is the zero
+	// value, so reads stay refused until an app opts in.
+	ClipboardDeny ClipboardAccess = iota
+	// ClipboardAllow answers a read with what the clipboard holds.
+	ClipboardAllow
+	// ClipboardAsk asks the app first: Options.OnClipboardRequest when
+	// set, else the terminal's own prompt in the view.
+	ClipboardAsk
+)
 
 // CursorStyle is the shape of the cursor.
 type CursorStyle int
@@ -252,6 +284,48 @@ type PasteProgress struct {
 	Sent, Total int64
 }
 
+// ClipboardRequest is a program's read of the clipboard that the app is
+// asked about (Options.OnClipboardRequest).
+type ClipboardRequest struct {
+	// Mimes are the MIME types the program asked for, in order of
+	// preference; empty when it asked only for what is available.
+	Mimes []string
+	// List tells that it asked for the types available (the Kitty
+	// protocol's targets listing), which is answered without asking.
+	List bool
+	// Primary is the selection clipboard of X11 (OSC 52's "s"/"p").
+	Primary bool
+	// Text is what the clipboard held as text when the request was seen,
+	// for a prompt about it.
+	Text string
+
+	req *clipboardRequest
+}
+
+// Allow answers the request with what the clipboard holds.
+func (r *ClipboardRequest) Allow() { r.answer(1) }
+
+// Deny refuses the request.
+func (r *ClipboardRequest) Deny() { r.answer(2) }
+
+// answer records the first of Allow and Deny, from any goroutine, and
+// asks for the frame that answers the request.
+func (r *ClipboardRequest) answer(a int8) {
+	if r == nil || r.req == nil {
+		return
+	}
+	t := r.req.t
+	t.mu.Lock()
+	first := r.req.answer == 0
+	if first {
+		r.req.answer = a
+	}
+	t.mu.Unlock()
+	if first {
+		t.redraw()
+	}
+}
+
 // Terminal is a terminal emulator and the program it runs. Its methods are
 // safe from any goroutine.
 type Terminal struct {
@@ -265,10 +339,15 @@ type Terminal struct {
 	events  events
 	closed  bool
 	clipOut []string // what programs copied, for the view to write
+	// clipReads are reads of the clipboard waiting for the main thread to
+	// answer them: a frame takes them, reads the clipboard and writes the
+	// reply (see view.answerReads).
+	clipReads []*clipboardRequest
 	// offer is what the last paste offered a program that reads the
 	// clipboard itself (mode 5522), until it reads it; replying tells
 	// that what WritePTY gets next is the reply to its read, which it
-	// sends in pieces that report their progress.
+	// sends in pieces that report their progress. The answers of reads
+	// the main thread writes hold t.mu too (view.finishRead).
 	offer    *pasteOffer
 	replying bool
 	// binds are the keys bound to actions; fontSize is the size zooms
@@ -736,6 +815,7 @@ func (t *Terminal) Close() error {
 	}
 	t.closed = true
 	t.offer = nil
+	t.clipReads = nil
 	src, proc, waiting := t.src, t.proc, t.launch != nil
 	t.launch = nil
 	if t.timer != nil {

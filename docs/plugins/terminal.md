@@ -65,8 +65,9 @@ The terminal does what terminal apps do:
   cursor;
 - mouse reports, focus reports, bracketed paste, synchronized output,
   hyperlinks (OSC 8), the title (OSC 0 and 2), the working directory
-  (OSC 7), copying to the clipboard (OSC 52), and paste events of the
-  Kitty clipboard protocol (OSC 5522, mode 5522), which let programs take
+  (OSC 7), copying to and reading the clipboard (OSC 52, OSC 5522) as the
+  app allows (see `ClipboardRead`), and paste events of the Kitty
+  clipboard protocol (OSC 5522, mode 5522), which let programs take
   pasted images.
 
 ## Using it
@@ -91,6 +92,12 @@ The terminal does what terminal apps do:
   with what the clipboard held at the paste; other terminals showing the
   same program, as other windows on a session, stay silent. Other
   programs get the text alone, and an image alone pastes nothing.
+- **Reading the clipboard**: a program asks with OSC 52 (`?`) or OSC 5522
+  and is refused by default, with an empty clipboard for OSC 52 and an
+  EPERM status for OSC 5522; `ClipboardRead` allows it or asks the app
+  first (see [Options](#options)). The clipboard is read, and the answer
+  written, on the main thread as the view builds a frame, so what the
+  program reads is what the clipboard held then, not when it asked.
 - **Scrolling**: the wheel and the touchpad scroll the scrollback, as do
   Shift+Page Up and Shift+Page Down. Full-screen programs get the wheel as
   arrow keys, or as mouse reports when they take the mouse. Typing scrolls
@@ -159,9 +166,46 @@ term, err := terminal.New(terminal.Options{
   `RightClickIgnore`. Copying lets go of the selection. A program that
   takes the mouse still gets the click, unless Shift is held.
 - `NoClipboardWrite` keeps programs from writing to the clipboard (OSC 52
-  and OSC 5522), as Ghostty's `clipboard-write = deny`. Programs never
-  read it (OSC 52's reads go unanswered, as with
-  `clipboard-read = deny`), except for what a paste offers them.
+  and OSC 5522), as Ghostty's `clipboard-write = deny`; reads are governed
+  by `ClipboardRead`, and what a paste offers a program is still answered.
+- `ClipboardRead` is what programs get when they read the clipboard (OSC
+  52's "?", and the Kitty clipboard protocol's OSC 5522):
+  `ClipboardDeny` by default, as Ghostty's `clipboard-read = deny`
+  (Ghostty asks by default, but a terminal that asks needs a view), or
+  `ClipboardAllow` to answer with what the clipboard holds, or
+  `ClipboardAsk` to ask the app first. The clipboard is read and the
+  answer written on the main thread, as the view builds its next frame,
+  which is also the frame the terminal's own prompt shows in: a read of a
+  terminal no view shows waits, and one of a closed terminal is never
+  answered.
+- `OnClipboardRequest` asks the app before a program reads the clipboard,
+  when `ClipboardRead` is `ClipboardAsk`. It runs on the main thread with
+  a `ClipboardRequest`: the MIME types the program asked for (`Mimes`),
+  whether it asked for the types available (`List`, the Kitty protocol's
+  targets listing, which is answered without asking), the selection it
+  wants (`Primary`) and what the clipboard held as text (`Text`), for a
+  prompt about it. `Allow` and `Deny` answer the request, in the hook or
+  later and from any goroutine, and the first of them wins; a request the
+  hook leaves unanswered waits. Without the hook the terminal draws its
+  own prompt in the view, one read at a time, with a one-line preview of
+  what the program would read and Allow and Deny buttons (Enter allows,
+  Escape denies):
+
+  ```go
+  OnClipboardRequest: func(req terminal.ClipboardRequest) {
+  	if req.Text == "" && !req.List {
+  		req.Deny() // nothing to leak
+  		return
+  	}
+  	askTheUser(func(ok bool) {
+  		if ok {
+  			req.Allow()
+  		} else {
+  			req.Deny()
+  		}
+  	})
+  },
+  ```
 - `OnTitle`, `OnExit`, `OnBell` and `OnNotify` run on a goroutine of the
   terminal when the program sets the title, ends, rings the bell or asks
   for a desktop notification. `Done` is closed once the program exited,

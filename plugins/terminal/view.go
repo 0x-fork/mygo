@@ -3,7 +3,9 @@ package terminal
 import (
 	"math"
 	"runtime"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -124,6 +126,13 @@ type view struct {
 	scrolled   float32 // scrolling not yet a whole row
 	zoomed     float32 // wheel with the zoom modifier not yet a notch
 	ticking    bool    // an autoscroll tick is due
+
+	// reads are the program's reads of the clipboard waiting to be
+	// answered; clipPrompt is the one the terminal's own prompt asks
+	// about while clipOpen, one at a time.
+	reads      []*clipboardRequest
+	clipPrompt *clipboardRequest
+	clipOpen   bool
 }
 
 type pendingKey struct {
@@ -152,6 +161,7 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 	v.theme = theme
 	if t.term == nil {
 		v.release()
+		v.reads, v.clipPrompt, v.clipOpen = nil, nil, false
 	} else {
 		if v.applied != theme {
 			theme.apply(t.term)
@@ -175,9 +185,16 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 	}
 	copied := t.clipOut
 	t.clipOut = nil
+	reads := t.clipReads
+	t.clipReads = nil
+	term := t.term
 	t.mu.Unlock()
 	for _, s := range copied {
 		c.WriteClipboard(s)
+	}
+	if term != nil {
+		v.reads = append(v.reads, reads...)
+		v.answerReads(c, term)
 	}
 	if focused != v.focused {
 		v.focused = focused
@@ -198,6 +215,156 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 }
 
 const blinkPeriod = 600 * time.Millisecond
+
+// answerReads answers the program's reads of the clipboard as the frame
+// builds, in order, since an OSC 52 reply doesn't tell which read it
+// answers: reads allowed are served from the clipboard, which only the
+// main thread reads; a read the app is asked about, through
+// Options.OnClipboardRequest or the terminal's own prompt, holds back
+// those after it.
+func (v *view) answerReads(c *ui.Context, term *vt.Terminal) {
+	for len(v.reads) > 0 && v.answerRead(c, term, v.reads[0]) {
+		if v.clipPrompt == v.reads[0] {
+			v.clipPrompt, v.clipOpen = nil, false
+		}
+		v.reads = slices.Delete(v.reads, 0, 1)
+	}
+}
+
+// answerRead answers r if it can this frame, and reports whether it did.
+func (v *view) answerRead(c *ui.Context, term *vt.Terminal, r *clipboardRequest) bool {
+	t := v.t
+	if a := v.readAnswer(r); a != 0 {
+		v.finishRead(term, r, a == 1)
+		return true
+	}
+	if !r.ask {
+		v.finishRead(term, r, true)
+		return true
+	}
+	if on := t.opts.OnClipboardRequest; on != nil {
+		if !r.asked {
+			r.text, r.asked = v.services.ReadClipboard(), true
+			on(ClipboardRequest{
+				Mimes:   slices.Clone(r.mimes),
+				List:    r.list,
+				Primary: r.primary,
+				Text:    r.text,
+				req:     r,
+			})
+			if a := v.readAnswer(r); a != 0 {
+				v.finishRead(term, r, a == 1)
+				return true
+			}
+		}
+		return false
+	}
+	// The terminal's own prompt, modal across the frames until it is
+	// answered.
+	if v.clipPrompt != r {
+		r.text = v.services.ReadClipboard()
+		v.clipPrompt, v.clipOpen = r, true
+	}
+	tx := l10n.In(v.lang)
+	switch ui.AlertDialog(c, &v.clipOpen, tx.ClipboardRead(), v.readMessage(r), tx.ClipboardReadDeny(), tx.ClipboardReadAllow()) {
+	case -1:
+		return false
+	case 0, ui.AlertDismissed:
+		v.finishRead(term, r, false)
+	default:
+		v.finishRead(term, r, true)
+	}
+	return true
+}
+
+// readAnswer returns 1 when the app allowed the read, 2 when it denied
+// it, and 0 while the read waits; Allow and Deny may run on any
+// goroutine, so t.mu guards it.
+func (v *view) readAnswer(r *clipboardRequest) int8 {
+	v.t.mu.Lock()
+	defer v.t.mu.Unlock()
+	return r.answer
+}
+
+// finishRead answers a read with what the clipboard holds of what the
+// program asked for, read here on the main thread, or with its refusal.
+func (v *view) finishRead(term *vt.Terminal, r *clipboardRequest, allow bool) {
+	if term == nil {
+		return
+	}
+	if !allow {
+		v.answer(term, r, false, nil, nil)
+		return
+	}
+	formats := []transfer.Format{transfer.Text}
+	for _, mime := range r.mimes {
+		if f := transfer.Format(mime); !slices.Contains(formats, f) {
+			formats = append(formats, f)
+		}
+	}
+	d := v.services.ReadClipboardData(formats...)
+	contents := make(map[string][]byte, len(r.mimes)+1)
+	for _, mime := range r.mimes {
+		if b := readFormat(d, mime); len(b) > 0 {
+			contents[mime] = b
+		}
+	}
+	// The text too, whatever was asked for: an OSC 52 read asks for
+	// text/plain alone, and the binding serves the protocol it came by.
+	if b := readFormat(d, string(transfer.Text)); len(b) > 0 {
+		if _, ok := contents["text/plain"]; !ok {
+			contents["text/plain"] = b
+		}
+	}
+	var available []string
+	for _, f := range v.services.ClipboardFormats() {
+		if m := offerMIME(f); m != "" && !slices.Contains(available, m) {
+			available = append(available, m)
+		}
+	}
+	v.answer(term, r, true, contents, available)
+}
+
+// answer writes the answer of a read under t.mu, as the reader goroutine
+// writes what the program's output answers, so that the answer doesn't
+// come between a paste's reply and the flag that says it is one
+// (Terminal.replying). A terminal closed since says nothing.
+func (v *view) answer(term *vt.Terminal, r *clipboardRequest, allow bool, contents map[string][]byte, available []string) {
+	t := v.t
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.term == term && !t.closed {
+		term.AnswerClipboard(r.deferred, allow, contents, available)
+	}
+}
+
+// readMessage is what the terminal's prompt says a read asks for: the
+// text it would read as one line, the types it asked for when the
+// clipboard holds no text, or that the clipboard is empty.
+func (v *view) readMessage(r *clipboardRequest) string {
+	if r.text != "" {
+		return previewText(r.text)
+	}
+	if len(r.mimes) > 0 {
+		return strings.Join(r.mimes, " ")
+	}
+	return l10n.In(v.lang).ClipboardReadEmpty()
+}
+
+// previewText is text as one line of at most 200 runes.
+func previewText(text string) string {
+	one := strings.Map(func(r rune) rune {
+		switch r {
+		case '\n', '\r', '\t':
+			return ' '
+		}
+		return r
+	}, text)
+	if r := []rune(one); len(r) > 200 {
+		return string(r[:200]) + "…"
+	}
+	return one
+}
 
 // release frees what the view made of the library, once the terminal is
 // closed.

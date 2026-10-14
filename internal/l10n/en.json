@@ -856,5 +856,21 @@
   "clearScrollback": "Clear Scrollback",
   "@clearScrollback": {
     "description": "An item of a terminal's menu, which clears the lines scrolled out of view."
+  },
+  "clipboardRead": "A program wants to read the clipboard",
+  "@clipboardRead": {
+    "description": "The title of the terminal's prompt about a program's read of the clipboard."
+  },
+  "clipboardReadAllow": "Allow",
+  "@clipboardReadAllow": {
+    "description": "The button of the terminal's clipboard prompt that lets the program read."
+  },
+  "clipboardReadDeny": "Deny",
+  "@clipboardReadDeny": {
+    "description": "The button of the terminal's clipboard prompt that refuses the program."
+  },
+  "clipboardReadEmpty": "The clipboard is empty.",
+  "@clipboardReadEmpty": {
+    "description": "What the terminal's clipboard prompt shows when the clipboard holds no text."
   }
 }

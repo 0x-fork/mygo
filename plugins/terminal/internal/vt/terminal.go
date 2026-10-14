@@ -17,9 +17,14 @@ type Terminal struct {
 	// Effects are called during Write, on its goroutine; they must not
 	// call Write.
 	effects Effects
-	// silent is set while a clipboard read goes unanswered: the refusal
-	// the library writes for it is dropped.
+	// silent is set while a clipboard read is refused: the refusal the
+	// library writes for it, a Kitty protocol EPERM, is dropped, as the
+	// read of a terminal that is not the one to answer.
 	silent bool
+	// deferred is the clipboard read the embedder answers later: the
+	// library's refusal, which follows the read's effect, is held back
+	// and captured in it.
+	deferred *DeferredClipboardRead
 	// reply gathers what the library writes while it answers a clipboard
 	// read, which WritePTY then gets at once.
 	reply *[]byte
@@ -36,14 +41,21 @@ type ClipboardRead struct {
 	// Granted tells that the program holds the terminal's permission, as
 	// when it reads what a paste offered it.
 	Granted bool
+	// CanRemember tells that the program asked with a password (the one
+	// a paste event gave it, with its name): a terminal that pasted
+	// knows it — Granted says so — and one that does not never can, and
+	// leaves the read to the one it is for.
+	CanRemember bool
 }
 
 // ClipboardReply answers a ClipboardRead: Contents by MIME type, of the
 // types asked for, and Available when the list was asked for. Without
-// contents the read is refused.
+// contents the read is refused. A deferred read carries Deferred instead.
 type ClipboardReply struct {
 	Contents  map[string][]byte
 	Available []string
+	// Deferred is the read to answer later, with ClipboardDeferred.
+	Deferred *DeferredClipboardRead
 }
 
 // Effects are what a terminal asks of its embedder while it processes
@@ -66,11 +78,14 @@ type Effects struct {
 	// ClipboardRead answers a program's read of the clipboard (OSC 52
 	// with "?", the Kitty clipboard protocol's OSC 5522): the contents of
 	// the MIME types asked for, and the types available when the program
-	// asks for the list. With answer false the program gets no reply at
-	// all, as from a terminal that is not the one to answer; a reply
-	// with no contents refuses it (EPERM). The reply, encoded, comes to
-	// WritePTY in one call as ClipboardRead returns.
-	ClipboardRead func(req ClipboardRead) (reply ClipboardReply, answer bool)
+	// asks for the list. ClipboardAnswered writes the reply, encoded, to
+	// WritePTY in one call as ClipboardRead returns; ClipboardRefused
+	// refuses it (an empty OSC 52 reply, EPERM for OSC 5522), and the
+	// EPERM is dropped, so that a terminal that is not the one to answer
+	// stays silent; ClipboardDeferred holds the refusal back and answers
+	// later through Terminal.AnswerClipboard, for a terminal that must
+	// ask the user first.
+	ClipboardRead func(req ClipboardRead) (reply ClipboardReply, answer ClipboardAnswer)
 	// Size reports the size of the screen in cells and of a cell in
 	// pixels, for size reports.
 	Size func() (cols, rows, cellWidth, cellHeight int)
@@ -208,7 +223,11 @@ func (t *Terminal) Free() {
 // Write processes output of the program.
 func (t *Terminal) Write(p []byte) {
 	if len(p) > 0 {
+		// A read that was deferred but whose refusal never came, as of a
+		// library of another version, is stale.
+		t.deferred = nil
 		call(fnTerminalVTWrite, t.h, uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)))
+		t.deferred = nil
 		// A read that writes no refusal, as OSC 52's, leaves silent set;
 		// it is for that read alone.
 		t.silent = false
@@ -557,6 +576,14 @@ func makeCallbacks() {
 	cbWritePTY = newCallback(func(_, id, data, n uintptr) uintptr {
 		if t := terminalOf(id); t != nil && t.effects.WritePTY != nil && n > 0 {
 			p := unsafe.Slice((*byte)(mem(data)), n)
+			if d := t.deferred; d != nil {
+				// A deferred read: what the library writes now is its
+				// refusal, which the read's answer replaces.
+				t.deferred = nil
+				if d.setRefusal(p) {
+					return 0
+				}
+			}
 			if t.silent && bytes.HasPrefix(p, []byte("\x1b]5522;type=read:status=EPERM")) {
 				// The refusal of a read that goes unanswered: the library
 				// writes it as the read's callback returns without a reply.
@@ -578,47 +605,56 @@ func makeCallbacks() {
 			return 0 // refused by the library
 		}
 		var in ClipboardRead
-		in.List, in.Primary, in.Granted = r.list, r.location != 0, r.granted
+		in.List, in.Primary, in.Granted, in.CanRemember = r.list, r.location != 0, r.granted, r.canRemember
 		for _, m := range unsafe.Slice((*cString)(mem(r.mimes)), r.mimesLen) {
 			in.Mimes = append(in.Mimes, goString(m.ptr, m.len))
 		}
 		out, answer := t.effects.ClipboardRead(in)
-		if !answer {
+		switch answer {
+		case ClipboardAnswered:
+			reply := clipboardReadReply{size: unsafe.Sizeof(clipboardReadReply{}), result: 1} // denied
+			var contents []clipboardContent
+			var available []cString
+			var keep [][]byte
+			for _, m := range in.Mimes {
+				if data, ok := out.Contents[m]; ok && len(data) > 0 {
+					contents = append(contents, clipboardContent{mime: cStringOf(m, &keep), data: cBytes(data)})
+				}
+			}
+			for _, m := range out.Available {
+				available = append(available, cStringOf(m, &keep))
+			}
+			if len(contents) > 0 || in.List && len(available) > 0 {
+				reply.result = 0
+				if len(contents) > 0 {
+					reply.contents, reply.contentsLen = uintptr(unsafe.Pointer(&contents[0])), uintptr(len(contents))
+				}
+				if len(available) > 0 {
+					reply.available, reply.availableLen = uintptr(unsafe.Pointer(&available[0])), uintptr(len(available))
+				}
+			}
+			var written []byte
+			t.reply = &written
+			call(r.reply, req, uintptr(unsafe.Pointer(&reply)))
+			t.reply = nil
+			if len(written) > 0 && t.effects.WritePTY != nil {
+				t.effects.WritePTY(written)
+			}
+			runtime.KeepAlive(keep)
+			runtime.KeepAlive(out)
+			runtime.KeepAlive(contents)
+			runtime.KeepAlive(available)
+		case ClipboardDeferred:
+			d := out.Deferred
+			if d != nil {
+				d.mimes, d.list, d.primary = in.Mimes, in.List, in.Primary
+				t.deferred = d
+				return 0
+			}
+			fallthrough
+		default: // ClipboardRefused: the library writes the refusal itself.
 			t.silent = true
-			return 0
 		}
-		reply := clipboardReadReply{size: unsafe.Sizeof(clipboardReadReply{}), result: 1} // denied
-		var contents []clipboardContent
-		var available []cString
-		var keep [][]byte
-		for _, m := range in.Mimes {
-			if data, ok := out.Contents[m]; ok && len(data) > 0 {
-				contents = append(contents, clipboardContent{mime: cStringOf(m, &keep), data: cBytes(data)})
-			}
-		}
-		for _, m := range out.Available {
-			available = append(available, cStringOf(m, &keep))
-		}
-		if len(contents) > 0 || in.List && len(available) > 0 {
-			reply.result = 0
-			if len(contents) > 0 {
-				reply.contents, reply.contentsLen = uintptr(unsafe.Pointer(&contents[0])), uintptr(len(contents))
-			}
-			if len(available) > 0 {
-				reply.available, reply.availableLen = uintptr(unsafe.Pointer(&available[0])), uintptr(len(available))
-			}
-		}
-		var written []byte
-		t.reply = &written
-		call(r.reply, req, uintptr(unsafe.Pointer(&reply)))
-		t.reply = nil
-		if len(written) > 0 && t.effects.WritePTY != nil {
-			t.effects.WritePTY(written)
-		}
-		runtime.KeepAlive(keep)
-		runtime.KeepAlive(out)
-		runtime.KeepAlive(contents)
-		runtime.KeepAlive(available)
 		return 0
 	})
 	cbBell = newCallback(func(_, id uintptr) uintptr {
