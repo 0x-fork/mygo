@@ -107,7 +107,7 @@ func openFileOfKind(path string) {
 	for _, k := range docKinds() {
 		if k.handles(path) {
 			if _, err := k.open(path); err != nil {
-				showDocumentError(nil, "The document “"+filepath.Base(path)+"” could not be opened.", err)
+				showDocumentError(nil, menuMessages().DocumentFailed("opened", filepath.Base(path)), err)
 			}
 			return
 		}
@@ -293,40 +293,43 @@ func (b *docBase) parent() *Window {
 
 // buttons orders the buttons of a dialog asking to save, as each
 // platform lays them out: on macOS the alert puts the first rightmost,
-// the second left of it and the third apart, on the left.
-func saveButtons(save, discard string) (buttons []string, saveAt, discardAt int) {
+// the second left of it and the third apart, on the left. cancelAt is
+// the Cancel button's.
+func saveButtons(save, discard string) (buttons []string, saveAt, discardAt, cancelAt int) {
+	cancel := menuMessages().Cancel()
 	if runtime.GOOS == "darwin" {
-		return []string{save, "Cancel", discard}, 0, 2
+		return []string{save, cancel, discard}, 0, 2, 1
 	}
-	return []string{save, discard, "Cancel"}, 0, 1
+	return []string{save, discard, cancel}, 0, 1, 2
 }
 
 // askToSave asks whether to save b's changes before it closes, saves or
 // discards them, and reports whether b may close.
 func (b *docBase) askToSave() bool {
 	s := b.State()
+	tx := menuMessages()
 	var opts MessageOptions
 	var buttons []string
-	var saveAt, discardAt int
+	var saveAt, discardAt, cancelAt int
 	if s.Path == "" && b.kind.autosave == AutosaveInPlace {
-		buttons, saveAt, discardAt = saveButtons("Save…", "Delete")
+		buttons, saveAt, discardAt, cancelAt = saveButtons(tx.SaveEllipsis(), tx.DeleteDocument())
 		opts = MessageOptions{
-			Message: "Do you want to keep this new document “" + s.Name + "”?",
-			Detail:  "You can choose to save your changes, or delete this document immediately. You can’t undo this action.",
+			Message: tx.KeepNewDocument(s.Name),
+			Detail:  tx.KeepNewDocumentDetail(),
 		}
 	} else {
-		save := "Save"
+		save := tx.Save()
 		if s.Path == "" {
-			save = "Save…"
+			save = tx.SaveEllipsis()
 		}
-		buttons, saveAt, discardAt = saveButtons(save, "Don’t Save")
+		buttons, saveAt, discardAt, cancelAt = saveButtons(save, tx.DontSave())
 		opts = MessageOptions{
-			Message: "Do you want to save the changes made to the document “" + s.Name + "”?",
-			Detail:  "Your changes will be lost if you don’t save them.",
+			Message: tx.SaveChanges(s.Name),
+			Detail:  tx.ChangesLost(),
 		}
 	}
 	opts.Parent, opts.Type, opts.Buttons = b.parent(), MessageWarning, buttons
-	opts.CancelButton = slices.Index(buttons, "Cancel")
+	opts.CancelButton = cancelAt
 	r, err := Dialog.Message(opts)
 	if err != nil {
 		return false
@@ -345,7 +348,7 @@ func (b *docBase) askToSave() bool {
 func (b *docBase) saveOrShow() error {
 	err := b.saveInteractive(false)
 	if err != nil && !errors.Is(err, ErrCanceled) {
-		showDocumentError(b.parent(), "The document “"+b.Name()+"” could not be saved.", err)
+		showDocumentError(b.parent(), menuMessages().DocumentFailed("saved", b.Name()), err)
 	}
 	return err
 }
@@ -358,7 +361,7 @@ func (b *docBase) saveInteractive(as bool) error {
 	path, readOnly := b.path, b.readOnly
 	b.mu.Unlock()
 	if as || path == "" {
-		target, err := b.askPath("", "")
+		target, err := b.askPath("", "", "")
 		if err != nil {
 			return err
 		}
@@ -376,11 +379,12 @@ func (b *docBase) saveInteractive(as bool) error {
 			return err
 		}
 	}
-	buttons := []string{"Save As…", "Cancel"}
+	tx := menuMessages()
+	buttons := []string{tx.SaveAs(), tx.Cancel()}
 	r, err := Dialog.Message(MessageOptions{
 		Parent: b.parent(), Type: MessageWarning, Buttons: buttons, CancelButton: 1,
-		Message: "The document “" + b.Name() + "” can’t be saved because its file is read-only.",
-		Detail:  "Save it as another file to keep your changes.",
+		Message: tx.ReadOnly(b.Name()),
+		Detail:  tx.ReadOnlyDetail(),
 	})
 	if err != nil || r.Button != 0 {
 		return ErrCanceled
@@ -390,11 +394,12 @@ func (b *docBase) saveInteractive(as bool) error {
 
 // resolveConflict asks what to do when another app changed b's file.
 func (b *docBase) resolveConflict(path string) error {
-	buttons, saveAt, revertAt := saveButtons("Save Anyway", "Revert")
+	tx := menuMessages()
+	buttons, saveAt, revertAt, cancelAt := saveButtons(tx.SaveAnyway(), tx.RevertDocument())
 	r, err := Dialog.Message(MessageOptions{
-		Parent: b.parent(), Type: MessageWarning, Buttons: buttons, CancelButton: slices.Index(buttons, "Cancel"),
-		Message: "The file “" + filepath.Base(path) + "” has been changed by another application.",
-		Detail:  "Save Anyway replaces it with your version. Revert discards your changes and shows the version on disk.",
+		Parent: b.parent(), Type: MessageWarning, Buttons: buttons, CancelButton: cancelAt,
+		Message: tx.ChangedOnDisk(filepath.Base(path)),
+		Detail:  tx.ChangedOnDiskDetail(),
 	})
 	if err != nil {
 		return err
@@ -409,8 +414,9 @@ func (b *docBase) resolveConflict(path string) error {
 	return ErrCanceled
 }
 
-// askPath asks where to save b, or to rename it (button "Rename").
-func (b *docBase) askPath(title, button string) (string, error) {
+// askPath asks where to save b, or to rename it (title and button
+// "Rename", nameLabel "Rename To:").
+func (b *docBase) askPath(title, button, nameLabel string) (string, error) {
 	b.mu.Lock()
 	path, name := b.path, b.nameLocked()
 	b.mu.Unlock()
@@ -421,9 +427,7 @@ func (b *docBase) askPath(title, button string) (string, error) {
 		def = filepath.Join(dir, name+"."+ext)
 	}
 	opts := SaveDialogOptions{Parent: b.parent(), Title: title, ButtonLabel: button, DefaultPath: def, Filters: b.kind.filters()}
-	if button != "" {
-		opts.NameFieldLabel = button + " To:"
-	}
+	opts.NameFieldLabel = nameLabel
 	target, err := Dialog.Save(opts)
 	if err != nil {
 		return "", err
@@ -461,7 +465,8 @@ func (b *docBase) rename(name string) error {
 	var target string
 	if name == "" {
 		var err error
-		if target, err = b.askPath("Rename", "Rename"); err != nil {
+		tx := menuMessages()
+		if target, err = b.askPath(tx.Rename(), tx.Rename(), tx.RenameTo()); err != nil {
 			return err
 		}
 	} else {
@@ -480,7 +485,8 @@ func (b *docBase) rename(name string) error {
 func (b *docBase) moveTo(dir string) error {
 	path := b.Path()
 	if dir == "" {
-		dirs, err := Dialog.Open(OpenDialogOptions{Parent: b.parent(), Title: "Move To", ButtonLabel: "Move", Directory: true, CreateDirectories: true})
+		tx := menuMessages()
+		dirs, err := Dialog.Open(OpenDialogOptions{Parent: b.parent(), Title: tx.MoveTo(), ButtonLabel: tx.Move(), Directory: true, CreateDirectories: true})
 		if err != nil {
 			return err
 		}
@@ -498,10 +504,11 @@ func (b *docBase) moveTo(dir string) error {
 		return nil
 	}
 	if _, err := os.Lstat(target); err == nil {
+		tx := menuMessages()
 		r, err := Dialog.Message(MessageOptions{
-			Parent: b.parent(), Type: MessageWarning, Buttons: []string{"Replace", "Cancel"}, CancelButton: 1,
-			Message: "An item named “" + filepath.Base(target) + "” already exists in this location. Do you want to replace it?",
-			Detail:  "Replacing it overwrites its current contents.",
+			Parent: b.parent(), Type: MessageWarning, Buttons: []string{tx.ReplaceFile(), tx.Cancel()}, CancelButton: 1,
+			Message: tx.AlreadyExists(filepath.Base(target)),
+			Detail:  tx.AlreadyExistsDetail(),
 		})
 		if err != nil || r.Button != 0 {
 			return ErrCanceled
@@ -556,10 +563,11 @@ func (b *docBase) revert() error {
 	if !s.Edited || s.Path == "" {
 		return nil
 	}
+	tx := menuMessages()
 	r, err := Dialog.Message(MessageOptions{
-		Parent: b.parent(), Type: MessageWarning, Buttons: []string{"Revert", "Cancel"}, CancelButton: 1,
-		Message: "Do you want to revert “" + s.Name + "” to the last saved version?",
-		Detail:  "Your current changes will be lost.",
+		Parent: b.parent(), Type: MessageWarning, Buttons: []string{tx.RevertDocument(), tx.Cancel()}, CancelButton: 1,
+		Message: tx.RevertQuestion(s.Name),
+		Detail:  tx.RevertDetail(),
 	})
 	if err != nil || r.Button != 0 {
 		return ErrCanceled
@@ -660,11 +668,12 @@ func resolveQuit(docs []*docBase) bool {
 		return ask[0].askToSave()
 	}
 	if runtime.GOOS == "darwin" {
-		buttons := []string{"Review Changes…", "Cancel", "Discard Changes"}
+		tx := menuMessages()
+		buttons := []string{tx.ReviewChanges(), tx.Cancel(), tx.DiscardChanges()}
 		r, err := Dialog.Message(MessageOptions{
 			Type: MessageWarning, Buttons: buttons, CancelButton: 1,
-			Message: fmt.Sprintf("You have %d %s documents with unsaved changes. Do you want to review these changes before quitting?", len(ask), App.Name()),
-			Detail:  "If you don’t review your documents, all your changes will be lost.",
+			Message: tx.ReviewBeforeQuitting(len(ask), App.Name()),
+			Detail:  tx.ReviewBeforeQuittingDetail(),
 		})
 		if err != nil {
 			return false
@@ -690,10 +699,11 @@ func resolveQuit(docs []*docBase) bool {
 	for i, b := range ask {
 		names[i] = b.Name()
 	}
+	tx := menuMessages()
 	r, err := Dialog.Message(MessageOptions{
-		Type: MessageWarning, Buttons: []string{"Save All", "Don’t Save", "Cancel"}, CancelButton: 2,
-		Message: fmt.Sprintf("Do you want to save the changes to the following %d documents?", len(ask)),
-		Detail:  strings.Join(names, "\n") + "\n\nYour changes will be lost if you don’t save them.",
+		Type: MessageWarning, Buttons: []string{tx.SaveAll(), tx.DontSave(), tx.Cancel()}, CancelButton: 2,
+		Message: tx.SaveManyChanges(len(ask)),
+		Detail:  strings.Join(names, "\n") + "\n\n" + tx.ChangesLost(),
 	})
 	if err != nil {
 		return false

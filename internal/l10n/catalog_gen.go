@@ -779,14 +779,14 @@ func (msgs Messages) HunkAction(action string) string {
 	return Catalog.Format(msgs.locale, "hunkAction", map[string]any{"action": action})
 }
 
-// Line says "Line {n}"
+// Line says "Line {n, number, ::group-off}"
 // in the language the app shows.
 //
 // The line a gutter button of a diff viewer adds a line at, as assistive
 // technology reads it.
 func Line(n int) string { return In(i18n.Locale()).Line(n) }
 
-// Line says "Line {n}"
+// Line says "Line {n, number, ::group-off}"
 // in the language of msgs.
 //
 // The line a gutter button of a diff viewer adds a line at, as assistive
@@ -1023,13 +1023,13 @@ func (msgs Messages) GoToLine() string {
 	return Catalog.Format(msgs.locale, "goToLine", nil)
 }
 
-// LineRange says "Line 1 to {lines}, then :column"
+// LineRange says "Line 1 to {lines, number, ::group-off}, then :column"
 // in the language the app shows.
 //
 // What the empty field of the go to line bar shows.
 func LineRange(lines int) string { return In(i18n.Locale()).LineRange(lines) }
 
-// LineRange says "Line 1 to {lines}, then :column"
+// LineRange says "Line 1 to {lines, number, ::group-off}, then :column"
 // in the language of msgs.
 //
 // What the empty field of the go to line bar shows.
@@ -1037,7 +1037,7 @@ func (msgs Messages) LineRange(lines int) string {
 	return Catalog.Format(msgs.locale, "lineRange", map[string]any{"lines": lines})
 }
 
-// CurrentLine says "Current line {line} of {lines}, column {column}"
+// CurrentLine says "Current line {line, number, ::group-off} of {lines, number, ::group-off}, column {column, number, ::group-off}"
 // in the language the app shows.
 //
 // Where the caret is, which the go to line bar says.
@@ -1045,7 +1045,7 @@ func CurrentLine(line int, lines int, column int) string {
 	return In(i18n.Locale()).CurrentLine(line, lines, column)
 }
 
-// CurrentLine says "Current line {line} of {lines}, column {column}"
+// CurrentLine says "Current line {line, number, ::group-off} of {lines, number, ::group-off}, column {column, number, ::group-off}"
 // in the language of msgs.
 //
 // Where the caret is, which the go to line bar says.
@@ -1811,4 +1811,798 @@ func MenuAlignRight() string { return In(i18n.Locale()).MenuAlignRight() }
 // The label of the menu items of the role alignRight (MenuItem.Role).
 func (msgs Messages) MenuAlignRight() string {
 	return Catalog.Format(msgs.locale, "menuAlignRight", nil)
+}
+
+// NoMatches says "No matches"
+// in the language the app shows.
+//
+// What a find bar says of a query that matches nothing.
+func NoMatches() string { return In(i18n.Locale()).NoMatches() }
+
+// NoMatches says "No matches"
+// in the language of msgs.
+//
+// What a find bar says of a query that matches nothing.
+func (msgs Messages) NoMatches() string {
+	return Catalog.Format(msgs.locale, "noMatches", nil)
+}
+
+// Previous says "Previous"
+// in the language the app shows.
+//
+// Labels the button of a find bar that goes to the previous match.
+func Previous() string { return In(i18n.Locale()).Previous() }
+
+// Previous says "Previous"
+// in the language of msgs.
+//
+// Labels the button of a find bar that goes to the previous match.
+func (msgs Messages) Previous() string {
+	return Catalog.Format(msgs.locale, "previous", nil)
+}
+
+// Next says "Next"
+// in the language the app shows.
+//
+// Labels the button of a find bar that goes to the next match.
+func Next() string { return In(i18n.Locale()).Next() }
+
+// Next says "Next"
+// in the language of msgs.
+//
+// Labels the button of a find bar that goes to the next match.
+func (msgs Messages) Next() string {
+	return Catalog.Format(msgs.locale, "next", nil)
+}
+
+// Done says "Done"
+// in the language the app shows.
+//
+// The button that closes a find bar.
+func Done() string { return In(i18n.Locale()).Done() }
+
+// Done says "Done"
+// in the language of msgs.
+//
+// The button that closes a find bar.
+func (msgs Messages) Done() string {
+	return Catalog.Format(msgs.locale, "done", nil)
+}
+
+// ColorValue says "{saturation, number, percent} saturation, {brightness, number, percent} brightness"
+// in the language the app shows.
+//
+// What assistive technology reads of the area of a color picker that sets
+// the saturation and the brightness, as "40% saturation, 75% brightness".
+func ColorValue(saturation float64, brightness float64) string {
+	return In(i18n.Locale()).ColorValue(saturation, brightness)
+}
+
+// ColorValue says "{saturation, number, percent} saturation, {brightness, number, percent} brightness"
+// in the language of msgs.
+//
+// What assistive technology reads of the area of a color picker that sets
+// the saturation and the brightness, as "40% saturation, 75% brightness".
+func (msgs Messages) ColorValue(saturation float64, brightness float64) string {
+	return Catalog.Format(msgs.locale, "colorValue", map[string]any{"saturation": saturation, "brightness": brightness})
+}
+
+// Hours says "hours"
+// in the language the app shows.
+//
+// Names the hours of a time field to assistive technology, after the
+// field's label.
+func Hours() string { return In(i18n.Locale()).Hours() }
+
+// Hours says "hours"
+// in the language of msgs.
+//
+// Names the hours of a time field to assistive technology, after the
+// field's label.
+func (msgs Messages) Hours() string {
+	return Catalog.Format(msgs.locale, "hours", nil)
+}
+
+// Minutes says "minutes"
+// in the language the app shows.
+//
+// Names the minutes of a time field to assistive technology, after the
+// field's label.
+func Minutes() string { return In(i18n.Locale()).Minutes() }
+
+// Minutes says "minutes"
+// in the language of msgs.
+//
+// Names the minutes of a time field to assistive technology, after the
+// field's label.
+func (msgs Messages) Minutes() string {
+	return Catalog.Format(msgs.locale, "minutes", nil)
+}
+
+// DayPeriod says "AM/PM"
+// in the language the app shows.
+//
+// Names the part of a time field that says AM or PM to assistive
+// technology, after the field's label.
+func DayPeriod() string { return In(i18n.Locale()).DayPeriod() }
+
+// DayPeriod says "AM/PM"
+// in the language of msgs.
+//
+// Names the part of a time field that says AM or PM to assistive
+// technology, after the field's label.
+func (msgs Messages) DayPeriod() string {
+	return Catalog.Format(msgs.locale, "dayPeriod", nil)
+}
+
+// RichText says "Rich text"
+// in the language the app shows.
+//
+// Names a rich text editor to assistive technology when the app gives it no
+// label.
+func RichText() string { return In(i18n.Locale()).RichText() }
+
+// RichText says "Rich text"
+// in the language of msgs.
+//
+// Names a rich text editor to assistive technology when the app gives it no
+// label.
+func (msgs Messages) RichText() string {
+	return Catalog.Format(msgs.locale, "richText", nil)
+}
+
+// CopyCode says "Copy code"
+// in the language the app shows.
+//
+// Labels the button of a code block of Markdown that copies its code.
+func CopyCode() string { return In(i18n.Locale()).CopyCode() }
+
+// CopyCode says "Copy code"
+// in the language of msgs.
+//
+// Labels the button of a code block of Markdown that copies its code.
+func (msgs Messages) CopyCode() string {
+	return Catalog.Format(msgs.locale, "copyCode", nil)
+}
+
+// Copied says "Copied"
+// in the language the app shows.
+//
+// What the copy button of a code block of Markdown says once it copied the
+// code.
+func Copied() string { return In(i18n.Locale()).Copied() }
+
+// Copied says "Copied"
+// in the language of msgs.
+//
+// What the copy button of a code block of Markdown says once it copied the
+// code.
+func (msgs Messages) Copied() string {
+	return Catalog.Format(msgs.locale, "copied", nil)
+}
+
+// CopyAsMarkdown says "Copy as Markdown"
+// in the language the app shows.
+//
+// An item of the menu of a view of Markdown.
+func CopyAsMarkdown() string { return In(i18n.Locale()).CopyAsMarkdown() }
+
+// CopyAsMarkdown says "Copy as Markdown"
+// in the language of msgs.
+//
+// An item of the menu of a view of Markdown.
+func (msgs Messages) CopyAsMarkdown() string {
+	return Catalog.Format(msgs.locale, "copyAsMarkdown", nil)
+}
+
+// Image says "Image"
+// in the language the app shows.
+//
+// Names an image of Markdown without a description to assistive technology.
+func Image() string { return In(i18n.Locale()).Image() }
+
+// Image says "Image"
+// in the language of msgs.
+//
+// Names an image of Markdown without a description to assistive technology.
+func (msgs Messages) Image() string {
+	return Catalog.Format(msgs.locale, "image", nil)
+}
+
+// MenuSpeech says "Speech"
+// in the language the app shows.
+//
+// The submenu of macOS's Edit menu with the items that speak the selection.
+func MenuSpeech() string { return In(i18n.Locale()).MenuSpeech() }
+
+// MenuSpeech says "Speech"
+// in the language of msgs.
+//
+// The submenu of macOS's Edit menu with the items that speak the selection.
+func (msgs Messages) MenuSpeech() string {
+	return Catalog.Format(msgs.locale, "menuSpeech", nil)
+}
+
+// MenuClearRecent says "Clear Menu"
+// in the language the app shows.
+//
+// The last item of the menu of recent documents, which empties it.
+func MenuClearRecent() string { return In(i18n.Locale()).MenuClearRecent() }
+
+// MenuClearRecent says "Clear Menu"
+// in the language of msgs.
+//
+// The last item of the menu of recent documents, which empties it.
+func (msgs Messages) MenuClearRecent() string {
+	return Catalog.Format(msgs.locale, "menuClearRecent", nil)
+}
+
+// Untitled says "Untitled"
+// in the language the app shows.
+//
+// The name of a new document before it is saved.
+func Untitled() string { return In(i18n.Locale()).Untitled() }
+
+// Untitled says "Untitled"
+// in the language of msgs.
+//
+// The name of a new document before it is saved.
+func (msgs Messages) Untitled() string {
+	return Catalog.Format(msgs.locale, "untitled", nil)
+}
+
+// UntitledNumbered says "Untitled {n, number, ::group-off}"
+// in the language the app shows.
+//
+// The name of the second and later new documents before they are saved, as
+// "Untitled 2".
+func UntitledNumbered(n int) string { return In(i18n.Locale()).UntitledNumbered(n) }
+
+// UntitledNumbered says "Untitled {n, number, ::group-off}"
+// in the language of msgs.
+//
+// The name of the second and later new documents before they are saved, as
+// "Untitled 2".
+func (msgs Messages) UntitledNumbered(n int) string {
+	return Catalog.Format(msgs.locale, "untitledNumbered", map[string]any{"n": n})
+}
+
+// Cancel says "Cancel"
+// in the language the app shows.
+//
+// A button of a dialog that cancels what it asks about.
+func Cancel() string { return In(i18n.Locale()).Cancel() }
+
+// Cancel says "Cancel"
+// in the language of msgs.
+//
+// A button of a dialog that cancels what it asks about.
+func (msgs Messages) Cancel() string {
+	return Catalog.Format(msgs.locale, "cancel", nil)
+}
+
+// Save says "Save"
+// in the language the app shows.
+//
+// A button of a dialog that saves a document.
+func Save() string { return In(i18n.Locale()).Save() }
+
+// Save says "Save"
+// in the language of msgs.
+//
+// A button of a dialog that saves a document.
+func (msgs Messages) Save() string {
+	return Catalog.Format(msgs.locale, "save", nil)
+}
+
+// SaveEllipsis says "Save…"
+// in the language the app shows.
+//
+// A button of a dialog that saves a new document, after asking where.
+func SaveEllipsis() string { return In(i18n.Locale()).SaveEllipsis() }
+
+// SaveEllipsis says "Save…"
+// in the language of msgs.
+//
+// A button of a dialog that saves a new document, after asking where.
+func (msgs Messages) SaveEllipsis() string {
+	return Catalog.Format(msgs.locale, "saveEllipsis", nil)
+}
+
+// SaveAs says "Save As…"
+// in the language the app shows.
+//
+// A button of a dialog that saves a document as another file.
+func SaveAs() string { return In(i18n.Locale()).SaveAs() }
+
+// SaveAs says "Save As…"
+// in the language of msgs.
+//
+// A button of a dialog that saves a document as another file.
+func (msgs Messages) SaveAs() string {
+	return Catalog.Format(msgs.locale, "saveAs", nil)
+}
+
+// SaveAnyway says "Save Anyway"
+// in the language the app shows.
+//
+// A button of a dialog that saves a document whose file another app
+// changed.
+func SaveAnyway() string { return In(i18n.Locale()).SaveAnyway() }
+
+// SaveAnyway says "Save Anyway"
+// in the language of msgs.
+//
+// A button of a dialog that saves a document whose file another app
+// changed.
+func (msgs Messages) SaveAnyway() string {
+	return Catalog.Format(msgs.locale, "saveAnyway", nil)
+}
+
+// SaveAll says "Save All"
+// in the language the app shows.
+//
+// A button of a dialog that saves every document with changes.
+func SaveAll() string { return In(i18n.Locale()).SaveAll() }
+
+// SaveAll says "Save All"
+// in the language of msgs.
+//
+// A button of a dialog that saves every document with changes.
+func (msgs Messages) SaveAll() string {
+	return Catalog.Format(msgs.locale, "saveAll", nil)
+}
+
+// DontSave says "Don’t Save"
+// in the language the app shows.
+//
+// A button of a dialog that closes a document without saving its changes.
+func DontSave() string { return In(i18n.Locale()).DontSave() }
+
+// DontSave says "Don’t Save"
+// in the language of msgs.
+//
+// A button of a dialog that closes a document without saving its changes.
+func (msgs Messages) DontSave() string {
+	return Catalog.Format(msgs.locale, "dontSave", nil)
+}
+
+// DeleteDocument says "Delete"
+// in the language the app shows.
+//
+// A button of a dialog that deletes a new document instead of saving it.
+func DeleteDocument() string { return In(i18n.Locale()).DeleteDocument() }
+
+// DeleteDocument says "Delete"
+// in the language of msgs.
+//
+// A button of a dialog that deletes a new document instead of saving it.
+func (msgs Messages) DeleteDocument() string {
+	return Catalog.Format(msgs.locale, "deleteDocument", nil)
+}
+
+// RevertDocument says "Revert"
+// in the language the app shows.
+//
+// A button of a dialog that reverts a document to its file.
+func RevertDocument() string { return In(i18n.Locale()).RevertDocument() }
+
+// RevertDocument says "Revert"
+// in the language of msgs.
+//
+// A button of a dialog that reverts a document to its file.
+func (msgs Messages) RevertDocument() string {
+	return Catalog.Format(msgs.locale, "revertDocument", nil)
+}
+
+// ReplaceFile says "Replace"
+// in the language the app shows.
+//
+// A button of a dialog that replaces a file with a document.
+func ReplaceFile() string { return In(i18n.Locale()).ReplaceFile() }
+
+// ReplaceFile says "Replace"
+// in the language of msgs.
+//
+// A button of a dialog that replaces a file with a document.
+func (msgs Messages) ReplaceFile() string {
+	return Catalog.Format(msgs.locale, "replaceFile", nil)
+}
+
+// Rename says "Rename"
+// in the language the app shows.
+//
+// The title and the button of the dialog that renames a document.
+func Rename() string { return In(i18n.Locale()).Rename() }
+
+// Rename says "Rename"
+// in the language of msgs.
+//
+// The title and the button of the dialog that renames a document.
+func (msgs Messages) Rename() string {
+	return Catalog.Format(msgs.locale, "rename", nil)
+}
+
+// RenameTo says "Rename To:"
+// in the language the app shows.
+//
+// Labels the field of the name of the dialog that renames a document.
+func RenameTo() string { return In(i18n.Locale()).RenameTo() }
+
+// RenameTo says "Rename To:"
+// in the language of msgs.
+//
+// Labels the field of the name of the dialog that renames a document.
+func (msgs Messages) RenameTo() string {
+	return Catalog.Format(msgs.locale, "renameTo", nil)
+}
+
+// MoveTo says "Move To"
+// in the language the app shows.
+//
+// The title of the dialog that moves a document to another folder.
+func MoveTo() string { return In(i18n.Locale()).MoveTo() }
+
+// MoveTo says "Move To"
+// in the language of msgs.
+//
+// The title of the dialog that moves a document to another folder.
+func (msgs Messages) MoveTo() string {
+	return Catalog.Format(msgs.locale, "moveTo", nil)
+}
+
+// Move says "Move"
+// in the language the app shows.
+//
+// The button of the dialog that moves a document to another folder.
+func Move() string { return In(i18n.Locale()).Move() }
+
+// Move says "Move"
+// in the language of msgs.
+//
+// The button of the dialog that moves a document to another folder.
+func (msgs Messages) Move() string {
+	return Catalog.Format(msgs.locale, "move", nil)
+}
+
+// ReviewChanges says "Review Changes…"
+// in the language the app shows.
+//
+// A button of the dialog asking about the documents with changes as the app
+// quits.
+func ReviewChanges() string { return In(i18n.Locale()).ReviewChanges() }
+
+// ReviewChanges says "Review Changes…"
+// in the language of msgs.
+//
+// A button of the dialog asking about the documents with changes as the app
+// quits.
+func (msgs Messages) ReviewChanges() string {
+	return Catalog.Format(msgs.locale, "reviewChanges", nil)
+}
+
+// DiscardChanges says "Discard Changes"
+// in the language the app shows.
+//
+// A button of the dialog asking about the documents with changes as the app
+// quits.
+func DiscardChanges() string { return In(i18n.Locale()).DiscardChanges() }
+
+// DiscardChanges says "Discard Changes"
+// in the language of msgs.
+//
+// A button of the dialog asking about the documents with changes as the app
+// quits.
+func (msgs Messages) DiscardChanges() string {
+	return Catalog.Format(msgs.locale, "discardChanges", nil)
+}
+
+// KeepNewDocument says "Do you want to keep this new document “{name}”?"
+// in the language the app shows.
+//
+// Asks, as a new document closes, whether to keep it.
+func KeepNewDocument(name string) string { return In(i18n.Locale()).KeepNewDocument(name) }
+
+// KeepNewDocument says "Do you want to keep this new document “{name}”?"
+// in the language of msgs.
+//
+// Asks, as a new document closes, whether to keep it.
+func (msgs Messages) KeepNewDocument(name string) string {
+	return Catalog.Format(msgs.locale, "keepNewDocument", map[string]any{"name": name})
+}
+
+// KeepNewDocumentDetail says "You can choose to save your changes, or delete this document immediately. You can’t undo this action."
+// in the language the app shows.
+//
+// Explains the question of keepNewDocument.
+func KeepNewDocumentDetail() string { return In(i18n.Locale()).KeepNewDocumentDetail() }
+
+// KeepNewDocumentDetail says "You can choose to save your changes, or delete this document immediately. You can’t undo this action."
+// in the language of msgs.
+//
+// Explains the question of keepNewDocument.
+func (msgs Messages) KeepNewDocumentDetail() string {
+	return Catalog.Format(msgs.locale, "keepNewDocumentDetail", nil)
+}
+
+// SaveChanges says "Do you want to save the changes made to the document “{name}”?"
+// in the language the app shows.
+//
+// Asks, as a document with changes closes, whether to save them.
+func SaveChanges(name string) string { return In(i18n.Locale()).SaveChanges(name) }
+
+// SaveChanges says "Do you want to save the changes made to the document “{name}”?"
+// in the language of msgs.
+//
+// Asks, as a document with changes closes, whether to save them.
+func (msgs Messages) SaveChanges(name string) string {
+	return Catalog.Format(msgs.locale, "saveChanges", map[string]any{"name": name})
+}
+
+// ChangesLost says "Your changes will be lost if you don’t save them."
+// in the language the app shows.
+//
+// Explains the question of saveChanges.
+func ChangesLost() string { return In(i18n.Locale()).ChangesLost() }
+
+// ChangesLost says "Your changes will be lost if you don’t save them."
+// in the language of msgs.
+//
+// Explains the question of saveChanges.
+func (msgs Messages) ChangesLost() string {
+	return Catalog.Format(msgs.locale, "changesLost", nil)
+}
+
+// ReadOnly says "The document “{name}” can’t be saved because its file is read-only."
+// in the language the app shows.
+//
+// Says a document cannot be saved in its file.
+func ReadOnly(name string) string { return In(i18n.Locale()).ReadOnly(name) }
+
+// ReadOnly says "The document “{name}” can’t be saved because its file is read-only."
+// in the language of msgs.
+//
+// Says a document cannot be saved in its file.
+func (msgs Messages) ReadOnly(name string) string {
+	return Catalog.Format(msgs.locale, "readOnly", map[string]any{"name": name})
+}
+
+// ReadOnlyDetail says "Save it as another file to keep your changes."
+// in the language the app shows.
+//
+// Explains readOnly.
+func ReadOnlyDetail() string { return In(i18n.Locale()).ReadOnlyDetail() }
+
+// ReadOnlyDetail says "Save it as another file to keep your changes."
+// in the language of msgs.
+//
+// Explains readOnly.
+func (msgs Messages) ReadOnlyDetail() string {
+	return Catalog.Format(msgs.locale, "readOnlyDetail", nil)
+}
+
+// ChangedOnDisk says "The file “{name}” has been changed by another application."
+// in the language the app shows.
+//
+// Says another app changed the file of a document being saved.
+func ChangedOnDisk(name string) string { return In(i18n.Locale()).ChangedOnDisk(name) }
+
+// ChangedOnDisk says "The file “{name}” has been changed by another application."
+// in the language of msgs.
+//
+// Says another app changed the file of a document being saved.
+func (msgs Messages) ChangedOnDisk(name string) string {
+	return Catalog.Format(msgs.locale, "changedOnDisk", map[string]any{"name": name})
+}
+
+// ChangedOnDiskDetail says "Save Anyway replaces it with your version. Revert discards your changes and shows the version on disk."
+// in the language the app shows.
+//
+// Explains the buttons saveAnyway and revertDocument.
+func ChangedOnDiskDetail() string { return In(i18n.Locale()).ChangedOnDiskDetail() }
+
+// ChangedOnDiskDetail says "Save Anyway replaces it with your version. Revert discards your changes and shows the version on disk."
+// in the language of msgs.
+//
+// Explains the buttons saveAnyway and revertDocument.
+func (msgs Messages) ChangedOnDiskDetail() string {
+	return Catalog.Format(msgs.locale, "changedOnDiskDetail", nil)
+}
+
+// AlreadyExists says "An item named “{name}” already exists in this location. Do you want to replace it?"
+// in the language the app shows.
+//
+// Asks whether to replace a file as a document moves.
+func AlreadyExists(name string) string { return In(i18n.Locale()).AlreadyExists(name) }
+
+// AlreadyExists says "An item named “{name}” already exists in this location. Do you want to replace it?"
+// in the language of msgs.
+//
+// Asks whether to replace a file as a document moves.
+func (msgs Messages) AlreadyExists(name string) string {
+	return Catalog.Format(msgs.locale, "alreadyExists", map[string]any{"name": name})
+}
+
+// AlreadyExistsDetail says "Replacing it overwrites its current contents."
+// in the language the app shows.
+//
+// Explains alreadyExists.
+func AlreadyExistsDetail() string { return In(i18n.Locale()).AlreadyExistsDetail() }
+
+// AlreadyExistsDetail says "Replacing it overwrites its current contents."
+// in the language of msgs.
+//
+// Explains alreadyExists.
+func (msgs Messages) AlreadyExistsDetail() string {
+	return Catalog.Format(msgs.locale, "alreadyExistsDetail", nil)
+}
+
+// RevertQuestion says "Do you want to revert “{name}” to the last saved version?"
+// in the language the app shows.
+//
+// Asks whether to revert a document to its file.
+func RevertQuestion(name string) string { return In(i18n.Locale()).RevertQuestion(name) }
+
+// RevertQuestion says "Do you want to revert “{name}” to the last saved version?"
+// in the language of msgs.
+//
+// Asks whether to revert a document to its file.
+func (msgs Messages) RevertQuestion(name string) string {
+	return Catalog.Format(msgs.locale, "revertQuestion", map[string]any{"name": name})
+}
+
+// RevertDetail says "Your current changes will be lost."
+// in the language the app shows.
+//
+// Explains revertQuestion.
+func RevertDetail() string { return In(i18n.Locale()).RevertDetail() }
+
+// RevertDetail says "Your current changes will be lost."
+// in the language of msgs.
+//
+// Explains revertQuestion.
+func (msgs Messages) RevertDetail() string {
+	return Catalog.Format(msgs.locale, "revertDetail", nil)
+}
+
+// ReviewBeforeQuitting says "You have {n} {app} documents with unsaved changes. Do you want to review these changes before quitting?"
+// in the language the app shows.
+//
+// Asks on macOS, as the app quits, about its documents with changes, two or
+// more.
+func ReviewBeforeQuitting(n int, app string) string {
+	return In(i18n.Locale()).ReviewBeforeQuitting(n, app)
+}
+
+// ReviewBeforeQuitting says "You have {n} {app} documents with unsaved changes. Do you want to review these changes before quitting?"
+// in the language of msgs.
+//
+// Asks on macOS, as the app quits, about its documents with changes, two or
+// more.
+func (msgs Messages) ReviewBeforeQuitting(n int, app string) string {
+	return Catalog.Format(msgs.locale, "reviewBeforeQuitting", map[string]any{"n": n, "app": app})
+}
+
+// ReviewBeforeQuittingDetail says "If you don’t review your documents, all your changes will be lost."
+// in the language the app shows.
+//
+// Explains reviewBeforeQuitting.
+func ReviewBeforeQuittingDetail() string { return In(i18n.Locale()).ReviewBeforeQuittingDetail() }
+
+// ReviewBeforeQuittingDetail says "If you don’t review your documents, all your changes will be lost."
+// in the language of msgs.
+//
+// Explains reviewBeforeQuitting.
+func (msgs Messages) ReviewBeforeQuittingDetail() string {
+	return Catalog.Format(msgs.locale, "reviewBeforeQuittingDetail", nil)
+}
+
+// SaveManyChanges says "Do you want to save the changes to the following {n} documents?"
+// in the language the app shows.
+//
+// Asks, as the app quits, about its documents with changes, two or more,
+// which the dialog lists.
+func SaveManyChanges(n int) string { return In(i18n.Locale()).SaveManyChanges(n) }
+
+// SaveManyChanges says "Do you want to save the changes to the following {n} documents?"
+// in the language of msgs.
+//
+// Asks, as the app quits, about its documents with changes, two or more,
+// which the dialog lists.
+func (msgs Messages) SaveManyChanges(n int) string {
+	return Catalog.Format(msgs.locale, "saveManyChanges", map[string]any{"n": n})
+}
+
+// DocumentFailed says "{action, select, opened {The document “{name}” could not be opened.} renamed {The document “{name}” could not…"
+// in the language the app shows.
+//
+// Says what failed of a document: opened, renamed, moved, reverted, or
+// saved (other).
+func DocumentFailed(action string, name string) string {
+	return In(i18n.Locale()).DocumentFailed(action, name)
+}
+
+// DocumentFailed says "{action, select, opened {The document “{name}” could not be opened.} renamed {The document “{name}” could not…"
+// in the language of msgs.
+//
+// Says what failed of a document: opened, renamed, moved, reverted, or
+// saved (other).
+func (msgs Messages) DocumentFailed(action string, name string) string {
+	return Catalog.Format(msgs.locale, "documentFailed", map[string]any{"action": action, "name": name})
+}
+
+// ColorName says "{color, select, red {Red} orange {Orange} yellow {Yellow} green {Green} teal {Teal} blue {Blue} indigo {Indigo} purpl…"
+// in the language the app shows.
+//
+// The name of a swatch of a color picker, by its color: red, orange,
+// yellow, green, teal, blue, indigo, purple, pink, brown, gray or black.
+func ColorName(color string) string { return In(i18n.Locale()).ColorName(color) }
+
+// ColorName says "{color, select, red {Red} orange {Orange} yellow {Yellow} green {Green} teal {Teal} blue {Blue} indigo {Indigo} purpl…"
+// in the language of msgs.
+//
+// The name of a swatch of a color picker, by its color: red, orange,
+// yellow, green, teal, blue, indigo, purple, pink, brown, gray or black.
+func (msgs Messages) ColorName(color string) string {
+	return Catalog.Format(msgs.locale, "colorName", map[string]any{"color": color})
+}
+
+// Ok says "OK"
+// in the language the app shows.
+//
+// The button of a dialog that only tells something, and of a page's alert,
+// confirm and prompt.
+func Ok() string { return In(i18n.Locale()).Ok() }
+
+// Ok says "OK"
+// in the language of msgs.
+//
+// The button of a dialog that only tells something, and of a page's alert,
+// confirm and prompt.
+func (msgs Messages) Ok() string {
+	return Catalog.Format(msgs.locale, "ok", nil)
+}
+
+// Open says "Open"
+// in the language the app shows.
+//
+// The title and the button of the dialog that opens files.
+func Open() string { return In(i18n.Locale()).Open() }
+
+// Open says "Open"
+// in the language of msgs.
+//
+// The title and the button of the dialog that opens files.
+func (msgs Messages) Open() string {
+	return Catalog.Format(msgs.locale, "open", nil)
+}
+
+// SelectFolder says "Select Folder"
+// in the language the app shows.
+//
+// The title of the dialog that chooses a folder.
+func SelectFolder() string { return In(i18n.Locale()).SelectFolder() }
+
+// SelectFolder says "Select Folder"
+// in the language of msgs.
+//
+// The title of the dialog that chooses a folder.
+func (msgs Messages) SelectFolder() string {
+	return Catalog.Format(msgs.locale, "selectFolder", nil)
+}
+
+// ClearScrollback says "Clear Scrollback"
+// in the language the app shows.
+//
+// An item of a terminal's menu, which clears the lines scrolled out of
+// view.
+func ClearScrollback() string { return In(i18n.Locale()).ClearScrollback() }
+
+// ClearScrollback says "Clear Scrollback"
+// in the language of msgs.
+//
+// An item of a terminal's menu, which clears the lines scrolled out of
+// view.
+func (msgs Messages) ClearScrollback() string {
+	return Catalog.Format(msgs.locale, "clearScrollback", nil)
 }

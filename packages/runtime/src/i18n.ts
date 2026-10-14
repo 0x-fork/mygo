@@ -317,13 +317,15 @@ function pluralCategory(locale: string, n: Num, type: "cardinal" | "ordinal"): s
 export const formatters = {
   /**
    * Writes a number in an ICU number style: "" (the default), "integer",
-   * "percent", or a skeleton ("::currency/EUR", of which this formatter
-   * reads currency/, percent and integer, and writes the rest as the
-   * default).
+   * "percent", or a skeleton ("::percent .00"), of which this formatter
+   * reads percent, integer, precision-integer, the precision of fraction
+   * digits (.00, .0#, .##), group-off and currency/, and writes the rest
+   * as the default. Package i18n reads the same, but currencies.
    */
   number(locale: string, n: number, style: string, digits?: number): string {
     const options: Intl.NumberFormatOptions & { roundingMode?: string } = {};
     const stems = style.startsWith("::") ? style.slice(2).trim().split(/\s+/) : [style];
+    let fraction = false;
     for (const stem of stems) {
       if (stem === "integer" || stem === "precision-integer") {
         options.maximumFractionDigits = 0;
@@ -331,12 +333,18 @@ export const formatters = {
       } else if (stem === "percent") {
         options.style = "percent";
         options.roundingMode = "halfEven";
+      } else if (stem === "group-off") {
+        options.useGrouping = false;
+      } else if (/^\.[0#]+$/.test(stem)) {
+        options.minimumFractionDigits = stem.split("0").length - 1;
+        options.maximumFractionDigits = stem.length - 1;
+        fraction = true;
       } else if (stem.startsWith("currency/")) {
         options.style = "currency";
         options.currency = stem.slice("currency/".length);
       }
     }
-    if (digits !== undefined && options.style === undefined && options.maximumFractionDigits === undefined) {
+    if (digits !== undefined && !fraction && options.style === undefined && options.maximumFractionDigits === undefined) {
       options.minimumFractionDigits = options.maximumFractionDigits = Math.min(digits, 100);
     }
     const nf = cached(`n|${locale}|${JSON.stringify(options)}`, () => new Intl.NumberFormat(safeLocale(locale), options));
@@ -344,16 +352,76 @@ export const formatters = {
   },
   /**
    * Writes a time: its date, its time or both ("datetime"), in an ICU
-   * style, "short", "medium" (the default), "long" or "full".
+   * style, "short", "medium" (the default), "long" or "full", or a
+   * skeleton of CLDR ("::yMMMd"), which Intl finds the locale's pattern
+   * of as package i18n does.
    */
   date(locale: string, d: Date, kind: "date" | "time" | "datetime", style: string): string {
     const s = (["short", "medium", "long", "full"].includes(style) ? style : "medium") as "short" | "medium" | "long" | "full";
-    const options: Intl.DateTimeFormatOptions =
-      kind === "date" ? { dateStyle: s } : kind === "time" ? { timeStyle: s } : { dateStyle: "short", timeStyle: "short" };
+    const options: Intl.DateTimeFormatOptions = style.startsWith("::")
+      ? skeletonOptions(style.slice(2).trim())
+      : kind === "date"
+        ? { dateStyle: s }
+        : kind === "time"
+          ? { timeStyle: s }
+          : { dateStyle: "short", timeStyle: "short" };
     const df = cached(`d|${locale}|${JSON.stringify(options)}`, () => new Intl.DateTimeFormat(safeLocale(locale), options));
     return (df as Intl.DateTimeFormat).format(d);
   },
 };
+
+/**
+ * The options of Intl.DateTimeFormat of a skeleton of CLDR, "yMMMd" or
+ * "jm": V8 makes the skeleton back of them, and finds its pattern with
+ * ICU's DateTimePatternGenerator. An hour letter other than j is an
+ * hourCycle, as in package i18n. EEEEEE, CLDR's short weekday ("Mo"),
+ * has no option of Intl: it is the abbreviated one ("Mon"), where package
+ * i18n writes the short one.
+ */
+export function skeletonOptions(skeleton: string): Intl.DateTimeFormatOptions {
+  const o: Intl.DateTimeFormatOptions = {};
+  for (const [field] of skeleton.matchAll(/([A-Za-z])\1*/g)) {
+    const n = field.length;
+    switch (field[0]) {
+      case "y":
+        o.year = n === 2 ? "2-digit" : "numeric";
+        break;
+      case "M":
+      case "L":
+        o.month = n === 1 ? "numeric" : n === 2 ? "2-digit" : n === 3 ? "short" : n === 4 ? "long" : "narrow";
+        break;
+      case "d":
+        o.day = n === 2 ? "2-digit" : "numeric";
+        break;
+      case "E":
+      case "c":
+        o.weekday = n === 4 ? "long" : n === 5 ? "narrow" : "short";
+        break;
+      case "j":
+      case "h":
+      case "H":
+      case "K":
+      case "k":
+        o.hour = n === 2 ? "2-digit" : "numeric";
+        if (field[0] === "h") o.hourCycle = "h12";
+        if (field[0] === "H") o.hourCycle = "h23";
+        if (field[0] === "K") o.hourCycle = "h11";
+        if (field[0] === "k") o.hourCycle = "h24";
+        break;
+      case "m":
+        o.minute = n === 2 ? "2-digit" : "numeric";
+        break;
+      case "s":
+        o.second = n === 2 ? "2-digit" : "numeric";
+        break;
+      case "z":
+      case "v":
+        o.timeZoneName = n >= 4 ? "long" : "short";
+        break;
+    }
+  }
+  return o;
+}
 
 function valueString(locale: string, v: unknown): string {
   if (typeof v === "string") return v;

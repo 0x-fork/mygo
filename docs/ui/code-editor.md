@@ -372,5 +372,7 @@ app.code.RenderHover = func(c *ui.Context, panel ui.Element, h *editor.HoverCard
 Assistive technology sees a multi-line text field, named by `Label`, with
 the text of the buffer and the newest selection, which it moves; the
 completions are a list, and the find bar a toolbar that tells the count
-of matches. Input methods compose in the editor as in other text fields,
+of matches. The editor's menu, its find and go to line bars and their
+names are in the window's language
+([MyGo's own strings](../i18n.md#mygos-own-strings)). Input methods compose in the editor as in other text fields,
 with their candidate window at the caret.

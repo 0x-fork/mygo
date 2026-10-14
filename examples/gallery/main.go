@@ -2,8 +2,9 @@
 // GPU from Go, without a web page. It shows layout, the widgets, text
 // editing, a list of ten thousand rows with context menus, a chat of
 // messages of every height, charts, styling (grids, borders, gradients,
-// text decorations, motion), custom drawing, overlays, file drops and
-// updates from other goroutines. Its pages are paths of a router, with a history.
+// text decorations, motion), custom drawing, overlays, file drops,
+// updates from other goroutines, and languages: a menu of them, numbers
+// and dates formatted in each, and right-to-left layout. Its pages are paths of a router, with a history.
 //
 //	go run ./examples/gallery
 package main
@@ -35,7 +36,10 @@ type gallery struct {
 
 	// rtl lays the gallery out right to left, as an app in Arabic or
 	// Hebrew is (MYGO_DIRECTION=rtl does it for the whole window).
-	rtl      bool
+	rtl bool
+	// language is the language chosen on the Languages page, "" for the
+	// system's.
+	language string
 	count    int
 	agree    bool
 	notify   bool
@@ -273,7 +277,7 @@ func makeMessage(id int) message {
 	return message{id: id, text: strings.Join(lines, " "), mine: r%3 == 0}
 }
 
-var pages = []string{"Overview", "Controls", "Text", "Rich Text", "List", "Charts", "Markdown", "Styling", "Drawing", "Glass", "Overlays", "Motion"}
+var pages = []string{"Overview", "Controls", "Text", "Rich Text", "List", "Charts", "Markdown", "Styling", "Drawing", "Glass", "Overlays", "Motion", "Languages"}
 
 // icon parses the shapes of a 24×24 stroked icon, drawn in currentColor
 // as icon sets draw them.
@@ -296,6 +300,7 @@ var (
 		"Glass":     icon(`<rect x="3" y="6" width="18" height="12" rx="6"/><path d="M7 10.5a3 3 0 0 1 2.5-1.5"/>`),
 		"Overlays":  icon(`<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 13 9 5 9-5"/>`),
 		"Motion":    icon(`<path d="M3 12h4M5 7h6M5 17h6"/><circle cx="16" cy="12" r="5"/>`),
+		"Languages": icon(`<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>`),
 	}
 	starIcon    = icon(`<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>`)
 	checkIcon   = icon(`<path d="M20 6 9 17l-5-5"/>`)
@@ -378,6 +383,8 @@ func (g *gallery) view(c *ui.Context) {
 						g.overlays(c)
 					case "Motion":
 						g.motion(c)
+					case "Languages":
+						g.languages(c)
 					}
 				})
 			})
@@ -1792,6 +1799,8 @@ func (g *gallery) overlays(c *ui.Context) {
 
 func main() {
 	g := &gallery{router: ui.NewRouter("/overview"), items: []motionItem{{1, "Item 1"}, {2, "Item 2"}, {3, "Item 3"}}, nextItem: 3, size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), lens: [2]float32{110, 190}, glassEdge: 1, notes: 12, notifyMail: true, pathDepth: 4, chart: newCharts()}
+	// The languages of the Languages page's menu.
+	mygo.App.SetLanguages(galleryLanguages...)
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

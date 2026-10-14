@@ -130,7 +130,7 @@ A document is edited when its content differs from its file's:
 ## Windows
 
 The window of a document shows its name: the file's name, or "Untitled",
-"Untitled 2"… The title of a document's window is its name on macOS, and
+"Untitled 2"… in the language the app shows. The title of a document's window is its name on macOS, and
 on Linux and Windows the name and the app's, as Notepad and gedit show
 them. A page's `<title>` doesn't change it.
 
@@ -212,7 +212,9 @@ locked while it runs, so another instance never opens them.
 | quitting | nothing: the documents are saved in place or kept, and come back edited at the next launch |
 | quitting with `AskOnQuit`, several documents | macOS: "You have 3 documents with unsaved changes. Do you want to review these changes before quitting?" Review Changes…, Discard Changes, Cancel, then a sheet for each. Linux and Windows: one dialog naming them, Save All, Don't Save, Cancel |
 
-On macOS the questions are sheets of the document's window. A close that
+The questions, their buttons, and the names of untitled documents are
+[MyGo's own strings](i18n.md#mygos-own-strings), in the language the app
+shows. On macOS the questions are sheets of the document's window. A close that
 must ask keeps the window open until the user answers; a quit waits for the
 documents, then quits, and Cancel keeps every window open. The quit's
 `OnBeforeQuit` listeners run again then.

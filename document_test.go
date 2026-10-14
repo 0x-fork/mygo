@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/egoist/mygo/internal/l10n"
 	"io"
 	"os"
 	"path/filepath"
@@ -558,5 +559,25 @@ func TestDocumentService(t *testing.T) {
 	})
 	if r := call(t, fw, 3, note+".State"); r["v"].(map[string]any)["path"] != path {
 		t.Errorf("state: %v", r)
+	}
+}
+
+func TestUntitledNumber(t *testing.T) {
+	for name, want := range map[string]int{
+		"Untitled": 1, "Untitled 2": 2, "Untitled 12": 12, "Untitled x": 0, "Notes": 0, "Untitled 1": 0,
+	} {
+		if got := untitledNumber(name); got != want {
+			t.Errorf("untitledNumber(%q) = %d, want %d", name, got, want)
+		}
+	}
+	// A language whose digits are others: the number reads back.
+	if got := l10n.In("fa").UntitledNumbered(12); got != "Untitled ۱۲" || untitledNumberIn(got, "fa", "en") != 12 {
+		t.Errorf("Persian: %q", got)
+	}
+	if n, ok := decimalValue("٣٤"); !ok || n != 34 {
+		t.Errorf("Arabic-Indic 34: %d %v", n, ok)
+	}
+	if got := untitledName(3); got != "Untitled 3" || untitledNumber(got) != 3 {
+		t.Errorf("untitledName(3) = %q", got)
 	}
 }

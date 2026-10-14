@@ -278,6 +278,9 @@ func (a *Application) updateLocale(tell bool) {
 	locales.mu.Unlock()
 	next.region = regionOf(ctl.Region(), next.preferred)
 	before := locales.shown.Swap(next)
+	if before == nil || before.locale != next.locale {
+		platform.SetTexts(platformTexts(next.locale))
+	}
 	if before == nil {
 		return // nothing heard of a language before
 	}
@@ -408,14 +411,20 @@ func regionOf(r platform.Region, preferred []string) Region {
 	if out.Locale == "" && len(preferred) > 0 {
 		out.Locale = preferred[0]
 	}
-	code := regionCode(out.Locale)
+	// What the system does not say comes from CLDR's week and time data
+	// for the locale's region (or its language's likely one), as for a
+	// libc without them (musl), a locale the system has not generated,
+	// or browsers that do not tell.
 	if r.FirstWeekday >= 0 && r.FirstWeekday <= 6 {
 		out.FirstWeekday = time.Weekday(r.FirstWeekday)
-	} else {
-		out.FirstWeekday = firstWeekday(code)
+	} else if out.Locale != "" {
+		out.FirstWeekday = i18n.FirstWeekday(out.Locale)
 	}
 	if out.HourCycle != 12 && out.HourCycle != 24 {
-		out.HourCycle = hourCycle(code)
+		out.HourCycle = 24
+		if out.Locale != "" {
+			out.HourCycle = i18n.HourCycle(out.Locale)
+		}
 	}
 	return out
 }

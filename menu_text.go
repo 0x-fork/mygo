@@ -12,12 +12,23 @@ import (
 // menuMessages returns MyGo's own strings, which the labels of roles are,
 // in the language the app shows; in its own language before it worked out
 // which (App.Locale).
-func menuMessages() l10n.Messages {
-	locale := ""
+func menuMessages() l10n.Messages { return l10n.In(appLanguage()) }
+
+// appLanguage returns the language the app shows, or "" before it worked
+// out which.
+func appLanguage() string {
 	if s := locales.shown.Load(); s != nil {
-		locale = s.locale
+		return s.locale
 	}
-	return l10n.In(locale)
+	return ""
+}
+
+// platformTexts returns the words the backends say of their own in a
+// language (platform.Texts).
+func platformTexts(locale string) platform.Texts {
+	tx := l10n.In(locale)
+	return platform.Texts{OK: tx.Ok(), Cancel: tx.Cancel(), Open: tx.Open(), Save: tx.Save(),
+		SelectFolder: tx.SelectFolder(), About: tx.MenuAbout("\x00")}
 }
 
 // relabelMenus gives the items whose label is their role's the role's

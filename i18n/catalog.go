@@ -42,7 +42,16 @@ type Catalog struct {
 
 	candMu sync.Mutex
 	cands  map[string]candidates // tags to look a key up in, by locale
+
+	// texts caches the messages formatted without arguments, by locale
+	// and key, as of a version of the registry: the controls of native
+	// UI say theirs every frame.
+	textMu       sync.RWMutex
+	texts        map[textKey]string
+	textsVersion uint64
 }
+
+type textKey struct{ locale, key string }
 
 // langMsgs are the messages of a catalog in one language, read once.
 type langMsgs struct {
@@ -144,7 +153,32 @@ func (c *Catalog) Namespace() string { return c.namespace }
 // of the language it is in; numbers and dates, the conventions of locale.
 // "" is the source language; the pseudo locales en-XA and ar-XB transform
 // the source language's messages (IsPseudo).
+//
+// A message formatted without arguments is kept, so that saying it again
+// in the same locale costs a map lookup and allocates nothing.
 func (c *Catalog) Format(locale, key string, args map[string]any) string {
+	if len(args) == 0 {
+		version := registry.version.Load()
+		c.textMu.RLock()
+		s, ok := c.texts[textKey{locale, key}]
+		ok = ok && c.textsVersion == version
+		c.textMu.RUnlock()
+		if ok {
+			return s
+		}
+		s = c.format(locale, key, nil)
+		c.textMu.Lock()
+		if c.texts == nil || c.textsVersion != version || len(c.texts) >= 4096 {
+			c.texts, c.textsVersion = map[textKey]string{}, version
+		}
+		c.texts[textKey{locale, key}] = s
+		c.textMu.Unlock()
+		return s
+	}
+	return c.format(locale, key, args)
+}
+
+func (c *Catalog) format(locale, key string, args map[string]any) string {
 	m, lang, ok := c.lookup(locale, key)
 	if !ok {
 		return key

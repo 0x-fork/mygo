@@ -297,6 +297,15 @@ type engine struct {
 	prefsKnown bool
 	// lang is the language the app shows, read as each frame starts.
 	lang string
+	// fmtRegion and fmtLocale are the formats the controls write dates
+	// in, worked out of the language and the system's formats, fmtSys
+	// (context.formats); fmtCache keeps what they wrote.
+	fmtKnown  bool
+	fmtLang   string
+	fmtSys    i18n.Region
+	fmtRegion i18n.Region
+	fmtLocale string
+	fmtCache  map[fmtKey]string
 	// theme is the default theme, which follows the appearance and the
 	// preferences, made once until they change (themeOK); each pass
 	// starts from a copy, passTheme, which the view may change.

@@ -186,3 +186,24 @@ func TestCoreTextLanguage(t *testing.T) {
 		t.Errorf("text without a language in a Japanese system: %v", got)
 	}
 }
+
+// TestCoreTextLanguageSpacing checks that the room Core Text leaves
+// between Han and Latin letters in Chinese and Japanese text counts in the
+// width of a line, so that text laid out as wide as it measured stays on
+// one line.
+func TestCoreTextLanguageSpacing(t *testing.T) {
+	s := newSystem()
+	for _, lang := range []string{"", "zh-Hans", "ja"} {
+		p := Params{Text: "2026年1月5日星期一", Style: Style{Size: 13, Lang: lang}}
+		l := s.Layout(p)
+		gs := l.Lines[0].Glyphs
+		last := gs[len(gs)-1]
+		if end := last.X + last.Advance - gs[0].X; end > l.Width+1e-3 {
+			t.Errorf("%q: the pen ends at %v, past the line's width %v", lang, end, l.Width)
+		}
+		p.Width = l.Width
+		if n := len(s.Layout(p).Lines); n != 1 {
+			t.Errorf("%q: laid out as wide as it measured, the text takes %d lines", lang, n)
+		}
+	}
+}

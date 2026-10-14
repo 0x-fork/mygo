@@ -1,5 +1,5 @@
 {
-  "//": "Messages of ICU MessageFormat and what they format to, which package i18n (TestMessageFixtures) and mygo-runtime's formatter (i18n.test.ts) both check, so that Go and pages say the same. Numbers stay below 1000 with few fraction digits, which Go writes plainly until it formats them with CLDR.",
+  "//": "Messages of ICU MessageFormat and what they format to, which package i18n (TestMessageFixtures) and mygo-runtime's formatter (i18n.test.ts) both check, so that Go and pages say the same. Numbers and dates are formatted with CLDR's data in Go and Intl in pages; dates, whose output depends on the time zone, are tested apart.",
   "format": [
     { "message": "Hello", "want": "Hello" },
     { "message": "", "want": "" },
@@ -17,6 +17,19 @@
     { "message": "{n, number, integer}", "args": { "n": 2.5 }, "want": "2" },
     { "message": "{n, number, integer}", "args": { "n": 3.5 }, "want": "4" },
     { "message": "{n, number}", "args": { "n": "many" }, "want": "many" },
+    { "message": "{n}", "args": { "n": 1234.5 }, "want": "1,234.5" },
+    { "message": "{n}", "locale": "de", "args": { "n": 1234.5 }, "want": "1.234,5" },
+    { "message": "{n}", "locale": "hi", "args": { "n": 1234567 }, "want": "12,34,567" },
+    { "message": "{n}", "locale": "es", "args": { "n": 1234 }, "want": "1234" },
+    { "message": "{n}", "locale": "es", "args": { "n": 12345 }, "want": "12.345" },
+    { "message": "{n}", "args": { "n": 2.0005 }, "want": "2.001" },
+    { "message": "{n, number}", "args": { "n": "1234.50" }, "want": "1,234.50" },
+    { "message": "{n, number, percent}", "locale": "de", "args": { "n": 0.25 }, "want": "25\u00a0%" },
+    { "message": "{n, number, ::.00}", "args": { "n": 1.5 }, "want": "1.50" },
+    { "message": "{n, number, ::percent .0}", "args": { "n": 0.256 }, "want": "25.6%" },
+    { "message": "{n, number, ::group-off}", "args": { "n": 12345 }, "want": "12345" },
+    { "message": "{n, plural, one {# file} other {# files}}", "args": { "n": 1.0004 }, "want": "1 file" },
+    { "message": "{n, plural, one {# Datei} other {# Dateien}}", "locale": "de", "args": { "n": 1000 }, "want": "1.000 Dateien" },
 
     { "message": "don't", "want": "don't" },
     { "message": "don''t", "want": "don't" },

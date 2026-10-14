@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -510,7 +511,9 @@ func (a appController) ShowAboutPanel(o platform.AboutPanelOptions) {
 			detail += "\n" + s
 		}
 	}
-	a.b.messageBox(0, &platform.MessageBoxOptions{Type: "info", Title: "About " + o.ApplicationName, Message: o.ApplicationName, Detail: detail, Buttons: []string{"OK"}})
+	tx := platform.CurrentTexts()
+	title := strings.Replace(tx.About, "\x00", o.ApplicationName, 1)
+	a.b.messageBox(0, &platform.MessageBoxOptions{Type: "info", Title: title, Message: o.ApplicationName, Detail: detail, Buttons: []string{tx.OK}})
 }
 
 // Package reads the version resource `mygo build` embeds in the

@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 	"unsafe"
 
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/rope"
 	"github.com/egoist/mygo/ui"
@@ -220,7 +221,7 @@ func build(c *ui.Context, doc *Document, options []EditorOptions, styled bool) u
 	}
 	label := v.opts.Label
 	if label == "" {
-		label = "Rich text"
+		label = l10n.In(c.Locale()).RichText()
 	}
 	e.Role(ui.RoleTextField).Label(label).Access(v.access)
 	if !v.opts.ReadOnly {

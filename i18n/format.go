@@ -75,7 +75,7 @@ func (f *formatter) nodes(b *strings.Builder, nodes []node, pound *pluralValue) 
 			}
 			var s string
 			if pound.ok {
-				s = formatNumber(f.locale, pound.num.decimal, "")
+				s = formatNumber(f.locale, pound.num, "")
 			} else {
 				s = valueString(f.locale, pound.raw)
 			}
@@ -105,7 +105,7 @@ func (f *formatter) argument(b *strings.Builder, n *node, pound *pluralValue) {
 		f.placeholder(b, valueString(f.locale, v))
 	case nodeNumber:
 		if num, err := toNumber(v); err == nil {
-			f.placeholder(b, formatNumber(f.locale, num.decimal, n.style))
+			f.placeholder(b, formatNumber(f.locale, num, n.style))
 		} else {
 			f.placeholder(b, valueString(f.locale, v))
 		}
@@ -144,7 +144,9 @@ func (f *formatter) argument(b *strings.Builder, n *node, pound *pluralValue) {
 		}
 		shown := num.minus(n.offset)
 		if chosen == nil {
-			o, _ := parseOperands(shown.decimal)
+			// The category of the number as # writes it, as ICU picks
+			// it: 1.0004 is written "1", whose category is one.
+			o := shown.shownOperands()
 			var cat Plural
 			if n.kind == nodePlural {
 				cat = PluralCategory(f.pluralLocale, o)
@@ -188,8 +190,29 @@ func selectKey(v any) string {
 }
 
 // number is a decimal number as it is written, with its sign: "-1.50".
+// An exact one, given as a string, shows its fraction digits as they
+// are; others up to three of them, as ICU writes numbers by default.
 type number struct {
 	decimal string
+	exact   bool
+}
+
+// shownOperands returns the operands of the number as a message writes it
+// by default: with its own fraction digits when exact, else rounded to
+// three, without trailing zeros, as Intl.PluralRules reads it.
+func (n number) shownOperands() Operands {
+	if n.exact {
+		o, _ := parseOperands(n.decimal)
+		return o
+	}
+	_, intPart, frac := splitDecimal(n.decimal)
+	intPart, frac = roundDigits(intPart, frac, 3, false)
+	frac = strings.TrimRight(frac, "0")
+	if frac != "" {
+		intPart += "." + frac
+	}
+	o, _ := parseOperands(intPart)
+	return o
 }
 
 var errNotNumber = errors.New("i18n: not a number")
@@ -199,43 +222,43 @@ var errNotNumber = errors.New("i18n: not a number")
 func toNumber(v any) (number, error) {
 	switch v := v.(type) {
 	case int:
-		return number{strconv.FormatInt(int64(v), 10)}, nil
+		return number{decimal: strconv.FormatInt(int64(v), 10)}, nil
 	case int8:
-		return number{strconv.FormatInt(int64(v), 10)}, nil
+		return number{decimal: strconv.FormatInt(int64(v), 10)}, nil
 	case int16:
-		return number{strconv.FormatInt(int64(v), 10)}, nil
+		return number{decimal: strconv.FormatInt(int64(v), 10)}, nil
 	case int32:
-		return number{strconv.FormatInt(int64(v), 10)}, nil
+		return number{decimal: strconv.FormatInt(int64(v), 10)}, nil
 	case int64:
-		return number{strconv.FormatInt(v, 10)}, nil
+		return number{decimal: strconv.FormatInt(v, 10)}, nil
 	case uint:
-		return number{strconv.FormatUint(uint64(v), 10)}, nil
+		return number{decimal: strconv.FormatUint(uint64(v), 10)}, nil
 	case uint8:
-		return number{strconv.FormatUint(uint64(v), 10)}, nil
+		return number{decimal: strconv.FormatUint(uint64(v), 10)}, nil
 	case uint16:
-		return number{strconv.FormatUint(uint64(v), 10)}, nil
+		return number{decimal: strconv.FormatUint(uint64(v), 10)}, nil
 	case uint32:
-		return number{strconv.FormatUint(uint64(v), 10)}, nil
+		return number{decimal: strconv.FormatUint(uint64(v), 10)}, nil
 	case uint64:
-		return number{strconv.FormatUint(v, 10)}, nil
+		return number{decimal: strconv.FormatUint(v, 10)}, nil
 	case uintptr:
-		return number{strconv.FormatUint(uint64(v), 10)}, nil
+		return number{decimal: strconv.FormatUint(uint64(v), 10)}, nil
 	case float32:
 		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
 			return number{}, errNotNumber
 		}
-		return number{strconv.FormatFloat(float64(v), 'f', -1, 32)}, nil
+		return number{decimal: strconv.FormatFloat(float64(v), 'f', -1, 32)}, nil
 	case float64:
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			return number{}, errNotNumber
 		}
-		return number{strconv.FormatFloat(v, 'f', -1, 64)}, nil
+		return number{decimal: strconv.FormatFloat(v, 'f', -1, 64)}, nil
 	case string:
 		s := strings.TrimSpace(v)
 		if !isDecimal(s) {
 			return number{}, errNotNumber
 		}
-		return number{s}, nil
+		return number{decimal: s, exact: true}, nil
 	case Operands:
 		s := strconv.FormatUint(v.I, 10)
 		if v.I >= big {
@@ -245,7 +268,7 @@ func toNumber(v any) (number, error) {
 			f := strconv.FormatUint(v.F%big, 10)
 			s += "." + strings.Repeat("0", max(v.V-len(f), 0)) + f
 		}
-		return number{s}, nil
+		return number{decimal: s, exact: true}, nil
 	}
 	return number{}, errNotNumber
 }
@@ -265,7 +288,7 @@ func (n number) minus(offset int64) number {
 	}
 	if !strings.Contains(n.decimal, ".") {
 		if i, err := strconv.ParseInt(n.decimal, 10, 64); err == nil && i >= math.MinInt64+offset {
-			return number{strconv.FormatInt(i-offset, 10)}
+			return number{decimal: strconv.FormatInt(i-offset, 10), exact: n.exact}
 		}
 	}
 	f, err := strconv.ParseFloat(n.decimal, 64)
@@ -273,7 +296,7 @@ func (n number) minus(offset int64) number {
 		return n
 	}
 	_, frac, _ := strings.Cut(n.decimal, ".")
-	return number{strconv.FormatFloat(f-float64(offset), 'f', len(frac), 64)}
+	return number{decimal: strconv.FormatFloat(f-float64(offset), 'f', len(frac), 64), exact: n.exact}
 }
 
 // valueString writes the value of a simple argument.
@@ -293,46 +316,68 @@ func valueString(locale string, v any) string {
 		return ""
 	}
 	if num, err := toNumber(v); err == nil {
-		return formatNumber(locale, num.decimal, "")
+		return formatNumber(locale, num, "")
 	}
 	return fmt.Sprint(v)
 }
 
-// formatNumber writes a decimal number for locale in an ICU number style:
-// "" (the default), "integer", "percent", or a skeleton ("::...").
-// CLDR's number formats will replace the plain digits it writes until
-// then.
-var formatNumber = func(locale, decimal, style string) string {
-	switch style {
-	case "integer":
-		f, err := strconv.ParseFloat(decimal, 64)
-		if err != nil {
-			return decimal
-		}
-		return strconv.FormatFloat(math.RoundToEven(f), 'f', 0, 64)
-	case "percent":
-		f, err := strconv.ParseFloat(decimal, 64)
-		if err != nil {
-			return decimal
-		}
-		return strconv.FormatFloat(math.RoundToEven(f*100), 'f', 0, 64) + "%"
+// formatNumber writes a number for locale in an ICU number style: ""
+// (the default: up to three fraction digits, or those of an exact
+// number), "integer", "percent", or a skeleton of ICU's number
+// skeletons ("::percent .00"), of which it reads percent, integer,
+// precision-integer, the precision of fraction digits (.00, .0#, .##)
+// and group-off, and writes the rest as the default. Integers and
+// percents round half to even, as ICU's MessageFormat does; the default,
+// half away from zero, as Intl.NumberFormat does.
+func formatNumber(locale string, n number, style string) string {
+	var o NumberOptions
+	stems := []string{style}
+	if rest, ok := strings.CutPrefix(style, "::"); ok {
+		stems = strings.Fields(rest)
 	}
-	return decimal
+	fraction := false
+	for _, stem := range stems {
+		switch {
+		case stem == "integer" || stem == "precision-integer":
+			o.Integer, o.HalfEven = true, true
+		case stem == "percent":
+			o.Percent, o.HalfEven = true, true
+		case stem == "group-off":
+			o.NoGrouping = true
+		case strings.HasPrefix(stem, ".") && strings.Trim(stem[1:], "0#") == "" && len(stem) > 1:
+			o.MinFractionDigits = strings.Count(stem, "0")
+			o.MaxFractionDigits = len(stem) - 1
+			fraction = true
+		}
+	}
+	if n.exact && !fraction && !o.Integer && !o.Percent {
+		_, frac, _ := strings.Cut(n.decimal, ".")
+		o.MinFractionDigits, o.MaxFractionDigits = min(len(frac), 100), min(len(frac), 100)
+	}
+	return NewNumberFormatter(locale, o).formatDecimal(n.decimal)
 }
 
 // formatDate writes a time for locale: its date, its time, or both
 // ("datetime"), in an ICU style, "short", "medium", "long" or "full" (""
-// is "medium"), or a skeleton ("::..."). CLDR's date formats will replace
-// the ISO 8601 forms it writes until then.
-var formatDate = func(locale string, t time.Time, kind, style string) string {
+// is "medium"), or a skeleton ("::yMMMd").
+func formatDate(locale string, t time.Time, kind, style string) string {
+	if skel, ok := strings.CutPrefix(style, "::"); ok {
+		return FormatDate(locale, t, DateOptions{Skeleton: strings.TrimSpace(skel)})
+	}
+	s := MediumStyle
+	switch style {
+	case "short":
+		s = ShortStyle
+	case "long":
+		s = LongStyle
+	case "full":
+		s = FullStyle
+	}
 	switch kind {
 	case "time":
-		if style == "short" {
-			return t.Format("15:04")
-		}
-		return t.Format("15:04:05")
+		return FormatDate(locale, t, DateOptions{Time: s})
 	case "datetime":
-		return t.Format("2006-01-02 15:04")
+		return FormatDate(locale, t, DateOptions{Date: ShortStyle, Time: ShortStyle})
 	}
-	return t.Format("2006-01-02")
+	return FormatDate(locale, t, DateOptions{Date: s})
 }

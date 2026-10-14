@@ -1,13 +1,15 @@
 // Command gen writes the data of the Unicode CLDR that package i18n uses,
 // from a pinned release of cldr-json, as Go source: `go generate ./i18n`
 // runs it. It writes tables.go, the plural rules of every language
-// compiled to Go and the parent locales, and testdata/plural_samples.txt,
-// the samples CLDR gives of each plural category, which the tests check
-// the compiled rules against.
+// compiled to Go and the parent locales; testdata/plural_samples.txt, the
+// samples CLDR gives of each plural category, which the tests check the
+// compiled rules against; and format_tables.go, what formatting numbers
+// and dates needs of the locales of CLDR's modern coverage (format.go).
 //
-// The data comes from the npm package of cldr-json's cldr-core, checked
-// against its SHA-256: no network data reaches the tables unchecked, and
-// generating them again gives the same files.
+// The data comes from the npm packages of cldr-json (cldr-core,
+// cldr-dates-full, cldr-numbers-full and cldr-localenames-full), each
+// checked against its SHA-256: no network data reaches the tables
+// unchecked, and generating them again gives the same files.
 package main
 
 import (
@@ -31,20 +33,33 @@ import (
 )
 
 // The release of CLDR the tables are generated from.
-const (
-	cldrVersion = "48.2.0"
-	coreURL     = "https://registry.npmjs.org/cldr-core/-/cldr-core-" + cldrVersion + ".tgz"
-	coreSHA256  = "5310e0c7a06c1feb83dc8e54c8584bbe0b9c2ea8320172a18d541986b124585d"
+const cldrVersion = "48.2.0"
+
+// cldrPackage is an npm package of cldr-json, pinned by its SHA-256.
+type cldrPackage struct {
+	name   string
+	sha256 string
+}
+
+var (
+	corePackage        = cldrPackage{"cldr-core", "5310e0c7a06c1feb83dc8e54c8584bbe0b9c2ea8320172a18d541986b124585d"}
+	datesPackage       = cldrPackage{"cldr-dates-full", "0256f1cefeca14f7d515be4872dda48fcdd7e75381430f25aafd0143eae5b430"}
+	numbersPackage     = cldrPackage{"cldr-numbers-full", "2d17a1453c559a62112caeed52e0bcfe3cb8539c99d239ae7b7ed4d0827679d9"}
+	localeNamesPackage = cldrPackage{"cldr-localenames-full", "7f2ac7fd3b5d90f56ad127f9ed5ae67b58b3e556818f55530b9f47bb81bcde57"}
 )
+
+func (p cldrPackage) url() string {
+	return "https://registry.npmjs.org/" + p.name + "/-/" + p.name + "-" + cldrVersion + ".tgz"
+}
 
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("gen: ")
 	out := flag.String("o", ".", "the directory of package i18n")
-	archive := flag.String("core", "", "a local copy of the cldr-core tarball (default: download it)")
+	cache := flag.String("cache", "", "a directory of local copies of the tarballs, <name>-<version>.tgz (default: download them)")
 	flag.Parse()
 
-	core, err := readCore(*archive)
+	core, err := readPackage(corePackage, *cache, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -123,23 +138,30 @@ const CLDRVersion = %q
 	if err := os.WriteFile(filepath.Join(*out, "testdata", "plural_samples.txt"), samples.Bytes(), 0o644); err != nil {
 		log.Fatal(err)
 	}
+
+	if err := writeFormatTables(*out, *cache, core); err != nil {
+		log.Fatalf("format tables: %v", err)
+	}
 }
 
-// readCore returns the files of the cldr-core package by their paths in it.
-func readCore(local string) (map[string][]byte, error) {
+// readPackage returns the files of a package of cldr-json by their paths
+// in it, those keep reports true for when it is not nil, read from the
+// directory cache when it has the tarball, else downloaded.
+func readPackage(p cldrPackage, cache string, keep func(name string) bool) (map[string][]byte, error) {
 	var data []byte
 	var err error
-	if local != "" {
-		data, err = os.ReadFile(local)
-	} else {
-		data, err = download(coreURL)
+	if cache != "" {
+		data, err = os.ReadFile(filepath.Join(cache, p.name+"-"+cldrVersion+".tgz"))
+	}
+	if cache == "" || os.IsNotExist(err) {
+		data, err = download(p.url())
 	}
 	if err != nil {
 		return nil, err
 	}
 	sum := sha256.Sum256(data)
-	if got := hex.EncodeToString(sum[:]); got != coreSHA256 {
-		return nil, fmt.Errorf("cldr-core %s has SHA-256 %s, want %s", cldrVersion, got, coreSHA256)
+	if got := hex.EncodeToString(sum[:]); got != p.sha256 {
+		return nil, fmt.Errorf("%s %s has SHA-256 %s, want %s", p.name, cldrVersion, got, p.sha256)
 	}
 	gz, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -158,11 +180,15 @@ func readCore(local string) (map[string][]byte, error) {
 		if h.Typeflag != tar.TypeReg {
 			continue
 		}
+		name := strings.TrimPrefix(h.Name, "package/")
+		if keep != nil && !keep(name) {
+			continue
+		}
 		body, err := io.ReadAll(tr)
 		if err != nil {
 			return nil, err
 		}
-		files[strings.TrimPrefix(h.Name, "package/")] = body
+		files[name] = body
 	}
 	return files, nil
 }

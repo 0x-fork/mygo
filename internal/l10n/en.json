@@ -228,7 +228,7 @@
       }
     }
   },
-  "line": "Line {n}",
+  "line": "Line {n, number, ::group-off}",
   "@line": {
     "description": "The line a gutter button of a diff viewer adds a line at, as assistive technology reads it.",
     "placeholders": {
@@ -317,7 +317,7 @@
   "@goToLine": {
     "description": "Labels the bar that goes to a line."
   },
-  "lineRange": "Line 1 to {lines}, then :column",
+  "lineRange": "Line 1 to {lines, number, ::group-off}, then :column",
   "@lineRange": {
     "description": "What the empty field of the go to line bar shows.",
     "placeholders": {
@@ -326,7 +326,7 @@
       }
     }
   },
-  "currentLine": "Current line {line} of {lines}, column {column}",
+  "currentLine": "Current line {line, number, ::group-off} of {lines, number, ::group-off}, column {column, number, ::group-off}",
   "@currentLine": {
     "description": "Where the caret is, which the go to line bar says.",
     "placeholders": {
@@ -571,5 +571,290 @@
   "menuAlignRight": "Align Right",
   "@menuAlignRight": {
     "description": "The label of the menu items of the role alignRight (MenuItem.Role)."
+  },
+  "noMatches": "No matches",
+  "@noMatches": {
+    "description": "What a find bar says of a query that matches nothing."
+  },
+  "previous": "Previous",
+  "@previous": {
+    "description": "Labels the button of a find bar that goes to the previous match."
+  },
+  "next": "Next",
+  "@next": {
+    "description": "Labels the button of a find bar that goes to the next match."
+  },
+  "done": "Done",
+  "@done": {
+    "description": "The button that closes a find bar."
+  },
+  "colorValue": "{saturation, number, percent} saturation, {brightness, number, percent} brightness",
+  "@colorValue": {
+    "description": "What assistive technology reads of the area of a color picker that sets the saturation and the brightness, as \"40% saturation, 75% brightness\".",
+    "placeholders": {
+      "saturation": {
+        "type": "double"
+      },
+      "brightness": {
+        "type": "double"
+      }
+    }
+  },
+  "hours": "hours",
+  "@hours": {
+    "description": "Names the hours of a time field to assistive technology, after the field's label."
+  },
+  "minutes": "minutes",
+  "@minutes": {
+    "description": "Names the minutes of a time field to assistive technology, after the field's label."
+  },
+  "dayPeriod": "AM/PM",
+  "@dayPeriod": {
+    "description": "Names the part of a time field that says AM or PM to assistive technology, after the field's label."
+  },
+  "richText": "Rich text",
+  "@richText": {
+    "description": "Names a rich text editor to assistive technology when the app gives it no label."
+  },
+  "copyCode": "Copy code",
+  "@copyCode": {
+    "description": "Labels the button of a code block of Markdown that copies its code."
+  },
+  "copied": "Copied",
+  "@copied": {
+    "description": "What the copy button of a code block of Markdown says once it copied the code."
+  },
+  "copyAsMarkdown": "Copy as Markdown",
+  "@copyAsMarkdown": {
+    "description": "An item of the menu of a view of Markdown."
+  },
+  "image": "Image",
+  "@image": {
+    "description": "Names an image of Markdown without a description to assistive technology."
+  },
+  "menuSpeech": "Speech",
+  "@menuSpeech": {
+    "description": "The submenu of macOS's Edit menu with the items that speak the selection."
+  },
+  "menuClearRecent": "Clear Menu",
+  "@menuClearRecent": {
+    "description": "The last item of the menu of recent documents, which empties it."
+  },
+  "untitled": "Untitled",
+  "@untitled": {
+    "description": "The name of a new document before it is saved."
+  },
+  "untitledNumbered": "Untitled {n, number, ::group-off}",
+  "@untitledNumbered": {
+    "description": "The name of the second and later new documents before they are saved, as \"Untitled 2\".",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "A button of a dialog that cancels what it asks about."
+  },
+  "save": "Save",
+  "@save": {
+    "description": "A button of a dialog that saves a document."
+  },
+  "saveEllipsis": "Save…",
+  "@saveEllipsis": {
+    "description": "A button of a dialog that saves a new document, after asking where."
+  },
+  "saveAs": "Save As…",
+  "@saveAs": {
+    "description": "A button of a dialog that saves a document as another file."
+  },
+  "saveAnyway": "Save Anyway",
+  "@saveAnyway": {
+    "description": "A button of a dialog that saves a document whose file another app changed."
+  },
+  "saveAll": "Save All",
+  "@saveAll": {
+    "description": "A button of a dialog that saves every document with changes."
+  },
+  "dontSave": "Don’t Save",
+  "@dontSave": {
+    "description": "A button of a dialog that closes a document without saving its changes."
+  },
+  "deleteDocument": "Delete",
+  "@deleteDocument": {
+    "description": "A button of a dialog that deletes a new document instead of saving it."
+  },
+  "revertDocument": "Revert",
+  "@revertDocument": {
+    "description": "A button of a dialog that reverts a document to its file."
+  },
+  "replaceFile": "Replace",
+  "@replaceFile": {
+    "description": "A button of a dialog that replaces a file with a document."
+  },
+  "rename": "Rename",
+  "@rename": {
+    "description": "The title and the button of the dialog that renames a document."
+  },
+  "renameTo": "Rename To:",
+  "@renameTo": {
+    "description": "Labels the field of the name of the dialog that renames a document."
+  },
+  "moveTo": "Move To",
+  "@moveTo": {
+    "description": "The title of the dialog that moves a document to another folder."
+  },
+  "move": "Move",
+  "@move": {
+    "description": "The button of the dialog that moves a document to another folder."
+  },
+  "reviewChanges": "Review Changes…",
+  "@reviewChanges": {
+    "description": "A button of the dialog asking about the documents with changes as the app quits."
+  },
+  "discardChanges": "Discard Changes",
+  "@discardChanges": {
+    "description": "A button of the dialog asking about the documents with changes as the app quits."
+  },
+  "keepNewDocument": "Do you want to keep this new document “{name}”?",
+  "@keepNewDocument": {
+    "description": "Asks, as a new document closes, whether to keep it.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "keepNewDocumentDetail": "You can choose to save your changes, or delete this document immediately. You can’t undo this action.",
+  "@keepNewDocumentDetail": {
+    "description": "Explains the question of keepNewDocument."
+  },
+  "saveChanges": "Do you want to save the changes made to the document “{name}”?",
+  "@saveChanges": {
+    "description": "Asks, as a document with changes closes, whether to save them.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "changesLost": "Your changes will be lost if you don’t save them.",
+  "@changesLost": {
+    "description": "Explains the question of saveChanges."
+  },
+  "readOnly": "The document “{name}” can’t be saved because its file is read-only.",
+  "@readOnly": {
+    "description": "Says a document cannot be saved in its file.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "readOnlyDetail": "Save it as another file to keep your changes.",
+  "@readOnlyDetail": {
+    "description": "Explains readOnly."
+  },
+  "changedOnDisk": "The file “{name}” has been changed by another application.",
+  "@changedOnDisk": {
+    "description": "Says another app changed the file of a document being saved.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "changedOnDiskDetail": "Save Anyway replaces it with your version. Revert discards your changes and shows the version on disk.",
+  "@changedOnDiskDetail": {
+    "description": "Explains the buttons saveAnyway and revertDocument."
+  },
+  "alreadyExists": "An item named “{name}” already exists in this location. Do you want to replace it?",
+  "@alreadyExists": {
+    "description": "Asks whether to replace a file as a document moves.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "alreadyExistsDetail": "Replacing it overwrites its current contents.",
+  "@alreadyExistsDetail": {
+    "description": "Explains alreadyExists."
+  },
+  "revertQuestion": "Do you want to revert “{name}” to the last saved version?",
+  "@revertQuestion": {
+    "description": "Asks whether to revert a document to its file.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "revertDetail": "Your current changes will be lost.",
+  "@revertDetail": {
+    "description": "Explains revertQuestion."
+  },
+  "reviewBeforeQuitting": "You have {n} {app} documents with unsaved changes. Do you want to review these changes before quitting?",
+  "@reviewBeforeQuitting": {
+    "description": "Asks on macOS, as the app quits, about its documents with changes, two or more.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      },
+      "app": {
+        "type": "String"
+      }
+    }
+  },
+  "reviewBeforeQuittingDetail": "If you don’t review your documents, all your changes will be lost.",
+  "@reviewBeforeQuittingDetail": {
+    "description": "Explains reviewBeforeQuitting."
+  },
+  "saveManyChanges": "Do you want to save the changes to the following {n} documents?",
+  "@saveManyChanges": {
+    "description": "Asks, as the app quits, about its documents with changes, two or more, which the dialog lists.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "documentFailed": "{action, select, opened {The document “{name}” could not be opened.} renamed {The document “{name}” could not be renamed.} moved {The document “{name}” could not be moved.} reverted {The document “{name}” could not be reverted.} other {The document “{name}” could not be saved.}}",
+  "@documentFailed": {
+    "description": "Says what failed of a document: opened, renamed, moved, reverted, or saved (other).",
+    "placeholders": {
+      "action": {
+        "type": "String"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "colorName": "{color, select, red {Red} orange {Orange} yellow {Yellow} green {Green} teal {Teal} blue {Blue} indigo {Indigo} purple {Purple} pink {Pink} brown {Brown} gray {Gray} black {Black} other {{color}}}",
+  "@colorName": {
+    "description": "The name of a swatch of a color picker, by its color: red, orange, yellow, green, teal, blue, indigo, purple, pink, brown, gray or black.",
+    "placeholders": {
+      "color": {
+        "type": "String"
+      }
+    }
+  },
+  "ok": "OK",
+  "@ok": {
+    "description": "The button of a dialog that only tells something, and of a page's alert, confirm and prompt."
+  },
+  "open": "Open",
+  "@open": {
+    "description": "The title and the button of the dialog that opens files."
+  },
+  "selectFolder": "Select Folder",
+  "@selectFolder": {
+    "description": "The title of the dialog that chooses a folder."
+  },
+  "clearScrollback": "Clear Scrollback",
+  "@clearScrollback": {
+    "description": "An item of a terminal's menu, which clears the lines scrolled out of view."
   }
 }

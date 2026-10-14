@@ -722,7 +722,8 @@ func ButtonBase(c *Context) Element {
 }
 
 // Calendar creates a month's calendar choosing *date, as SwiftUI's
-// graphical date picker: a click chooses a day, as the arrows do while the
+// graphical date picker, in the window's language, its weeks starting on
+// the first day of the user's regional formats (Context.Region): a click chooses a day, as the arrows do while the
 // calendar has the focus, Page Up and Page Down or its buttons move by
 // months, and Home and End go to the first and the last day of the month.
 // Changed reports a new date, which keeps the time of day and location of
@@ -903,8 +904,8 @@ func DataDragOver(e Element, options transfer.DropOptions) (transfer.Offer, bool
 	return coreDataDragOver(e.nodeFor(_ctx.rt), options)
 }
 
-// DateInput creates a field showing *date as 2006-01-02, which a calendar
-// below it changes. A click, Enter or Space opens the calendar, where a
+// DateInput creates a field showing *date in the user's regional formats,
+// as 1/5/2026 in the United States, which a calendar below it changes. A click, Enter or Space opens the calendar, where a
 // click chooses a day, as do the arrows and Enter; Page Up and Page Down,
 // or its buttons, move by months, and Escape closes it. Changed reports a
 // new date, which keeps the time of day and location of *date.
@@ -1955,15 +1956,19 @@ func Textf(c *Context, format string, args ...any) Element {
 	return wrapElement(coreTextf(_ctx, format, args...))
 }
 
-// TimeInput creates a field of the time of day of *tm, as 15:04, whose
-// hours and minutes each take the focus, as the segments of AppKit's date
-// picker: Up and Down step the one with the focus round the clock, digits
-// typed set it, going on to the minutes once the hours are typed, and Left
-// and Right move between them. Changed reports a new time, which keeps the
-// date and the location of *tm. Assistive technology sees two spin
-// buttons, named after the field's Label and "hours" and "minutes". It
-// reads left to right in an interface laid out right to left too, as
-// times are written there.
+// TimeInput creates a field of the time of day of *tm, in the hour cycle
+// of the user's regional formats (Context.Region): 15:04, or 3:04 PM with
+// the window's language's names of the halves of the day, before the
+// hours where the language writes them so (下午3:04). Its hours, minutes
+// and half of the day each take the focus, as the segments of AppKit's
+// date picker: Up and Down step the one with the focus round the clock,
+// digits typed set it, going on to the minutes once the hours are typed,
+// the first letter of a half of the day chooses it, and Left and Right
+// move between them. Changed reports a new time, which keeps the date and
+// the location of *tm. Assistive technology sees spin buttons, named
+// after the field's Label and "hours", "minutes" and "AM/PM". It reads
+// left to right in an interface laid out right to left too, as times are
+// written there.
 //
 //	ui.TimeInput(c, &app.alarm).Label("Alarm")
 func TimeInput(c *Context, tm *time.Time) Element {

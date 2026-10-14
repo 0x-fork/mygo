@@ -3,15 +3,16 @@ package mygo
 import (
 	"errors"
 	"fmt"
+	"github.com/egoist/mygo/internal/l10n"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // DocumentType is a kind of file that Documents reads and writes.
@@ -657,12 +658,68 @@ func (b *docBase) persist() {
 // for tests.
 var docWork sync.WaitGroup
 
-// untitledName returns the name of untitled document n.
+// untitledName returns the name of untitled document n, in the language
+// the app shows: "Untitled", "Untitled 2".
 func untitledName(n int) string {
 	if n == 1 {
-		return "Untitled"
+		return menuMessages().Untitled()
 	}
-	return "Untitled " + strconv.Itoa(n)
+	return menuMessages().UntitledNumbered(n)
+}
+
+// untitledNumber returns the number of an untitled document by its name,
+// as untitledName writes it in the language the app shows or in English
+// (the app's language may have changed since it was named), or 0.
+func untitledNumber(name string) int { return untitledNumberIn(name, appLanguage(), "en") }
+
+// untitledNumberIn is untitledNumber with the names of locales, whose
+// digits it reads: "Untitled ۲" in Persian is 2.
+func untitledNumberIn(name string, locales ...string) int {
+	for _, locale := range locales {
+		if name == l10n.In(locale).Untitled() {
+			return 1
+		}
+		// The message around the number.
+		format := l10n.Catalog.Format(locale, "untitledNumbered", map[string]any{"n": "\x00"})
+		before, after, ok := strings.Cut(format, "\x00")
+		if !ok || !strings.HasPrefix(name, before) || !strings.HasSuffix(name, after) || len(name) < len(before)+len(after) {
+			continue
+		}
+		if n, ok := decimalValue(name[len(before) : len(name)-len(after)]); ok && n > 1 {
+			return n
+		}
+	}
+	return 0
+}
+
+// decimalValue reads a number written in the decimal digits of any
+// script, as "12" or "۱۲".
+func decimalValue(s string) (int, bool) {
+	n := 0
+	for _, r := range s {
+		d, ok := digitValue(r)
+		if !ok || n > (1<<31)/10 {
+			return 0, false
+		}
+		n = n*10 + d
+	}
+	return n, s != ""
+}
+
+// digitValue returns the value of a decimal digit of Unicode: the digits
+// of a script are runs of ten, from zero, in the table of Nd.
+func digitValue(r rune) (int, bool) {
+	for _, rg := range unicode.Nd.R16 {
+		if lo, hi := rune(rg.Lo), rune(rg.Hi); r >= lo && r <= hi {
+			return int(r-lo) % 10, true
+		}
+	}
+	for _, rg := range unicode.Nd.R32 {
+		if lo, hi := rune(rg.Lo), rune(rg.Hi); r >= lo && r <= hi {
+			return int(r-lo) % 10, true
+		}
+	}
+	return 0, false
 }
 
 // docKind is what Documents of any content type share: options, the open

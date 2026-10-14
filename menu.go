@@ -768,7 +768,7 @@ func roleSubmenu(r MenuRole) []*MenuItem {
 				&MenuItem{Role: RoleDelete},
 				&MenuItem{Role: RoleSelectAll},
 				Separator(),
-				&MenuItem{Label: "Speech", Submenu: []*MenuItem{
+				&MenuItem{Label: menuMessages().MenuSpeech(), Submenu: []*MenuItem{
 					{Role: RoleStartSpeaking},
 					{Role: RoleStopSpeaking},
 				}},

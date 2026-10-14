@@ -93,11 +93,14 @@ func TestMessageValues(t *testing.T) {
 		args map[string]any
 		want string
 	}{
-		{"{d, date}", map[string]any{"d": day}, "2026-01-02"},
-		{"{d, date, short}", map[string]any{"d": day}, "2026-01-02"},
-		{"{d, time, short}", map[string]any{"d": day}, "15:04"},
-		{"{d, time}", map[string]any{"d": day}, "15:04:05"},
-		{"{d}", map[string]any{"d": day}, "2026-01-02 15:04"},
+		{"{d, date}", map[string]any{"d": day}, "Jan 2, 2026"},
+		{"{d, date, short}", map[string]any{"d": day}, "1/2/26"},
+		{"{d, date, full}", map[string]any{"d": day}, "Friday, January 2, 2026"},
+		{"{d, time, short}", map[string]any{"d": day}, "3:04 PM"},
+		{"{d, time}", map[string]any{"d": day}, "3:04:05 PM"},
+		{"{d}", map[string]any{"d": day}, "1/2/26, 3:04 PM"},
+		{"{d, date, ::yMMMM}", map[string]any{"d": day}, "January 2026"},
+		{"{d, date, ::MMMd}", map[string]any{"d": day}, "Jan 2"},
 		{"{d, date}", map[string]any{"d": "tomorrow"}, "tomorrow"},
 		{"{e}", map[string]any{"e": errors.New("boom")}, "boom"},
 		{"{v}", map[string]any{"v": time.Second}, "1s"},

@@ -6,6 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/plugins/terminal/internal/vt"
 	"github.com/egoist/mygo/ui"
 )
@@ -60,6 +61,8 @@ func (t *Terminal) viewOf(c *ui.Context) *view {
 type view struct {
 	t        *Terminal
 	services ui.Services
+	// lang is the window's language, for the menu's items.
+	lang string
 
 	theme   *Theme
 	applied *Theme // the theme the emulator has
@@ -129,6 +132,7 @@ type pendingKey struct {
 // build updates the view as a frame builds.
 func (v *view) build(c *ui.Context, e ui.Element) {
 	t := v.t
+	v.lang = c.Locale()
 	dark := c.Theme().Dark
 	focused := e.Focused()
 	t.mu.Lock()
@@ -229,17 +233,18 @@ func (v *view) menu(m *ui.Menu) {
 		text, selected = t.term.SelectionText()
 	}
 	t.mu.Unlock()
-	if m.Item("Copy").Shortcut(cmd, ui.KeyC).Disabled(!selected || text == "").Chosen() {
+	tx := l10n.In(v.lang)
+	if m.Item(tx.Copy()).Shortcut(cmd, ui.KeyC).Disabled(!selected || text == "").Chosen() {
 		v.services.WriteClipboard(text)
 	}
-	if m.Item("Paste").Shortcut(cmd, ui.KeyV).Chosen() {
+	if m.Item(tx.Paste()).Shortcut(cmd, ui.KeyV).Chosen() {
 		v.paste()
 	}
-	if m.Item("Select All").Chosen() {
+	if m.Item(tx.SelectAll()).Chosen() {
 		v.selectAll()
 	}
 	m.Separator()
-	if m.Item("Clear Scrollback").Chosen() {
+	if m.Item(tx.ClearScrollback()).Chosen() {
 		t.Feed([]byte("\x1b[3J"))
 	}
 }

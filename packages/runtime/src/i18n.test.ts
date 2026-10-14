@@ -9,6 +9,7 @@ import {
   isPseudoLocale,
   MessageSyntaxError,
   parseMessage,
+  skeletonOptions,
   type CatalogData,
 } from "./i18n";
 
@@ -215,5 +216,19 @@ describe("the module mygo generate writes", () => {
     } finally {
       delete g.mygo;
     }
+  });
+});
+
+describe("skeletons and number stems", () => {
+  const day = new Date(Date.UTC(2026, 0, 2, 15, 4));
+  test("formats a date of a skeleton as Intl's options", () => {
+    expect(skeletonOptions("yMMMd")).toEqual({ year: "numeric", month: "short", day: "numeric" });
+    expect(skeletonOptions("jm")).toEqual({ hour: "numeric", minute: "numeric" });
+    expect(skeletonOptions("Hmm")).toEqual({ hour: "numeric", hourCycle: "h23", minute: "2-digit" });
+    expect(skeletonOptions("EEEEd")).toEqual({ weekday: "long", day: "numeric" });
+    expect(skeletonOptions("Kms")).toEqual({ hour: "numeric", hourCycle: "h11", minute: "numeric", second: "numeric" });
+    expect(formatMessage("en", "{d, date, ::yMMMM}", { d: day })).toBe(
+      new Intl.DateTimeFormat("en", { year: "numeric", month: "long" }).format(day),
+    );
   });
 });

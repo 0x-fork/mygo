@@ -384,9 +384,9 @@ func (d *DiffState) sideOptions(old bool) options {
 	if d.NoLineNumbers {
 		o.lineNumbers = LineNumbersOff
 	}
-	o.label = "New text"
+	o.diffSide = diffNewSide
 	if old {
-		o.label = "Old text"
+		o.diffSide = diffOldSide
 	}
 	return o
 }

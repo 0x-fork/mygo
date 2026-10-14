@@ -1044,7 +1044,34 @@ func (e *coreText) line(line uintptr, index []int, n int, italic bool) shapedLin
 		}
 		sl.runs = e.addRun(mark, sr)
 	}
+	penAdvances(sl.runs)
 	return sl
+}
+
+// penAdvances gives the room Core Text leaves between letters by their
+// positions alone, as between Han and Latin letters in Chinese or
+// Japanese text, to the advance of the letter before it, so that the
+// widths of lines and the carets follow the pen. Only room ahead of the
+// pen counts: a mark placed back over its letter leaves the advances as
+// they are. Right-to-left runs keep theirs.
+func penAdvances(runs []shapedRun) {
+	var prev *Glyph
+	var pen float32
+	for i := range runs {
+		for j := range runs[i].glyphs {
+			g := &runs[i].glyphs[j]
+			if prev != nil && !prev.RTL && !g.RTL {
+				if gap := g.X - pen; gap > 1e-3 {
+					prev.Advance += gap
+					pen += gap
+				}
+			} else {
+				pen = g.X
+			}
+			pen += g.Advance
+			prev = g
+		}
+	}
 }
 
 func (e *coreText) isColor(font uintptr) bool {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown/parser"
 )
@@ -169,7 +170,7 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 		root.CopyData(st.copyData)
 		root.ContextMenu(func(m *ui.Menu) {
 			m.EditItems()
-			if m.Item("Copy as Markdown").Chosen() {
+			if m.Item(l10n.In(c.Locale()).CopyAsMarkdown()).Chosen() {
 				c.Services().WriteClipboardData(markdownData(st.copyMarkdown(root.SelectedTexts())))
 			}
 		})

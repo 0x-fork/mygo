@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -511,13 +512,14 @@ func (rt *engine) editCommands(s *state) []editItem {
 		_, _, selected = rt.textSelectionBounds()
 	}
 	type command = editItem
+	texts := l10n.In(rt.lang)
 	var (
-		undo      = command{"Undo", "undo", len(ed.undo) > 0}
-		cut       = command{"Cut", "cut", selected && !ed.password}
-		copyText  = command{"Copy", "copy", selected && !ed.password}
-		paste     = command{"Paste", "paste", true}
-		del       = command{"Delete", "delete", selected}
-		selectAll = command{"Select All", "selectAll", ed.buf.n > 0}
+		undo      = command{texts.Undo(), "undo", len(ed.undo) > 0}
+		cut       = command{texts.Cut(), "cut", selected && !ed.password}
+		copyText  = command{texts.Copy(), "copy", selected && !ed.password}
+		paste     = command{texts.Paste(), "paste", true}
+		del       = command{texts.Delete(), "delete", selected}
+		selectAll = command{texts.SelectAll(), "selectAll", ed.buf.n > 0}
 		separator = command{}
 		commands  []command
 	)

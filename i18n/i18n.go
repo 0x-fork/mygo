@@ -15,6 +15,13 @@
 // Go and TypeScript functions for them, which say them in the language
 // the app shows (Locale). The data of CLDR is generated from a pinned
 // release (CLDRVersion) by `go generate`.
+//
+// FormatNumber and FormatDate write numbers, dates and times in the way of
+// a locale, by CLDR's data of the locales of its modern coverage, as ICU
+// and Intl write them; Months, Weekdays and DayPeriods give their names,
+// FirstWeekday and HourCycle a region's week and clock, and Autonym the
+// name of a language in itself. The data is linked into an app only when
+// it formats something.
 package i18n
 
 import (

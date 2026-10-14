@@ -301,3 +301,30 @@ func ExampleCatalog_Format() {
 	// Keine Dateien
 	// [3 ƒîļéš one]
 }
+
+func TestCatalogFormatKeepsTexts(t *testing.T) {
+	c, err := NewCatalog(files(appFiles), "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := c.Format("de", "title", nil)
+	if allocs := testing.AllocsPerRun(100, func() {
+		if c.Format("de", "title", nil) != first {
+			t.Fatal("the message changed")
+		}
+	}); allocs != 0 {
+		t.Errorf("a kept message allocates %v times", allocs)
+	}
+}
+
+func BenchmarkCatalogText(b *testing.B) {
+	c, err := NewCatalog(files(appFiles), "en")
+	if err != nil {
+		b.Fatal(err)
+	}
+	c.Format("de", "title", nil)
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = c.Format("de", "title", nil)
+	}
+}

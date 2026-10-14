@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown/parser"
 )
@@ -82,7 +83,7 @@ func (st *viewState) images(c *ui.Context, i int) ui.Element {
 			if src == nil || n.Pending {
 				label := alt
 				if label == "" {
-					label = "Image"
+					label = l10n.In(c.Locale()).Image()
 				}
 				ph := ui.Row(c).Padding(th.em(0.5), th.em(0.75)).Radius(th.em(0.3)).Background(th.CodeBackground)
 				ph.Role(ui.RoleImage).Label(alt)

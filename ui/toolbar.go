@@ -41,7 +41,7 @@ func coreToolbar(c *context, fn func()) *node {
 		fn()
 		more := coreButtonBase(c)
 		styleButton(c, more, false)
-		more.Label("More").Children(func() { chevrons(c) })
+		more.Label(c.texts().More()).Children(func() { chevrons(c) })
 		more.Menu(func(m *Menu) {
 			for i, it := range *items {
 				if it.startsGroup && i > 0 {

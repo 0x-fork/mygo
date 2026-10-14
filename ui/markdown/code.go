@@ -3,6 +3,7 @@ package markdown
 import (
 	"time"
 
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 )
@@ -117,14 +118,15 @@ func (b *CodeBlockView) CopyButton(c *ui.Context) ui.Element {
 	th := &st.th
 	cs := st.codeState(b.Index)
 	copied := !cs.copiedAt.IsZero() && c.Now().Sub(cs.copiedAt) < 2*time.Second
-	btn := ui.ButtonBase(c).Padding(th.em(0.2), th.em(0.45)).Radius(5).Gap(th.em(0.3)).Label("Copy code").Disabled(b.Open)
+	tx := l10n.In(c.Locale())
+	btn := ui.ButtonBase(c).Padding(th.em(0.2), th.em(0.45)).Radius(5).Gap(th.em(0.3)).Label(tx.CopyCode()).Disabled(b.Open)
 	if btn.Hovered() && !b.Open {
 		btn.Background(th.Text.Alpha(0.08))
 	}
 	btn.Children(func() {
-		icon, label := copyIcon, "Copy"
+		icon, label := copyIcon, tx.Copy()
 		if copied {
-			icon, label = checkIcon, "Copied"
+			icon, label = checkIcon, tx.Copied()
 		}
 		size := th.em(0.95)
 		ui.Icon(c, icon).Size(size, size).TextColor(th.Muted)

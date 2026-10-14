@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -266,12 +265,8 @@ func (k *docKind) restore() int {
 				b.conflict = true
 			}
 			b.readOnly = !b.deleted && !fileWritable(e.Path)
-		} else if num, ok := strings.CutPrefix(e.Name, "Untitled"); ok {
-			if num == "" {
-				b.untitled = 1
-			} else if i, err := strconv.Atoi(strings.TrimSpace(num)); err == nil {
-				b.untitled = i
-			}
+		} else if n := untitledNumber(e.Name); n > 0 {
+			b.untitled = n
 		}
 		b.dirtySince = time.Now()
 		b.backup()

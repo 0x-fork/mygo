@@ -7,12 +7,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/ui"
+)
+
+// The sides of a diff viewer, of options.diffSide.
+const (
+	diffNewSide = 1 + iota
+	diffOldSide
 )
 
 // options are a code editor's options for a frame, from a
 // State or a DiffState.
 type options struct {
+	// diffSide is the side of a diff viewer the editor shows, which
+	// names it.
+	diffSide      int8
 	readOnly      bool
 	font          ui.Font
 	lineHeight    float32
@@ -114,6 +124,9 @@ type editor struct {
 	view  view
 	o     options
 	theme *Theme
+	// texts are MyGo's strings in the window's language, as of the last
+	// frame.
+	texts l10n.Messages
 
 	sels   []sel
 	nextID int

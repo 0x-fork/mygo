@@ -254,6 +254,8 @@ func TestRegion(t *testing.T) {
 		// What the system does not say, the region's.
 		{platform.Region{Locale: "en_US.UTF-8", FirstWeekday: -1}, Region{Locale: "en-US", FirstWeekday: time.Sunday, HourCycle: 12}},
 		{platform.Region{Locale: "de-DE", FirstWeekday: -1}, Region{Locale: "de-DE", FirstWeekday: time.Monday, HourCycle: 24}},
+		{platform.Region{Locale: "ar_EG", FirstWeekday: -1}, Region{Locale: "ar-EG", FirstWeekday: time.Saturday, HourCycle: 12}},
+		{platform.Region{Locale: "zh-TW", FirstWeekday: -1}, Region{Locale: "zh-TW", FirstWeekday: time.Sunday, HourCycle: 12}},
 		// macOS's formats of another region.
 		{platform.Region{Locale: "en_US@rg=gbzzzz", FirstWeekday: 1, HourCycle: 24}, Region{Locale: "en-GB", FirstWeekday: time.Monday, HourCycle: 24}},
 		{platform.Region{Locale: "en_US@calendar=japanese;rg=gbzzzz", FirstWeekday: 1, HourCycle: 24}, Region{Locale: "en-GB", FirstWeekday: time.Monday, HourCycle: 24}},
@@ -266,8 +268,8 @@ func TestRegion(t *testing.T) {
 			t.Errorf("%+v: Region() = %+v, want %+v", c.system, got, c.want)
 		}
 	}
-	if got := heard.get(); len(got) != 6 {
-		t.Errorf("listeners heard %d changes, want 6: %+v", len(got), got)
+	if got := heard.get(); len(got) != 8 {
+		t.Errorf("listeners heard %d changes, want 8: %+v", len(got), got)
 	}
 }
 
@@ -454,5 +456,33 @@ func TestContentDirection(t *testing.T) {
 	onMain(func() { s.Frame() })
 	if dir != ui.RightToLeft {
 		t.Errorf("Arabic is laid out %v", dir)
+	}
+}
+
+// TestBackendTexts checks that the backends' own words (platform.Texts)
+// and a message dialog's default button follow the language the app
+// shows.
+func TestBackendTexts(t *testing.T) {
+	localeTest(t, []string{"en", "zh-Hans"}, "en")
+	onMain(func() {})
+	if got := platform.CurrentTexts(); got.OK != "OK" || got.Cancel != "Cancel" || got.About != "About \x00" {
+		t.Fatalf("in English: %+v", got)
+	}
+	App.SetLocale("zh-Hans")
+	onMain(func() {})
+	if got := platform.CurrentTexts(); got.OK != "好" || got.Cancel != "取消" || got.Open != "打开" || got.SelectFolder != "选择文件夹" || got.About != "关于\x00" {
+		t.Errorf("in Chinese: %+v", got)
+	}
+	var buttons []string
+	fb.OnMessageBox = func(o *platform.MessageBoxOptions) platform.MessageBoxResult {
+		buttons = o.Buttons
+		return platform.MessageBoxResult{}
+	}
+	t.Cleanup(func() { fb.OnMessageBox = nil })
+	if _, err := Dialog.Message(MessageOptions{Message: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(buttons, []string{"好"}) {
+		t.Errorf("a message's default button: %q", buttons)
 	}
 }

@@ -86,6 +86,9 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
   elements, roles, descriptions and announcements.
 - [Right to left](right-to-left.md): interfaces laid out from the right
   for Arabic and Hebrew, logical edges, and what mirrors.
+- [Languages](../i18n.md#native-ui): the window's language and regional
+  formats, numbers and dates written in them, and the controls' own
+  strings.
 - [Drawing and animation](drawing.md): painting on elements, shaping text,
   and values that ease to their targets.
 - [Transitions](transitions.md): elements that move, resize and recolor
