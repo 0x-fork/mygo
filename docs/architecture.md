@@ -3567,6 +3567,52 @@ others in gray.
 Benchmarks are described on the page by their doc comments, which the
 site reads when it is built: start them with the benchmark's name.
 
+### Binary size
+
+Go's linker keeps what `main` can reach: a function called from anywhere
+reachable, every method of `platform.Backend` and of the other interfaces
+a backend is used through, and the data those touch (a table read on
+first use is linked whole). So a feature costs every app as soon as
+something every app runs calls it, even on a path that never runs. The
+rules, which kept counter-native at 9.4 MB after it had grown from 10.8 MB
+to 12.2 MB:
+
+- *Opt-in features hang off their constructor.* What every app reaches
+  (`App.Run`, `NewWindow`, the default menus and their roles, `init`
+  functions, locale resolution) calls an opt-in feature only through
+  functions the feature registers when the app first uses it: the File
+  menu's document roles and Open Recent call `linkedDocuments`, which the
+  first `NewDocuments` fills. Generic constructors are only linked when
+  instantiated, so they are a good place to register.
+- *No reflective method lookups on shared paths.* A reachable call of
+  `reflect.Type.Method`, `reflect.Value.Method` or `MethodByName` with a
+  name the compiler cannot see makes the linker keep every exported method
+  of every type used through an interface: 2.5 MB of counter-native. Only
+  `Bind`, `BindAs` and plugins with a service do it; MyGo's own services
+  use `bindFuncs`. `text/template` and `html/template` do it too.
+- *Backends stay thin.* Every method of `platform.Backend` and its
+  controllers is linked into every app of that platform, used or not, so
+  they translate calls and keep policy, parsing and data in the core or
+  the feature's package.
+- *Heavy packages and data stay where they are needed*: in a subpackage
+  or a plugin (`ui/editor`, `ui/markdown`, `plugins/watch`) rather than in
+  `mygo` or `ui`, and out of `init`. Importing net/http alone adds 2.3 MB.
+
+To check a change, build both apps as the benchmarks do, before and
+after, on each platform it touches:
+
+```sh
+go build -trimpath -tags mygo_noinspector -ldflags "-s -w -X github.com/egoist/mygo.production=1" -o /tmp/counter-native ./examples/counter-native
+GOOS=windows go build -trimpath -tags mygo_noinspector -ldflags "-s -w -H=windowsgui -X github.com/egoist/mygo.production=1" -o /tmp/hello.exe ./examples/hello
+```
+
+When an app grows, `go tool nm -size -sort size` on a build without `-s
+-w` shows which symbols grew, and `go build -ldflags=-dumpdep ... 2>
+deps.txt` prints every edge `a -> b` of the linker's walk: follow the
+first edge to a symbol back to `main.main` to see why it is there, and
+search for `<ReflectMethod>`, which marks a reflective lookup that keeps
+every method.
+
 ## Releasing
 
 The Go module, the CLI and the npm packages share one version:
@@ -3633,11 +3679,13 @@ which npm allows only for packages that exist: the first release uses an
 5. **Test**: unit test through `internal/fake`, a GUI test in `internal/e2e`
    when behavior depends on the toolkit, and run the Linux GUI tests in the
    container.
-6. **If the page runtime changes**, edit `packages/bridge` or
+6. **Keep apps that don't use it the same size** (see "Binary size"):
+   build `examples/counter-native` and `examples/hello` before and after.
+7. **If the page runtime changes**, edit `packages/bridge` or
    `packages/runtime`, run `bun run test`, `bun run typecheck` and
    `bun run build`, and commit `internal/bridge/bridge.js`. If the generated client changes, update
    `internal/tsgen/generate.go` and its tests.
-7. **Document** the behavior in the Go doc comments and platform
+8. **Document** the behavior in the Go doc comments and platform
    differences in the README.
 
 <!-- repository-only:end -->
