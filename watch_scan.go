@@ -941,6 +941,13 @@ func fileWatchDiff(before, after map[string]os.FileInfo, writes map[string]bool)
 		keys = append(keys, p)
 	}
 	sort.Strings(keys)
+	// Pairing looks each removed entry up by identity: comparing it with
+	// every entry instead would make a directory of n files renamed n²
+	// comparisons.
+	var ids *fileWatchIDs
+	if len(removed) > 0 && len(created) > 0 && !fileWatchPairBySameFile {
+		ids = newFileWatchIDs(before, after)
+	}
 	unique := func(m map[string]os.FileInfo, info os.FileInfo) bool {
 		count := 0
 		for _, v := range m {
@@ -954,16 +961,27 @@ func fileWatchDiff(before, after map[string]os.FileInfo, writes map[string]bool)
 	}
 	for _, old := range keys {
 		a := removed[old]
+		// A hard link makes pairing by identity ambiguous: the identity
+		// must be the only one of its kind before, after and among what
+		// was created.
 		match := ""
-		count := 0
-		for p, b := range created {
-			if os.SameFile(a, b) {
-				match = p
-				count++
+		if ids != nil {
+			if match = ids.pair(a); match != "" && created[match] == nil {
+				match = ""
+			}
+		} else {
+			count := 0
+			for p, b := range created {
+				if os.SameFile(a, b) {
+					match = p
+					count++
+				}
+			}
+			if count != 1 || !unique(before, a) || !unique(after, a) {
+				match = ""
 			}
 		}
-		// A hard link makes pairing by identity ambiguous.
-		if count != 1 || !unique(before, a) || !unique(after, a) {
+		if match == "" {
 			continue
 		}
 		// A replacement is a removal and a creation even if the old name
@@ -1025,6 +1043,61 @@ func fileWatchDiff(before, after map[string]os.FileInfo, writes map[string]bool)
 		result = append(result, g.events...)
 	}
 	return result
+}
+
+// fileWatchPairBySameFile makes fileWatchDiff pair by comparing every
+// entry with os.SameFile, as it does when identities can't be read; tests
+// compare both ways.
+var fileWatchPairBySameFile bool
+
+// fileWatchID is a file's identity as os.SameFile compares it (device and
+// inode; volume and file index on Windows), usable as a map key.
+type fileWatchID struct{ volume, index uint64 }
+
+// fileWatchIDs counts the entries of an update's before and after by
+// identity, keeping the path of one, for pairing renames.
+type fileWatchIDs struct {
+	before, after map[fileWatchID]fileWatchIDSeen
+}
+
+type fileWatchIDSeen struct {
+	path  string
+	count int
+}
+
+// newFileWatchIDs indexes before and after, or returns nil when an entry's
+// identity can't be read, which leaves pairing to os.SameFile.
+func newFileWatchIDs(before, after map[string]os.FileInfo) *fileWatchIDs {
+	ids := &fileWatchIDs{before: make(map[fileWatchID]fileWatchIDSeen, len(before)), after: make(map[fileWatchID]fileWatchIDSeen, len(after))}
+	for _, side := range []struct {
+		m   map[string]os.FileInfo
+		ids map[fileWatchID]fileWatchIDSeen
+	}{{before, ids.before}, {after, ids.after}} {
+		for p, info := range side.m {
+			id, ok := fileWatchIdentity(info)
+			if !ok {
+				return nil
+			}
+			seen := side.ids[id]
+			seen.path = p
+			seen.count++
+			side.ids[id] = seen
+		}
+	}
+	return ids
+}
+
+// pair returns the path after has for a, an entry before, when a's
+// identity is the only one of its kind before and after; "" otherwise.
+func (ids *fileWatchIDs) pair(a os.FileInfo) string {
+	id, ok := fileWatchIdentity(a)
+	if !ok || ids.before[id].count != 1 {
+		return ""
+	}
+	if seen := ids.after[id]; seen.count == 1 {
+		return seen.path
+	}
+	return ""
 }
 
 // fileInfoChanged reports whether a file's content may have changed, as
