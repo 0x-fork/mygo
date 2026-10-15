@@ -117,7 +117,7 @@ func Fragment(dst vec4, pos vec2) vec4 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := glsl.Fragment(p, "shaderFragment", "flipY")
+	got := glsl.Fragment(p, "shaderFragment", glsl.Options{FlipY: "flipY"})
 	for _, want := range []string{
 		"return (1u) << (l0);",
 		" = (1u) << (l2);",
