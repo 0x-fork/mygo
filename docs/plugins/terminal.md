@@ -155,9 +155,10 @@ term, err := terminal.New(terminal.Options{
 - `OptionAsAlt` makes Option on macOS the Alt key of programs (Meta),
   instead of the key typing accented letters.
 - `CopyOnSelect: terminal.CopyOnSelectClipboard` copies the selection to
-  the clipboard as the pointer ends it, as Ghostty's
-  `copy-on-select = clipboard`. Ghostty's `primary`, Linux's selection
-  clipboard, is not there, as native UI has none.
+  the clipboard as the pointer ends it, and as Select All makes it, as
+  Ghostty's `copy-on-select = clipboard`. Ghostty's `primary`, Linux's
+  selection clipboard, is not there, as native UI has none.
+  `SetCopyOnSelect` changes it in a running terminal.
 - `Keybinds` bind keys to actions, over the defaults (see [Keys](#keys)).
 - `RightClick` is what a secondary click does, as Ghostty's
   `right-click-action`: the context menu by default,

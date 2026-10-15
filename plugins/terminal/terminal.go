@@ -83,9 +83,10 @@ type Options struct {
 	// rather than the key that types accented letters and symbols.
 	OptionAsAlt bool
 	// CopyOnSelect copies what the pointer selects as the selection
-	// ends: CopyOnSelectClipboard to the clipboard, as Ghostty's
-	// copy-on-select = clipboard. Ghostty's primary, the selection
-	// clipboard of Linux, is not there: ui has none.
+	// ends, and what Select All selects: CopyOnSelectClipboard to the
+	// clipboard, as Ghostty's copy-on-select = clipboard. Ghostty's
+	// primary, the selection clipboard of Linux, is not there: ui has
+	// none. SetCopyOnSelect changes it.
 	CopyOnSelect CopyOnSelect
 	// Keybinds bind keys to actions over DefaultKeybinds, as Ghostty's
 	// keybind option: a binding replaces the defaults of its key and
@@ -744,6 +745,14 @@ func (t *Terminal) zoom(z Zoom) {
 	}
 	t.mu.Unlock()
 	t.redraw()
+}
+
+// SetCopyOnSelect changes where a selection is copied as it ends, as
+// Options.CopyOnSelect, as when the user changes a setting.
+func (t *Terminal) SetCopyOnSelect(c CopyOnSelect) {
+	t.mu.Lock()
+	t.opts.CopyOnSelect = c
+	t.mu.Unlock()
 }
 
 // SetTheme changes the colors, as Options.Theme and DarkTheme.

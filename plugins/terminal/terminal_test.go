@@ -524,7 +524,43 @@ func TestCopyOnSelect(t *testing.T) {
 		if got := tt.Clipboard(); got != want {
 			t.Errorf("CopyOnSelect %v: selecting copied %q, want %q", on, got, want)
 		}
+		tt.Command("selectAll")
+		if on == CopyOnSelectClipboard {
+			want = "hello world"
+		}
+		if got := tt.Clipboard(); got != want {
+			t.Errorf("CopyOnSelect %v: Select All copied %q, want %q", on, got, want)
+		}
 		term.Close()
+	}
+}
+
+func TestSetCopyOnSelect(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	term, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	term.Feed([]byte("hello world"))
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	sel := func(from, to int) {
+		x0, y0 := cellCenter(term, from, 0)
+		x1, y1 := cellCenter(term, to, 0)
+		tt.Press(x0-2, y0)
+		tt.Move(x1+2, y1)
+		tt.Release(x1+2, y1)
+	}
+	term.SetCopyOnSelect(CopyOnSelectClipboard)
+	sel(0, 4)
+	if got := tt.Clipboard(); got != "hello" {
+		t.Errorf("turned on, selecting copied %q, want %q", got, "hello")
+	}
+	term.SetCopyOnSelect(CopyOnSelectNone)
+	sel(6, 10)
+	if got := tt.Clipboard(); got != "hello" {
+		t.Errorf("turned off, selecting left %q on the clipboard, want %q", got, "hello")
 	}
 }
 
