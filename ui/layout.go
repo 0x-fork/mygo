@@ -582,31 +582,35 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 			}
 		}
 		// The automatic minimum is the content's, unless it scrolls or
-		// clips that way.
+		// clips that way. Measuring the content cannot see the main size
+		// this container has, so a maximum that is a percentage of it does
+		// not bind there: clamp the minimum by the maximum here, where the
+		// main size the maximum resolved against is known. A minimum the
+		// element asked for itself still wins over the maximum.
 		it.minMain, it.maxMain = 0, inf
 		if row {
+			if v, ok := c.maxW.resolve(base(cw)); ok {
+				it.maxMain = v
+			}
 			if v, ok := c.minW.resolve(base(cw)); ok {
 				it.minMain = v
 			} else if !c.scrolls() && c.flags&flagClipX == 0 {
-				it.minMain = intrinsic(c, false)
+				it.minMain = min(intrinsic(c, false), it.maxMain)
 				if v, ok := c.width.resolve(base(cw)); ok {
 					it.minMain = min(it.minMain, v)
 				}
 			}
-			if v, ok := c.maxW.resolve(base(cw)); ok {
+		} else {
+			if v, ok := c.maxH.resolve(base(ch)); ok {
 				it.maxMain = v
 			}
-		} else {
 			if v, ok := c.minH.resolve(base(ch)); ok {
 				it.minMain = v
 			} else if !c.scrolls() && c.flags&flagClipY == 0 && c.grow == 0 {
-				it.minMain = heightAt(c, crossOf(c, cw, align), inf)
+				it.minMain = min(heightAt(c, crossOf(c, cw, align), inf), it.maxMain)
 				if v, ok := c.height.resolve(base(ch)); ok {
 					it.minMain = min(it.minMain, v)
 				}
-			}
-			if v, ok := c.maxH.resolve(base(ch)); ok {
-				it.maxMain = v
 			}
 		}
 		it.hyp = max(it.minMain, min(it.base, it.maxMain))
