@@ -2014,6 +2014,40 @@ func TestGlobalShortcut(t *testing.T) {
 	}
 }
 
+// TestGlobalShortcutRegisterRace: calls that register the same
+// accelerator at once bind it once, and Unregister leaves nothing of the
+// shortcut behind.
+func TestGlobalShortcutRegisterRace(t *testing.T) {
+	defer GlobalShortcut.UnregisterAll()
+	const acc = "CmdOrCtrl+Alt+Shift+J"
+	var bound, calls atomic.Int32
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if err := GlobalShortcut.Register(acc, func() { calls.Add(1) }); err == nil {
+				bound.Add(1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if n := bound.Load(); n != 1 {
+		t.Errorf("Register(%q) succeeded %d times, want 1", acc, n)
+	}
+	GlobalShortcut.Unregister(acc)
+	if GlobalShortcut.IsRegistered(acc) {
+		t.Error("IsRegistered after Unregister")
+	}
+	onMain(func() { fb.PressHotkey(acc) })
+	if n := calls.Load(); n != 0 {
+		t.Errorf("a shortcut left bound by a lost race fired %d time(s) after Unregister", n)
+	}
+}
+
 // TestNotificationShowFails: Show returns what the backend answers, and
 // forgets a notification it could not show, which nothing will click.
 func TestNotificationShowFails(t *testing.T) {
