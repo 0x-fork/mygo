@@ -132,9 +132,9 @@ type Options struct {
 	// then sending as the program reads, then sent; or not taken when the
 	// program has not read it 5 seconds after the offer was written, as a
 	// program that does not read pastes, or one far away over a slow link.
-	// A paste of no text to a program that does not read the clipboard,
-	// which pastes nothing, tells PasteNoText. An app shows a large
-	// image's progress, or why nothing pasted, this way.
+	// A paste of no text to a program that reads neither the clipboard nor
+	// bracketed pastes, which pastes nothing, tells PasteNoText. An app
+	// shows a large image's progress, or why nothing pasted, this way.
 	OnPasteStatus func(p PasteProgress)
 	// OnClipboardRequest asks the app before a program reads the
 	// clipboard, when ClipboardRead is ClipboardAsk; without it the
@@ -271,7 +271,9 @@ const (
 	// offered. It may still, as long as no other paste comes.
 	PasteNotTaken
 	// PasteNoText: the paste had no text, as only an image, and the
-	// program does not read the clipboard, so nothing was pasted.
+	// program reads neither the clipboard nor bracketed pastes (mode
+	// 2004), so nothing was pasted. A program that takes bracketed
+	// pastes gets an empty one.
 	PasteNoText
 )
 

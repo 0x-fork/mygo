@@ -1326,8 +1326,15 @@ func TestPasteImage(t *testing.T) {
 	if sent := conn.take(1); sent != "\x1b[200~some text\x1b[201~" {
 		t.Errorf("without the mode, pasted %q", sent)
 	}
-	// Only an image, and no program to read it: nothing, and told so.
+	// Only an image, to a program that takes bracketed pastes: an empty
+	// one, which it reads as a paste of the image, as Claude Code does.
 	tt.SetClipboardData(transfer.New(transfer.NewItem(transfer.Bytes(transfer.PNG, image))))
+	tt.Key(pasteMods, ui.KeyV)
+	if sent := conn.take(1); sent != "\x1b[200~\x1b[201~" {
+		t.Errorf("with only an image and bracketed paste, pasted %q", sent)
+	}
+	// Only an image, and no program to read it: nothing, and told so.
+	term.Feed([]byte("\x1b[?2004l"))
 	tt.Key(pasteMods, ui.KeyV)
 	if sent := conn.take(1); sent != "" {
 		t.Errorf("with only an image and no mode, pasted %q", sent)
