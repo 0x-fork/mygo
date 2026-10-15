@@ -257,19 +257,17 @@ func TestFlyoutEscape(t *testing.T) {
 	parent := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200})
 	parent.Focus()
 	eventually(t, "the parent focused", parent.IsFocused)
-	var handled, registered, received atomic.Bool
+	var handled, received atomic.Bool
 	native := mygo.NewFlyout(mygo.FlyoutOptions{Parent: parent, Width: 150, Height: 100, Focusable: true, Content: ui.View(func(c *ui.Context) {
-		enabled := handled.Load()
-		if enabled && c.Shortcut(0, ui.KeyEscape) {
+		if handled.Load() && c.Shortcut(0, ui.KeyEscape) {
 			received.Store(true)
 		}
-		registered.Store(enabled)
 	})})
 	defer native.Destroy()
 	eventually(t, "the flyout focused", native.IsFocused)
+	// The view asks for Escape from the frame that handles the key on,
+	// whether or not a frame built since showed it.
 	handled.Store(true)
-	native.Invalidate() // keys route through the previous frame's shortcuts
-	eventually(t, "the Escape shortcut registered", registered.Load)
 	if !pressEscape(native) {
 		t.Skip("keys not available on this platform")
 	}
@@ -278,9 +276,8 @@ func TestFlyoutEscape(t *testing.T) {
 	if native.IsDestroyed() {
 		t.Fatal("an Escape the content handled closed the flyout")
 	}
+	// It no longer does, from the frame that handles the key on.
 	handled.Store(false)
-	native.Invalidate()
-	eventually(t, "the Escape shortcut removed", func() bool { return !registered.Load() })
 	pressEscape(native)
 	eventually(t, "the flyout of native UI closed", native.IsDestroyed)
 
@@ -300,7 +297,6 @@ func TestFlyoutEscape(t *testing.T) {
 	popover := mygo.NewFlyout(mygo.FlyoutOptions{Parent: parent, Width: 150, Height: 100, Focusable: true, Popover: true, Content: ui.View(func(c *ui.Context) {})})
 	defer popover.Destroy()
 	eventually(t, "the popover focused", popover.IsFocused)
-	time.Sleep(300 * time.Millisecond)
 	pressEscape(popover)
 	eventually(t, "the popover closed", popover.IsDestroyed)
 }

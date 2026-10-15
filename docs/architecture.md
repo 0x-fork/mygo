@@ -1477,7 +1477,12 @@ as in Tauri:
   would make the parent key, which closes the flyout before the release
   clicks the anchor and opens it again. An
   Escape the content leaves closes a flyout too: native UI reports one
-  no shortcut took (`routeKeys`, `surface.Conn.Escape`), and the bridge
+  no shortcut took (`surface.Conn.Escape`), neither one of the last
+  frame (`routeKeys`) nor one the frame handling the key builds, which
+  takes it in the next frame (`settleKeys`): a key pressed as the view
+  changes, before a frame shows the change, goes where the view now
+  sends it, so an Escape typed ahead of the frame that builds a
+  flyout's shortcut for it never closes the flyout. The bridge reports
   one no handler of the page cancelled (an `escape` message). `Flyout.Popover` shows one in an
   `NSPopover` (`internal/darwin/popover.go`), whose window AppKit makes
   as it shows, and whose transient behavior asks `popoverShouldClose:`.

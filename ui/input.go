@@ -770,49 +770,85 @@ func (rt *engine) moveFocus(back bool) {
 
 // routeKeys delivers the keys pressed since the last frame to the
 // innermost element around the focus that handles them, else to the
-// overlay on top that does, else to the window's shortcuts.
+// overlay on top that does, else to the window's shortcuts, as the last
+// frame registered them. Those it finds no shortcut for wait for what
+// this frame builds (settleKeys).
 func (rt *engine) routeKeys() {
-	if len(rt.keys) == 0 {
+	rt.unrouted = rt.unrouted[:0]
+	if len(rt.keys) == 0 && len(rt.retried) == 0 {
 		return
 	}
 	chain := rt.focusChain()
+	route := func(k keyEvent, retried bool) {
+		r := shortcutReg{mods: k.mods, key: k.key, retried: retried}
+		if target, found := routeKey(rt.regs, chain, k); found {
+			r.id = target
+			rt.delivered = append(rt.delivered, r)
+		} else {
+			rt.unrouted = append(rt.unrouted, r)
+		}
+	}
+	// Keys retried came before those pressed since.
+	for _, k := range rt.retried {
+		route(k, true)
+	}
 	for _, k := range rt.keys {
-		target, found := uint64(0), false
-		for _, id := range chain {
-			for _, r := range rt.regs {
-				if r.id == id && !r.overlay && r.mods == k.mods && r.key == k.key {
-					target, found = id, true
-					break
-				}
-			}
-			if found {
-				break
-			}
-		}
-		if !found {
-			// The overlay on top: the one made last, as it paints last.
-			var top int32 = -1
-			for _, r := range rt.regs {
-				if r.overlay && r.mods == k.mods && r.key == k.key && r.serial >= top {
-					target, found, top = r.id, true, r.serial
-				}
+		route(k, false)
+	}
+	rt.retried, rt.keys = rt.retried[:0], rt.keys[:0]
+}
+
+// routeKey returns the element that takes key k by shortcuts regs, the
+// focus in the elements of chain: the innermost of them, else the overlay
+// on top, else the window (0). found is false when none does.
+func routeKey(regs []shortcutReg, chain []uint64, k keyEvent) (target uint64, found bool) {
+	for _, id := range chain {
+		for _, r := range regs {
+			if r.id == id && !r.overlay && r.mods == k.mods && r.key == k.key {
+				return id, true
 			}
 		}
-		if !found {
-			for _, r := range rt.regs {
-				if r.id == 0 && r.mods == k.mods && r.key == k.key {
-					found = true
-					break
-				}
-			}
+	}
+	// The overlay on top: the one made last, as it paints last.
+	var top int32 = -1
+	for _, r := range regs {
+		if r.overlay && r.mods == k.mods && r.key == k.key && r.serial >= top {
+			target, found, top = r.id, true, r.serial
 		}
-		if found {
-			rt.delivered = append(rt.delivered, shortcutReg{id: target, mods: k.mods, key: k.key})
-		} else if k == (keyEvent{0, KeyEscape}) {
+	}
+	if found {
+		return target, true
+	}
+	for _, r := range regs {
+		if r.id == 0 && r.mods == k.mods && r.key == k.key {
+			return 0, true
+		}
+	}
+	return 0, false
+}
+
+// settleKeys decides, once the frame is built, about the keys no shortcut
+// took in it: those the frame found no shortcut for, or whose shortcut
+// the view did not ask for again. The shortcuts the frame registered take
+// one in the next frame, as the view had changed by the time it came: a
+// key pressed as the view changes, before a frame shows the change (an
+// Escape typed ahead into a flyout whose first frame builds a shortcut for
+// it), goes where the view shows it goes. Else an Escape is the window's
+// (a flyout closes on it), and other keys go nowhere.
+func (rt *engine) settleKeys() {
+	if len(rt.unrouted) == 0 {
+		return
+	}
+	chain := rt.focusChain()
+	for _, r := range rt.unrouted {
+		k := keyEvent{r.mods, r.key}
+		if _, found := routeKey(rt.nextRegs, chain, k); found && !r.retried {
+			rt.retried = append(rt.retried, k) // runFrame asks for the frame
+		} else if !found && k == (keyEvent{0, KeyEscape}) {
 			rt.host.escape()
 		}
 	}
-	rt.keys = rt.keys[:0]
+	rt.unrouted = rt.unrouted[:0]
 }
 
 // shortcut registers that element id (0 for the window) handles mods+key

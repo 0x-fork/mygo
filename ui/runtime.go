@@ -224,8 +224,14 @@ type engine struct {
 	texts        []*state
 	selection    textSelection
 	focusVisible bool
-	keys         []keyEvent
-	menu         menuState
+	// keys are the keys pressed since the last frame, for its shortcuts;
+	// retried, keys no shortcut of the frame they came to took, which the
+	// shortcuts that frame built take in the next one; unrouted, those
+	// the frame being built gave no shortcut, or gave one the view no
+	// longer asks for (routeKeys, settleKeys).
+	keys, retried []keyEvent
+	unrouted      []shortcutReg
+	menu          menuState
 	// windowFocused tells that the window has the keyboard focus, which
 	// windowFocus reads; focusRead, that the last frame read it, so that a
 	// change of it draws a frame.
@@ -370,6 +376,9 @@ type shortcutReg struct {
 	// made serial-th in its pass: the overlay made last is on top.
 	overlay bool
 	serial  int32
+	// retried marks a key delivered, or left unrouted, in the frame after
+	// the one it came to (settleKeys): it is not retried again.
+	retried bool
 }
 
 type keyEvent struct {
@@ -528,6 +537,7 @@ func (rt *engine) runFrame() {
 	rt.syncDropFormats()
 	rt.prunePictures()
 	rt.text.EndFrame()
+	rt.settleKeys()
 	rt.regs, rt.nextRegs = rt.nextRegs, rt.regs
 	rt.updateTextInput()
 	rt.updateCursor()
@@ -540,6 +550,11 @@ func (rt *engine) runFrame() {
 	}
 	rt.announcements = rt.announcements[:0]
 	rt.next()
+	if len(rt.retried) > 0 {
+		// The keys retried route in a frame built anew, at once.
+		rt.redraw, rt.repaintDue = false, time.Time{}
+		rt.host.requestFrame()
+	}
 	rt.armTimer()
 	rt.showMenu()
 	rt.c.finish()
@@ -652,6 +667,9 @@ func (rt *engine) endPass() {
 	}
 	rt.clickLater = rt.clickLater[:0]
 	rt.menu.chosen = 0
+	// A shortcut the view did not ask for again, as it changed: what
+	// this frame built may take the key (settleKeys).
+	rt.unrouted = append(rt.unrouted, rt.delivered...)
 	rt.delivered = rt.delivered[:0]
 	rt.downs = rt.downs[:0]
 	// The next pass may not ask again, as when the view cleared what asked.
