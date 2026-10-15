@@ -58,9 +58,9 @@ type app struct {
 	// lively the orb is, and orbPhase how far its colors have moved.
 	glow, energy, orbPhase float64
 	// still stops what moves on its own, while the desktop asks for less
-	// motion.
-	still bool
-	sh    shaders
+	// motion; dark tells that the theme is dark, where the glow adds light.
+	still, dark bool
+	sh          shaders
 }
 
 func newApp() *app {
@@ -69,7 +69,7 @@ func newApp() *app {
 
 func (a *app) view(c *ui.Context) {
 	t := c.Theme()
-	a.still = c.Preferences().ReduceMotion
+	a.still, a.dark = c.Preferences().ReduceMotion, t.Dark
 	a.tick(c.Now())
 	if a.moving() {
 		c.AnimationFrame()
@@ -212,12 +212,15 @@ func (a *app) drawEdge(p *ui.Painter, r ui.Rect) {
 	if runtime.GOOS == "darwin" {
 		corner = 16
 	}
-	burst := a.now - a.asked
+	burst, dark := a.now-a.asked, float32(0)
 	if a.still {
 		burst = 10
 	}
+	if a.dark {
+		dark = 1
+	}
 	edge.Draw(p, r, shader.Options{Values: a.sh.edge.
-		Float(edgeTime, float32(a.now)).Float(edgeStrength, float32(ease(a.glow))).
+		Float(edgeDark, dark).Float(edgeTime, float32(a.now)).Float(edgeStrength, float32(ease(a.glow))).
 		Float(edgeBurst, float32(burst)).Float(edgeCorner, corner)})
 }
 

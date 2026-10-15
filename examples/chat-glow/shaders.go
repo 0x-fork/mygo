@@ -31,6 +31,7 @@ var (
 // The shaders' uniforms, looked up once, and their values, set each frame.
 var (
 	edgeTime, edgeStrength, edgeBurst, edgeCorner = edge.Uniform("Time"), edge.Uniform("Strength"), edge.Uniform("Burst"), edge.Uniform("Corner")
+	edgeDark                                      = edge.Uniform("Dark")
 	orbPhase, orbEnergy                           = orb.Uniform("Phase"), orb.Uniform("Energy")
 	ringTime, ringStrength, ringPad, ringRadius   = ring.Uniform("Time"), ring.Uniform("Strength"), ring.Uniform("Pad"), ring.Uniform("Radius")
 	shimmerTime, shimmerBase, shimmerShine        = shimmer.Uniform("Time"), shimmer.Uniform("Base"), shimmer.Uniform("Shine")
