@@ -20,6 +20,12 @@ jobs:
     permissions:
       contents: write # push the website branch
     steps:
+      # The whole history, without files' contents: git refuses to push
+      # over a branch tip it does not have ("fetch first"), and a shallow
+      # clone has only the tagged commit.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
       - name: Fast-forward the website branch
         run: git push origin "${GITHUB_SHA}:refs/heads/website"
