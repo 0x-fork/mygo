@@ -2997,6 +2997,10 @@ either.
   cached by their shape relative to the pixel grid in quarters of a pixel,
   to which their points move first: a path looks the same whichever path
   of its key drew its mask first.
+  Opaque `Painter.StrokePolyline` on a GPU is the exception: each segment
+  is a rotated fill with round ends, drawn as other fills are, without a
+  mask; translucent ones, and the CPU renderer, take the mask's way, so
+  that overlapping segments do not show darker.
   So are icons: `internal/svg` parses SVG documents (with `encoding/xml`
   and its own small CSS cascade) into nodes of paths, paints and layers,
   and draws them on the CPU with `internal/vec`, compositing gradients,

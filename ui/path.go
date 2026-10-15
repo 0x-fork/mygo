@@ -23,6 +23,13 @@ type pathCmd struct {
 	pts [3][2]float32
 }
 
+// Reset empties the path and removes Trim, retaining its command storage.
+func (p *Path) Reset() *Path {
+	p.cmds = p.cmds[:0]
+	p.trim, p.trimmed = [2]float32{}, false
+	return p
+}
+
 // MoveTo starts a new subpath at (x, y).
 func (p *Path) MoveTo(x, y float32) *Path {
 	p.cmds = append(p.cmds, pathCmd{op: 0, pts: [3][2]float32{{x, y}}})
@@ -477,7 +484,8 @@ func offsetLoop(z *vec.Rasterizer, pts [][2]float32, hw float32) {
 			steps := int(math.Ceil(math.Abs(turn) / (2 * math.Acos(max(1-0.02/float64(hw), -1)))))
 			for s := 1; s <= steps; s++ {
 				a := from + turn*float64(s)/float64(steps)
-				z.LineTo(b[0]+hw*float32(math.Cos(a)), b[1]+hw*float32(math.Sin(a)))
+				sin, cos := math.Sincos(a)
+				z.LineTo(b[0]+hw*float32(cos), b[1]+hw*float32(sin))
 			}
 		}
 		dx, dy, nx, ny = ex, ey, mx, my
