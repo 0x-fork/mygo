@@ -456,3 +456,18 @@ func TestCodeEditorSharedBuffer(t *testing.T) {
 		t.Fatalf("other editor's selection %+v", s)
 	}
 }
+
+// A double click selects the word under it and a triple click its line,
+// on a backend that does not count clicks.
+func TestCodeEditorMultiClick(t *testing.T) {
+	ct := newEditorTest(t, "", "|select customers from orders\nx")
+	ed := &ct.st.ed
+	x, y := ed.textX+ed.view.charWidth*10, float32(ed.rowTop(0))+ed.view.lineHeight/2
+	ct.tt.ClickAt(x, y)
+	ct.tt.ClickAt(x, y)
+	ct.tt.Frame()
+	ct.want("select [customers] from orders\nx")
+	ct.tt.ClickAt(x, y)
+	ct.tt.Frame()
+	ct.want("[select customers from orders\n]x")
+}

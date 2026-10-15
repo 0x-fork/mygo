@@ -504,7 +504,7 @@ func TestRichTextLinkOpensSafely(t *testing.T) {
 		Paragraph{Runs: []Run{{Text: "site", Attributes: Attributes{Link: "https://example.com"}}}},
 	))
 	tt, _ := richTester(t, doc)
-	for y := float32(2); y < 80; y += 4 {
+	for y := float32(2); y < 80; y += 6 { // apart, so that no click is a double click
 		tt.Move(10, y)
 		if tt.Cursor() == ui.CursorPointer {
 			tt.ClickAt(10, y)

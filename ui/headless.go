@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/internal/platform"
@@ -193,8 +194,9 @@ func coreRender(view func(c *context), width, height int, scale float32) *image.
 // frames in memory and sends the view pointer and keyboard input, between
 // which it settles the frames the view asks for.
 type Tester struct {
-	rt *engine
-	h  *headless
+	rt     *engine
+	h      *headless
+	clicks platform.ClickCounter
 }
 
 // NewTester starts testing view in a window of width×height DIPs. Two
@@ -228,6 +230,10 @@ func (t *Tester) settle() {
 }
 
 func (t *Tester) send(ev platform.SurfaceEvent) {
+	if ev.Kind == platform.PointerDown && ev.Clicks == 0 {
+		// Counted as a backend counts.
+		ev.Clicks = t.clicks.Press(ev.Button, ev.X, ev.Y, uint32(time.Now().UnixMilli()), platform.DefaultDoubleClick)
+	}
 	t.rt.event(ev)
 	t.settle()
 }

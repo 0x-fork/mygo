@@ -212,6 +212,9 @@ type engine struct {
 	chain       []uint64
 	pressed     *state
 	pressButton int
+	// pressClicks is the press's count of clicks, which its release
+	// carries.
+	pressClicks int
 	// pressDragger is the element around the one pressed that drags a
 	// value, which takes the press as it moves (dragMove), or 0.
 	pressDragger uint64
@@ -324,11 +327,12 @@ type engine struct {
 	labels     []labelNode
 	tips       tooltips
 	scrollDrag scrollDrag
-	lastPress  struct {
-		at     time.Time
-		x, y   float32
-		id     uint64
-		clicks int
+	// lastPress is the element of the press (id) and of the one before
+	// (prev), and how many of the backend's count of clicks were before
+	// the first on it.
+	lastPress struct {
+		id, prev uint64
+		base     int
 	}
 }
 

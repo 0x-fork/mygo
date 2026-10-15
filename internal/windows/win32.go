@@ -390,6 +390,8 @@ const (
 
 	smCxFrame        = 32
 	smCyFrame        = 33
+	smCxDoubleClk    = 36
+	smCyDoubleClk    = 37
 	smCxPaddedBorder = 92
 
 	vkShift   = 0x10

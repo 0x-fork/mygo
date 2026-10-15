@@ -16,6 +16,10 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.redraw = false
 	}
 	x, y := float32(ev.X), float32(ev.Y)
+	if ev.Kind == platform.PointerDown || ev.Kind == platform.WebViewPress {
+		// A press is of no element until countPress finds it one.
+		rt.lastPress.prev, rt.lastPress.id = rt.lastPress.id, 0
+	}
 	if rt.insp.pointer(rt, ev, x, y) {
 		return true
 	}
@@ -90,7 +94,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 			// The release will not come: an element taking its input
 			// gets one now.
 			if p.input != nil {
-				rt.deliver(p, InputEvent{Kind: InputPointerUp, Button: rt.pressButton, Mods: rt.mods, Clicks: 1})
+				rt.deliver(p, InputEvent{Kind: InputPointerUp, Button: rt.pressButton, Mods: rt.mods, Clicks: rt.pressClicks})
 			}
 			p.pressed = false
 			rt.pressed = nil
@@ -250,7 +254,7 @@ func (rt *engine) pointerMove(x, y float32) {
 
 const interactive = flagClickable | flagFocusable | flagEditable | flagSelectable | flagDragWindow | flagDraggable | flagTrackPointer
 
-func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count int) {
+func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks int) {
 	chain := rt.hitChain(x, y)
 	rt.setHover(chain)
 	rt.pressDragger = 0
@@ -290,9 +294,11 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 			rt.blinkStart = time.Now()
 		}
 	}
-	if h := rt.handler(chain); h != nil && rt.deliver(h, InputEvent{Kind: InputPointerDown, Button: button, Mods: mods, Clicks: max(count, 1)}) {
+	h := rt.handler(chain)
+	clicks = rt.countPress(chain, target, h, max(clicks, 1))
+	if h != nil && rt.deliver(h, InputEvent{Kind: InputPointerDown, Button: button, Mods: mods, Clicks: clicks}) {
 		// It takes the moves and the release.
-		rt.pressed, rt.pressButton = h, button
+		rt.pressed, rt.pressButton, rt.pressClicks = h, button, clicks
 		h.pressed = true
 		h.pressPending = true
 		h.pressX, h.pressY = h.local(x, y)
@@ -312,14 +318,6 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 		rt.openMenuButton(target)
 		return
 	}
-	// Count quick successive presses at the same place.
-	now := time.Now()
-	clicks := 1
-	lp := &rt.lastPress
-	if lp.id == target.id && now.Sub(lp.at) < 500*time.Millisecond && abs32(x-lp.x) < 5 && abs32(y-lp.y) < 5 {
-		clicks = lp.clicks + 1
-	}
-	lp.at, lp.x, lp.y, lp.id, lp.clicks = now, x, y, target.id, clicks
 	if button == 0 && target.flags&flagDragWindow != 0 && target.flags&(interactive&^flagDragWindow) == 0 {
 		if clicks == 2 {
 			rt.host.titleBarDoubleClicked()
@@ -328,7 +326,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 		}
 		return
 	}
-	rt.pressed, rt.pressButton = target, button
+	rt.pressed, rt.pressButton, rt.pressClicks = target, button, clicks
 	rt.pressDragger = pressDragger(rt, chain, target)
 	target.pressed, target.pressMods = true, mods
 	target.pressPending = true
@@ -346,7 +344,30 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 	}
 }
 
+// countPress counts the backend's n-th quick press from the first on the
+// element pressed: the innermost of the target and the handler, so that
+// two handlers in one focusable element, or two buttons in one handler,
+// count apart.
+func (rt *engine) countPress(chain []uint64, target, h *state, n int) int {
+	id := uint64(0)
+	for _, c := range chain {
+		if target != nil && c == target.id || h != nil && c == h.id {
+			id = c
+			break
+		}
+	}
+	lp := &rt.lastPress
+	if id != lp.prev || n <= lp.base {
+		lp.base = n - 1
+	}
+	lp.id = id
+	return n - lp.base
+}
+
 func (rt *engine) pointerUp(button, clicks int) {
+	if button == rt.pressButton {
+		clicks = rt.pressClicks // the engine's, which may have started over
+	}
 	if rt.scrollDrag.st != nil {
 		rt.scrollDrag.st = nil
 		rt.requestFrame()
