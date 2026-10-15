@@ -178,3 +178,46 @@ func boolScene() *scene.Scene {
 	sc.Effects = []scene.EffectOp{{Effect: s.fx, Uniforms: words}}
 	return sc
 }
+
+// maskedScene returns a scene of s filling mask glyphs, discs of a mask
+// atlas: a row of them, straight, and another rotated, its positions from
+// the corner of the row's box, as text and paths a shader fills.
+func maskedScene(s *Shader) *scene.Scene {
+	atlas := scene.NewAtlas(1, 64, 64)
+	disc := make([]byte, 16*16)
+	for y := range 16 {
+		for x := range 16 {
+			dx, dy := float64(x)-7.5, float64(y)-7.5
+			disc[y*16+x] = byte(255 * max(0, min(1, 7.5-math.Sqrt(dx*dx+dy*dy))))
+		}
+	}
+	u, v, _ := atlas.Alloc(16, 16)
+	atlas.Put(u, v, 16, 16, disc, 16)
+	sc := &scene.Scene{Width: 240, Height: 120, Clear: scene.Color{R: 240, G: 240, B: 240, A: 255}, MaskAtlas: atlas,
+		Text: scene.TextParams{GammaRatios: scene.GammaRatios(1.8), Contrast: 1}}
+	words := make([]uint32, s.words)
+	words[scaleWord-2], words[scaleWord-1] = math.Float32bits(200), math.Float32bits(16)
+	words[scaleWord] = math.Float32bits(1)
+	rotate := scene.Affine{Set: true, A: 0.94, B: 0.34, C: -0.34, D: 0.94, X: 40, Y: 50}
+	for row, m := range []scene.Affine{{}, rotate} {
+		start := int32(len(sc.Glyphs))
+		for i := range 12 {
+			sc.Glyphs = append(sc.Glyphs, scene.Glyph{X: 10 + float32(i*17), Y: 10 + float32(row*20), W: 16, H: 16,
+				U: uint16(u), V: uint16(v), UW: 16, VH: 16, Color: scene.Color{R: 255, G: 255, B: 255, A: 255}})
+		}
+		sc.Ops = append(sc.Ops, scene.Op{Kind: scene.OpEffect, Rect: scene.Rect{X: 10, Y: 10 + float32(row*20), W: 220, H: 17},
+			Transform: m, Start: int32(len(sc.Effects))})
+		sc.Effects = append(sc.Effects, scene.EffectOp{Effect: s.fx, Uniforms: words,
+			Glyphs: [2]int32{start, int32(len(sc.Glyphs))}, Origin: [2]float32{10, 10 + float32(row*20)}})
+	}
+	return sc
+}
+
+// maskedSource colors by position, across the box it fills.
+const maskedSource = `package main
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	t := clamp(pos.x/rectSize().x, 0, 1)
+	return vec4(1-t, 0.3*(pos.y/16), t, 1)
+}
+`

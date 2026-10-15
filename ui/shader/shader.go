@@ -135,6 +135,44 @@ type Options struct {
 // Draw fills r with the shader, in DIPs of p, as p's other drawings are:
 // clipped, transformed and faded with the painter.
 func (s *Shader) Draw(p *ui.Painter, r ui.Rect, o Options) {
+	p.ShaderEffect(s.fx, r, o.Radius, s.lanes(p, r, o), o.Images)
+}
+
+// Fill paints the text, paths and icons that fn paints with p with the
+// shader in place of their colors, as a gradient fills them: each pixel
+// the shader's color times the shape's coverage, the shader filling box,
+// in DIPs, whose corner its positions start from and whose size rectSize
+// returns. Emoji keep their colors, and the rest fn paints, as rectangles
+// and images, paints as it would. Options.Radius does not apply.
+func (s *Shader) Fill(p *ui.Painter, box ui.Rect, o Options, fn func()) {
+	p.ShaderFill(s.fx, box, s.lanes(p, box, o), o.Images, fn)
+}
+
+// FillPath fills path with the shader (non-zero winding), the shader
+// filling the path's box (Path.Bounds).
+func (s *Shader) FillPath(p *ui.Painter, path *ui.Path, o Options) {
+	s.Fill(p, path.Bounds(), o, func() { p.FillPath(path, white) })
+}
+
+// StrokePath strokes the outline of path with the shader, width DIPs
+// wide, with round joins and caps, the shader filling the path's box
+// (Path.Bounds) grown by half the width.
+func (s *Shader) StrokePath(p *ui.Painter, path *ui.Path, width float32, o Options) {
+	b := path.Bounds()
+	h := width / 2
+	s.Fill(p, ui.Rect{X: b.X - h, Y: b.Y - h, W: b.W + width, H: b.H + width}, o, func() { p.StrokePath(path, width, white) })
+}
+
+// Text draws a line of text with its top-left corner at (x, y), size DIPs
+// tall, filled with the shader, which fills the text's box.
+func (s *Shader) Text(p *ui.Painter, x, y float32, text string, size float32, o Options) {
+	w, h := p.MeasureText(0, ui.Span{Text: text, Size: size})
+	s.Fill(p, ui.Rect{X: x, Y: y, W: w, H: h}, o, func() { p.Text(x, y, text, size, white) })
+}
+
+// lanes returns the words of the uniforms' lanes of the shader drawn with o
+// in r, the box it fills, with the bridge's first.
+func (s *Shader) lanes(p *ui.Painter, r ui.Rect, o Options) []uint32 {
 	words := make([]uint32, s.words)
 	for i, b := range o.Images {
 		if b != nil {
@@ -153,7 +191,7 @@ func (s *Shader) Draw(p *ui.Painter, r ui.Rect, o Options) {
 			set(words[u.word:u.word+u.n], kind, name, v)
 		}
 	}
-	p.ShaderEffect(s.fx, r, o.Radius, words, o.Images)
+	return words
 }
 
 // set writes value v of uniform name into its lanes, as numbers of kind:
@@ -270,3 +308,7 @@ func (s sceneImage) At(x, y int) [4]float32 {
 	p := s.img.Pix[4*(y*s.img.W+x):][:4]
 	return [4]float32{float32(p[0]) / 255, float32(p[1]) / 255, float32(p[2]) / 255, float32(p[3]) / 255}
 }
+
+// white is the color the shapes a shader fills are painted with, whose
+// coverage it multiplies.
+var white = ui.Color{R: 255, G: 255, B: 255, A: 255}

@@ -281,6 +281,7 @@ func (r *Renderer) effectProgram(e *scene.Effect) *effectProgram {
 	}
 	glUseProgram(p.program)
 	p.uSize = glGetUniformLocation(p.program, "uSize")
+	glUniform1i(glGetUniformLocation(p.program, "uMask"), 0)
 	glUniform1i(glGetUniformLocation(p.program, "uBackdrop"), 3)
 	glUniform1i(glGetUniformLocation(p.program, "uClipMask"), 4)
 	if e.Shader != nil {

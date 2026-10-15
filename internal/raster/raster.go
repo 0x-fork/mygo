@@ -130,7 +130,12 @@ func (d *drawer) draw(dst *Image, s *scene.Scene, area image.Rectangle, bounds [
 			d.bd.img.Transform = op.Transform
 			b = &d.bd.img
 		}
-		next.Begin(fx, op.Rect, scene.FitRadii(op.Rect, op.Radii))
+		rect := op.Rect
+		if fx.Masked() {
+			// Its shader's positions start from the box it fills.
+			rect.X, rect.Y = fx.Origin[0], fx.Origin[1]
+		}
+		next.Begin(fx, rect, scene.FitRadii(op.Rect, op.Radii))
 		from, px = i, next
 	}
 	d.drawOps(dst, s, area, bounds, from, len(s.Ops), px, b)
@@ -245,7 +250,9 @@ func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, boun
 			}
 		case scene.OpEffect:
 			if i == from && px != nil {
-				if op.Transform.Set {
+				if fx := &s.Effects[op.Start]; fx.Masked() {
+					r.maskedEffect(op, fx, px)
+				} else if op.Transform.Set {
 					r.transformed(op, px, b)
 				} else {
 					r.effect(op, px, b)

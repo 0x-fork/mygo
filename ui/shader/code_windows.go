@@ -17,7 +17,7 @@ import (
 func code(p *shaderir.Program, fx *scene.Effect) ([]int, int) {
 	fx.HLSL.Source = hlsl.Fragment(p, "shaderFragment", 2, 6) + `
 float4 effect(float2 p, Effect e) {
-	return shaderFragment(float4(p, 0, 1), (p - e.rect.xy) / U2);
+	return shaderFragment(float4(p, 0, 1), (p - (e.p4.z > 0.5 ? e.p4.xy : e.rect.xy)) / U2);
 }
 `
 	d3d11.PrecompileEffect(fx.HLSL.Source)

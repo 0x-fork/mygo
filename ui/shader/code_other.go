@@ -17,7 +17,7 @@ import (
 func code(p *shaderir.Program, fx *scene.Effect) ([]int, int) {
 	fx.GLSL = glsl.Fragment(p, "shaderFragment", glsl.Options{FlipY: "true", Block: "ShaderUniforms", FlipRows: "uShaderFlipRows"}) + `
 vec4 effect(vec2 p, Effect e) {
-	return shaderFragment(vec4(p, 0.0, 1.0), (p - e.rect.xy) / U2);
+	return shaderFragment(vec4(p, 0.0, 1.0), (p - (e.p4.z > 0.5 ? e.p4.xy : e.rect.xy)) / U2);
 }
 `
 	return glsl.UniformLanes(p)

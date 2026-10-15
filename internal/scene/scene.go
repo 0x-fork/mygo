@@ -93,7 +93,8 @@ const (
 	OpPopClip
 	// OpEffect paints the rounded rectangle Rect with Radii with an effect,
 	// Scene.Effects[Start]: shaders of a package outside the renderers (see
-	// Effect), with Opacity.
+	// Effect), with Opacity; or, for a shader's effect, mask glyphs, which
+	// Rect then holds (EffectOp.Glyphs).
 	OpEffect
 	// OpHole makes the rounded rectangle Rect with Radii transparent,
 	// within the clip: what the ops before it painted there is gone, and

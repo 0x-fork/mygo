@@ -392,10 +392,6 @@ float4 premul(float4 c) { return float4(c.rgb * c.a, c.a); }
 
 float3 unpremul(float4 c) { return c.a > 0.0f ? c.rgb / c.a : float3(0.0f); }
 
-// What follows is the renderer's own; effects (effect.metal) take what is
-// above.
-#ifndef EFFECT
-
 // textCoverage corrects the coverage a of a glyph of straight color c as
 // Direct2D blends text (scene.TextCoverage): it enhances the contrast,
 // the more the darker c is, and corrects for gamma with the ratios g.
@@ -405,6 +401,10 @@ float textCoverage(float a, float3 c, float contrast, float boost, float4 g) {
 	float f = dot(c, float3(0.25f, 0.5f, 0.25f));
 	return saturate(a + a * (1.0f - a) * ((g.x * f + g.y) * a + (g.z * f + g.w)));
 }
+
+// What follows is the renderer's own; effects (effect.metal) take what is
+// above.
+#ifndef EFFECT
 
 // subpixelCoverage does the same for each subpixel of a subpixel glyph.
 float3 subpixelCoverage(float3 a, float3 c, float contrast, float boost, float4 g) {

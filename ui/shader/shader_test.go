@@ -83,3 +83,76 @@ func solid(w, h int, r, g, b uint8) *image.RGBA {
 	}
 	return img
 }
+
+// FillPath, StrokePath and Text paint shapes with a shader in place of a
+// color, its positions across the shape's box; the rest of the window
+// keeps its own pixels.
+func TestFill(t *testing.T) {
+	s := shader.MustCompile(`package main
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	if pos.x < rectSize().x/2 {
+		return vec4(1, 0, 0, 1)
+	}
+	return vec4(0, 0, 1, 1)
+}
+`)
+	var circle ui.Path
+	circle.Circle(50, 50, 40)
+	var line ui.Path
+	line.MoveTo(110, 20).LineTo(190, 20)
+	var textW float32
+	view := func(c *ui.Context) {
+		ui.Box(c).Fill().Background(ui.RGB(255, 255, 255)).Draw(func(p *ui.Painter, r ui.Rect) {
+			s.FillPath(p, &circle, shader.Options{})
+			s.StrokePath(p, &line, 8, shader.Options{})
+			s.Text(p, 110, 50, "MMMM", 24, shader.Options{})
+			textW, _ = p.MeasureText(0, ui.Span{Text: "MMMM", Size: 24})
+		})
+	}
+	tt := ui.NewTester(view, 200, 100)
+	img := tt.Image()
+	at := func(x, y int) [4]uint8 {
+		o := img.PixOffset(x, y)
+		return [4]uint8(img.Pix[o : o+4])
+	}
+	red, blue, white := [4]uint8{255, 0, 0, 255}, [4]uint8{0, 0, 255, 255}, [4]uint8{255, 255, 255, 255}
+	for _, c := range []struct {
+		name string
+		x, y int
+		want [4]uint8
+	}{
+		{"the circle's left", 30, 50, red},
+		{"the circle's right", 70, 50, blue},
+		{"outside the circle", 15, 15, white},
+		{"the stroke's left", 120, 20, red},
+		{"the stroke's right", 180, 20, blue},
+		{"above the stroke", 150, 12, white},
+	} {
+		if got := at(c.x, c.y); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+	// The text's ink: reddish on the left of its box, bluish on the right.
+	var left, right [3]int
+	mid := 110 + int(textW/2)
+	for y := 50; y < 85; y++ {
+		for x := 110; x < 110+int(textW) && x < 200; x++ {
+			p := at(x, y)
+			if p == white {
+				continue
+			}
+			if p[1] > p[0] || p[1] > p[2] {
+				t.Fatalf("text at (%d, %d) is %v, not the shader's colors", x, y, p)
+			}
+			if x < mid-2 {
+				left[0] += int(p[0]) - int(p[2])
+			} else if x > mid+2 {
+				right[0] += int(p[2]) - int(p[0])
+			}
+		}
+	}
+	if left[0] <= 0 || right[0] <= 0 {
+		t.Errorf("text not filled across its box: left %d, right %d", left[0], right[0])
+	}
+}

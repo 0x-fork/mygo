@@ -809,6 +809,10 @@ func (b *Builder) addEffect(s *scene.Scene, op *scene.Op) {
 		return
 	}
 	fx := &s.Effects[op.Start]
+	if fx.Masked() {
+		b.addMaskedEffect(s, op, fx, cur)
+		return
+	}
 	p := &fx.Params
 	in := Instance{
 		Rect: rect(op.Rect), Radii: scene.Corners(op.Rect, op.Radii, op.Continuous),
@@ -841,6 +845,53 @@ func (b *Builder) addEffect(s *scene.Scene, op *scene.Op) {
 	}
 	b.Batches = append(b.Batches, batch)
 	b.Instances = append(b.Instances, in)
+}
+
+// addMaskedEffect appends the instances of a shader's effect filling mask
+// glyphs (scene.EffectOp.Glyphs), in a batch of their own: each glyph's,
+// as OpGlyphs has it, with 1 in Params[1], and the point the shader's
+// positions start from in Grad.
+func (b *Builder) addMaskedEffect(s *scene.Scene, op *scene.Op, fx *scene.EffectOp, cur *clip) {
+	a := s.MaskAtlas
+	if a == nil || fx.Effect.Shader == nil || fx.Effect.Backdrop {
+		return
+	}
+	batch := Batch{Start: len(b.Instances), Scissor: cur.scissor, Effect: fx.Effect, Shader: fx}
+	for i, img := range fx.Images {
+		if img != nil && img.W > 0 && img.H > 0 && b.imageTexture != nil {
+			batch.Textures[i] = b.imageTexture(img)
+		}
+	}
+	aw, ah := float32(a.W), float32(a.H)
+	first := true
+	for _, g := range s.Glyphs[fx.Glyphs[0]:fx.Glyphs[1]] {
+		if g.Colored || g.Subpixel {
+			continue
+		}
+		boost := float32(0)
+		if g.Thin {
+			boost = scene.ThinBoost
+		}
+		in := Instance{
+			Rect:   [4]float32{float32(math.Round(float64(g.X))), float32(math.Round(float64(g.Y))), float32(g.UW), float32(g.VH)},
+			Radii:  s.Text.GammaRatios,
+			Inner:  [4]float32{s.Text.Contrast, boost},
+			UV:     [4]float32{float32(g.U) / aw, float32(g.V) / ah, float32(g.U+g.UW) / aw, float32(g.V+g.VH) / ah},
+			Grad:   [4]float32{fx.Origin[0], fx.Origin[1], 1, 0},
+			Params: [4]float32{6, 1, 0, opacity(op.Opacity)},
+		}
+		if !b.prepare(&in, op.Transform.Mul(g.Transform), cur) {
+			continue
+		}
+		if first {
+			batch.ClipMask, first = b.preparedMask, false
+		}
+		b.Instances = append(b.Instances, in)
+		batch.Count++
+	}
+	if batch.Count > 0 {
+		b.Batches = append(b.Batches, batch)
+	}
 }
 
 // addHole appends a hole within the current clip, in a batch of holes:

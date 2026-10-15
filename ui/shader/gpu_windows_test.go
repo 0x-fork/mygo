@@ -41,3 +41,14 @@ func TestDirect3DDfdy(t *testing.T) {
 	}
 	checkDfdy(t, pix, stride)
 }
+
+// TestDirect3DMasked checks that Direct3D fills mask glyphs with a shader,
+// as text and paths, as the CPU does.
+func TestDirect3DMasked(t *testing.T) {
+	sc := maskedScene(MustCompile(maskedSource))
+	pix, stride, err := d3d11.RenderOffscreen(sc)
+	if err != nil {
+		t.Skip("no Direct3D:", err)
+	}
+	gputest.Compare(t, "ui-shader-d3d11-masked", pix, stride, sc)
+}

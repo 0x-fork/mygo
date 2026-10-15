@@ -2890,9 +2890,17 @@ either.
   shader goes between the effects' head and tail; Metal has no globals,
   so its shaders are whole libraries with a tail of their own
   (`ShaderSource`, `shader_ps`), which `ui/shader` builds, so that apps
-  drawing none do not carry it. `ui` itself only has `Painter.ShaderEffect`:
-  the compiler, its package variables and go/parser stay out of apps that
-  draw no shader. Direct3D's compiler takes from 0.1 s to more than 1 s
+  drawing none do not carry it. `ui` itself only has `Painter.ShaderEffect`
+  and `Painter.ShaderFill`: the compiler, its package variables and
+  go/parser stay out of apps that draw no shader. A shader filling text,
+  paths and icons (`ShaderFill`) turns the glyph ops its function painted,
+  with grayscale masks, into effect ops whose `EffectOp.Glyphs` point at
+  their mask glyphs (glyphs of color stay an op of their own): the
+  builder makes one instance per glyph, as `OpGlyphs` does, with 1 in
+  `Params[1]` and the corner of the box the shader fills in `Grad`, and
+  the shaders' tails cover it with the mask atlas and `textCoverage`
+  (above `#ifndef EFFECT`, as effects share it), the shader's color in
+  place of the paint; `raster.maskedEffect` is the CPU twin. Direct3D's compiler takes from 0.1 s to more than 1 s
   for a shader's effect (the renderer's head and tail, with its coverage,
   are most of a small one's; optimization levels barely change it), so
   `ui/shader` starts it as it compiles one (`d3d11.PrecompileEffect`), on

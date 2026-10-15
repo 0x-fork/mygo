@@ -263,12 +263,6 @@ vec4 premul(vec4 c) { return vec4(c.rgb * c.a, c.a); }
 
 vec3 unpremul(vec4 c) { return c.a > 0.0 ? c.rgb / c.a : vec3(0.0); }
 
-#endif
-
-// What follows is the renderer's own; effects (effect.glsl) take what is
-// above.
-#ifdef FRAGMENT
-
 // textCoverage corrects the coverage a of a glyph of straight color c as
 // Direct2D blends text (scene.TextCoverage): it enhances the contrast,
 // the more the darker c is, and corrects for gamma with the ratios g.
@@ -278,6 +272,12 @@ float textCoverage(float a, vec3 c, float contrast, float boost, vec4 g) {
 	float f = dot(c, vec3(0.25, 0.5, 0.25));
 	return clamp(a + a * (1.0 - a) * ((g.x * f + g.y) * a + (g.z * f + g.w)), 0.0, 1.0);
 }
+
+#endif
+
+// What follows is the renderer's own; effects (effect.glsl) take what is
+// above.
+#ifdef FRAGMENT
 
 // subpixelCoverage does the same for each subpixel of a subpixel glyph.
 vec3 subpixelCoverage(vec3 a, vec3 c, float contrast, float boost, vec4 g) {

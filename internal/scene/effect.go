@@ -110,12 +110,26 @@ type EffectOp struct {
 	// images, bitmaps or canvases, nil for none.
 	Uniforms []uint32
 	Images   [4]*Image
+	// Glyphs, unless empty, are the mask glyphs Scene.Glyphs[Glyphs[0]:
+	// Glyphs[1]] that a shader's effect paints instead of the rounded
+	// rectangle: the shapes of text, paths and icons, which it fills, each
+	// pixel's color times the glyph's coverage, corrected as text's is
+	// (TextCoverage) for the color the shader returns. Rect then holds
+	// them, and Origin is the point its shader's positions start from, the
+	// top left corner of the box it fills.
+	Glyphs [2]int32
+	Origin [2]float32
 }
+
+// Masked reports whether op paints mask glyphs (Glyphs).
+func (op *EffectOp) Masked() bool { return op.Glyphs[1] > op.Glyphs[0] }
 
 // Same reports whether op draws what o does: the same effect with the same
 // parameters, the same uniforms and no images, whose pixels may change.
+// Glyphs are compared by what they point at, which the caller does.
 func (op *EffectOp) Same(o *EffectOp) bool {
-	if op.Effect != o.Effect || op.Blur != o.Blur || op.Params != o.Params || len(op.Uniforms) != len(o.Uniforms) {
+	if op.Effect != o.Effect || op.Blur != o.Blur || op.Params != o.Params || len(op.Uniforms) != len(o.Uniforms) ||
+		op.Masked() != o.Masked() || op.Glyphs[1]-op.Glyphs[0] != o.Glyphs[1]-o.Glyphs[0] || op.Origin != o.Origin {
 		return false
 	}
 	for i := range op.Images {

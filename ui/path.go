@@ -75,6 +75,26 @@ func (p *Path) Trim(from, to float32) *Path {
 	return p
 }
 
+// Bounds returns the smallest box holding the path's points and the
+// control points of its curves, in DIPs: the box of a circle (Circle), of
+// lines, and of curves whose control points lie on it; others may fit in
+// less. Empty paths have an empty box.
+func (p *Path) Bounds() Rect {
+	first := true
+	var x0, y0, x1, y1 float32
+	for _, c := range p.cmds {
+		n := [5]int{1, 1, 2, 3, 0}[c.op]
+		for _, pt := range c.pts[:n] {
+			if first {
+				x0, y0, x1, y1, first = pt[0], pt[1], pt[0], pt[1], false
+				continue
+			}
+			x0, y0, x1, y1 = min(x0, pt[0]), min(y0, pt[1]), max(x1, pt[0]), max(y1, pt[1])
+		}
+	}
+	return Rect{x0, y0, x1 - x0, y1 - y0}
+}
+
 // Circle adds a circle as a subpath.
 func (p *Path) Circle(cx, cy, r float32) *Path {
 	const k = 0.5522847498

@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/egoist/mygo/internal/scene"
+import (
+	"math"
+
+	"github.com/egoist/mygo/internal/scene"
+)
 
 // Material is what Element.Material fills an element with in place of a
 // background: a look a package paints, as the glass plugin's Liquid Glass
@@ -82,4 +86,84 @@ func (p *Painter) ShaderEffect(fx *scene.Effect, r Rect, radius float32, uniform
 	p.add(scene.Op{Kind: scene.OpEffect, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}), Continuous: continuousCorners,
 		Start: int32(len(p.s.Effects)), Opacity: p.opacity})
 	p.s.Effects = append(p.s.Effects, op)
+}
+
+// ShaderFill paints the text, paths and icons that fn paints with fx, the
+// effect of a shader of package ui/shader, in place of their colors: each
+// pixel the shader's color times the shape's coverage. box, in DIPs, is
+// the box the shader fills, whose top left corner its positions start
+// from. Glyphs of color, as emoji, keep their colors, and what fn paints
+// besides, as rectangles and images, paints as it would. Only this
+// module's packages make such effects.
+func (p *Painter) ShaderFill(fx *scene.Effect, box Rect, uniforms []uint32, images [4]*Bitmap, fn func()) {
+	if fx == nil || fn == nil {
+		return
+	}
+	// Grayscale masks, which a shader's color can fill: no subpixel ones.
+	savedOpaque := p.opaque
+	p.opaque = false
+	start := len(p.s.Ops)
+	fn()
+	p.opaque = savedOpaque
+	var imgs [4]*scene.Image
+	for i, b := range images {
+		if b != nil {
+			imgs[i] = b.img
+		}
+	}
+	origin := p.snap(box)
+	at := p.transform.Pixels(p.scale)
+	// The ops fn added, each of glyphs becoming the effect's, followed by
+	// one of its glyphs of color, if any.
+	tail := append([]scene.Op(nil), p.s.Ops[start:]...)
+	p.s.Ops = p.s.Ops[:start]
+	for _, op := range tail {
+		if op.Kind != scene.OpGlyphs || op.End <= op.Start {
+			p.s.Ops = append(p.s.Ops, op)
+			continue
+		}
+		masks := int32(len(p.s.Glyphs))
+		var bounds scene.Rect
+		for _, g := range p.s.Glyphs[op.Start:op.End] {
+			if g.Colored {
+				continue
+			}
+			p.s.Glyphs = append(p.s.Glyphs, g)
+			gb := scene.Rect{X: float32(math.Floor(float64(g.X))), Y: float32(math.Floor(float64(g.Y))), W: g.W + 1, H: g.H + 1}
+			if masks == int32(len(p.s.Glyphs))-1 {
+				bounds = gb
+			} else {
+				x0, y0 := min(bounds.X, gb.X), min(bounds.Y, gb.Y)
+				x1, y1 := max(bounds.X+bounds.W, gb.X+gb.W), max(bounds.Y+bounds.H, gb.Y+gb.H)
+				bounds = scene.Rect{X: x0, Y: y0, W: x1 - x0, H: y1 - y0}
+			}
+		}
+		end := int32(len(p.s.Glyphs))
+		if end == masks {
+			p.s.Ops = append(p.s.Ops, op) // color only
+			continue
+		}
+		// The box's corner, where the op's geometry lies.
+		ox, oy := origin.X, origin.Y
+		if op.Transform != at {
+			if inv, ok := op.Transform.Inverse(); ok {
+				ox, oy = inv.Point(at.Point(ox, oy))
+			}
+		}
+		p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpEffect, Rect: bounds, Transform: op.Transform,
+			Start: int32(len(p.s.Effects)), Opacity: p.opacity})
+		p.s.Effects = append(p.s.Effects, scene.EffectOp{Effect: fx, Uniforms: uniforms, Images: imgs,
+			Glyphs: [2]int32{masks, end}, Origin: [2]float32{ox, oy}})
+		if end-masks < op.End-op.Start {
+			c := op
+			c.Start = int32(len(p.s.Glyphs))
+			for _, g := range p.s.Glyphs[op.Start:op.End] {
+				if g.Colored {
+					p.s.Glyphs = append(p.s.Glyphs, g)
+				}
+			}
+			c.End = int32(len(p.s.Glyphs))
+			p.s.Ops = append(p.s.Ops, c)
+		}
+	}
 }

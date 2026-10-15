@@ -6,7 +6,7 @@ package d3d11
 
 // shaderSum is the SHA-256 of the shader.hlsl the shaders were compiled
 // from.
-const shaderSum = "88bb64068ae4165f139d87a7b9ce763ea38c450fd8635f33a5f2c35c701addc8"
+const shaderSum = "fa8d867bd32a93bbeca7f6d3b65311920f1cdcaa6b53bf302bfae76b5465ac4f"
 
 var vertexShader = []byte{
 	0x44, 0x58, 0x42, 0x43, 0x2e, 0xb6, 0x82, 0xf0, 0x8b, 0x75, 0xd9, 0x20, 0x9e, 0x0c, 0x84, 0xc0,

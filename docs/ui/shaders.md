@@ -32,6 +32,35 @@ ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) {
 `Draw` fills a rectangle of the painter, clipped, transformed and faded
 with it as anything it paints; `Options.Radius` rounds its corners.
 
+## Text, paths and icons
+
+A shader also fills shapes in place of a color, as a gradient does, and
+as SwiftUI fills a shape or text with a shader: `FillPath` and
+`StrokePath` paint a `ui.Path`, `Text` a line of text, and `Fill`
+whatever text, paths and icons a function paints, in a box of your own:
+
+```go
+var circle ui.Path
+circle.Circle(60, 60, 50)
+
+ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) {
+	opts := shader.Options{Uniforms: map[string]any{"Time": t}}
+	waves.FillPath(p, &circle, opts)
+	waves.Text(p, 140, 40, "Hello", 48, opts)
+	waves.Fill(p, ui.Rect{X: 140, Y: 100, W: 200, H: 40}, opts, func() {
+		p.RichText(140, 100, 200, ui.Span{Text: "and more", Size: 24, Weight: 700})
+		p.Icon(star, ui.Rect{X: 300, Y: 100, W: 24, H: 24}, ui.RGB(0, 0, 0))
+	})
+})
+```
+
+Each pixel shows the shader's color times how much of it the shape
+covers, the edges of text corrected as the platform's text is for that
+color. `pos` runs across the shape's box (the path's, grown by half the
+stroke's width, the text's, or the one `Fill` takes), which `rectSize()`
+returns; emoji keep their own colors, and rectangles and images `Fill`'s
+function paints paint as they would.
+
 ## The language
 
 A shader is a Go file of package main. Its function `Fragment` returns the

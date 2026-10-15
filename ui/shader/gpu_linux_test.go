@@ -72,3 +72,23 @@ func TestOpenGLDfdy(t *testing.T) {
 		checkDfdy(t, pix, sc.Width*4)
 	}
 }
+
+// TestOpenGLMasked checks that OpenGL fills mask glyphs with a shader, as
+// text and paths, as the CPU does.
+func TestOpenGLMasked(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	for _, es := range []bool{false, true} {
+		sc := maskedScene(MustCompile(maskedSource))
+		o, err := gl.NewOffscreen(es, sc.Width, sc.Height)
+		if err != nil {
+			t.Skip(err)
+		}
+		pix, err := o.Render(sc)
+		o.Release()
+		if err != nil {
+			t.Fatal(err)
+		}
+		gputest.Compare(t, "ui-shader-gl-masked", pix, sc.Width*4, sc)
+	}
+}

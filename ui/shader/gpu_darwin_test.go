@@ -38,3 +38,14 @@ func TestMetalDfdy(t *testing.T) {
 	}
 	checkDfdy(t, pix, 40*4)
 }
+
+// TestMetalMasked checks that Metal fills mask glyphs with a shader, as
+// text and paths, as the CPU does.
+func TestMetalMasked(t *testing.T) {
+	sc := maskedScene(MustCompile(maskedSource))
+	pix, err := metal.RenderOffscreen(sc)
+	if err != nil {
+		t.Skip("no Metal:", err)
+	}
+	gputest.Compare(t, "ui-shader-metal-masked", pix, sc.Width*4, sc)
+}
