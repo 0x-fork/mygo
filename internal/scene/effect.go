@@ -45,6 +45,45 @@ type Effect struct {
 	// Pixels makes what draws the effect on the CPU, one for each
 	// renderer.
 	Pixels func() EffectPixels
+	// Shader is set for an effect that a shader of package ui/shader
+	// draws: its code is the shader's (the Fragment of package shaderir's
+	// backends, and a function calling it), which reads the words of
+	// EffectOp.Uniforms in a buffer laid out as Shader says, and the images
+	// of EffectOp.Images. Metal's is a whole library, with a tail of its
+	// own (ShaderSource in package metal); the others' go between the
+	// effects' head and tail.
+	Shader *ShaderLayout
+}
+
+// ShaderLayout is where a shader's uniforms lie in the buffer its code
+// reads: the offset in bytes of each word of EffectOp.Uniforms, and the
+// buffer's size in bytes, a multiple of 16.
+type ShaderLayout struct {
+	Lanes []int32
+	Size  int
+}
+
+// Pack writes words into buf, grown to the layout's size, as the layout
+// lays them out, and returns it. A lane takes 4 bytes, but for a bool of
+// Metal, which takes 1 and may lie in the last bytes: the bytes that fit
+// are written, little end first, and lanes in ascending order write over
+// what the one before spilled.
+func (l *ShaderLayout) Pack(buf []byte, words []uint32) []byte {
+	if cap(buf) < l.Size {
+		buf = make([]byte, l.Size)
+	}
+	buf = buf[:l.Size]
+	clear(buf)
+	for i, at := range l.Lanes {
+		if i >= len(words) {
+			break
+		}
+		w := words[i]
+		for k := 0; k < 4 && int(at)+k < len(buf); k++ {
+			buf[int(at)+k] = byte(w >> (8 * k))
+		}
+	}
+	return buf
 }
 
 // EffectCode is an effect's shader in a language: its source, and the
@@ -66,6 +105,30 @@ type EffectOp struct {
 	Blur float32
 	// Params are the effect's own, which its shaders read as e.p0 to e.p4.
 	Params [5][4]float32
+	// Uniforms and Images are what a shader's effect reads
+	// (Effect.Shader): the words of its uniforms' lanes, and up to four
+	// images, bitmaps or canvases, nil for none.
+	Uniforms []uint32
+	Images   [4]*Image
+}
+
+// Same reports whether op draws what o does: the same effect with the same
+// parameters, the same uniforms and no images, whose pixels may change.
+func (op *EffectOp) Same(o *EffectOp) bool {
+	if op.Effect != o.Effect || op.Blur != o.Blur || op.Params != o.Params || len(op.Uniforms) != len(o.Uniforms) {
+		return false
+	}
+	for i := range op.Images {
+		if op.Images[i] != nil || o.Images[i] != nil {
+			return false
+		}
+	}
+	for i := range op.Uniforms {
+		if op.Uniforms[i] != o.Uniforms[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // EffectPixels draws an effect on the CPU, for one renderer.

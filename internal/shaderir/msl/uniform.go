@@ -23,10 +23,23 @@ func UniformLayout(p *shaderir.Program) (offsets []int, size int) {
 	return offsets, roundUp(size, align)
 }
 
-// UniformLanes returns, for each lane of a value of type t as package
-// interp keeps it (columns of matrices, elements of arrays in order), its
-// offset in bytes in t's Metal layout.
-func UniformLanes(t *shaderir.Type) []int {
+// UniformLanes returns, for each lane of p's uniforms as package interp
+// keeps them (in order, columns of matrices, elements of arrays), its
+// offset in bytes in the struct Uniforms of Fragment, and the struct's
+// size.
+func UniformLanes(p *shaderir.Program) (lanes []int, size int) {
+	offsets, size := UniformLayout(p)
+	for i := range p.Uniforms {
+		for _, at := range typeLanes(&p.Uniforms[i]) {
+			lanes = append(lanes, offsets[i]+at)
+		}
+	}
+	return lanes, size
+}
+
+// typeLanes returns the offset in bytes of each lane of a value of type t
+// in its Metal layout.
+func typeLanes(t *shaderir.Type) []int {
 	var out []int
 	var walk func(t *shaderir.Type, base int)
 	walk = func(t *shaderir.Type, base int) {

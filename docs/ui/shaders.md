@@ -1,0 +1,152 @@
+# Shaders
+
+A shader computes the color of every pixel of a rectangle, on the GPU,
+from its position, values the app passes it each frame and images it
+reads: noise and gradients that move, a texture lit pixel by pixel, a
+ripple across the window. Package `ui/shader` compiles shaders written in
+Go's syntax, and draws them on whichever GPU renderer draws the window
+(Metal, Direct3D 11, OpenGL or WebGL 2), and on the CPU where none can,
+the same pixels within rounding.
+
+```go
+import "github.com/egoist/mygo/ui/shader"
+
+var waves = shader.MustCompile(`package main
+
+var Time float
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	v := 0.5 + 0.5*sin(pos.x/20+Time)
+	return vec4(v*0.2, v*0.4, v, 1)
+}
+`)
+
+ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) {
+	waves.Draw(p, r, shader.Options{
+		Uniforms: map[string]any{"Time": p.Now().Sub(start).Seconds()},
+	})
+	p.AnimationFrame()
+})
+```
+
+`Draw` fills a rectangle of the painter, clipped, transformed and faded
+with it as anything it paints; `Options.Radius` rounds its corners.
+
+## The language
+
+A shader is a Go file of package main. Its function `Fragment` returns the
+pixel's color, premultiplied (each color component multiplied by the
+alpha):
+
+```go
+func Fragment(dst vec4, pos vec2) vec4
+```
+
+`dst` is the pixel's center in pixels of the window, or of the canvas
+drawn into, and `pos` the same point in DIPs from the rectangle's top
+left corner. `Fragment` may take `dst` alone, or nothing.
+
+The language is [Ebitengine's Kage](https://ebitengine.org/en/documents/shader.html),
+whose compiler MyGo's is forked from: Go's syntax, with these types:
+
+| Types | |
+| --- | --- |
+| `bool`, `int`, `uint`, `float` | scalars of 32 bits |
+| `vec2`, `vec3`, `vec4` | vectors of floats, with swizzles (`v.xy`, `c.rgb`) |
+| `ivec2` to `ivec4`, `uvec2` to `uvec4` | vectors of ints and uints |
+| `mat2`, `mat3`, `mat4` | matrices of floats, by columns |
+| `[N]T` | arrays of any of them |
+
+Functions of your own, `if`, `for` loops (to bounds that need not be
+constants, and `range` over an int), constants, and GLSL's built-in
+functions: `sin`, `cos`, `atan2`, `pow`, `exp`, `sqrt`, `abs`, `floor`,
+`fract`, `mod`, `min`, `max`, `clamp`, `mix`, `step`, `smoothstep`,
+`length`, `distance`, `dot`, `cross`, `normalize`, and the others. ints
+and uints are two kinds of integers that mix only in shifts, as in Go;
+uints wrap around, which hashes need:
+
+```go
+func pcg(v uint) uint {
+	s := v*747796405 + 2891336453
+	w := ((s >> ((s >> 28) + 4)) ^ s) * 277803737
+	return (w >> 22) ^ w
+}
+```
+
+`discard()` leaves the pixel as it was. `dfdx`, `dfdy` and `fwidth` give
+how a value changes to the next pixel on the GPU, and zero on the CPU.
+
+## Uniforms
+
+Exported variables at the package level are uniforms: values the app sets
+for each draw in `Options.Uniforms`, by name. A number sets a scalar; a
+slice or an array of numbers sets a vector, a matrix (by columns) or an
+array (elements in order); a `ui.Color` sets a `vec4`, its components from
+0 to 1. A uniform the options leave out is zero.
+
+```go
+var Taps [6]vec4 // x, y, when, how hard
+var Count int
+```
+
+```go
+taps := make([]float32, 0, 24)
+for _, t := range ripples {
+	taps = append(taps, t.x, t.y, t.at, t.force)
+}
+fx.Draw(p, r, shader.Options{Uniforms: map[string]any{"Taps": taps, "Count": len(ripples)}})
+```
+
+## Images
+
+A shader reads up to four images, `Options.Images`: bitmaps, or canvases'
+(`Canvas.Bitmap`), in their pixels from their top left corners:
+
+| Function | |
+| --- | --- |
+| `image0At(p vec2) vec4` | the pixel at `p`, transparent outside the image |
+| `image0Sample(p vec2) vec4` | blended between the four pixels around `p`, clamped to the edges |
+| `image0Size() vec2` | the image's size in pixels |
+
+and `image1At` to `image3At`, and so on. `rectSize()` returns the size of
+the rectangle the shader fills, in DIPs, and `pixelScale()` the pixels a
+DIP.
+
+A shader drawing into a [canvas](drawing.md#canvases) makes the input of
+another, as the passes of an effect do: one computes a field at a few
+samples into a small canvas, the next reads it, sampled, at every pixel of
+the window.
+
+```go
+field := ui.NewCanvas(cols, rows)
+
+box.Draw(func(p *ui.Painter, r ui.Rect) {
+	field.Draw(p, func(cp *ui.Painter) {
+		windShader.Draw(cp, ui.Rect{W: float32(cols), H: float32(rows)}, shader.Options{Uniforms: wind})
+	})
+	glyphShader.Draw(p, r, shader.Options{Images: [4]*ui.Bitmap{field.Bitmap(), atlas}})
+})
+```
+
+## Errors and cost
+
+`Compile` reports what is wrong with a shader with its lines; compile
+shaders once, as package variables with `MustCompile`. A shader costs
+little to draw on a GPU, whatever it computes per pixel; on the CPU (the
+renderer of last resort, and `ui.Tester`) it runs interpreted, a few
+microseconds a pixel: seconds for a window. A shader covering much of the
+window can ask `p.Accelerated()`, which is false there and where the GPU's
+renderer draws on the CPU (WARP, llvmpipe, SwiftShader), and draw less,
+or nothing:
+
+```go
+ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) {
+	if !p.Accelerated() {
+		return // a backdrop, which the window does without
+	}
+	backdrop.Draw(p, r, shader.Options{})
+})
+```
+
+`Draw` panics on a uniform set to a value that is
+not a number.

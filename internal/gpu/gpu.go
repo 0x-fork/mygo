@@ -121,6 +121,10 @@ type Batch struct {
 	// drawing it.
 	Effect   *scene.Effect
 	Backdrop int
+	// Shader is the effect's op, for a shader's (Effect.Shader), and
+	// Textures the renderer's textures of its images, 0 for none.
+	Shader   *scene.EffectOp
+	Textures [4]uintptr
 	// Hole tells that the batch's instances make their shapes transparent
 	// (scene.OpHole): renderers blend them with a source factor of zero.
 	Hole bool
@@ -816,6 +820,14 @@ func (b *Builder) addEffect(s *scene.Scene, op *scene.Op) {
 		return
 	}
 	batch := Batch{Start: len(b.Instances), Count: 1, Scissor: cur.scissor, Effect: fx.Effect, ClipMask: b.preparedMask}
+	if fx.Effect.Shader != nil {
+		batch.Shader = fx
+		for i, img := range fx.Images {
+			if img != nil && img.W > 0 && img.H > 0 && b.imageTexture != nil {
+				batch.Textures[i] = b.imageTexture(img)
+			}
+		}
+	}
 	if fx.Effect.Backdrop {
 		bk := scene.BackdropOf(op.Transform.Bounds(op.Rect), fx.Blur, s.Width, s.Height)
 		if bk.Area.Empty() {

@@ -55,6 +55,8 @@ const (
 	glOneMinusSrc1Alpha  = 0x88FB
 	glColorBufferBit     = 0x4000
 	glArrayBuffer        = 0x8892
+	glUniformBuffer      = 0x8A11
+	glInvalidIndex       = 0xFFFFFFFF
 	glStreamDraw         = 0x88E0
 	glFloat              = 0x1406
 	glUnsignedByte       = 0x1401
@@ -116,7 +118,9 @@ type Renderer struct {
 	es      bool
 	// dual tells that the context blends with a second color from the
 	// shader (OpenGL 3.3, or GLES with EXT_blend_func_extended).
-	dual     bool
+	dual bool
+	// software tells that the context draws on the CPU (Software).
+	software bool
 	maxSize  int
 	program  uint32
 	vao, buf uint32
@@ -144,6 +148,10 @@ type Renderer struct {
 	// the effects drawn, made as first drawn.
 	header  string
 	effects map[*scene.Effect]*effectProgram
+	// ubo holds the uniforms of the shader being drawn (package ui/shader),
+	// laid out in shaderBytes, which binding point 0 reads.
+	ubo         uint32
+	shaderBytes []byte
 
 	b gpu.Builder
 }
@@ -153,7 +161,10 @@ type Renderer struct {
 type effectProgram struct {
 	program uint32
 	uSize   int32
-	err     error
+	// flipRows is the location of a shader's uShaderFlipRows, which tells
+	// it the canvases among its images, whose rows go up.
+	flipRows int32
+	err      error
 }
 
 // passProgram is the program of a pass computing backdrops and its
@@ -187,6 +198,7 @@ func (r *Renderer) init() error {
 	glGetIntegerv(glMaxTextureSize, &size)
 	r.maxSize = int(size)
 	r.dual = !r.es || hasExtension("GL_EXT_blend_func_extended")
+	r.software = softwareRenderer(rendererString())
 	header := "#version 330 core\n#define DUAL\n"
 	if r.es {
 		header = "#version 300 es\n"
@@ -271,7 +283,49 @@ func (r *Renderer) effectProgram(e *scene.Effect) *effectProgram {
 	p.uSize = glGetUniformLocation(p.program, "uSize")
 	glUniform1i(glGetUniformLocation(p.program, "uBackdrop"), 3)
 	glUniform1i(glGetUniformLocation(p.program, "uClipMask"), 4)
+	if e.Shader != nil {
+		// A shader's uniforms come from binding point 0, its images from
+		// units 5 to 8.
+		if i := glGetUniformBlockIndex(p.program, "ShaderUniforms"); i != glInvalidIndex {
+			glUniformBlockBinding(p.program, i, 0)
+		}
+		for i := range 4 {
+			if l := glGetUniformLocation(p.program, fmt.Sprintf("T%d", i)); l >= 0 {
+				glUniform1i(l, int32(5+i))
+			}
+		}
+		p.flipRows = glGetUniformLocation(p.program, "uShaderFlipRows")
+	}
 	return p
+}
+
+// bindShader binds what the shader of batch b reads: its uniforms, laid
+// out as its effect says, at binding point 0, and its images to units 5
+// to 8. Unit 2 is active after.
+func (r *Renderer) bindShader(b gpu.Batch) {
+	r.shaderBytes = b.Effect.Shader.Pack(r.shaderBytes, b.Shader.Uniforms)
+	if n := len(r.shaderBytes); n > 0 {
+		if r.ubo == 0 {
+			glGenBuffers(1, &r.ubo)
+		}
+		glBindBuffer(glUniformBuffer, r.ubo)
+		glBufferData(glUniformBuffer, n, unsafe.Pointer(&r.shaderBytes[0]), glStreamDraw)
+		glBindBufferBase(glUniformBuffer, 0, r.ubo)
+	}
+	// A canvas's rows go up, as GL's framebuffers draw them: the shader
+	// flips the rows of those it reads.
+	var flip [4]int32
+	for i, t := range b.Textures {
+		glActiveTexture(glTexture0 + 5 + uint32(i))
+		glBindTexture(glTexture2D, or(uint32(t), r.empty))
+		if img := b.Shader.Images[i]; t != 0 && img != nil && r.canvasTex[uint32(t)] {
+			flip[i] = int32(img.H)
+		}
+	}
+	glActiveTexture(glTexture0 + 2)
+	if p := r.effects[b.Effect]; p != nil && p.flipRows >= 0 {
+		glUniform4i(p.flipRows, flip[0], flip[1], flip[2], flip[3])
+	}
 }
 
 // link compiles a vertex and a fragment shader and links them.
@@ -650,6 +704,9 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder) error {
 		glActiveTexture(glTexture0 + 4)
 		glBindTexture(glTexture2D, or(uint32(bt.ClipMask), r.empty))
 		glActiveTexture(glTexture0 + 2)
+		if bt.Shader != nil {
+			r.bindShader(bt)
+		}
 		// Instances draw from the batch's first: without base instances in
 		// OpenGL ES 3.0, the attributes start there.
 		offset := uintptr(bt.Start * gpu.InstanceSize)
@@ -664,12 +721,13 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder) error {
 	// expects it.
 	glDisable(glScissorTest)
 	glDisable(glBlend)
-	for unit := range 5 {
+	for unit := range 9 {
 		glActiveTexture(glTexture0 + uint32(unit))
 		glBindTexture(glTexture2D, 0)
 	}
 	glActiveTexture(glTexture0)
 	glBindBuffer(glArrayBuffer, 0)
+	glBindBuffer(glUniformBuffer, 0)
 	glBindVertexArray(0)
 	glUseProgram(0)
 	return nil
@@ -803,7 +861,7 @@ func or(a, b uint32) uint32 {
 
 // forget drops the objects of a context that is gone.
 func (r *Renderer) forget() {
-	r.program, r.vao, r.buf, r.empty = 0, 0, 0, 0
+	r.program, r.vao, r.buf, r.empty, r.ubo = 0, 0, 0, 0, 0
 	r.down, r.blur, r.passVAO = passProgram{}, passProgram{}, 0
 	clear(r.effects)
 	r.grab, r.backdrop, r.backdropFB = texture{}, [2]texture{}, [2]uint32{}
@@ -814,6 +872,24 @@ func (r *Renderer) forget() {
 	}
 	clear(r.canvases)
 	clear(r.canvasTex)
+}
+
+// Software reports whether the context draws on the CPU, as Mesa's
+// llvmpipe (where MYGO_GPU=1 has Linux draw with OpenGL anyway) and the
+// SwiftShader of browsers without a GPU, for ui's Painter.Accelerated.
+func (r *Renderer) Software() bool { return r.software }
+
+// softwareRenderer reports whether a context's renderer string names a
+// renderer drawing on the CPU (internal/linux's softwareGL, which picks
+// whether surfaces draw with OpenGL, knows Mesa's).
+func softwareRenderer(name string) bool {
+	n := strings.ToLower(name)
+	for _, s := range []string{"llvmpipe", "softpipe", "swrast", "software rasterizer", "swiftshader", "basic render driver"} {
+		if strings.Contains(n, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // Release deletes the renderer's objects when its context is current, and
@@ -852,6 +928,9 @@ func (r *Renderer) Release() {
 	}
 	if r.passVAO != 0 {
 		glDeleteVertexArrays(1, &r.passVAO)
+	}
+	if r.ubo != 0 {
+		glDeleteBuffers(1, &r.ubo)
 	}
 	if r.buf != 0 {
 		glDeleteBuffers(1, &r.buf)

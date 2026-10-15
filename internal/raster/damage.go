@@ -256,7 +256,7 @@ func (r *Renderer) same(i int, s *scene.Scene, j int, maskRects, colorRects []im
 			return false
 		}
 	case scene.OpEffect:
-		if int(sa) >= len(r.effects) || int(sb) >= len(s.Effects) || r.effects[sa] != s.Effects[sb] {
+		if int(sa) >= len(r.effects) || int(sb) >= len(s.Effects) || !r.effects[sa].Same(&s.Effects[sb]) {
 			return false
 		}
 	}

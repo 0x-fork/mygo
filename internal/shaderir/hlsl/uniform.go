@@ -114,3 +114,48 @@ func UniformVariableOffsetsInDwords(program *shaderir.Program) []int {
 
 	return offsetsInDwords
 }
+
+// UniformLanes returns, for each lane of p's uniforms as package interp
+// keeps them (in order, columns of matrices, elements of arrays), its
+// offset in bytes in the cbuffer of Fragment, and the cbuffer's size, a
+// multiple of 16: an array's elements and a matrix's rows start at a
+// register each, and the backend keeps matrices transposed (rows of HLSL
+// are columns of GLSL).
+func UniformLanes(p *shaderir.Program) (lanes []int, size int) {
+	offsets := UniformVariableOffsetsInDwords(p)
+	var walk func(t *shaderir.Type, dword int)
+	walk = func(t *shaderir.Type, dword int) {
+		switch {
+		case t.Main == shaderir.Array:
+			stride := t.Sub[0].DwordCount()
+			switch t.Sub[0].Main {
+			case shaderir.Mat2:
+				stride = 8
+			case shaderir.Mat3:
+				stride = 12
+			}
+			stride = (stride + 3) / 4 * 4
+			for i := range t.Length {
+				walk(&t.Sub[0], dword+i*stride)
+			}
+		case t.IsMatrix():
+			n := t.MatrixSize()
+			for col := range n {
+				for row := range n {
+					lanes = append(lanes, 4*(dword+row*4+col))
+				}
+			}
+		default:
+			for i := range t.DwordCount() {
+				lanes = append(lanes, 4*(dword+i))
+			}
+		}
+	}
+	for i := range p.Uniforms {
+		walk(&p.Uniforms[i], offsets[i])
+	}
+	for _, l := range lanes {
+		size = max(size, l+4)
+	}
+	return lanes, (size + 15) / 16 * 16
+}

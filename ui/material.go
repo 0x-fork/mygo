@@ -63,3 +63,23 @@ func (p *Painter) Effect(fx *scene.Effect, r Rect, radii [4]float32, blur float3
 		Start: int32(len(p.s.Effects)), Opacity: p.opacity})
 	p.s.Effects = append(p.s.Effects, scene.EffectOp{Effect: fx, Blur: blur, Params: params})
 }
+
+// ShaderEffect paints the rectangle r rounded by radius, in DIPs, with fx,
+// the effect of a shader of package ui/shader (scene.Effect.Shader), which
+// reads the words of its uniforms' lanes and up to four images, bitmaps
+// or canvases' (nil for none). Only this module's packages make such
+// effects.
+func (p *Painter) ShaderEffect(fx *scene.Effect, r Rect, radius float32, uniforms []uint32, images [4]*Bitmap) {
+	if fx == nil || r.W <= 0 || r.H <= 0 {
+		return
+	}
+	op := scene.EffectOp{Effect: fx, Uniforms: uniforms}
+	for i, b := range images {
+		if b != nil {
+			op.Images[i] = b.img
+		}
+	}
+	p.add(scene.Op{Kind: scene.OpEffect, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}), Continuous: continuousCorners,
+		Start: int32(len(p.s.Effects)), Opacity: p.opacity})
+	p.s.Effects = append(p.s.Effects, op)
+}

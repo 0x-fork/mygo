@@ -22,7 +22,7 @@ func TestOpenGL(t *testing.T) {
 	defer runtime.UnlockOSThread()
 	p, prog := compile(t, noiseSource)
 	words := noiseUniforms(p)
-	code := constUniforms(glsl.Fragment(p, "shaderFragment", ""),
+	code := constUniforms(glsl.Fragment(p, "shaderFragment", glsl.Options{FlipY: "true"}),
 		regexp.MustCompile(`(?m)^uniform ((?:\w+) (U\d+)(?:\[\d+\])?);$`), p, words, false)
 	fx := &scene.Effect{
 		Name: "shader",

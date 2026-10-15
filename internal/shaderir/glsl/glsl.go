@@ -110,6 +110,9 @@ type compileContext struct {
 	// negates dFdy, or "".
 	library bool
 	flipY   string
+	// flipRows is the ivec4 uniform telling, for each texture, the height
+	// of an image whose rows go up, which texel reads flip, or 0 (MyGo's).
+	flipRows string
 }
 
 func (c *compileContext) structName(p *shaderir.Program, t *shaderir.Type) string {
@@ -572,6 +575,9 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 			callee := e.Exprs[0]
 			if callee.Type == shaderir.BuiltinFuncExpr {
 				if callee.BuiltinFunc == shaderir.TexelAt {
+					if c.flipRows != "" && e.Exprs[1].Type == shaderir.TextureVariable {
+						return fmt.Sprintf("%s(%s, flipRows(ivec2(floor(%s)), %s[%d]), 0)", expr(&callee), args[0], args[1], c.flipRows, e.Exprs[1].Index)
+					}
 					// Floor the position so that a negative position is out of the texture.
 					return fmt.Sprintf("%s(%s, ivec2(floor(%s)), 0)", expr(&callee), args[0], args[1])
 				}

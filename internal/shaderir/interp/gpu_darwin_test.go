@@ -37,14 +37,10 @@ func TestMetal(t *testing.T) {
 // function, with the uniform values words laid out as Metal lays out its
 // struct of uniforms, in the source.
 func metalEffect(p *shaderir.Program, words []uint32) string {
-	offsets, size := msl.UniformLayout(p)
+	at, size := msl.UniformLanes(p)
 	buf := make([]byte, (size+15)/16*16)
-	k := 0
-	for i := range p.Uniforms {
-		for _, at := range msl.UniformLanes(&p.Uniforms[i]) {
-			binary.LittleEndian.PutUint32(buf[offsets[i]+at:], words[k])
-			k++
-		}
+	for k, w := range words {
+		binary.LittleEndian.PutUint32(buf[at[k]:], w)
 	}
 	var lanes []string
 	for i := 0; i < len(buf); i += 4 {

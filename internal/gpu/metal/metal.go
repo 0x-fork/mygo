@@ -48,6 +48,22 @@ func EffectSource(src string) string {
 	return "#define EFFECT\n" + shaderSource + "\n" + head + "\n" + src + "\n" + tail
 }
 
+// shaderEffectSource is the tail of a shader's library (see
+// ShaderSource).
+//
+//go:embed shadereffect.metal
+var shaderEffectSource string
+
+// ShaderSource returns the source of the library of a shader of package
+// ui/shader, whose code src ends with shaderMain: as an effect's, with a
+// tail of its own (shader_ps), which reads the shader's uniforms and
+// images. The shader's effect holds it whole (scene.Effect's Metal), so
+// that apps drawing no shader do not carry the tail.
+func ShaderSource(src string) string {
+	head, _, _ := strings.Cut(effectSource, "\n// effect\n")
+	return "#define EFFECT\n" + shaderSource + "\n" + head + "\n" + src + "\n" + shaderEffectSource
+}
+
 type id = uintptr
 
 // Metal and Core Graphics structs passed by value.
@@ -347,6 +363,8 @@ type formatState struct {
 // Renderer draws scenes into a CAMetalLayer it adds to a view's layer.
 type Renderer struct {
 	device, queue, sampler id
+	// shaderBytes holds the uniforms of the shader being drawn, laid out.
+	shaderBytes []byte
 	// lib is the library of the shader, which the pipelines of the classes
 	// of batches are made from as they are first used.
 	lib id
@@ -728,7 +746,10 @@ func (r *Renderer) effectPipeline(e *scene.Effect) id {
 		f.effects = map[*scene.Effect]*effectPipe{}
 	}
 	f.effects[e] = p
-	src := EffectSource(e.Metal.Source)
+	src, fn := EffectSource(e.Metal.Source), "effect_ps"
+	if e.Shader != nil {
+		src, fn = e.Metal.Source, "shader_ps" // ShaderSource's
+	}
 	var lib id
 	if len(e.Metal.Compiled) > 0 && e.Metal.Sum == gpu.SourceSum(src) {
 		lib = r.libraryFromData(e.Metal.Compiled)
@@ -740,7 +761,7 @@ func (r *Renderer) effectPipeline(e *scene.Effect) id {
 		}
 	}
 	if lib != 0 {
-		p.pipe, p.err = r.newPipeline(lib, "effect_ps", f.format, blendOver)
+		p.pipe, p.err = r.newPipeline(lib, fn, f.format, blendOver)
 		release(&lib)
 	}
 	if p.err != nil && r.err == nil {
@@ -1085,6 +1106,9 @@ func (r *Renderer) drawInto(cb id, s *scene.Scene, target id, d *drawState) erro
 			send(enc, "setFragmentTexture:atIndex:", bound, 2)
 		}
 		send(enc, "setFragmentTexture:atIndex:", or(id(b.ClipMask), r.empty), 4)
+		if b.Shader != nil {
+			r.bindShader(enc, b)
+		}
 		offset := uintptr(b.Start * gpu.InstanceSize)
 		send(enc, "setVertexBuffer:offset:atIndex:", *instBuf, offset, 0)
 		send(enc, "setFragmentBuffer:offset:atIndex:", *instBuf, offset, 0)
@@ -1093,6 +1117,26 @@ func (r *Renderer) drawInto(cb id, s *scene.Scene, target id, d *drawState) erro
 	}
 	send(enc, "endEncoding")
 	return nil
+}
+
+// maxBytes is the most setFragmentBytes takes; larger uniforms go in a
+// buffer of their own.
+const maxBytes = 4096
+
+// bindShader binds what the shader of batch b reads: its uniforms, laid
+// out as its effect says, in buffer 2, and its images in textures 5 to 8.
+func (r *Renderer) bindShader(enc id, b gpu.Batch) {
+	r.shaderBytes = b.Effect.Shader.Pack(r.shaderBytes, b.Shader.Uniforms)
+	if n := len(r.shaderBytes); n > 0 && n <= maxBytes {
+		send(enc, "setFragmentBytes:length:atIndex:", uintptr(unsafe.Pointer(&r.shaderBytes[0])), uintptr(n), 2)
+	} else if n > 0 {
+		buf := send(r.device, "newBufferWithBytes:length:options:", uintptr(unsafe.Pointer(&r.shaderBytes[0])), uintptr(n), 0)
+		send(enc, "setFragmentBuffer:offset:atIndex:", buf, 0, 2)
+		release(&buf) // the encoder keeps it
+	}
+	for i, t := range b.Textures {
+		send(enc, "setFragmentTexture:atIndex:", or(id(t), r.empty), uintptr(5+i))
+	}
 }
 
 // begin starts encoding the drawing of s into target, which it clears or

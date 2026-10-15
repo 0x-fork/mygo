@@ -8,6 +8,11 @@ uniform sampler2D T0;
 uniform sampler2D T1;
 uniform sampler2D T2;
 uniform sampler2D T3;
+uniform ivec4 flipRowsOf;
+
+ivec2 flipRows(ivec2 p, int h) {
+	return h > 0 ? ivec2(p.x, h - 1 - p.y) : p;
+}
 
 uint F0(in uint l0);
 float F2(void);
@@ -39,10 +44,10 @@ vec4 F5(in vec2 l0) {
 	l2 = floor(l1);
 	l3 = (l1) - (l2);
 	l4 = ((U0)[0]) - (1.0);
-	l5 = texelFetch(T0, ivec2(floor(clamp(l2, vec2(0.0), l4))), 0);
-	l6 = texelFetch(T0, ivec2(floor(clamp((l2) + (vec2(1.0, 0.0)), vec2(0.0), l4))), 0);
-	l7 = texelFetch(T0, ivec2(floor(clamp((l2) + (vec2(0.0, 1.0)), vec2(0.0), l4))), 0);
-	l8 = texelFetch(T0, ivec2(floor(clamp((l2) + (vec2(1.0)), vec2(0.0), l4))), 0);
+	l5 = texelFetch(T0, flipRows(ivec2(floor(clamp(l2, vec2(0.0), l4))), flipRowsOf[0]), 0);
+	l6 = texelFetch(T0, flipRows(ivec2(floor(clamp((l2) + (vec2(1.0, 0.0)), vec2(0.0), l4))), flipRowsOf[0]), 0);
+	l7 = texelFetch(T0, flipRows(ivec2(floor(clamp((l2) + (vec2(0.0, 1.0)), vec2(0.0), l4))), flipRowsOf[0]), 0);
+	l8 = texelFetch(T0, flipRows(ivec2(floor(clamp((l2) + (vec2(1.0)), vec2(0.0), l4))), flipRowsOf[0]), 0);
 	return mix(mix(l5, l6, (l3).x), mix(l7, l8, (l3).x), (l3).y);
 }
 

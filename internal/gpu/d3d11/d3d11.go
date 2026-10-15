@@ -301,6 +301,11 @@ type Renderer struct {
 	// effects are the pixel shaders of the effects drawn, made as first
 	// drawn.
 	effects map[*scene.Effect]*effectShader
+	// shaderCB holds the uniforms of the shader being drawn (package
+	// ui/shader), of shaderCBSize bytes, laid out in shaderBytes.
+	shaderCB     uintptr
+	shaderCBSize int
+	shaderBytes  []byte
 
 	b gpu.Builder
 }
@@ -612,6 +617,7 @@ func (r *Renderer) Release() {
 	for _, p := range r.effects {
 		free(&p.ps)
 	}
+	free(&r.shaderCB)
 	for _, t := range []*texture{&r.grab, &r.backdrop[0], &r.backdrop[1]} {
 		free(&t.rtv)
 		free(&t.srv)
@@ -827,7 +833,7 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder, rtv uintptr) error 
 	call(ctx, ctxRSSetState, r.raster)
 	call(ctx, ctxIASetPrimitiveTopology, topologyTriangleStrip)
 	r.bindState(s, 0)
-	bound, ps, blend := uintptr(0), r.ps, r.blend
+	bound, ps, blend, shaders := uintptr(0), r.ps, r.blend, false
 	for _, bt := range b.Batches {
 		if bt.Count == 0 {
 			continue
@@ -862,10 +868,49 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder, rtv uintptr) error 
 		}
 		mask := bt.ClipMask
 		call(ctx, ctxPSSetShaderResources, 5, 1, uintptr(unsafe.Pointer(&mask)))
+		if bt.Shader != nil {
+			if err := r.bindShader(bt); err != nil {
+				return err
+			}
+			shaders = true
+		}
 		sc := bt.Scissor // a D3D11_RECT
 		call(ctx, ctxRSSetScissorRects, 1, uintptr(unsafe.Pointer(&sc)))
 		call(ctx, ctxDrawInstanced, 4, uintptr(bt.Count), 0, uintptr(bt.Start))
 	}
+	if shaders {
+		// Images may be drawn into next, as canvases.
+		var none [4]uintptr
+		call(ctx, ctxPSSetShaderResources, 6, 4, uintptr(unsafe.Pointer(&none[0])))
+	}
+	return nil
+}
+
+// bindShader binds what the shader of batch b reads: its uniforms, laid
+// out as its effect says, in the constant buffer of register b2, which
+// grows as needed, and its images in registers t6 to t9.
+func (r *Renderer) bindShader(b gpu.Batch) error {
+	r.shaderBytes = b.Effect.Shader.Pack(r.shaderBytes, b.Shader.Uniforms)
+	if n := len(r.shaderBytes); n > 0 {
+		if n > r.shaderCBSize {
+			free(&r.shaderCB)
+			r.shaderCBSize = 0
+			bd := bufferDesc{ByteWidth: uint32(n), Usage: usageDynamic, BindFlags: bindConstantBuffer, CPUAccessFlags: cpuAccessWrite}
+			if hr := call(r.device, devCreateBuffer, uintptr(unsafe.Pointer(&bd)), 0, uintptr(unsafe.Pointer(&r.shaderCB))); failed(hr) {
+				return fmt.Errorf("d3d11: cannot create the constant buffer of shaders: %#x", uint32(hr))
+			}
+			r.shaderCBSize = n
+		}
+		var m mapped
+		if hr := call(r.ctx, ctxMap, r.shaderCB, 0, mapWriteDiscard, 0, uintptr(unsafe.Pointer(&m))); failed(hr) {
+			return fmt.Errorf("d3d11: cannot map the constant buffer of shaders: %#x", uint32(hr))
+		}
+		copy(unsafe.Slice((*byte)(ptr(m.Data)), n), r.shaderBytes)
+		call(r.ctx, ctxUnmap, r.shaderCB, 0)
+		call(r.ctx, ctxPSSetConstantBuffers, 2, 1, uintptr(unsafe.Pointer(&r.shaderCB)))
+	}
+	views := b.Textures
+	call(r.ctx, ctxPSSetShaderResources, 6, 4, uintptr(unsafe.Pointer(&views[0])))
 	return nil
 }
 

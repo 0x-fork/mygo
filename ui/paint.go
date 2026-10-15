@@ -76,6 +76,19 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 // move compute from.
 func (p *Painter) Now() time.Time { return p.rt.c.now }
 
+// Accelerated reports whether the frame draws on a GPU: false where it
+// draws in memory (with MYGO_GPU=0, without a GPU MyGo can draw with, as
+// in most virtual machines, and in Render and tests) and where the GPU's
+// renderer draws on the CPU (Direct3D's WARP, Mesa's llvmpipe, browsers'
+// SwiftShader). A drawing that costs too much there, as a shader covering
+// much of the window (package shader runs one pixel by pixel on the CPU),
+// can draw less, or nothing. Should the answer change, as when the GPU goes
+// away or comes back, the window is painted again.
+func (p *Painter) Accelerated() bool {
+	a, ok := p.rt.host.(interface{ accelerated() bool })
+	return ok && a.accelerated()
+}
+
 // AnimationFrame asks for the element to be painted again as soon as the
 // display can show it, for a drawing that moves with Now while the layout
 // stays, as a spinner's: unless something else changed meanwhile, the next

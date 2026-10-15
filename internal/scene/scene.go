@@ -335,11 +335,19 @@ func (s *Scene) EachCanvas(fn func(*Image)) {
 	s.eachShown(visit)
 }
 
-// eachShown calls fn with the canvases the scene's images show.
+// eachShown calls fn with the canvases the scene's images show, and its
+// shaders read.
 func (s *Scene) eachShown(fn func(*Image)) {
 	for i := range s.Ops {
 		if op := &s.Ops[i]; op.Kind == OpImage && op.Image != nil && op.Image.Scene != nil {
 			fn(op.Image)
+		}
+	}
+	for i := range s.Effects {
+		for _, img := range s.Effects[i].Images {
+			if img != nil && img.Scene != nil {
+				fn(img)
+			}
 		}
 	}
 }
