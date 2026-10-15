@@ -4,16 +4,25 @@ import (
 	"os"
 	"reflect"
 	"sync"
+	"sync/atomic"
 )
 
 // fileStatFields are the indices of the fields of os.fileStat that
 // os.SameFile compares (os/types_windows.go), found once; ok is false
 // when they aren't there as expected.
 var fileStatFields struct {
+	// typ is the os package's fileStat, once seen.
+	typ                     atomic.Pointer[reflect.Type]
 	once                    sync.Once
 	ok                      bool
 	path, vol, idxhi, idxlo int
 }
+
+// rememberFileStatType stores t, in a function of its own so that only a
+// call that stores it moves a copy of t to the heap.
+//
+//go:noinline
+func rememberFileStatType(t reflect.Type) { fileStatFields.typ.Store(&t) }
 
 // fileWatchIdentity returns the identity os.SameFile compares, the volume
 // and file index of the os package's fileStat, once it holds them: its
@@ -26,10 +35,13 @@ func fileWatchIdentity(info os.FileInfo) (fileWatchID, bool) {
 	}
 	v = v.Elem()
 	t := v.Type()
-	if t.Kind() != reflect.Struct || t.Name() != "fileStat" || t.PkgPath() != "os" {
-		return fileWatchID{}, false
-	}
 	f := &fileStatFields
+	if known := f.typ.Load(); known == nil || *known != t {
+		if t.Kind() != reflect.Struct || t.Name() != "fileStat" || t.PkgPath() != "os" {
+			return fileWatchID{}, false
+		}
+		rememberFileStatType(t)
+	}
 	f.once.Do(func() {
 		index := func(name string, kind reflect.Kind) int {
 			field, ok := t.FieldByName(name)

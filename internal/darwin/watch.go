@@ -347,10 +347,10 @@ func (d *fseWatch) covered(path string) bool {
 
 func (d *fseWatch) Add(t platform.FileWatchTarget) error {
 	if !t.Directory {
-		// A file target is covered by the stream of the directory that
-		// holds it, which the core enrolls for a file watch (watchParent),
-		// and FSEvents watches trees, not single files.
-		return nil
+		// A file is covered by the stream of the directory that holds it,
+		// which the core enrolls for a file watch (watchParent), and
+		// FSEvents watches trees, not single files.
+		return platform.ErrUnsupported
 	}
 	// FSEvents reports paths as they are on disk, which a path given on a
 	// case-insensitive volume may not be.

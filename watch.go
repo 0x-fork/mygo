@@ -28,6 +28,11 @@ const (
 	// FileRename is a file or directory that moved within the watched
 	// directory.
 	FileRename FileOp = "rename"
+	// FileHint says only that something in or under the directory at
+	// Path changed: which file, and how, is unknown. A watch with
+	// FileWatchOptions.HintsOnly reports nothing else, but a FileRemove
+	// of "." when its directory goes away.
+	FileHint FileOp = "hint"
 )
 
 // FileEvent is a change in a watched file or directory. A watch compares
@@ -70,7 +75,24 @@ type FileWatchOptions struct {
 	// snapshot of before it stops with ErrWatchLimit: 65536 on macOS,
 	// where a watch covers a whole tree with one stream, and 8192
 	// elsewhere, where a backend may take a handle per entry, when zero.
+	// With HintsOnly it counts the directories the watch enrolls.
 	MaxEntries int
+	// HintsOnly makes the watch cheap and coarse: it keeps no snapshot of
+	// the tree and stats no file, so it reports only FileHint events that
+	// name a directory in or under which the system said something
+	// changed, never which file, how, or that it was renamed. After the
+	// system lost changes it hints "." (look at everything). It suits a
+	// dev reloader, which rebuilds whatever changed; never use it where
+	// what changed matters, such as following a document's file.
+	//
+	// It still doesn't follow symlinks and doesn't leave the directory.
+	// Ignore is asked only about directories: what is in one it ignores
+	// is not watched or hinted, but a change to a file it would ignore
+	// still hints at that file's directory. On macOS and Windows a
+	// recursive watch enrolls only its directory, which the system
+	// watches as a tree; on Linux it enrolls every directory, without
+	// stat'ing what is in them.
+	HintsOnly bool
 }
 
 // ErrWatchLimit is what a watch stops with when its directory has more
@@ -92,10 +114,15 @@ type FileWatcher struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	// native is the backend's watch, which only the goroutine of the
-	// watch uses; what it reports goes through raw, and overflow says raw
-	// was full.
+	// watch uses; what it reports goes through raw. What comes while raw
+	// is full, as during a burst while the watch looks, waits in spill
+	// (spilled tells), up to MaxEntries notices; past that, overflow says
+	// some were dropped.
 	native   platform.FileWatch
 	raw      chan platform.FileWatchNotice
+	spillMu  sync.Mutex
+	spill    []platform.FileWatchNotice
+	spilled  chan struct{}
 	overflow chan struct{}
 	root     string
 	opts     FileWatchOptions
@@ -159,7 +186,7 @@ func WatchFiles(ctx context.Context, path string, opts FileWatchOptions) (*FileW
 		return nil, err
 	}
 	life, cancel := context.WithCancel(ctx)
-	w := &FileWatcher{ctx: life, cancel: cancel, root: root, opts: opts, taken: make(chan struct{}, 1), done: make(chan struct{}), raw: make(chan platform.FileWatchNotice, 4096), overflow: make(chan struct{}, 1)}
+	w := &FileWatcher{ctx: life, cancel: cancel, root: root, opts: opts, taken: make(chan struct{}, 1), done: make(chan struct{}), raw: make(chan platform.FileWatchNotice, 4096), spilled: make(chan struct{}, 1), overflow: make(chan struct{}, 1)}
 	fileWatches.Lock()
 	if fileWatches.stopped {
 		fileWatches.Unlock()
@@ -184,7 +211,9 @@ func WatchFiles(ctx context.Context, path string, opts FileWatchOptions) (*FileW
 }
 
 // notice is what the backend reports to, on its goroutine. When raw is
-// full the watch looks at everything again instead.
+// full the notice is spilled, and when the spill is full too the watch
+// looks at everything again instead, as after any overflow: either way no
+// change goes unseen.
 func (w *FileWatcher) notice(n platform.FileWatchNotice) {
 	select {
 	case <-w.ctx.Done():
@@ -201,12 +230,32 @@ func (w *FileWatcher) notice(n platform.FileWatchNotice) {
 	}
 	select {
 	case w.raw <- n:
+		return
 	default:
-		select {
-		case w.overflow <- struct{}{}:
-		default:
-		}
 	}
+	w.spillMu.Lock()
+	signal := w.spilled
+	if len(w.spill) < w.opts.MaxEntries {
+		w.spill = append(w.spill, n)
+	} else {
+		// More than a look at everything would cost to follow.
+		w.spill = nil
+		signal = w.overflow
+	}
+	w.spillMu.Unlock()
+	select {
+	case signal <- struct{}{}:
+	default:
+	}
+}
+
+// unspill takes the notices spilled.
+func (w *FileWatcher) unspill() []platform.FileWatchNotice {
+	w.spillMu.Lock()
+	defer w.spillMu.Unlock()
+	spill := w.spill
+	w.spill = nil
+	return spill
 }
 
 // Root returns the path the watch watches, absolute and with its symlinks
@@ -368,7 +417,10 @@ func stopFileWatches() {
 func (w *FileWatcher) run(ready chan error) {
 	var terminal error
 	discard := true
-	scan := newFileWatchScan(w)
+	var scan fileWatchLooker = newFileWatchScan(w)
+	if w.opts.HintsOnly {
+		scan = newFileWatchHints(w)
+	}
 	defer func() {
 		w.stop(terminal, discard)
 		scan.close()
@@ -433,8 +485,18 @@ func (w *FileWatcher) run(ready chan error) {
 		case <-w.ctx.Done():
 			return
 		case <-w.overflow:
-			scan.all = true
+			scan.lookAll()
 			schedule()
+		case <-w.spilled:
+			for _, n := range w.unspill() {
+				if err := scan.mark(n); err != nil {
+					terminal = err
+					return
+				}
+			}
+			if scan.pending() {
+				schedule()
+			}
 		case n := <-w.raw:
 			if err := scan.mark(n); err != nil {
 				terminal = err

@@ -555,7 +555,7 @@ func TestFileWatchDiff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := map[string]os.FileInfo{"a": info}
+	old := map[string]fileWatchEntry{"a": fileWatchEntryOf(info)}
 	if err := os.Rename(a, b); err != nil {
 		t.Fatal(err)
 	}
@@ -563,7 +563,7 @@ func TestFileWatchDiff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	events := fileWatchDiff(old, map[string]os.FileInfo{"b": info}, map[string]bool{"a": true})
+	events := fileWatchTestDiff(old, map[string]fileWatchEntry{"b": fileWatchEntryOf(info)}, map[string]bool{"a": true})
 	if len(events) != 2 || events[0].Op != FileRename || events[0].OldPath != "a" || events[1].Op != FileWrite {
 		t.Fatalf("%+v", events)
 	}
@@ -629,15 +629,18 @@ func TestFileWatchIdentity(t *testing.T) {
 	}
 }
 
-// Pairing by identity reports what comparing every entry with os.SameFile
-// does, for updates that rename, replace, hard link, move with a
+// Pairing by identity pairs what comparing every entry with every other
+// one would, for updates that rename, replace, hard link, move with a
 // directory, create and remove.
 func TestFileWatchDiffPairing(t *testing.T) {
-	infos := fileWatchTestInfos(t, t.TempDir())
+	var infos []fileWatchEntry
+	for _, info := range fileWatchTestInfos(t, t.TempDir()) {
+		infos = append(infos, fileWatchEntryOf(info))
+	}
 	paths := []string{"a", "b", "c", "d", "d/x", "d/y", "e", "e/x", "e/y", "f"}
 	rng := rand.New(rand.NewPCG(1, 2))
-	pick := func() map[string]os.FileInfo {
-		m := map[string]os.FileInfo{}
+	pick := func() map[string]fileWatchEntry {
+		m := map[string]fileWatchEntry{}
 		for _, p := range paths {
 			if rng.IntN(3) > 0 {
 				m[p] = infos[rng.IntN(len(infos))]
@@ -645,71 +648,115 @@ func TestFileWatchDiffPairing(t *testing.T) {
 		}
 		return m
 	}
-	defer func() { fileWatchPairBySameFile = false }()
+	// unique reports whether exactly one entry of m is a.
+	unique := func(m map[string]fileWatchEntry, a fileWatchEntry) bool {
+		count := 0
+		for _, v := range m {
+			if v.id == a.id {
+				count++
+			}
+		}
+		return count == 1
+	}
+	paired := 0
 	for i := range 5000 {
 		before, after := pick(), pick()
-		writes := map[string]bool{}
-		if rng.IntN(2) == 0 {
-			writes[paths[rng.IntN(len(paths))]] = true
+		changed, _ := fileWatchTestChanged(before, after)
+		ids := newFileWatchIDs(changed, after)
+		for old, a := range before {
+			want, count := "", 0
+			for p, b := range after {
+				if b.id == a.id {
+					if c, ok := before[p]; !ok || c.id != b.id {
+						want = p
+						count++
+					}
+				}
+			}
+			if count != 1 || !unique(before, a) || !unique(after, a) {
+				want = ""
+			}
+			got := ids.pair(a)
+			if got != "" {
+				if c, ok := before[got]; ok && c.id == a.id {
+					got = "" // not created: the same file at the same path
+				}
+			}
+			if got != want {
+				t.Fatalf("case %d, %s: by identity %q, by comparing all %q; before %v after %v", i, old, got, want, fileWatchTestNames(before), fileWatchTestNames(after))
+			}
+			if got != "" {
+				paired++
+			}
 		}
-		fileWatchPairBySameFile = false
-		got := fileWatchDiff(before, after, writes)
-		fileWatchPairBySameFile = true
-		want := fileWatchDiff(before, after, writes)
-		if !slices.Equal(got, want) {
-			t.Fatalf("case %d: before %v after %v: by identity %+v, by SameFile %+v", i, fileWatchTestNames(before), fileWatchTestNames(after), got, want)
-		}
+	}
+	if paired == 0 {
+		t.Fatal("nothing paired")
 	}
 }
 
-func fileWatchTestNames(m map[string]os.FileInfo) map[string]string {
-	names := map[string]string{}
-	for p, info := range m {
-		names[p] = info.Name()
+// fileWatchTestChanged is what an update that found before as after
+// looked at: every path of either.
+func fileWatchTestChanged(before, after map[string]fileWatchEntry) (map[string]fileWatchBefore, map[string]fileWatchEntry) {
+	changed := map[string]fileWatchBefore{}
+	for p, e := range before {
+		changed[p] = fileWatchBefore{e, true}
+	}
+	for p := range after {
+		if _, ok := changed[p]; !ok {
+			changed[p] = fileWatchBefore{}
+		}
+	}
+	return changed, after
+}
+
+// fileWatchTestDiff is fileWatchDiff of an update that found before as
+// after.
+func fileWatchTestDiff(before, after map[string]fileWatchEntry, writes map[string]bool) []FileEvent {
+	changed, entries := fileWatchTestChanged(before, after)
+	return fileWatchDiff(changed, entries, writes)
+}
+
+func fileWatchTestNames(m map[string]fileWatchEntry) map[string]uint64 {
+	names := map[string]uint64{}
+	for p, e := range m {
+		names[p] = e.id.index
 	}
 	return names
 }
 
 // A directory of n files renamed is paired in time linear in n: by
-// identity, not by comparing every entry with every other one, as
-// bySameFile still does.
+// identity, not by comparing every entry with every other one.
 func BenchmarkFileWatchDiffRename(b *testing.B) {
-	for _, run := range []struct {
-		name       string
-		bySameFile bool
-		sizes      []int
-	}{{"byIdentity", false, []int{2500, 5000, 10000, 20000, 40000}}, {"bySameFile", true, []int{2500, 5000, 10000}}} {
-		for _, n := range run.sizes {
-			b.Run(fmt.Sprintf("%s/%d", run.name, n), func(b *testing.B) {
-				fileWatchPairBySameFile = run.bySameFile
-				defer func() { fileWatchPairBySameFile = false }()
-				dir := b.TempDir()
-				before := map[string]os.FileInfo{}
-				after := map[string]os.FileInfo{}
-				for i := range n {
-					name := fmt.Sprint("f", i)
-					if err := os.WriteFile(filepath.Join(dir, name), nil, 0600); err != nil {
-						b.Fatal(err)
-					}
-					info, err := os.Lstat(filepath.Join(dir, name))
-					if err != nil {
-						b.Fatal(err)
-					}
-					info = StatIdentity(info)
-					before["a/"+name], after["b/"+name] = info, info
+	for _, n := range []int{2500, 5000, 10000, 20000, 40000} {
+		b.Run(fmt.Sprint(n), func(b *testing.B) {
+			dir := b.TempDir()
+			before := map[string]fileWatchEntry{}
+			after := map[string]fileWatchEntry{}
+			for i := range n {
+				name := fmt.Sprint("f", i)
+				if err := os.WriteFile(filepath.Join(dir, name), nil, 0600); err != nil {
+					b.Fatal(err)
 				}
-				info, err := os.Lstat(dir)
+				info, err := os.Lstat(filepath.Join(dir, name))
 				if err != nil {
 					b.Fatal(err)
 				}
-				before["a"], after["b"] = StatIdentity(info), info
-				for b.Loop() {
-					if events := fileWatchDiff(before, after, nil); len(events) != 1 || events[0].Op != FileRename {
-						b.Fatal(events)
-					}
+				e := fileWatchEntryOf(info)
+				before["a/"+name], after["b/"+name] = e, e
+			}
+			info, err := os.Lstat(dir)
+			if err != nil {
+				b.Fatal(err)
+			}
+			before["a"], after["b"] = fileWatchEntryOf(info), fileWatchEntryOf(info)
+			changed, _ := fileWatchTestChanged(before, after)
+			for b.Loop() {
+				if events := fileWatchDiff(changed, after, nil); len(events) != 1 || events[0].Op != FileRename {
+					b.Fatal(events)
 				}
-			})
-		}
+			}
+		})
 	}
 }
 
@@ -937,6 +984,113 @@ func TestFileWatchIgnoreSubtree(t *testing.T) {
 	}
 }
 
+// A backend that watches files through their directories, as every system
+// backend does, is given only directories, and what changes in a file is
+// named by its directory's target.
+func TestFileWatchNoFiles(t *testing.T) {
+	fb.FileWatchNoFiles = true
+	defer func() { fb.FileWatchNoFiles = false }()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "a", "b"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"f", "a/g", "a/b/h"} {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: true, Debounce: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	native := w.native.(*fake.FileWatch)
+	for _, target := range native.Targets() {
+		if !target.Directory {
+			t.Errorf("file %s enrolled", target.Path)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a", "b", "h"), []byte("xy"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "a/b", platform.FileWatchNotice{Name: "h", Kind: platform.FileWatchWrite})
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileWrite, Path: "a/b/h"}}) {
+		t.Fatalf("batch = %+v", batch)
+	}
+	// A file replaced, as editors save, is a new file at its path.
+	if err := os.WriteFile(filepath.Join(dir, "a", "g.tmp"), []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dir, "a", "g.tmp"), filepath.Join(dir, "a", "g")); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "a", platform.FileWatchNotice{Name: "g", Kind: platform.FileWatchMoveTo})
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileRemove, Path: "a/g"}, {Op: FileCreate, Path: "a/g"}}) {
+		t.Fatalf("batch = %+v", batch)
+	}
+	// A watched file: only its directory is enrolled, and a replacement
+	// is a write.
+	file := filepath.Join(dir, "f")
+	fw, err := WatchFiles(context.Background(), file, FileWatchOptions{Debounce: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fw.Close()
+	for _, target := range fw.native.(*fake.FileWatch).Targets() {
+		if target.Path != filepath.Dir(fw.Root()) {
+			t.Errorf("%s enrolled", target.Path)
+		}
+	}
+	if err := os.WriteFile(file+".tmp", []byte("saved"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(file+".tmp", file); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, fw, "..", platform.FileWatchNotice{Name: "f", Kind: platform.FileWatchMoveTo})
+	if batch := fileWatchTestBatch(t, fw); !slices.Equal(batch, []FileEvent{{Op: FileWrite, Path: "."}}) {
+		t.Fatalf("batch = %+v", batch)
+	}
+}
+
+// What the backend reports while the watch's channel is full waits for it
+// rather than making it look at everything; only more than MaxEntries
+// notices do.
+func TestFileWatchSpill(t *testing.T) {
+	w := &FileWatcher{ctx: context.Background(), opts: FileWatchOptions{MaxEntries: 3}, raw: make(chan platform.FileWatchNotice, 1), spilled: make(chan struct{}, 1), overflow: make(chan struct{}, 1)}
+	for i := range 4 {
+		w.notice(platform.FileWatchNotice{Target: uint64(i)})
+	}
+	if n := <-w.raw; n.Target != 0 {
+		t.Fatalf("raw = %+v", n)
+	}
+	select {
+	case <-w.spilled:
+	default:
+		t.Fatal("spill not signaled")
+	}
+	select {
+	case <-w.overflow:
+		t.Fatal("overflow within MaxEntries")
+	default:
+	}
+	if spill := w.unspill(); len(spill) != 3 || spill[0].Target != 1 || spill[2].Target != 3 {
+		t.Fatalf("spill = %+v", spill)
+	}
+	w.raw <- platform.FileWatchNotice{}
+	for i := range 4 {
+		w.notice(platform.FileWatchNotice{Target: uint64(10 + i)})
+	}
+	select {
+	case <-w.overflow:
+	default:
+		t.Fatal("no overflow past MaxEntries")
+	}
+	if spill := w.unspill(); spill != nil {
+		t.Fatalf("spill kept past an overflow: %+v", spill)
+	}
+}
+
 // Changes of permissions alone are not writes.
 func TestFileWatchMetadata(t *testing.T) {
 	dir := t.TempDir()
@@ -1066,6 +1220,10 @@ func BenchmarkFileWatchScan(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	// Like the system backends, which watch files through their
+	// directories.
+	fb.FileWatchNoFiles = true
+	defer func() { fb.FileWatchNoFiles = false }()
 	start := func(b *testing.B) (*fileWatchScan, func()) {
 		native, err := backend().NewFileWatch(func(platform.FileWatchNotice) {})
 		if err != nil {
@@ -1096,4 +1254,180 @@ func BenchmarkFileWatchScan(b *testing.B) {
 		}
 		b.ReportMetric(float64(len(s.entries)), "entries")
 	})
+}
+
+// fileWatchTestHints returns the next batch, which must hold only hints.
+func fileWatchTestHints(t *testing.T, w *FileWatcher) []string {
+	t.Helper()
+	var paths []string
+	for _, e := range fileWatchTestBatch(t, w) {
+		if e.Op != FileHint || !e.IsDir || e.OldPath != "" {
+			t.Fatalf("a hints-only watch reported %+v", e)
+		}
+		paths = append(paths, e.Path)
+	}
+	return paths
+}
+
+// A hints-only watch enrolls directories, keeps no snapshot and says only
+// in which directory something changed.
+func TestFileWatchHintsOnly(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{"a/b", "node_modules/pkg"} {
+		if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(p)), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a", "b", "f"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ignore := func(p string, isDir bool) bool { return p == "node_modules" }
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: true, Debounce: -1, HintsOnly: true, Ignore: ignore})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	native := w.native.(*fake.FileWatch)
+	enrolled := func() []string {
+		var paths []string
+		for _, target := range native.Targets() {
+			if !target.Directory {
+				t.Errorf("file %s enrolled", target.Path)
+			}
+			if rel, err := filepath.Rel(w.root, target.Path); err == nil && !strings.HasPrefix(rel, "..") {
+				paths = append(paths, filepath.ToSlash(rel))
+			}
+		}
+		slices.Sort(paths)
+		return paths
+	}
+	if got := enrolled(); !slices.Equal(got, []string{".", "a", "a/b"}) {
+		t.Fatalf("enrolled %v", got)
+	}
+	// A write to a file hints at its directory, not at the file.
+	if err := os.WriteFile(filepath.Join(dir, "a", "b", "f"), []byte("xy"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "a/b", platform.FileWatchNotice{Name: "f", Kind: platform.FileWatchWrite})
+	if got := fileWatchTestHints(t, w); !slices.Equal(got, []string{"a/b"}) {
+		t.Fatalf("hints %v", got)
+	}
+	// A new directory is enrolled, and hinted at through its parent.
+	if err := os.MkdirAll(filepath.Join(dir, "a", "new", "deeper"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "a", platform.FileWatchNotice{Name: "new", Kind: platform.FileWatchCreate})
+	if got := fileWatchTestHints(t, w); !slices.Equal(got, []string{"a"}) {
+		t.Fatalf("hints %v", got)
+	}
+	if got := enrolled(); !slices.Equal(got, []string{".", "a", "a/b", "a/new", "a/new/deeper"}) {
+		t.Fatalf("enrolled %v", got)
+	}
+	// A directory moved: its targets follow it.
+	if err := os.Rename(filepath.Join(dir, "a", "new"), filepath.Join(dir, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "a", platform.FileWatchNotice{Name: "new", Kind: platform.FileWatchMoveFrom})
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "moved", Kind: platform.FileWatchMoveTo})
+	// One batch or two: "." covers "a", and comes last.
+	for got := fileWatchTestHints(t, w); !slices.Equal(got, []string{"."}); got = fileWatchTestHints(t, w) {
+		if !slices.Equal(got, []string{"a"}) {
+			t.Fatalf("hints %v", got)
+		}
+	}
+	if got := enrolled(); !slices.Equal(got, []string{".", "a", "a/b", "moved", "moved/deeper"}) {
+		t.Fatalf("enrolled %v", got)
+	}
+	// Lost changes hint at everything.
+	native.Notify(platform.FileWatchNotice{Err: platform.ErrFileWatchOverflow})
+	if got := fileWatchTestHints(t, w); !slices.Equal(got, []string{"."}) {
+		t.Fatalf("hints %v", got)
+	}
+	// The directory gone ends the watch as any other.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Kind: platform.FileWatchLost})
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileRemove, Path: ".", IsDir: true}}) {
+		t.Fatalf("batch %+v", batch)
+	}
+	if _, err := w.Next(context.Background()); err != io.EOF {
+		t.Fatal(err)
+	}
+}
+
+// With a backend that watches a tree with one target, a hints-only watch
+// enrolls nothing else, and hints at the directory of what changed deep
+// down, but not in an ignored one.
+func TestFileWatchHintsOnlySubtree(t *testing.T) {
+	fb.FileWatchSubtree = true
+	defer func() { fb.FileWatchSubtree = false }()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "a", "b"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	ignore := func(p string, isDir bool) bool { return path.Base(p) == ".git" }
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: true, Debounce: -1, HintsOnly: true, Ignore: ignore})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	for _, target := range w.native.(*fake.FileWatch).Targets() {
+		if target.Path != w.root && target.Path != filepath.Dir(w.root) {
+			t.Errorf("%s enrolled", target.Path)
+		}
+	}
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: ".git/objects/x", Kind: platform.FileWatchCreate})
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "a/b/f", Kind: platform.FileWatchWrite})
+	if got := fileWatchTestHints(t, w); !slices.Equal(got, []string{"a/b"}) {
+		t.Fatalf("hints %v", got)
+	}
+}
+
+// A hints-only watch of a file hints at it, not at the other entries of
+// its directory.
+func TestFileWatchHintsOnlyFile(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(file, []byte("a"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w, err := WatchFiles(context.Background(), file, FileWatchOptions{Debounce: -1, HintsOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	fileWatchTestNotice(t, w, "..", platform.FileWatchNotice{Name: "sibling", Kind: platform.FileWatchWrite})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if batch, err := w.Next(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("batch = %+v, %v", batch, err)
+	}
+	fileWatchTestNotice(t, w, "..", platform.FileWatchNotice{Name: "config.json", Kind: platform.FileWatchWrite})
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileHint, Path: "."}}) {
+		t.Fatalf("batch %+v", batch)
+	}
+}
+
+// Without HintsOnly, the same change is the precise event it always was.
+func TestFileWatchHintsOnlyOptIn(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "a", "b"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a", "b", "f"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: true, Debounce: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := os.WriteFile(filepath.Join(dir, "a", "b", "f"), []byte("xy"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "a/b", platform.FileWatchNotice{Name: "f", Kind: platform.FileWatchWrite})
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileWrite, Path: "a/b/f"}}) {
+		t.Fatalf("batch %+v", batch)
+	}
 }
