@@ -958,6 +958,12 @@ func layoutAbsolute(e *node) {
 			}
 			continue
 		}
+		pw, ph := pw, ph
+		var ox, oy float32
+		if s := c.placeOn; s != nil {
+			pw, ph = s.w, s.h
+			ox, oy = s.x-e.border[3], s.y-e.border[0]
+		}
 		top, tok := c.inset[0].resolve(ph)
 		right, rok := c.inset[1].resolve(pw)
 		bottom, bok := c.inset[2].resolve(ph)
@@ -1006,7 +1012,7 @@ func layoutAbsolute(e *node) {
 				y += max(free, 0)
 			}
 		}
-		c.x, c.y = e.border[3]+x, e.border[0]+y
+		c.x, c.y = e.border[3]+ox+x, e.border[0]+oy+y
 		layoutBox(c, w, h)
 	}
 }

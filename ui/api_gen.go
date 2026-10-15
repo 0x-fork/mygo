@@ -1926,8 +1926,9 @@ func Spinner(c *Context) Element {
 // Split lays out first and second side by side, with a divider between
 // them that the user drags to resize them, or moves with the arrows once
 // it has the keyboard focus: *size is the width of first, which the
-// divider keeps 40 DIPs from either edge. Changed reports a move. Right to
-// left (Direction), first is on the right.
+// divider keeps 40 DIPs from either edge. With less room than that, first
+// gives way, keeping *size for when there is room again. Changed reports a
+// move. Right to left (Direction), first is on the right.
 //
 //	ui.Split(c, &app.sidebar, app.files, app.editor).Fill()
 func Split(c *Context, size *float32, first func(), second func()) Element {
@@ -1941,6 +1942,22 @@ func Split(c *Context, size *float32, first func(), second func()) Element {
 	return wrapElement(_e)
 }
 
+// SplitPercent is Split with *p the percentage of the room first takes,
+// from 0 to 100, so that both panes grow and shrink with the room, in
+// proportion.
+//
+//	ui.SplitPercent(c, &app.sidebarPercent, app.files, app.editor).Fill()
+func SplitPercent(c *Context, p *float32, first func(), second func()) Element {
+	_ctx := c.build()
+	if _ctx == nil {
+		return Element{}
+	}
+	_ctx.rt.beginBuild()
+	_e := coreSplitPercent(_ctx, p, first, second)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
+}
+
 // SplitVertical is Split with first above second, *size its height.
 func SplitVertical(c *Context, size *float32, first func(), second func()) Element {
 	_ctx := c.build()
@@ -1949,6 +1966,18 @@ func SplitVertical(c *Context, size *float32, first func(), second func()) Eleme
 	}
 	_ctx.rt.beginBuild()
 	_e := coreSplitVertical(_ctx, size, first, second)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
+}
+
+// SplitVerticalPercent is SplitPercent with first above second.
+func SplitVerticalPercent(c *Context, p *float32, first func(), second func()) Element {
+	_ctx := c.build()
+	if _ctx == nil {
+		return Element{}
+	}
+	_ctx.rt.beginBuild()
+	_e := coreSplitVerticalPercent(_ctx, p, first, second)
 	_ctx.rt.endBuild()
 	return wrapElement(_e)
 }
