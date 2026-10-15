@@ -41,8 +41,12 @@ package shader
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"math"
 	"reflect"
+	"regexp"
 
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/shader"
@@ -58,6 +62,26 @@ type Shader struct {
 	fx       *scene.Effect
 	uniforms map[string]uniform
 	words    int
+	kind     kind
+}
+
+// kind is what a shader draws, by its entry point.
+type kind uint8
+
+const (
+	fragment kind = iota // Fragment: a fill
+	colorEffect
+	distortionEffect
+	layerEffect
+)
+
+// entries are the entry points of the kinds, and the Fragment that calls
+// an effect's, from its content (layerAt, layerSample).
+var entries = [...]struct{ name, wrap string }{
+	fragment:         {"Fragment", ""},
+	colorEffect:      {"ColorEffect", "return ColorEffect(q, layerAt(q))"},
+	distortionEffect: {"DistortionEffect", "return layerSample(DistortionEffect(q))"},
+	layerEffect:      {"LayerEffect", "return LayerEffect(q)"},
 }
 
 // uniform is a uniform variable of a shader: its type, and its lanes in
@@ -68,16 +92,64 @@ type uniform struct {
 }
 
 // The bridge's uniforms, which Draw sets: the images' sizes, the
-// rectangle's size and the pixels a DIP, the first words.
-var bridge = []string{shader.ImageSizesUniform, shader.RectSizeUniform, shader.ScaleUniform}
+// rectangle's size, the pixels a DIP and where an effect's box lies in
+// its content, the first words.
+var bridge = []string{shader.ImageSizesUniform, shader.RectSizeUniform, shader.ScaleUniform, shader.LayerInsetUniform}
 
-const scaleWord = 2*shader.MaxImages + 2
+const (
+	scaleWord = 2*shader.MaxImages + 2
+	insetWord = scaleWord + 1
+)
+
+// layerImage reads an effect's content, which its own images leave free.
+var layerImage = regexp.MustCompile(`\bimage` + fmt.Sprint(shader.LayerImage) + `(At|Sample|Size)\b`)
+
+// kindOf returns the kind of the shader of src by its entry point, of
+// which it must have one.
+func kindOf(src string) (kind, error) {
+	f, err := parser.ParseFile(token.NewFileSet(), "", src, parser.SkipObjectResolution)
+	if err != nil {
+		return 0, nil // Compile reports it
+	}
+	var found []kind
+	for _, d := range f.Decls {
+		if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil {
+			for k, e := range entries {
+				if fn.Name.Name == e.name {
+					found = append(found, kind(k))
+				}
+			}
+		}
+	}
+	switch {
+	case len(found) == 0:
+		return 0, nil // Compile reports the missing Fragment
+	case len(found) > 1:
+		return 0, fmt.Errorf("shader: %s and %s: a shader has one entry point", entries[found[0]].name, entries[found[1]].name)
+	}
+	k := found[0]
+	if k != fragment && layerImage.MatchString(src) {
+		return 0, fmt.Errorf("shader: an effect's shader reads image0 to image%d: image%d is its content (layerAt, layerSample)", shader.LayerImage-1, shader.LayerImage)
+	}
+	return k, nil
+}
 
 // Compile compiles a shader, src the source of a Go file as the package's
 // documentation describes. It reports the errors of the source with their
 // lines.
 func Compile(src string) (*Shader, error) {
-	p, err := shader.CompileFragment([]byte(src))
+	k, err := kindOf(src)
+	if err != nil {
+		return nil, err
+	}
+	full := src
+	if k != fragment {
+		// An effect's entry point, called with the content.
+		// An effect draws over all of its content, its positions from the
+		// corner of the element's box within it.
+		full += "\nfunc Fragment(dst vec4, pos vec2) vec4 {\n\tq := pos - " + shader.LayerInsetUniform + "/pixelScale()\n\t" + entries[k].wrap + "\n}\n"
+	}
+	p, err := shader.CompileFragment([]byte(full))
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +162,7 @@ func Compile(src string) (*Shader, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Shader{prog: prog, uniforms: map[string]uniform{}}
+	s := &Shader{prog: prog, uniforms: map[string]uniform{}, kind: k}
 	for i, n := range interp.UniformWords(p) {
 		s.uniforms[p.UniformNames[i]] = uniform{t: p.Uniforms[i], word: s.words, n: n}
 		s.words += n
@@ -130,11 +202,18 @@ type Options struct {
 	Images [4]*ui.Bitmap
 	// Radius rounds the corners of the rectangle, in DIPs.
 	Radius float32
+	// MaxSampleOffset is how far, at most, across and down in DIPs, an
+	// effect (Effect) reads its content away from the pixel it draws, as
+	// a distortion moves pixels: the content renders that much beyond the
+	// element's box, as its shadows, the effect draws over all of it, and
+	// it reads as transparent further away.
+	MaxSampleOffset ui.Point
 }
 
 // Draw fills r with the shader, in DIPs of p, as p's other drawings are:
 // clipped, transformed and faded with the painter.
 func (s *Shader) Draw(p *ui.Painter, r ui.Rect, o Options) {
+	s.must(fragment)
 	p.ShaderEffect(s.fx, r, o.Radius, s.lanes(p, r, o), o.Images)
 }
 
@@ -145,6 +224,7 @@ func (s *Shader) Draw(p *ui.Painter, r ui.Rect, o Options) {
 // returns. Emoji keep their colors, and the rest fn paints, as rectangles
 // and images, paints as it would. Options.Radius does not apply.
 func (s *Shader) Fill(p *ui.Painter, box ui.Rect, o Options, fn func()) {
+	s.must(fragment)
 	p.ShaderFill(s.fx, box, s.lanes(p, box, o), o.Images, fn)
 }
 
@@ -168,6 +248,69 @@ func (s *Shader) StrokePath(p *ui.Painter, path *ui.Path, width float32, o Optio
 func (s *Shader) Text(p *ui.Painter, x, y float32, text string, size float32, o Options) {
 	w, h := p.MeasureText(0, ui.Span{Text: text, Size: size})
 	s.Fill(p, ui.Rect{X: x, Y: y, W: w, H: h}, o, func() { p.Text(x, y, text, size, white) })
+}
+
+// Effect returns the shader drawing an element with o, for
+// ui.Element.Effect: the shader of an effect, whose entry point reads the
+// element's content, rendered with its children, in DIPs from the corner
+// of its box, as SwiftUI's effects do:
+//
+//	// The content's colors, changed pixel by pixel (colorEffect).
+//	func ColorEffect(pos vec2, color vec4) vec4
+//
+//	// Where to read the content for the pixel at pos (distortionEffect),
+//	// transparent beyond it.
+//	func DistortionEffect(pos vec2) vec2
+//
+//	// The pixel's color, from the content read anywhere with layerAt(p),
+//	// its pixel at p, or layerSample(p), blended between pixels
+//	// (layerEffect).
+//	func LayerEffect(pos vec2) vec4
+//
+// rectSize returns the size of the element's box. An effect's shader
+// reads images 0 to 2 of its own (image3 is the content), and moves
+// pixels at most o.MaxSampleOffset away. It panics for a shader whose
+// entry point is Fragment, which Draw and Fill draw.
+func (s *Shader) Effect(o Options) Effect {
+	if s.kind == fragment {
+		panic("shader: Effect of a shader of Fragment: an effect's has ColorEffect, DistortionEffect or LayerEffect")
+	}
+	return Effect{s: s, o: o}
+}
+
+// Effect is a shader drawing an element in place of the element as it is
+// (ui.Element.Effect), as Shader.Effect returns.
+type Effect struct {
+	s *Shader
+	o Options
+}
+
+// EffectMargin returns how far the effect reads its content beyond the
+// element's box, its MaxSampleOffset.
+func (fx Effect) EffectMargin() ui.Point { return fx.o.MaxSampleOffset }
+
+// PaintEffect paints the element from its content, the box's corner at
+// inset in the content's pixels: the shader over all of the content, the
+// box and the margin around it, reading the content as its last image.
+func (fx Effect) PaintEffect(p *ui.Painter, box ui.Rect, content *ui.Bitmap, inset ui.Point) {
+	if fx.s == nil || content == nil {
+		return
+	}
+	o := fx.o
+	o.Images[shader.LayerImage] = content
+	words := fx.s.lanes(p, box, o)
+	words[insetWord], words[insetWord+1] = math.Float32bits(inset.X), math.Float32bits(inset.Y)
+	s := p.Scale()
+	w, h := content.Size()
+	area := ui.Rect{X: box.X - inset.X/s, Y: box.Y - inset.Y/s, W: float32(w) / s, H: float32(h) / s}
+	p.ShaderEffect(fx.s.fx, area, 0, words, o.Images)
+}
+
+// must panics unless s is a shader of kind k.
+func (s *Shader) must(k kind) {
+	if s.kind != k {
+		panic(fmt.Sprintf("shader: a shader of %s draws through Effect, not Draw or Fill", entries[s.kind].name))
+	}
 }
 
 // lanes returns the words of the uniforms' lanes of the shader drawn with o

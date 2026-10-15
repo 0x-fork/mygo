@@ -61,6 +61,54 @@ stroke's width, the text's, or the one `Fill` takes), which `rectSize()`
 returns; emoji keep their own colors, and rectangles and images `Fill`'s
 function paints paint as they would.
 
+## Effects on elements
+
+A shader can also draw an element from what it renders, as SwiftUI's
+`colorEffect`, `distortionEffect` and `layerEffect` do. Its entry point
+says which, in place of `Fragment`:
+
+```go
+// The content's colors, changed pixel by pixel.
+func ColorEffect(pos vec2, color vec4) vec4
+
+// Where to read the content for the pixel at pos.
+func DistortionEffect(pos vec2) vec2
+
+// The pixel's color, from the content read anywhere.
+func LayerEffect(pos vec2) vec4
+```
+
+`Element.Effect` takes the shader's `Effect`:
+
+```go
+var wave = shader.MustCompile(`package main
+
+var Time float
+
+func DistortionEffect(pos vec2) vec2 {
+	return pos + vec2(0, 6*sin(pos.x/12+Time))
+}
+`)
+
+ui.Text(c, "Wavy").FontSize(24).Effect(wave.Effect(shader.Options{
+	Uniforms:        map[string]any{"Time": t},
+	MaxSampleOffset: ui.Point{Y: 6},
+}))
+```
+
+The element and its children, with their shadows and what their `Draw`
+callbacks paint, render into a bitmap on the GPU every frame the element
+paints, and the effect draws over it in place of the element. `pos` runs
+from the corner of the element's box, whose size `rectSize()` returns. A
+`LayerEffect` reads the content with `layerAt(p)`, its pixel at `p`, or
+`layerSample(p)`, blended between pixels, `p` in DIPs as `pos` is; a
+`DistortionEffect` reads it with `layerSample`. Content reads as
+transparent beyond what renders: `Options.MaxSampleOffset` renders that
+much more around the box, for an effect that reads or moves pixels that
+far, and the effect draws over it all. The element stays where it is for
+clicks, focus and accessibility: only what shows changes. An effect's
+shader reads images 0 to 2 of its own; image 3 is the content.
+
 ## The language
 
 A shader is a Go file of package main. Its function `Fragment` returns the

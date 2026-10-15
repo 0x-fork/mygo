@@ -27,9 +27,10 @@ cbuffer Uniforms : register(b2) {
 	float2 U0[4] : packoffset(c0);
 	float2 U1 : packoffset(c3.z);
 	float U2 : packoffset(c4);
-	uint U3 : packoffset(c4.y);
-	int U4 : packoffset(c4.z);
-	float4 U5[4] : packoffset(c5);
+	float2 U3 : packoffset(c4.y);
+	uint U4 : packoffset(c4.w);
+	int U5 : packoffset(c5);
+	float4 U6[4] : packoffset(c6);
 }
 
 Texture2D T0 : register(t6);
@@ -39,8 +40,8 @@ Texture2D T3 : register(t9);
 
 uint F0(in uint l0);
 float F2(void);
-float4 F5(in float2 l0);
-float4 F15(in float4 l0, in float2 l1);
+float4 F7(in float2 l0);
+float4 F17(in float4 l0, in float2 l1);
 
 uint F0(in uint l0) {
 	uint l1 = 0u;
@@ -54,7 +55,7 @@ float F2(void) {
 	return U2;
 }
 
-float4 F5(in float2 l0) {
+float4 F7(in float2 l0) {
 	float2 l1 = 0.0;
 	float2 l2 = 0.0;
 	float2 l3 = 0.0;
@@ -74,20 +75,20 @@ float4 F5(in float2 l0) {
 	return lerp(lerp(l5, l6, (l3).x), lerp(l7, l8, (l3).x), (l3).y);
 }
 
-float4 F15(in float4 l0, in float2 l1) {
+float4 F17(in float4 l0, in float2 l1) {
 	float l2 = 0.0;
 	uint l5 = 0u;
 	l2 = 0.0;
-	for (int l3 = 0; l3 < U4; l3++) {
-		l2 = (l2) + ((((U5)[l3]).z) / ((1.0) + (distance(l1, ((U5)[l3]).xy))));
+	for (int l3 = 0; l3 < U5; l3++) {
+		l2 = (l2) + ((((U6)[l3]).z) / ((1.0) + (distance(l1, ((U6)[l3]).xy))));
 	}
-	for (uint l4 = 0u; l4 < U3; l4 += 2u) {
+	for (uint l4 = 0u; l4 < U4; l4 += 2u) {
 		l2 = (l2) + (1.0000000000e-01);
 	}
-	l5 = F0(((((uint3)(uint(int((l0).x)))).z) * (2654435769u)) ^ (F0((uint(int((l0).y))) ^ (U3))));
-	return (((F5((l1) * (F2()))) * (float((l5) % (255u)))) / (255.0)) * (l2);
+	l5 = F0(((((uint3)(uint(int((l0).x)))).z) * (2654435769u)) ^ (F0((uint(int((l0).y))) ^ (U4))));
+	return (((F7((l1) * (F2()))) * (float((l5) % (255u)))) / (255.0)) * (l2);
 }
 
 float4 shaderFragment(float4 position, float2 v0) {
-	return F15(position, v0);
+	return F17(position, v0);
 }

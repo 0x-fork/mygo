@@ -2900,7 +2900,16 @@ either.
   `Params[1]` and the corner of the box the shader fills in `Grad`, and
   the shaders' tails cover it with the mask atlas and `textCoverage`
   (above `#ifndef EFFECT`, as effects share it), the shader's color in
-  place of the paint; `raster.maskedEffect` is the CPU twin. Direct3D's compiler takes from 0.1 s to more than 1 s
+  place of the paint; `raster.maskedEffect` is the CPU twin. An
+  element's effect (`Element.Effect`, a `ui.Effect`) renders the
+  element's subtree into a canvas kept in its state, at the window's
+  scale, in the element's own space (`paintEffect`: positions shift, and
+  transforms in the subtree lose the element's own, `unworld`), then
+  paints the effect with the element's transform. `ui/shader` gives an
+  effect's entry point (`ColorEffect`, `DistortionEffect`, `LayerEffect`)
+  a `Fragment` that calls it, and the bridge reads the content as image 3
+  (`LayerImage`) from where the box's corner lies in it
+  (`__layerInset`). Direct3D's compiler takes from 0.1 s to more than 1 s
   for a shader's effect (the renderer's head and tail, with its coverage,
   are most of a small one's; optimization levels barely change it), so
   `ui/shader` starts it as it compiles one (`d3d11.PrecompileEffect`), on

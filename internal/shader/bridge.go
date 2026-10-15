@@ -23,12 +23,20 @@ const Entry = "Fragment"
 
 // The uniform variables the bridge declares, which renderers set, before
 // the shader's own: the images' sizes in pixels, the size of the
-// rectangle the shader fills in DIPs, and the pixels a DIP.
+// rectangle the shader fills in DIPs, the pixels a DIP, and, for an
+// effect's shader, where the corner of the element's box lies in its
+// content (LayerImage), in its pixels.
 const (
 	ImageSizesUniform = "__imageSizes"
 	RectSizeUniform   = "__rectSize"
 	ScaleUniform      = "__scale"
+	LayerInsetUniform = "__layerInset"
 )
+
+// LayerImage is the image an effect's shader reads its element's content
+// from, through layerAt and layerSample: the last, which its own images
+// leave free.
+const LayerImage = MaxImages - 1
 
 // bridge is the source appended to a shader: the uniform variables that
 // only renderers set, the functions that read them and the images, and
@@ -42,6 +50,7 @@ var bridge = func() string {
 var %s [%d]vec2
 var %s vec2
 var %s float
+var %s vec2
 
 // rectSize returns the size of the rectangle the shader fills, in DIPs.
 func rectSize() vec2 {
@@ -52,7 +61,23 @@ func rectSize() vec2 {
 func pixelScale() float {
 	return %[5]s
 }
-`, InternalRegionBegin, ImageSizesUniform, MaxImages, RectSizeUniform, ScaleUniform)
+
+// layerAt returns the pixel of the content of the element an effect
+// draws at p, in DIPs from the corner of its box, premultiplied:
+// transparent beyond what renders.
+func layerAt(p vec2) vec4 {
+	return image%[7]dAt(p*%[5]s + %[6]s)
+}
+
+// layerSample returns the content of the element an effect draws at p,
+// in DIPs from the corner of its box, blended between the centers of the
+// four pixels around p, premultiplied: transparent beyond what renders.
+func layerSample(p vec2) vec4 {
+	q := p*%[5]s + %[6]s
+	in := step(vec2(0), q) - step(%[2]s[%[7]d], q)
+	return image%[7]dSample(q) * in.x * in.y
+}
+`, InternalRegionBegin, ImageSizesUniform, MaxImages, RectSizeUniform, ScaleUniform, LayerInsetUniform, LayerImage)
 	for i := range MaxImages {
 		fmt.Fprintf(&b, `
 // image%[1]dSize returns the size of image %[1]d, in its pixels.

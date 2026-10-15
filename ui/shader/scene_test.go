@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/internal/scene"
+	"github.com/egoist/mygo/internal/shader"
 	"github.com/egoist/mygo/internal/shaderir"
 )
 
@@ -221,3 +222,34 @@ func Fragment(dst vec4, pos vec2) vec4 {
 	return vec4(1-t, 0.3*(pos.y/16), t, 1)
 }
 `
+
+// effectSource moves its content in a wave, and tints it by position.
+const effectSource = `package main
+
+func DistortionEffect(pos vec2) vec2 {
+	return pos + vec2(3*sin(pos.y/5), 4*sin(pos.x/9))
+}
+`
+
+// effectScene returns a scene of s, an effect's shader, drawing content
+// of three rectangles in a canvas, the effect's box inset in it by 6
+// pixels, as Element.Effect draws an element.
+func effectScene(s *Shader) *scene.Scene {
+	content := scene.NewCanvas(112, 52)
+	content.Scene.Ops = []scene.Op{
+		{Kind: scene.OpFill, Rect: scene.Rect{X: 6, Y: 6, W: 50, H: 20}, Color: scene.Color{R: 220, G: 40, B: 40, A: 255}},
+		{Kind: scene.OpFill, Rect: scene.Rect{X: 56, Y: 6, W: 50, H: 20}, Color: scene.Color{R: 37, G: 99, B: 235, A: 255}, Radii: [4]float32{8, 8, 8, 8}},
+		{Kind: scene.OpFill, Rect: scene.Rect{X: 6, Y: 26, W: 100, H: 20}, Color: scene.Color{R: 30, G: 160, B: 60, A: 200}},
+	}
+	words := make([]uint32, s.words)
+	words[2*shader.LayerImage], words[2*shader.LayerImage+1] = math.Float32bits(112), math.Float32bits(52)
+	words[scaleWord-2], words[scaleWord-1] = math.Float32bits(100), math.Float32bits(40)
+	words[scaleWord] = math.Float32bits(1)
+	words[insetWord], words[insetWord+1] = math.Float32bits(6), math.Float32bits(6)
+	sc := &scene.Scene{Width: 240, Height: 120, Clear: scene.Color{R: 240, G: 240, B: 240, A: 255}}
+	sc.Ops = append(sc.Ops, scene.Op{Kind: scene.OpEffect, Rect: scene.Rect{X: 20, Y: 30, W: 112, H: 52}})
+	var images [4]*scene.Image
+	images[shader.LayerImage] = content
+	sc.Effects = append(sc.Effects, scene.EffectOp{Effect: s.fx, Uniforms: words, Images: images})
+	return sc
+}

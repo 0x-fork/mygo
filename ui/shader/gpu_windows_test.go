@@ -52,3 +52,14 @@ func TestDirect3DMasked(t *testing.T) {
 	}
 	gputest.Compare(t, "ui-shader-d3d11-masked", pix, stride, sc)
 }
+
+// TestDirect3DEffect checks that Direct3D draws an effect's shader from
+// its content, as the CPU does.
+func TestDirect3DEffect(t *testing.T) {
+	sc := effectScene(MustCompile(effectSource))
+	pix, stride, err := d3d11.RenderOffscreen(sc)
+	if err != nil {
+		t.Skip("no Direct3D:", err)
+	}
+	gputest.Compare(t, "ui-shader-d3d11-effect", pix, stride, sc)
+}

@@ -156,3 +156,132 @@ func Fragment(dst vec4, pos vec2) vec4 {
 		t.Errorf("text not filled across its box: left %d, right %d", left[0], right[0])
 	}
 }
+
+var _ ui.Effect = shader.Effect{}
+
+// Effects draw an element from its content: a ColorEffect changes its
+// colors, a DistortionEffect moves its pixels, transparent beyond what
+// renders, and a LayerEffect reads it anywhere; the window around the
+// element keeps its own pixels.
+func TestEffects(t *testing.T) {
+	invert := shader.MustCompile(`package main
+
+func ColorEffect(pos vec2, color vec4) vec4 {
+	return vec4(color.a-color.rgb, color.a)
+}
+`)
+	shift := shader.MustCompile(`package main
+
+var By float
+
+func DistortionEffect(pos vec2) vec2 {
+	return pos - vec2(By, 0)
+}
+`)
+	mirror := shader.MustCompile(`package main
+
+func LayerEffect(pos vec2) vec4 {
+	return layerAt(vec2(rectSize().x-pos.x, pos.y))
+}
+`)
+	// A box red on its left half and green on its right.
+	halves := func(c *ui.Context, fx shader.Effect) {
+		ui.Row(c).Width(80).Height(40).Effect(fx).Children(func() {
+			ui.Box(c).Width(40).Height(40).Background(ui.RGB(255, 0, 0))
+			ui.Box(c).Width(40).Height(40).Background(ui.RGB(0, 255, 0))
+		})
+	}
+	view := func(c *ui.Context) {
+		ui.Column(c).Fill().Background(ui.RGB(255, 255, 255)).Gap(10).Padding(10).Children(func() {
+			halves(c, invert.Effect(shader.Options{}))
+			halves(c, shift.Effect(shader.Options{Uniforms: map[string]any{"By": 20}, MaxSampleOffset: ui.Point{X: 20}}))
+			halves(c, mirror.Effect(shader.Options{}))
+		})
+	}
+	tt := ui.NewTester(view, 200, 200)
+	img := tt.Image()
+	at := func(x, y int) [4]uint8 {
+		o := img.PixOffset(x, y)
+		return [4]uint8(img.Pix[o : o+4])
+	}
+	red, green, white := [4]uint8{255, 0, 0, 255}, [4]uint8{0, 255, 0, 255}, [4]uint8{255, 255, 255, 255}
+	cyan, magenta := [4]uint8{0, 255, 255, 255}, [4]uint8{255, 0, 255, 255}
+	for _, c := range []struct {
+		name string
+		x, y int
+		want [4]uint8
+	}{
+		{"inverted left", 20, 30, cyan},
+		{"inverted right", 70, 30, magenta},
+		{"beside the inverted box", 120, 30, white},
+		{"shifted: transparent where nothing moved in", 15, 80, white},
+		{"shifted: red moved right", 45, 80, red},
+		{"shifted: green", 75, 80, green},
+		{"mirrored left", 20, 130, green},
+		{"mirrored right", 70, 130, red},
+	} {
+		if got := at(c.x, c.y); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// An effect draws a transformed element as transformed: its content in
+// the element's own space, the effect over its box.
+func TestEffectTransformed(t *testing.T) {
+	invert := shader.MustCompile(`package main
+
+func ColorEffect(pos vec2, color vec4) vec4 {
+	return vec4(color.a-color.rgb, color.a)
+}
+`)
+	view := func(c *ui.Context) {
+		ui.Box(c).Fill().Background(ui.RGB(255, 255, 255)).Padding(50).Children(func() {
+			ui.Box(c).Width(100).Height(20).Background(ui.RGB(255, 0, 0)).Rotate(90).
+				Effect(invert.Effect(shader.Options{}))
+		})
+	}
+	img := ui.NewTester(view, 200, 200).Image()
+	at := func(x, y int) [4]uint8 {
+		o := img.PixOffset(x, y)
+		return [4]uint8(img.Pix[o : o+4])
+	}
+	// Rotated about its center (100, 60): upright, 20 wide, 100 tall.
+	if got := at(100, 25); got != [4]uint8{0, 255, 255, 255} {
+		t.Errorf("inside the rotated box: %v, want cyan", got)
+	}
+	if got := at(140, 60); got != [4]uint8{255, 255, 255, 255} {
+		t.Errorf("where the box was before rotating: %v, want white", got)
+	}
+}
+
+// A shader has one entry point, of a kind that decides how it draws; an
+// effect's leaves image3 to its content.
+func TestKinds(t *testing.T) {
+	for _, c := range []struct{ src, want string }{
+		{"package main\nfunc Fragment() vec4 { return vec4(1) }\nfunc LayerEffect(pos vec2) vec4 { return vec4(1) }\n", "one entry point"},
+		{"package main\nfunc LayerEffect(pos vec2) vec4 { return image3At(pos) }\n", "image3 is its content"},
+	} {
+		if _, err := shader.Compile(c.src); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("Compile(%q) = %v, want an error with %q", c.src, err, c.want)
+		}
+	}
+	effect := shader.MustCompile("package main\nfunc LayerEffect(pos vec2) vec4 { return layerAt(pos) }\n")
+	fill := shader.MustCompile("package main\nfunc Fragment() vec4 { return vec4(1) }\n")
+	mustPanic := func(name string, fn func()) {
+		t.Helper()
+		defer func() {
+			if recover() == nil {
+				t.Errorf("%s did not panic", name)
+			}
+		}()
+		fn()
+	}
+	mustPanic("Effect of a Fragment shader", func() { fill.Effect(shader.Options{}) })
+	view := func(c *ui.Context) {
+		ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) {
+			mustPanic("Draw of an effect's shader", func() { effect.Draw(p, r, shader.Options{}) })
+		})
+	}
+	ui.NewTester(view, 10, 10).Image()
+}

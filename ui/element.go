@@ -281,6 +281,8 @@ type node struct {
 	radius       [4]float32
 	shadows      []shadow
 	material     Material
+	effect       Effect
+	effecting    bool
 	opacity      float32
 	opacitySet   bool
 	cursor       Cursor

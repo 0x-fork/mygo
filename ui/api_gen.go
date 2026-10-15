@@ -3512,6 +3512,31 @@ func (_handle Element) DroppedFiles() []string {
 	return _node.DroppedFiles()
 }
 
+// Effect draws the element, with its children, through fx, an effect of
+// package ui/shader, in place of drawing it as it is; nil draws it as it
+// is:
+//
+//	ui.Text(c, "Wavy").Effect(wave.Effect(shader.Options{
+//		Uniforms:        map[string]any{"Time": t},
+//		MaxSampleOffset: ui.Point{Y: 8},
+//	}))
+//
+// What the element renders, with its children, shadows and what its Draw
+// callbacks paint, renders into a bitmap of the GPU, the size of its box
+// and the effect's margin (Effect.EffectMargin) around it, every frame
+// the element paints, which the effect then draws over the box,
+// transformed, clipped and faded as the element would be. Web views
+// inside the element do not show through an effect.
+func (_handle Element) Effect(fx Effect) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Effect(fx))
+}
+
 // Ellipsis sets what ends text that MaxLines or SingleLine cuts, "…" by
 // default.
 func (_handle Element) Ellipsis(s string) Element {

@@ -1,9 +1,10 @@
 uniform vec2 U0[4];
 uniform vec2 U1;
 uniform float U2;
-uniform uint U3;
-uniform int U4;
-uniform vec4 U5[4];
+uniform vec2 U3;
+uniform uint U4;
+uniform int U5;
+uniform vec4 U6[4];
 uniform sampler2D T0;
 uniform sampler2D T1;
 uniform sampler2D T2;
@@ -16,8 +17,8 @@ ivec2 flipRows(ivec2 p, int h) {
 
 uint F0(in uint l0);
 float F2(void);
-vec4 F5(in vec2 l0);
-vec4 F15(in vec4 l0, in vec2 l1);
+vec4 F7(in vec2 l0);
+vec4 F17(in vec4 l0, in vec2 l1);
 
 uint F0(in uint l0) {
 	uint l1 = 0u;
@@ -31,7 +32,7 @@ float F2(void) {
 	return U2;
 }
 
-vec4 F5(in vec2 l0) {
+vec4 F7(in vec2 l0) {
 	vec2 l1 = vec2(0);
 	vec2 l2 = vec2(0);
 	vec2 l3 = vec2(0);
@@ -51,20 +52,20 @@ vec4 F5(in vec2 l0) {
 	return mix(mix(l5, l6, (l3).x), mix(l7, l8, (l3).x), (l3).y);
 }
 
-vec4 F15(in vec4 l0, in vec2 l1) {
+vec4 F17(in vec4 l0, in vec2 l1) {
 	float l2 = float(0);
 	uint l5 = 0u;
 	l2 = 0.0;
-	for (int l3 = 0; l3 < U4; l3++) {
-		l2 = (l2) + ((((U5)[l3]).z) / ((1.0) + (distance(l1, ((U5)[l3]).xy))));
+	for (int l3 = 0; l3 < U5; l3++) {
+		l2 = (l2) + ((((U6)[l3]).z) / ((1.0) + (distance(l1, ((U6)[l3]).xy))));
 	}
-	for (uint l4 = 0u; l4 < U3; l4 += 2u) {
+	for (uint l4 = 0u; l4 < U4; l4 += 2u) {
 		l2 = (l2) + (1.0000000000e-01);
 	}
-	l5 = F0((((uvec3(uint(int((l0).x)))).z) * (2654435769u)) ^ (F0((uint(int((l0).y))) ^ (U3))));
-	return (((F5((l1) * (F2()))) * (float((l5) % (255u)))) / (255.0)) * (l2);
+	l5 = F0((((uvec3(uint(int((l0).x)))).z) * (2654435769u)) ^ (F0((uint(int((l0).y))) ^ (U4))));
+	return (((F7((l1) * (F2()))) * (float((l5) % (255u)))) / (255.0)) * (l2);
 }
 
 vec4 shaderFragment(vec4 position, vec2 v0) {
-	return F15(position, v0);
+	return F17(position, v0);
 }

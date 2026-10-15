@@ -148,6 +148,9 @@ func (p *Painter) element(e *node) {
 		p.paintInline(e)
 		return
 	}
+	if p.paintEffect(e) {
+		return
+	}
 	saved := p.opacity
 	if e.flags&flagDisabled != 0 {
 		p.opacity *= 0.5
