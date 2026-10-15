@@ -161,3 +161,21 @@ func TestStops(t *testing.T) {
 		t.Errorf("%d numbers for the shader, want %d", len(s.at(1)), 4*len(glowColors))
 	}
 }
+
+// The assistant works in real time: a reply asked for before the window
+// went out of sight, its frames paused, has come as far as the time
+// tells once it shows again, done if long enough.
+func TestCatchesUp(t *testing.T) {
+	a := newApp()
+	a.send("Summarize my week")
+	a.step(thinkTime + 0.5)
+	if m := a.messages[1]; m.shown == 0 || !a.busy {
+		t.Fatalf("%d words, busy %v half a second into writing, want some, writing", m.shown, a.busy)
+	}
+	a = newApp()
+	a.send("Summarize my week")
+	a.step(60)
+	if m := a.messages[1]; a.busy || m.shown != len(m.words) {
+		t.Fatalf("busy %v, %d of %d words a minute later, want the whole reply", a.busy, m.shown, len(m.words))
+	}
+}

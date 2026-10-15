@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -17,10 +18,11 @@ var glowColors = []ui.Color{
 
 const shuffleEvery, shuffleTime = 0.5, 1.0
 
-// stop is a stop of the gradient: its color, and where it lies around the
-// window, from 0 to 1.
+// stop is a stop of the gradient: its color in Oklab, in which SwiftUI
+// blends a gradient's colors, and where it lies around the window, from 0
+// to 1.
 type stop struct {
-	r, g, b, at float64
+	l, a, b, at float64
 }
 
 // stops are the gradient's stops as they move from where they were (from)
@@ -44,7 +46,8 @@ func newStops(random func() float64) stops {
 func (s *stops) shuffle() []stop {
 	out := make([]stop, len(glowColors))
 	for i, c := range glowColors {
-		out[i] = stop{float64(c.R) / 255, float64(c.G) / 255, float64(c.B) / 255, s.random()}
+		l, a, b := oklab(c)
+		out[i] = stop{l, a, b, s.random()}
 	}
 	slices.SortFunc(out, func(a, b stop) int {
 		switch {
@@ -74,7 +77,7 @@ func (s *stops) show(now float64) []stop {
 	out := make([]stop, len(s.to))
 	for i := range out {
 		f, t := s.from[i], s.to[i]
-		out[i] = stop{f.r + (t.r-f.r)*k, f.g + (t.g-f.g)*k, f.b + (t.b-f.b)*k, f.at + (t.at-f.at)*k}
+		out[i] = stop{f.l + (t.l-f.l)*k, f.a + (t.a-f.a)*k, f.b + (t.b-f.b)*k, f.at + (t.at-f.at)*k}
 	}
 	return out
 }
@@ -84,7 +87,25 @@ func (s *stops) show(now float64) []stop {
 func (s *stops) at(now float64) []float32 {
 	var out []float32
 	for _, x := range s.show(now) {
-		out = append(out, float32(x.r), float32(x.g), float32(x.b), float32(x.at))
+		out = append(out, float32(x.l), float32(x.a), float32(x.b), float32(x.at))
 	}
 	return out
+}
+
+// oklab returns c, in sRGB, in Oklab.
+func oklab(c ui.Color) (l, a, b float64) {
+	lin := func(v uint8) float64 {
+		x := float64(v) / 255
+		if x <= 0.04045 {
+			return x / 12.92
+		}
+		return math.Pow((x+0.055)/1.055, 2.4)
+	}
+	r, g, bl := lin(c.R), lin(c.G), lin(c.B)
+	lc := math.Cbrt(0.4122214708*r + 0.5363325363*g + 0.0514459929*bl)
+	mc := math.Cbrt(0.2119034982*r + 0.6806995451*g + 0.1073969566*bl)
+	sc := math.Cbrt(0.0883024619*r + 0.2817188376*g + 0.6299787005*bl)
+	return 0.2104542553*lc + 0.7936177850*mc - 0.0040720468*sc,
+		1.9779984951*lc - 2.4285922050*mc + 0.4505937099*sc,
+		0.0259040371*lc + 0.7827717662*mc - 0.8086757660*sc
 }

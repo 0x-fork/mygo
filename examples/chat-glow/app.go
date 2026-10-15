@@ -282,11 +282,14 @@ func (a *app) stop() {
 	}
 }
 
-// tick moves the conversation's clock on to now.
+// tick moves the conversation's clock on to now. The assistant works in
+// real time, as a model streams whether the window shows or not: once
+// the window shows again after frames paused while it was hidden, the
+// clock catches up and the reply shows as far as it came.
 func (a *app) tick(now time.Time) {
 	dt := 0.0
 	if !a.last.IsZero() {
-		dt = min(now.Sub(a.last).Seconds(), 0.1)
+		dt = max(now.Sub(a.last).Seconds(), 0)
 	}
 	a.last = now
 	a.step(dt)
@@ -298,10 +301,12 @@ func (a *app) step(dt float64) {
 	a.now += dt
 	if a.busy {
 		m := a.messages[len(a.messages)-1]
-		switch {
-		case a.writing == 0 && a.now-a.asked >= thinkTime:
-			a.writing = a.now
-		case a.writing > 0:
+		if a.writing == 0 && a.now-a.asked >= thinkTime {
+			// It began to write as it stopped thinking, however late the
+			// clock tells.
+			a.writing = a.asked + thinkTime
+		}
+		if a.writing > 0 {
 			m.shown = min(len(m.words), int((a.now-a.writing)*wordsPerSecond)+1)
 			if m.shown == len(m.words) {
 				a.busy = false
