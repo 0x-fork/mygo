@@ -3524,7 +3524,15 @@ renderer's (`gputest.Compare`).
   of the target finds them, the CLI downloads each once into
   `<user cache>/mygo/natives/<sha256>/`, checking its SHA-256, and installs
   it at the top of the resources like a listed resource, both
-  architectures of a universal app combined.
+  architectures of a universal app combined. The CLI and the plugins
+  download into that cache with `internal/download`: a 5xx, 408 or 429
+  response, or a connection that fails or breaks off, is tried again
+  after 1, 2 and 4 s (GitHub's release downloads answer 502 and 504 now
+  and then), and a lock on `.lock` in the file's directory (`flock`,
+  `LockFileEx`) has processes that need the file at once download it
+  once: the others wait, then find it. Without it each renamed its own
+  copy onto the file, which Windows refuses ("Access is denied") while
+  another process has it open or loaded.
   `resources/icon.png` is the default icon. Each platform's output
   directory is assembled in a staging directory that replaces it whole, so
   removed resources do not linger; development builds on Linux and Windows
@@ -3542,10 +3550,11 @@ renderer's (`gputest.Compare`).
   few seconds after it appears, not sharing it for deletion, and `Delete`
   fails meanwhile.
   `makensis` comes from an installation of NSIS or, on Windows, where NSIS
-  is rarely installed, from the official zip of the release `nsisRelease`
-  pins, which the CLI downloads once, checks against its SHA-256 and
-  unpacks into `<user cache>/mygo`, as Tauri does. It tries the copies of
-  the zip in `nsisRelease.urls` in order, until one answers with the right
+  is rarely installed, from the official zip of the release that
+  `Release` in `internal/nsis` pins, which the CLI downloads once, checks
+  against its SHA-256 and unpacks into `<user cache>/mygo`, as Tauri
+  does. It tries the copies of
+  the zip in `Release.URLs` in order, until one answers with the right
   SHA-256: the asset of this repository's `nsis-<version>` release, then
   SourceForge, where NSIS publishes it. SourceForge's download host has
   been down for hours at a time, and its mirrors then redirect to it, so
@@ -3850,13 +3859,17 @@ for the tag and creates the GitHub release.
 
 It does not run the tests again: `ci.yml` runs them on every push to main,
 for every platform, GUI tests included, so tag a commit whose CI passed.
-Its Windows job keeps the NSIS that the installer tests download in the
-Actions cache, under a key of `cmd/mygo/nsis.go`.
+Before the tests, each job downloads what they would download into the
+user's cache otherwise (`go run ./internal/prefetch`): the plugins'
+native libraries for its platform, and NSIS on Windows. It keeps them in
+the Actions cache, under a key of the files that pin them (the plugins'
+`mygo-plugin.json` and `internal/nsis/nsis.go`), so that the tests do
+not depend on the network.
 
-The NSIS that `mygo build` downloads (`nsisRelease` in `cmd/mygo/nsis.go`)
+The NSIS that `mygo build` downloads (`Release` in `internal/nsis/nsis.go`)
 has a copy on a release of this repository, which a new version of NSIS
 needs before a MyGo release that pins it. Download the official zip,
-check that its SHA-256 is the one `nsisRelease` pins, and publish it,
+check that its SHA-256 is the one `Release` pins, and publish it,
 without making the release the latest:
 
 ```sh
