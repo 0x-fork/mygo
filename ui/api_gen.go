@@ -5285,6 +5285,19 @@ func (_handle Element) TextAlign(a Align) Element {
 	return wrapElement(_node.TextAlign(a))
 }
 
+// TextAnchorCaret returns the selection of a text input as offsets in runes
+// into its text, from where it was started to its caret: the anchor is after
+// the caret when the selection was made backwards.
+func (_handle Element) TextAnchorCaret() (int, int) {
+	_node := _handle.node()
+	if _node == nil {
+		return 0, 0
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.TextAnchorCaret()
+}
+
 // TextBackground fills the lines of text behind it with c, as a
 // highlight.
 func (_handle Element) TextBackground(c Color) Element {

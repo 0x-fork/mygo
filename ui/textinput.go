@@ -207,6 +207,17 @@ func (e *node) TextSelection() (start, end int) {
 	return ed.selection()
 }
 
+// TextAnchorCaret returns the selection of a text input as offsets in runes
+// into its text, from where it was started to its caret: the anchor is after
+// the caret when the selection was made backwards.
+func (e *node) TextAnchorCaret() (anchor, caret int) {
+	ed := e.st.editor
+	if ed == nil {
+		return 0, 0
+	}
+	return ed.anchor, ed.caret
+}
+
 // SetTextSelection selects the runes of a text input from start to end, or
 // puts the caret at start when they are equal, and scrolls it into view: the
 // caret after a word the app completed. The offsets are kept within the text.
