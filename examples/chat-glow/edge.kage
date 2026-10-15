@@ -62,14 +62,19 @@ func Fragment(dst vec4, pos vec2) vec4 {
 	// The colors flow around the edges, a little later further in.
 	c := palette(flow + 0.06*soft/width)
 	c = clamp(mix(vec3(dot(c, vec3(0.3, 0.55, 0.15))), c, 1.35), 0, 1)
-	light := band + rim + haze + wave
-	col := c*(band+haze)*mix(1, 1.3, Dark) + palette(flow+0.1)*rim + palette(flow+0.4)*wave
-	// White where it burns brightest, at the edge's hot spots.
-	col += vec3(1) * rim * max(hot-0.6, 0) * 0.7
+	// The colors' mix, and how much light there is: added up, the layers
+	// would wash out to white at the edge.
+	weight := band + haze + rim + wave
+	hue := (c*(band+haze) + palette(flow+0.1)*rim + palette(flow+0.4)*wave) / max(weight, 0.0001)
 	strength := Strength * (0.92 + 0.08*sin(Time*2.1+1))
-	col *= strength
-	alpha := clamp(light*strength, 0, 1)
-	// On a dark theme the glow adds light; on a light one it covers.
-	alpha *= mix(1, 0.6, Dark)
-	return vec4(min(col, max(alpha, Dark)), alpha)
+	cover := min(weight, 1) * strength
+	if Dark < 0.5 {
+		// On a light theme it covers what is under it, in full color.
+		return vec4(hue*cover, cover)
+	}
+	// On a dark one it adds light, white where it burns brightest, at the
+	// edge's hot spots.
+	col := hue * min(weight, 1.6) * 1.2 * strength
+	col += vec3(1) * rim * max(hot-0.6, 0) * 0.6 * strength
+	return vec4(min(col, 1), 0.6*cover)
 }
