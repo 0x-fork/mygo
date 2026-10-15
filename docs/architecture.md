@@ -1627,6 +1627,14 @@ constructor as `image` does: WAV is built in, `audio/vorbis` and
 `WatchFiles` keeps what it saw of its directory (`watch_scan.go`): the
 `os.FileInfo` of every file and directory, by path, read through an
 `os.Root` so that a path can't lead out of it, and symlinks not followed.
+Each directory is opened as an `os.Root` of its own from the one that has
+it, and what is in it is looked at by name relative to it, one call each,
+as watchman and @parcel/watcher crawl with `openat` and `fstatat`: a
+root opens every directory of a deeper path in turn. On Unix, reading a
+directory opened in a root stats its entries already
+(`fileWatchEntryInfo`). Looking at everything again lists each directory
+from the one that has it. A directory replaced by a symlink, which a root
+follows only within itself, is a replacement, wherever it leads.
 The backend's watcher (`platform.FileWatch`) is given targets, the entries
 the core enrolls, and reports notices: a target, or a child of a directory
 target by name, changed. A notice says where to look, not what happened:
@@ -1646,8 +1654,8 @@ looked at again rather than watched in place of the other.
 A watched file is watched through its directory, enrolled as `..` with
 the file as `.`: the scan's `os.Root` is the directory, and notices of the
 directory naming other entries are dropped. A file replaced at its path is
-reported as written. `Ignore` is asked before an entry is stat'ed, from
-the directory listing's type, so an ignored directory is never opened;
+reported as written. `Ignore` is asked from the directory listing's
+type, before an entry is enrolled, so an ignored directory is never opened;
 the directories it ignored are kept per listed directory, so that the
 notices of a `Subtree` target about what is in them are dropped.
 

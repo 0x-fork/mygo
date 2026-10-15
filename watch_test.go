@@ -371,6 +371,75 @@ func TestFileWatchLooksOnlyWhereNotified(t *testing.T) {
 	}
 }
 
+// Looking at everything again lists each directory from the one that has
+// it, and a directory replaced by a symlink, which may lead out of the
+// directory that has it or out of the watch, is a replacement, not the end
+// of the watch.
+func TestFileWatchRescan(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "dir")
+	for _, p := range []string{"a/b/c/old", "a/b/gone", "a/pkg/index.js", "a/lib/index.js", "outside/x"} {
+		if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(p)), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, p), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Rename(filepath.Join(dir, "outside"), filepath.Join(base, "outside")); err != nil {
+		t.Fatal(err)
+	}
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: true, Debounce: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	replace := func(p, link string) {
+		t.Helper()
+		if err := os.RemoveAll(filepath.Join(dir, p)); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(link, filepath.Join(dir, p)); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skip(err) // symlinks need developer mode
+			}
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a/b/c/new"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "a/b/gone")); err != nil {
+		t.Fatal(err)
+	}
+	replace("a/pkg", "lib") // within the directory that has it
+	fb.LastFileWatch().Notify(platform.FileWatchNotice{Err: platform.ErrFileWatchOverflow})
+	want := []FileEvent{
+		{Op: FileCreate, Path: "a/b/c/new"},
+		{Op: FileRemove, Path: "a/b/gone"},
+		{Op: FileRemove, Path: "a/pkg", IsDir: true},
+		{Op: FileCreate, Path: "a/pkg"},
+		{Op: FileRemove, Path: "a/pkg/index.js"},
+	}
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, want) {
+		t.Fatalf("batch = %+v, want %+v", batch, want)
+	}
+	// Out of the watch, and listed by itself.
+	replace("a/lib", "../../outside")
+	fileWatchTestNotice(t, w, "a/lib", platform.FileWatchNotice{})
+	want = []FileEvent{
+		{Op: FileRemove, Path: "a/lib", IsDir: true},
+		{Op: FileCreate, Path: "a/lib"},
+		{Op: FileRemove, Path: "a/lib/index.js"},
+	}
+	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, want) {
+		t.Fatalf("batch = %+v, want %+v", batch, want)
+	}
+	if err := w.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A directory renamed is one rename, not one for everything in it.
 func TestFileWatchDirectoryRename(t *testing.T) {
 	dir := t.TempDir()
@@ -496,6 +565,63 @@ func TestFileWatchDiff(t *testing.T) {
 	events := fileWatchDiff(old, map[string]os.FileInfo{"b": info}, map[string]bool{"a": true})
 	if len(events) != 2 || events[0].Op != FileRename || events[0].OldPath != "a" || events[1].Op != FileWrite {
 		t.Fatalf("%+v", events)
+	}
+}
+
+// On Unix the scan takes what reading a directory opened in an os.Root says
+// of an entry rather than stat it again: the os package stats every entry
+// as it reads it, relative to the directory and without following a
+// symlink, not later by a path that could lead out of the root.
+func TestFileWatchEntryInfo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stat'ed by name in the directory's root")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("a", filepath.Join(dir, "l")); err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.Lstat(filepath.Join(dir, "a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	f, err := root.Open(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(-1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Gone once read: what the entries say was stat'ed already.
+	for _, name := range []string{"a", "l"} {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, entry := range entries {
+		info, err := fileWatchEntryInfo(root, entry)
+		if err != nil {
+			t.Fatalf("%s: %v", entry.Name(), err)
+		}
+		switch entry.Name() {
+		case "a":
+			if !os.SameFile(info, want) || info.Size() != 1 {
+				t.Fatalf("a: %v", info)
+			}
+		case "l":
+			if info.Mode()&fs.ModeSymlink == 0 {
+				t.Fatalf("l: %v, want the symlink", info.Mode())
+			}
+		}
 	}
 }
 
@@ -761,4 +887,68 @@ func TestFileWatchInaccessible(t *testing.T) {
 			t.Fatalf("batch = %+v", batch)
 		}
 	}
+}
+
+// BenchmarkFileWatchScan times a recursive watch's first scan and a look
+// at everything again, as after an overflow, with the fake backend: of
+// the tree at MYGO_WATCH_BENCH_DIR (.git ignored), or of a generated one,
+// nine directories deep.
+func BenchmarkFileWatchScan(b *testing.B) {
+	dir := os.Getenv("MYGO_WATCH_BENCH_DIR")
+	if dir == "" {
+		dir = b.TempDir()
+		var fill func(p string, depth int)
+		fill = func(p string, depth int) {
+			for i := range 8 {
+				if err := os.WriteFile(filepath.Join(p, fmt.Sprint("f", i)), nil, 0600); err != nil {
+					b.Fatal(err)
+				}
+			}
+			if depth == 9 {
+				return
+			}
+			for i := range 2 {
+				sub := filepath.Join(p, fmt.Sprint("d", i))
+				if err := os.Mkdir(sub, 0700); err != nil {
+					b.Fatal(err)
+				}
+				fill(sub, depth+1)
+			}
+		}
+		fill(dir, 1)
+	}
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	start := func(b *testing.B) (*fileWatchScan, func()) {
+		native, err := backend().NewFileWatch(func(platform.FileWatchNotice) {})
+		if err != nil {
+			b.Fatal(err)
+		}
+		ignore := func(p string, _ bool) bool { return p == ".git" }
+		w := &FileWatcher{ctx: context.Background(), root: root, native: native, opts: FileWatchOptions{Recursive: true, MaxEntries: 1 << 20, Ignore: ignore}}
+		s := newFileWatchScan(w)
+		if _, err := s.start(); err != nil {
+			b.Fatal(err)
+		}
+		return s, func() { s.close(); native.Close() }
+	}
+	b.Run("start", func(b *testing.B) {
+		for b.Loop() {
+			_, stop := start(b)
+			stop()
+		}
+	})
+	b.Run("rescan", func(b *testing.B) {
+		s, stop := start(b)
+		defer stop()
+		for b.Loop() {
+			s.all = true
+			if events, err := s.update(); err != nil || len(events) > 0 {
+				b.Fatal(events, err)
+			}
+		}
+		b.ReportMetric(float64(len(s.entries)), "entries")
+	})
 }

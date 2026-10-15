@@ -119,7 +119,7 @@ func (s *fileWatchScan) start() ([]FileEvent, error) {
 		}
 	}
 	s.before = map[string]os.FileInfo{}
-	if err = s.visit(".", info); err != nil {
+	if err = s.visit(s.root, ".", info); err != nil {
 		return nil, err
 	}
 	// The initial contents are not events.
@@ -169,6 +169,38 @@ func (s *fileWatchScan) osPath(p string) string {
 		return s.name
 	}
 	return filepath.FromSlash(p)
+}
+
+// base is the name of p in its directory: "." for the watched directory,
+// and the watched file's name.
+func (s *fileWatchScan) base(p string) string {
+	if s.file {
+		return s.name
+	}
+	return path.Base(p)
+}
+
+// lstat stats p, without following a symlink, in dir, the directory that
+// has it: one call by its name, where the root would open every directory
+// above it in turn.
+func (s *fileWatchScan) lstat(dir *os.Root, p string) (os.FileInfo, error) {
+	info, err := dir.Lstat(s.base(p))
+	return info, s.pathError(err, p)
+}
+
+// entryInfo returns what entry, child read from d, is, as lstat would.
+func (s *fileWatchScan) entryInfo(d *fileWatchDir, entry fs.DirEntry, child string) (os.FileInfo, error) {
+	info, err := fileWatchEntryInfo(d.root, entry)
+	return info, s.pathError(err, child)
+}
+
+// pathError names p, from the root, in err, which names it relative to the
+// directory that has it.
+func (s *fileWatchScan) pathError(err error, p string) error {
+	if e, ok := err.(*os.PathError); ok {
+		e.Path = s.osPath(p)
+	}
+	return err
 }
 
 // ignores reports whether p is in a directory Ignore ignored.
@@ -347,6 +379,7 @@ func (s *fileWatchScan) update() ([]FileEvent, error) {
 		}
 	}
 	// Parents first: listing a directory again can replace those below it.
+	// Listing a directory lists those to list in it, from it.
 	dirs := make([]string, 0, len(s.lists))
 	for p := range s.lists {
 		dirs = append(dirs, p)
@@ -358,10 +391,11 @@ func (s *fileWatchScan) update() ([]FileEvent, error) {
 		return dirs[i] < dirs[j]
 	})
 	for _, p := range dirs {
-		if s.entries[p] == nil {
-			continue // removed with its parent
+		if !s.lists[p] || !s.listable(p) {
+			continue // listed, removed or replaced with its parent
 		}
-		if err := s.list(p); err != nil {
+		delete(s.lists, p)
+		if err := s.list(nil, p); err != nil {
 			return nil, err
 		}
 	}
@@ -426,7 +460,7 @@ func (s *fileWatchScan) statFile() error {
 	if old != nil {
 		s.removeTree(".")
 	}
-	return s.visit(".", info)
+	return s.visit(s.root, ".", info)
 }
 
 // stat looks at p again. For an entry it didn't know, or one that is gone
@@ -486,33 +520,39 @@ func (s *fileWatchScan) listable(p string) bool {
 	return info != nil && s.descends(p, info)
 }
 
-// list lists directory p again: what appeared or was replaced in it is
-// visited, what is gone removed, and the rest stat'ed again.
-func (s *fileWatchScan) list(p string) error {
-	dir, info, err := s.openDir(p, s.entries[p])
+// list lists directory p again, in dir, the directory that has it, or
+// from the root when dir is nil: what appeared or was replaced in it is
+// visited, what is gone removed, and the rest stat'ed again. The
+// directories in it still to list are listed from it.
+func (s *fileWatchScan) list(dir *os.Root, p string) error {
+	name := s.base(p)
+	if dir == nil {
+		dir, name = s.root, filepath.FromSlash(p)
+	}
+	d, err := s.openDir(dir, name, p, s.entries[p])
 	if err != nil {
 		if p == "." {
 			return err
 		}
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, errWatchRootChanged) {
 			// Gone or replaced: what has it knows.
-			return s.list(path.Dir(p))
+			return s.list(nil, path.Dir(p))
 		}
 		if s.inaccessible(p, err) {
 			return nil
 		}
 		return err
 	}
-	defer dir.Close()
-	if err := s.enroll(p, info); err != nil {
+	defer d.close()
+	if err := s.enroll(p, d.info); err != nil {
 		return err
 	}
-	s.set(p, info)
+	s.set(p, d.info)
 	seen := map[string]bool{}
 	ignored := map[string]bool{}
 	s.ignored[p] = ignored
 	for {
-		entries, err := dir.ReadDir(128)
+		entries, err := d.file.ReadDir(128)
 		for _, entry := range entries {
 			name := entry.Name()
 			child := path.Join(p, name)
@@ -520,7 +560,7 @@ func (s *fileWatchScan) list(p string) error {
 				continue
 			}
 			seen[name] = true
-			info, err := s.root.Lstat(filepath.FromSlash(child))
+			info, err := s.entryInfo(d, entry, child)
 			if errors.Is(err, fs.ErrNotExist) {
 				s.races[p] = true
 				delete(seen, name)
@@ -542,7 +582,7 @@ func (s *fileWatchScan) list(p string) error {
 				}
 				s.removeTree(child)
 			}
-			if err := s.visit(child, info); err != nil {
+			if err := s.visit(d.root, child, info); err != nil {
 				return err
 			}
 		}
@@ -561,31 +601,89 @@ func (s *fileWatchScan) list(p string) error {
 			s.removeTree(path.Join(p, name))
 		}
 	}
+	for name := range s.children[p] {
+		if child := path.Join(p, name); s.lists[child] {
+			delete(s.lists, child)
+			if s.listable(child) {
+				if err := s.list(d.root, child); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	return nil
 }
 
-// openDir opens directory p, which must still be the directory info.
-func (s *fileWatchScan) openDir(p string, info os.FileInfo) (*os.File, os.FileInfo, error) {
-	dir, err := s.root.Open(filepath.FromSlash(p))
-	if err != nil {
-		return nil, nil, err
-	}
-	opened, err := dir.Stat()
-	if err != nil {
-		dir.Close()
-		return nil, nil, err
-	}
-	if !opened.IsDir() || !os.SameFile(info, opened) {
-		dir.Close()
-		return nil, nil, &os.PathError{Op: "watch", Path: p, Err: errWatchRootChanged}
-	}
-	return dir, opened, nil
+// fileWatchDir is a directory of the tree, open to be read: root holds
+// what is in it, which is looked at by name, relative to it, and file
+// reads it.
+type fileWatchDir struct {
+	root *os.Root
+	file *os.File
+	info os.FileInfo
+	// owned says root is the directory's own, which close closes, rather
+	// than the scan's.
+	owned bool
 }
 
-// visit records p, which wasn't known, and when the watch covers it what
-// is beneath it. An entry removed or replaced while it looks is skipped,
-// and its directory reported as written.
-func (s *fileWatchScan) visit(p string, info os.FileInfo) error {
+func (d *fileWatchDir) close() {
+	d.file.Close()
+	if d.owned {
+		d.root.Close()
+	}
+}
+
+// openDir opens directory p, at name in dir, which must still be the
+// directory info.
+func (s *fileWatchScan) openDir(dir *os.Root, name, p string, info os.FileInfo) (*fileWatchDir, error) {
+	d := &fileWatchDir{root: s.root}
+	if p != "." {
+		root, err := dir.OpenRoot(name)
+		if err != nil {
+			return nil, s.openError(err, dir, name, p, info)
+		}
+		d.root, d.owned = root, true
+	}
+	var err error
+	if d.file, err = d.root.Open("."); err != nil {
+		if d.owned {
+			d.root.Close()
+		}
+		return nil, s.pathError(err, p)
+	}
+	if d.info, err = d.file.Stat(); err != nil {
+		d.close()
+		return nil, err
+	}
+	if !d.info.IsDir() || !os.SameFile(info, d.info) {
+		d.close()
+		return nil, &os.PathError{Op: "watch", Path: s.osPath(p), Err: errWatchRootChanged}
+	}
+	return d, nil
+}
+
+// openError is what opening directory p, at name in dir, failing with err
+// says: errWatchRootChanged when it is no longer the directory info, as
+// when a symlink replaced it, which the root follows only within dir.
+func (s *fileWatchScan) openError(err error, dir *os.Root, name, p string, info os.FileInfo) error {
+	if errors.Is(err, fs.ErrNotExist) || s.inaccessible(p, err) {
+		return s.pathError(err, p)
+	}
+	checked, statErr := dir.Lstat(name)
+	if statErr != nil {
+		return s.pathError(statErr, p)
+	}
+	if !checked.IsDir() || !os.SameFile(info, checked) {
+		return &os.PathError{Op: "watch", Path: s.osPath(p), Err: errWatchRootChanged}
+	}
+	return s.pathError(err, p)
+}
+
+// visit records p, which wasn't known, in dir, the directory that has it,
+// and when the watch covers it what is beneath it. An entry removed or
+// replaced while it looks is skipped, and its directory reported as
+// written.
+func (s *fileWatchScan) visit(dir *os.Root, p string, info os.FileInfo) error {
 	if err := s.w.ctx.Err(); err != nil {
 		return err
 	}
@@ -599,41 +697,47 @@ func (s *fileWatchScan) visit(p string, info os.FileInfo) error {
 	}
 	// Enroll first, then check the entry is still what was enrolled, so
 	// that nothing changes unseen in between. Replacements, as editors'
-	// atomic saves do, are retried a few times.
-	var dir *os.File
+	// atomic saves do, are retried a few times. What isn't enrolled is
+	// watched through its directory, enrolled before it was listed, or
+	// not at all, and needs no check.
+	var d *fileWatchDir
 	for attempt := 0; ; attempt++ {
 		if attempt == 3 {
 			return gone()
 		}
-		err := s.enroll(p, info)
-		if errors.Is(err, fs.ErrPermission) || errors.Is(err, platform.ErrUnsupported) || errors.Is(err, context.Canceled) {
-			return err
-		}
-		checked, statErr := s.root.Lstat(s.osPath(p))
-		if (p != "." || s.file) && (errors.Is(statErr, fs.ErrNotExist) || errors.Is(err, fs.ErrNotExist)) {
-			return gone()
-		}
-		if statErr != nil {
-			return statErr
-		}
-		if !os.SameFile(info, checked) {
-			if p == "." && !s.file {
-				return errWatchRootChanged
+		if !s.enrolls(p, info) {
+			s.unenroll(p)
+		} else {
+			err := s.enroll(p, info)
+			if errors.Is(err, fs.ErrPermission) || errors.Is(err, platform.ErrUnsupported) || errors.Is(err, context.Canceled) {
+				return err
 			}
-			s.races[p] = true
+			checked, statErr := s.lstat(dir, p)
+			if (p != "." || s.file) && (errors.Is(statErr, fs.ErrNotExist) || errors.Is(err, fs.ErrNotExist)) {
+				return gone()
+			}
+			if statErr != nil {
+				return statErr
+			}
+			if !os.SameFile(info, checked) {
+				if p == "." && !s.file {
+					return errWatchRootChanged
+				}
+				s.races[p] = true
+				info = checked
+				continue
+			}
+			if err != nil {
+				return err
+			}
 			info = checked
-			continue
 		}
-		if err != nil {
-			return err
-		}
-		info = checked
 		if !s.descends(p, info) {
 			break
 		}
-		opened, openedInfo, err := s.openDir(p, info)
+		opened, err := s.openDir(dir, s.base(p), p, info)
 		if err == nil {
-			dir, info = opened, openedInfo
+			d, info = opened, opened.info
 			break
 		}
 		if s.inaccessible(p, err) {
@@ -649,26 +753,26 @@ func (s *fileWatchScan) visit(p string, info os.FileInfo) error {
 			return err
 		}
 		s.races[p] = true
-		if info, err = s.root.Lstat(s.osPath(p)); errors.Is(err, fs.ErrNotExist) {
+		if info, err = s.lstat(dir, p); errors.Is(err, fs.ErrNotExist) {
 			return gone()
 		} else if err != nil {
 			return err
 		}
 	}
 	s.set(p, info)
-	if dir == nil {
+	if d == nil {
 		return nil
 	}
-	defer dir.Close()
+	defer d.close()
 	ignored := s.ignoredIn(p)
 	for {
-		entries, err := dir.ReadDir(128)
+		entries, err := d.file.ReadDir(128)
 		for _, entry := range entries {
 			child := path.Join(p, entry.Name())
 			if s.skip(child, entry.IsDir(), ignored) {
 				continue
 			}
-			info, err := s.root.Lstat(filepath.FromSlash(child))
+			info, err := s.entryInfo(d, entry, child)
 			if errors.Is(err, fs.ErrNotExist) {
 				s.races[p] = true
 				continue
@@ -679,7 +783,7 @@ func (s *fileWatchScan) visit(p string, info os.FileInfo) error {
 			if err != nil {
 				return err
 			}
-			if err := s.visit(child, info); err != nil {
+			if err := s.visit(d.root, child, info); err != nil {
 				return err
 			}
 		}
@@ -734,11 +838,17 @@ func (s *fileWatchScan) removeTree(p string) {
 	s.unenroll(p)
 }
 
-// enroll has the backend watch p, which the scan saw as info, unless the
-// root's target covers it or it is a symlink or a special file. A watched
-// file is enrolled only while it is a file.
+// enrolls reports whether enroll has the backend watch p, which the scan
+// saw as info: not when the root's target covers it or it is a symlink or
+// a special file. A watched file is enrolled only while it is a file.
+func (s *fileWatchScan) enrolls(p string, info os.FileInfo) bool {
+	return (info.Mode().IsRegular() || info.IsDir() && !s.file) && (!s.subtree || p == ".")
+}
+
+// enroll has the backend watch p, which the scan saw as info, if it
+// enrolls it.
 func (s *fileWatchScan) enroll(p string, info os.FileInfo) error {
-	if !info.Mode().IsRegular() && (!info.IsDir() || s.file) || s.subtree && p != "." {
+	if !s.enrolls(p, info) {
 		s.unenroll(p)
 		return nil
 	}
