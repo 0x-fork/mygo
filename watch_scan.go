@@ -55,8 +55,10 @@ type fileWatchScan struct {
 	// listed directory that has some, so that notices about what is in
 	// them are dropped.
 	ignored map[string]map[string]bool
-	// before holds what an update changed, as it was before.
-	before map[string]fileWatchBefore
+	// before holds what an update changed, as it was before; removed is
+	// the watched file the last update found gone.
+	before  map[string]fileWatchBefore
+	removed fileWatchGone
 }
 
 // fileWatchEntry is what the scan keeps of a file or directory: its
@@ -194,6 +196,8 @@ func (s *fileWatchScan) watchParent() error {
 
 // gone reports whether the watched directory, or the directory of the
 // watched file, went away or was replaced.
+func (s *fileWatchScan) removedFile() fileWatchGone { return s.removed }
+
 func (s *fileWatchScan) gone() bool {
 	info, err := os.Lstat(s.dir)
 	return errors.Is(err, fs.ErrNotExist) || err == nil && (!info.IsDir() || !os.SameFile(StatIdentity(info), s.identity))
@@ -463,9 +467,14 @@ func (s *fileWatchScan) events() []FileEvent {
 	}
 	events := fileWatchDiff(s.before, s.entries, writes)
 	a := s.before["."]
-	if b, ok := s.entries["."]; s.file && a.ok && ok && !a.entry.isDir() && !b.isDir() && a.entry.id != b.id {
+	b, ok := s.entries["."]
+	if s.file && a.ok && ok && !a.entry.isDir() && !b.isDir() && a.entry.id != b.id {
 		// A file replaced, as editors save, is written.
 		events = []FileEvent{{Op: FileWrite, Path: "."}}
+	}
+	s.removed = fileWatchGone{}
+	if s.file && a.ok && !ok {
+		s.removed = fileWatchGone{a.entry.id, true}
 	}
 	clear(s.before)
 	clear(s.writes)

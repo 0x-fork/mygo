@@ -905,6 +905,53 @@ func TestFileWatchFile(t *testing.T) {
 	}
 }
 
+// A watched file that goes away comes with what it was when the watch
+// last saw it, here the file that replaced it, so that a document finds
+// it where it was renamed whenever it looks.
+func TestFileWatchFileGone(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "doc.txt")
+	if err := os.WriteFile(file, []byte("a"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w, err := WatchFiles(context.Background(), file, FileWatchOptions{Debounce: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	next := func() fileResult {
+		t.Helper()
+		r := w.next(context.Background())
+		if r.err != nil {
+			t.Fatal(r.err)
+		}
+		return r
+	}
+	// Saved as editors save: a new file renamed over it.
+	if err := os.WriteFile(file+".tmp", []byte("bb"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(file+".tmp", file); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "..", platform.FileWatchNotice{Name: "doc.txt", Kind: platform.FileWatchCreate})
+	if r := next(); !slices.Equal(r.events, []FileEvent{{Op: FileWrite, Path: "."}}) || r.gone.ok {
+		t.Fatalf("saved: %+v", r)
+	}
+	renamed := filepath.Join(dir, "renamed.txt")
+	if err := os.Rename(file, renamed); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "..", platform.FileWatchNotice{Name: "doc.txt", Kind: platform.FileWatchRemove})
+	r := next()
+	if !slices.Equal(r.events, []FileEvent{{Op: FileRemove, Path: "."}}) || !r.gone.ok {
+		t.Fatalf("renamed: %+v", r)
+	}
+	if found := findRenamed(filepath.Dir(w.Root()), r.gone.id); found != filepath.Join(filepath.Dir(w.Root()), "renamed.txt") {
+		t.Fatalf("found %q", found)
+	}
+}
+
 // What Ignore ignores is never enrolled, counted or reported.
 func TestFileWatchIgnore(t *testing.T) {
 	dir := t.TempDir()

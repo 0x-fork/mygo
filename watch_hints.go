@@ -26,6 +26,9 @@ type fileWatchLooker interface {
 	mark(platform.FileWatchNotice) error
 	pending() bool
 	update() ([]FileEvent, error)
+	// removedFile is what the watched file was, when the last update
+	// found it gone.
+	removedFile() fileWatchGone
 	// lookAll makes the next update look at everything, after the system
 	// lost changes.
 	lookAll()
@@ -139,6 +142,9 @@ func (s *fileWatchHints) watchParent() error {
 	}
 	return s.add("..", StatIdentity(info))
 }
+
+// Hints watch no file.
+func (s *fileWatchHints) removedFile() fileWatchGone { return fileWatchGone{} }
 
 func (s *fileWatchHints) gone() bool {
 	info, err := os.Lstat(s.dir)

@@ -104,8 +104,10 @@ var ErrWatchLimit = errors.New("mygo: file watch entry limit exceeded")
 type FileWatcher struct {
 	mu sync.Mutex
 	// batch is the changes waiting for Next, nil when none do: the watch
-	// doesn't look again until Next takes them, which taken tells.
+	// doesn't look again until Next takes them, which taken tells. gone
+	// is what a watched file that the batch removes was.
 	batch   []FileEvent
+	gone    fileWatchGone
 	waiters []chan fileResult
 	stopped bool
 	err     error
@@ -129,7 +131,17 @@ type FileWatcher struct {
 }
 type fileResult struct {
 	events []FileEvent
+	gone   fileWatchGone
 	err    error
+}
+
+// fileWatchGone is the identity of a watched file that went away, as the
+// watch last saw it, so that a document finds the file again where
+// another app renamed it (findRenamed): a look at the file after the
+// batch came may be too late, once it moved.
+type fileWatchGone struct {
+	id fileWatchID
+	ok bool
 }
 
 var fileWatches = struct {
@@ -276,16 +288,22 @@ func (w *FileWatcher) Next(ctx context.Context) ([]FileEvent, error) {
 	if ctx == nil {
 		return nil, errors.New("mygo: nil wait context")
 	}
+	r := w.next(ctx)
+	return r.events, r.err
+}
+
+// next is Next, with what a watched file that the batch removes was.
+func (w *FileWatcher) next(ctx context.Context) fileResult {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return fileResult{err: err}
 	}
 	w.mu.Lock()
 	if w.batch != nil {
-		batch := w.batch
-		w.batch = nil
+		r := fileResult{events: w.batch, gone: w.gone}
+		w.batch, w.gone = nil, fileWatchGone{}
 		w.mu.Unlock()
 		w.take()
-		return batch, nil
+		return r
 	}
 	if w.stopped {
 		err := w.err
@@ -293,7 +311,7 @@ func (w *FileWatcher) Next(ctx context.Context) ([]FileEvent, error) {
 			err = io.EOF
 		}
 		w.mu.Unlock()
-		return nil, err
+		return fileResult{err: err}
 	}
 	waiter := make(chan fileResult, 1)
 	w.waiters = append(w.waiters, waiter)
@@ -314,8 +332,7 @@ func (w *FileWatcher) Next(ctx context.Context) ([]FileEvent, error) {
 		}
 	})
 	defer stop()
-	r := await(waiter)
-	return r.events, r.err
+	return await(waiter)
 }
 
 // take tells the goroutine of the watch that a batch was taken.
@@ -368,7 +385,7 @@ func (w *FileWatcher) stop(err error, discard bool) {
 }
 
 // emit hands events to a waiting Next, or keeps them for the next one.
-func (w *FileWatcher) emit(events []FileEvent) {
+func (w *FileWatcher) emit(events []FileEvent, gone fileWatchGone) {
 	if len(events) == 0 {
 		return
 	}
@@ -379,13 +396,16 @@ func (w *FileWatcher) emit(events []FileEvent) {
 	}
 	if len(w.waiters) == 0 {
 		w.batch = append(w.batch, events...)
+		if gone.ok {
+			w.gone = gone
+		}
 		w.mu.Unlock()
 		return
 	}
 	waiter := w.waiters[0]
 	w.waiters = w.waiters[1:]
 	w.mu.Unlock()
-	deliver(waiter, fileResult{events: events})
+	deliver(waiter, fileResult{events: events, gone: gone})
 }
 
 // waiting reports whether a batch waits for Next.
@@ -436,7 +456,7 @@ func (w *FileWatcher) run(ready chan error) {
 		deliver(ready, err)
 		return
 	}
-	w.emit(events)
+	w.emit(events, fileWatchGone{})
 	deliver(ready, nil)
 	var timer *time.Timer
 	var timerC <-chan time.Time
@@ -465,7 +485,7 @@ func (w *FileWatcher) run(ready chan error) {
 		due = false
 		events, err := scan.update()
 		if err == nil {
-			w.emit(events)
+			w.emit(events, scan.removedFile())
 			return true
 		}
 		if w.ctx.Err() != nil {
@@ -473,7 +493,7 @@ func (w *FileWatcher) run(ready chan error) {
 		}
 		if scan.gone() {
 			// The directory went away: say so, then end as closed.
-			w.emit(scan.goneEvents())
+			w.emit(scan.goneEvents(), fileWatchGone{})
 			discard = false
 			return false
 		}
