@@ -223,7 +223,10 @@ The apps run where they are, but to ship them to users, sign them: see
     bar, its material picked in it), `examples/effort-slider` (a web
     demo's animated slider redrawn: letters blurring in, a burst of
     pixels, a shaking card), `examples/confetti` (canvas-confetti's
-    demos, every piece flying on poses that only paint), `examples/timeline`
+    demos, every piece flying on poses that only paint), `examples/wind`
+    (the glyph texture behind the Claude app's Code tab: characters lit by
+    a passing wind, ripples from clicks, drawn by two shaders written in
+    Go), `examples/timeline`
     (an intro on one playhead: a card sliding in, its title and rows
     following it, with play, pause, reverse and restart) and
     `examples/gallery` (a tour of the
