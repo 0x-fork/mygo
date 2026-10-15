@@ -121,3 +121,43 @@ func TestScrollsToEnd(t *testing.T) {
 		t.Errorf("the last reply shows %.0f DIPs of its lines, want all of them", r.H)
 	}
 }
+
+// The edge glow's stops lie in order around the window, and move to new
+// places every shuffleEvery seconds, easing there over shuffleTime.
+func TestStops(t *testing.T) {
+	n := 0
+	s := newStops(func() float64 { n++; return float64(n%7) / 7 })
+	sorted := func(st []stop) bool {
+		for i := 1; i < len(st); i++ {
+			if st[i].at < st[i-1].at {
+				return false
+			}
+		}
+		return true
+	}
+	if !sorted(s.show(0)) {
+		t.Fatal("the stops are not in order")
+	}
+	s.step(0)
+	from, to := s.from, s.to
+	mid := s.show(shuffleTime / 2)
+	for i := range mid {
+		if want := (from[i].at + to[i].at) / 2; mid[i].at < want-1e-9 || mid[i].at > want+1e-9 {
+			t.Errorf("stop %d halfway at %.3f, want %.3f", i, mid[i].at, want)
+		}
+	}
+	if got := s.show(shuffleTime); !sorted(got) || got[0] != to[0] {
+		t.Error("the stops did not arrive in order")
+	}
+	s.step(shuffleEvery / 2)
+	if s.since != 0 {
+		t.Error("the stops moved again before their time")
+	}
+	s.step(shuffleEvery)
+	if s.since != shuffleEvery {
+		t.Error("the stops did not move again on time")
+	}
+	if len(s.at(1)) != 4*len(glowColors) {
+		t.Errorf("%d numbers for the shader, want %d", len(s.at(1)), 4*len(glowColors))
+	}
+}

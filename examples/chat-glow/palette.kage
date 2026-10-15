@@ -34,8 +34,8 @@ func roundRect(p, half vec2, r float) float {
 // as near, more the farther in, so that glows from the edges meet in round corners, not seams.
 func inside(p, size vec2) float {
 	q := max(0.5*size-abs(p), 0)
-	k := 0.45*min(q.x, q.y) + 8
-	return -k * log(exp(-q.x/k)+exp(-q.y/k)) + k*0.6931
+	k := 0.5*min(q.x, q.y) + 1
+	return max(-k*log(exp(-q.x/k)+exp(-q.y/k)), 0)
 }
 
 // around returns where p, from the middle of a box of size, lies around

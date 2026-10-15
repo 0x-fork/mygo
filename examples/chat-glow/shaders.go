@@ -30,11 +30,10 @@ var (
 
 // The shaders' uniforms, looked up once, and their values, set each frame.
 var (
-	edgeTime, edgeStrength, edgeBurst, edgeCorner = edge.Uniform("Time"), edge.Uniform("Strength"), edge.Uniform("Burst"), edge.Uniform("Corner")
-	edgeDark                                      = edge.Uniform("Dark")
-	orbPhase, orbEnergy                           = orb.Uniform("Phase"), orb.Uniform("Energy")
-	ringTime, ringStrength, ringPad, ringRadius   = ring.Uniform("Time"), ring.Uniform("Strength"), ring.Uniform("Pad"), ring.Uniform("Radius")
-	shimmerTime, shimmerBase, shimmerShine        = shimmer.Uniform("Time"), shimmer.Uniform("Base"), shimmer.Uniform("Shine")
+	edgeStops, edgeStrength, edgeBurst, edgeCorner = edge.Uniform("Stops"), edge.Uniform("Strength"), edge.Uniform("Burst"), edge.Uniform("Corner")
+	orbPhase, orbEnergy                            = orb.Uniform("Phase"), orb.Uniform("Energy")
+	ringTime, ringStrength, ringPad, ringRadius    = ring.Uniform("Time"), ring.Uniform("Strength"), ring.Uniform("Pad"), ring.Uniform("Radius")
+	shimmerTime, shimmerBase, shimmerShine         = shimmer.Uniform("Time"), shimmer.Uniform("Base"), shimmer.Uniform("Shine")
 )
 
 // shaders holds a window's values of the shaders' uniforms.

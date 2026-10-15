@@ -1,80 +1,76 @@
 // The window's edges glowing while the assistant works, as Siri lights
-// the screen's: a thick band of saturated light hugging the edges, its
-// colors flowing around them and hot spots travelling along it, white at
-// the rim where they burn brightest, over a haze reaching in; as it
-// starts, a wave of light runs in from the edges and fades.
+// the screen's: the window's outline stroked, inside its edge, with an
+// angular gradient of six colors around the window's middle whose stops
+// move about (wrapping around), in four layers: a crisp line 6 DIPs wide, and lines 9, 11
+// and 15 wide blurred by 4, 12 and 15, as SwiftUI blurs; as it starts, a
+// wave of light runs in from the edges and fades.
 
-var Time float
+// Stops are the gradient's stops in order: a color (rgb) and where it
+// lies around the window from 0 to 1 (a), clockwise from the right.
+var Stops [6]vec4
+
 // Strength is how much it shows, from 0 to 1.
 var Strength float
 // Burst is the seconds since it started.
 var Burst float
 // Corner is the window's corner radius, in DIPs.
 var Corner float
-// Dark is 1 on a dark theme, where the glow adds light, and 0 on a light
-// one, where it covers what is under it.
-var Dark float
 
-// spots returns how bright the light is at a, around the edges from 0 to
-// 1: hot spots travelling both ways at their own speeds, swelling and
-// fading.
-func spots(a float) float {
-	s := 0.0
-	for i := 0; i < 5; i++ {
-		f := float(i)
-		dir := 1.0
-		if i%2 == 1 {
-			dir = -1
-		}
-		c := fract(f*0.23 + dir*Time*(0.06+0.025*f))
-		x := abs(a - c)
-		x = min(x, 1-x)
-		w := 0.07 + 0.03*sin(Time*0.9+f*1.7)
-		s += exp(-x*x/(w*w)) * (0.6 + 0.4*sin(Time*1.3+f*2.4))
+// gradient returns the gradient's color at t, around the window from 0 to
+// 1: the colors between the stops, and between the last and the first
+// across the start, where SwiftUI's AngularGradient would show a seam.
+func gradient(t float) vec3 {
+	first, last := Stops[0], Stops[5]
+	span := first.a + 1 - last.a
+	if t < first.a {
+		return mix(last.rgb, first.rgb, (t+1-last.a)/max(span, 0.0001))
 	}
-	return s
+	c := last.rgb
+	if t >= last.a {
+		return mix(last.rgb, first.rgb, (t-last.a)/max(span, 0.0001))
+	}
+	for i := 1; i < 6; i++ {
+		a, b := Stops[i-1], Stops[i]
+		if t >= a.a && t < b.a {
+			c = mix(a.rgb, b.rgb, (t-a.a)/max(b.a-a.a, 0.0001))
+		}
+	}
+	return c
+}
+
+func erf(x float) float {
+	x2 := x * x
+	return sign(x) * sqrt(1-exp(-x2*(1.2732395+0.147*x2)/(1+0.147*x2)))
+}
+
+// line returns how much of a line width DIPs wide, inside the edge, d
+// DIPs in, covers once blurred as SwiftUI blurs by radius.
+func line(d, width, radius float) float {
+	if radius == 0 {
+		return clamp(width-d+0.5, 0, 1)
+	}
+	s := radius * 1.4142136
+	return 0.5 * (erf((width-d)/s) + erf(d/s))
 }
 
 func Fragment(dst vec4, pos vec2) vec4 {
 	size := rectSize()
 	p := pos - 0.5*size
-	d := max(-roundRect(p, 0.5*size, Corner), 0)
-	soft := min(inside(p, size), d+40)
-	if soft > 360 && Burst > 3 {
-		return vec4(0)
-	}
-	a := around(p, size)
-	hot := spots(a)
-	breathe := 0.9 + 0.1*sin(Time*2.1)
-	// A thick band of light, its rim brightest, a haze reaching in.
-	width := 42 * breathe
-	band := exp(-pow(soft/width, 1.4)) * (0.8 + 0.4*min(hot, 1.5))
-	rim := exp(-d / 3)
-	haze := exp(-soft/95) * 0.35
+	// How far in from the edge, round in the corners, as a blur rounds
+	// them.
+	d := min(max(-roundRect(p, 0.5*size, Corner), 0), inside(p, size))
 	wave := 0.0
 	if Burst < 3 {
 		front := 320 * (1 - exp(-Burst*2.2))
-		w := 26 + 80*Burst
-		x := (soft - front) / w
-		wave = exp(-x*x) * exp(-Burst*1.7) * 0.8
+		x := (inside(p, size) - front) / (26 + 80*Burst)
+		wave = exp(-x*x) * exp(-Burst*1.7) * 0.45
 	}
-	flow := a + Time*0.09
-	// The colors flow around the edges, a little later further in.
-	c := palette(flow + 0.06*soft/width)
-	c = clamp(mix(vec3(dot(c, vec3(0.3, 0.55, 0.15))), c, 1.35), 0, 1)
-	// The colors' mix, and how much light there is: added up, the layers
-	// would wash out to white at the edge.
-	weight := band + haze + rim + wave
-	hue := (c*(band+haze) + palette(flow+0.1)*rim + palette(flow+0.4)*wave) / max(weight, 0.0001)
-	strength := Strength * (0.92 + 0.08*sin(Time*2.1+1))
-	cover := min(weight, 1) * strength
-	if Dark < 0.5 {
-		// On a light theme it covers what is under it, in full color.
-		return vec4(hue*cover, cover)
+	if d > 70 && wave < 0.002 {
+		return vec4(0)
 	}
-	// On a dark one it adds light, white where it burns brightest, at the
-	// edge's hot spots.
-	col := hue * min(weight, 1.6) * 1.2 * strength
-	col += vec3(1) * rim * max(hot-0.6, 0) * 0.6 * strength
-	return vec4(min(col, 1), 0.6*cover)
+	// The layers, one over another, in one color.
+	clear := (1 - line(d, 6, 0)) * (1 - line(d, 9, 4)) * (1 - line(d, 11, 12)) * (1 - line(d, 15, 15)) * (1 - wave)
+	alpha := (1 - clear) * Strength
+	t := fract(atan2(p.y, p.x) / 6.2831853)
+	return vec4(gradient(t)*alpha, alpha)
 }
