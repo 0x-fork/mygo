@@ -95,6 +95,9 @@ func (a *app) view(c *ui.Context) {
 			a.conversation(c)
 		}
 		a.composer(c)
+		// The title bar, under the window controls, drags the window.
+		bar := c.TitleBar()
+		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(max(bar.Height, 32)).DragWindow()
 		// The edges' glow, over everything, which the pointer goes through.
 		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Draw(a.drawEdge)
 	})
