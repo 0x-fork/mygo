@@ -138,6 +138,9 @@ func newRelease(version string, install func(ctx context.Context, progress func(
 }
 
 func TestUpToDate(t *testing.T) {
+	checked := time.Date(2026, 10, 16, 9, 30, 0, 0, time.UTC)
+	t.Cleanup(func(n func() time.Time) func() { return func() { now = n } }(now))
+	now = func() time.Time { return checked }
 	h := newHarness(t, Options{})
 	done := h.begin(true)
 	s := h.shown()
@@ -150,8 +153,8 @@ func TestUpToDate(t *testing.T) {
 	if h.u.session != nil {
 		t.Error("the session was not cleared")
 	}
-	if st := h.saved(); time.Since(st.LastCheck) > time.Minute {
-		t.Errorf("last check %v", st.LastCheck)
+	if st := h.saved(); !st.LastCheck.Equal(checked) {
+		t.Errorf("last check %v, want %v", st.LastCheck, checked)
 	}
 }
 

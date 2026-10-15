@@ -774,7 +774,8 @@ func (rt *engine) scheduleAt(t time.Time) {
 	rt.wakeMu.Unlock()
 }
 
-// armTimer starts a timer for the earliest frame After asked for.
+// armTimer starts a timer for the earliest frame After asked for, at a
+// time of the frames' clock.
 func (rt *engine) armTimer() {
 	rt.wakeMu.Lock()
 	at := rt.wakeAt
@@ -786,9 +787,9 @@ func (rt *engine) armTimer() {
 			rt.timer.Stop()
 		}
 	case rt.timer != nil:
-		rt.timer.Reset(max(time.Until(at), time.Millisecond))
+		rt.timer.Reset(max(at.Sub(rt.now()), time.Millisecond))
 	default:
-		rt.timer = time.AfterFunc(max(time.Until(at), time.Millisecond), rt.host.invalidate)
+		rt.timer = time.AfterFunc(max(at.Sub(rt.now()), time.Millisecond), rt.host.invalidate)
 	}
 }
 

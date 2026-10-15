@@ -112,11 +112,13 @@ func TestDevLaunch(t *testing.T) {
 	if p, err = s.launch(os.Args[0]); err != nil {
 		t.Fatal(err)
 	}
+	// stop returns once it has killed it, after the grace: the test's
+	// timeout is the guard against a stop that waits for it forever. The
+	// build may yet die of SIGTERM, when that comes before it ignores it.
 	stopGrace = 200 * time.Millisecond
-	start := time.Now()
 	p.stop()
-	if d := time.Since(start); d > 3*time.Second {
-		t.Errorf("a hanging build took %v to be killed", d)
+	if p.err == nil {
+		t.Error("a build killed exited cleanly")
 	}
 }
 
