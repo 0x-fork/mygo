@@ -2909,7 +2909,13 @@ either.
   effect's entry point (`ColorEffect`, `DistortionEffect`, `LayerEffect`)
   a `Fragment` that calls it, and the bridge reads the content as image 3
   (`LayerImage`) from where the box's corner lies in it
-  (`__layerInset`). Direct3D's compiler takes from 0.1 s to more than 1 s
+  (`__layerInset`). A shader reading its backdrop (`backdropAt`,
+  `backdropSample`) is an effect with `Backdrop`: `Painter.EffectBackdrop`
+  computes the backdrop as the builder will (`scene.BackdropOf` of the
+  op's bounds), the bridge maps positions to its texels
+  (`__backdropRow0`, `__backdropRow1`, `__backdropArea`), and the
+  renderers bind their backdrop texture as its image 2
+  (`gpu.BackdropImage`); the CPU twin reads `scene.BackdropImage`. Direct3D's compiler takes from 0.1 s to more than 1 s
   for a shader's effect (the renderer's head and tail, with its coverage,
   are most of a small one's; optimization levels barely change it), so
   `ui/shader` starts it as it compiles one (`d3d11.PrecompileEffect`), on
@@ -2918,7 +2924,13 @@ either.
   in `%LOCALAPPDATA%\MyGo\ShaderCache`, a file named by the SHA-256 of
   what it compiled from, one directory for the user as Windows' own
   D3DSCache is, the least recently used removed beyond 32 MB. Effects
-  compiled ahead of time, and apps without shaders, do not link it.
+  compiled ahead of time, and apps without shaders, do not link it. On
+  macOS, `metal.PrecompileShader` does the same with the system's default
+  device: Metal's library (about 85 ms the first time) and the pipeline
+  for BGRA8 windows (about 60 ms), which renderers on that device retain
+  (`sharedShader`) in place of making them; Metal's own disk cache keeps
+  them for later launches, and wide-gamut windows make their pipeline
+  from the shared library.
 - **Corners.** On macOS, rounded corners are continuous, as AppKit's and
   SwiftUI's (`scene.Op.Continuous`), and drawn as Core Animation draws
   them on screen, with the function of its shaders (QuartzCore's

@@ -888,9 +888,10 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder, rtv uintptr) error 
 
 // bindShader binds what the shader of batch b reads: its uniforms, laid
 // out as its effect says, in the constant buffer of register b2, which
-// grows as needed, and its images in registers t6 to t9.
+// grows as needed, and its images in registers t6 to t9, its backdrop as
+// one of them when it reads it.
 func (r *Renderer) bindShader(b gpu.Batch) error {
-	r.shaderBytes = b.Effect.Shader.Pack(r.shaderBytes, b.Shader.Uniforms)
+	r.shaderBytes = b.Effect.Shader.Pack(r.shaderBytes, b.Uniforms)
 	if n := len(r.shaderBytes); n > 0 {
 		if n > r.shaderCBSize {
 			free(&r.shaderCB)
@@ -910,6 +911,11 @@ func (r *Renderer) bindShader(b gpu.Batch) error {
 		call(r.ctx, ctxPSSetConstantBuffers, 2, 1, uintptr(unsafe.Pointer(&r.shaderCB)))
 	}
 	views := b.Textures
+	if b.Backdrop != 0 {
+		// A shader reading its backdrop reads it as its image
+		// BackdropImage.
+		views[gpu.BackdropImage] = r.backdrop[0].srv
+	}
 	call(r.ctx, ctxPSSetShaderResources, 6, 4, uintptr(unsafe.Pointer(&views[0])))
 	return nil
 }

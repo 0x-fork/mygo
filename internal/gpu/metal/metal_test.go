@@ -1039,3 +1039,24 @@ func TestReleaseStopsQueuedPipelineCompiles(t *testing.T) {
 		t.Fatalf("%d pipeline builds failed", failed)
 	}
 }
+
+// A shader precompiled (PrecompileShader) is the library and the pipeline
+// a renderer on the default GPU draws it with.
+func TestPrecompileShader(t *testing.T) {
+	r, err := newRenderer()
+	if err != nil {
+		t.Skip(err)
+	}
+	defer r.Release()
+	src := ShaderSource("struct Uniforms { float4 a; };\nfloat4 shaderMain(constant Uniforms& uniforms, texture2d<float> T0, texture2d<float> T1, texture2d<float> T2, texture2d<float> T3, float2 p, float4 rect) { return float4(0.25, 0.5, 0.75, 1); }\n")
+	PrecompileShader(src)
+	lib, pipe, ok := sharedShader(r.device, src, precompiledFormat)
+	if !ok || lib == 0 || pipe == 0 {
+		t.Fatalf("the renderer's device %#x shares nothing (default device %#x): library %#x, pipeline %#x", r.device, shaders.device, lib, pipe)
+	}
+	release(&lib)
+	release(&pipe)
+	if _, _, ok := sharedShader(r.device, src+"// another\n", precompiledFormat); ok {
+		t.Error("a source never precompiled is shared")
+	}
+}

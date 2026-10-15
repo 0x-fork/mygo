@@ -110,6 +110,11 @@ type EffectOp struct {
 	// images, bitmaps or canvases, nil for none.
 	Uniforms []uint32
 	Images   [4]*Image
+	// WideUniforms, unless nil, are the words of Uniforms that renderers
+	// drawing a wide gamut (Scene.Wide) read in its place: colors outside
+	// the sRGB gamut in extended sRGB, where Uniforms holds the nearest
+	// sRGB ones.
+	WideUniforms []uint32
 	// Glyphs, unless empty, are the mask glyphs Scene.Glyphs[Glyphs[0]:
 	// Glyphs[1]] that a shader's effect paints instead of the rounded
 	// rectangle: the shapes of text, paths and icons, which it fills, each
@@ -139,6 +144,14 @@ func (op *EffectOp) Same(o *EffectOp) bool {
 	}
 	for i := range op.Uniforms {
 		if op.Uniforms[i] != o.Uniforms[i] {
+			return false
+		}
+	}
+	if len(op.WideUniforms) != len(o.WideUniforms) {
+		return false
+	}
+	for i := range op.WideUniforms {
+		if op.WideUniforms[i] != o.WideUniforms[i] {
 			return false
 		}
 	}

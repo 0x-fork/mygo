@@ -31,7 +31,18 @@ const (
 	RectSizeUniform   = "__rectSize"
 	ScaleUniform      = "__scale"
 	LayerInsetUniform = "__layerInset"
+	// The backdrop of a shader reading it (BackdropImage): the rows of the
+	// map from its positions to the frame's pixels, and where its texels
+	// start in the frame, with how many pixels each covers across.
+	BackdropRow0Uniform = "__backdropRow0"
+	BackdropRow1Uniform = "__backdropRow1"
+	BackdropAreaUniform = "__backdropArea"
 )
+
+// BackdropImage is the image a shader reads its backdrop from, through
+// backdropAt and backdropSample: what the window drew behind it, which the
+// renderers capture and blur as for effects reading their backdrop.
+const BackdropImage = MaxImages - 2
 
 // LayerImage is the image an effect's shader reads its element's content
 // from, through layerAt and layerSample: the last, which its own images
@@ -51,6 +62,9 @@ var %s [%d]vec2
 var %s vec2
 var %s float
 var %s vec2
+var %[8]s vec3
+var %[9]s vec3
+var %[10]s vec4
 
 // rectSize returns the size of the rectangle the shader fills, in DIPs.
 func rectSize() vec2 {
@@ -77,7 +91,28 @@ func layerSample(p vec2) vec4 {
 	in := step(vec2(0), q) - step(%[2]s[%[7]d], q)
 	return image%[7]dSample(q) * in.x * in.y
 }
-`, InternalRegionBegin, ImageSizesUniform, MaxImages, RectSizeUniform, ScaleUniform, LayerInsetUniform, LayerImage)
+
+// __backdropTexel returns where p, in DIPs from the corner of the box the
+// shader fills, lies in the backdrop's texels.
+func __backdropTexel(p vec2) vec2 {
+	q := vec2(dot(%[8]s, vec3(p, 1)), dot(%[9]s, vec3(p, 1)))
+	return (q - %[10]s.xy) / %[10]s.z
+}
+
+// backdropAt returns the backdrop's texel at p, in DIPs from the corner of
+// the box the shader fills, premultiplied: what the window drew behind it,
+// blurred as Options.BackdropBlur says.
+func backdropAt(p vec2) vec4 {
+	return image%[11]dAt(__backdropTexel(p))
+}
+
+// backdropSample returns the backdrop at p, in DIPs from the corner of the
+// box the shader fills, blended between the texels around it.
+func backdropSample(p vec2) vec4 {
+	return image%[11]dSample(__backdropTexel(p))
+}
+`, InternalRegionBegin, ImageSizesUniform, MaxImages, RectSizeUniform, ScaleUniform, LayerInsetUniform, LayerImage,
+		BackdropRow0Uniform, BackdropRow1Uniform, BackdropAreaUniform, BackdropImage)
 	for i := range MaxImages {
 		fmt.Fprintf(&b, `
 // image%[1]dSize returns the size of image %[1]d, in its pixels.

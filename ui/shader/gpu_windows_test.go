@@ -63,3 +63,15 @@ func TestDirect3DEffect(t *testing.T) {
 	}
 	gputest.Compare(t, "ui-shader-d3d11-effect", pix, stride, sc)
 }
+
+// TestDirect3DBackdrop checks that Direct3D gives a shader its backdrop,
+// as the CPU does.
+func TestDirect3DBackdrop(t *testing.T) {
+	for name, sc := range backdropCases() {
+		pix, stride, err := d3d11.RenderOffscreen(sc)
+		if err != nil {
+			t.Skip("no Direct3D:", err)
+		}
+		gputest.Compare(t, "ui-shader-d3d11-backdrop-"+name, pix, stride, sc)
+	}
+}

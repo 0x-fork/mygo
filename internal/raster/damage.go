@@ -31,6 +31,7 @@ type Renderer struct {
 	ops     []scene.Op
 	glyphs  []scene.Glyph
 	effects []scene.EffectOp
+	words   []uint32
 	// bounds is where each operation of the last scene drew; versions has
 	// the versions of its images.
 	bounds, next []image.Rectangle
@@ -355,6 +356,23 @@ func (r *Renderer) remember(s *scene.Scene) {
 		clear(r.effects[len(s.Effects):])
 	}
 	r.effects = append(r.effects[:0], s.Effects...)
+	// The uniforms' words, which the scene reuses next frame (Words), kept
+	// apart.
+	r.words = r.words[:0]
+	for i := range r.effects {
+		r.words = append(r.words, r.effects[i].Uniforms...)
+		r.words = append(r.words, r.effects[i].WideUniforms...)
+	}
+	at := 0
+	for i := range r.effects {
+		fx := &r.effects[i]
+		n, w := len(fx.Uniforms), len(fx.WideUniforms)
+		fx.Uniforms = r.words[at : at+n : at+n]
+		if fx.WideUniforms != nil {
+			fx.WideUniforms = r.words[at+n : at+n+w : at+n+w]
+		}
+		at += n + w
+	}
 	r.bounds, r.next = r.next, r.bounds
 	r.versions = r.versions[:0]
 	for i := range s.Ops {

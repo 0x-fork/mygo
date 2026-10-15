@@ -112,3 +112,24 @@ func TestOpenGLEffect(t *testing.T) {
 		gputest.Compare(t, "ui-shader-gl-effect", pix, sc.Width*4, sc)
 	}
 }
+
+// TestOpenGLBackdrop checks that OpenGL gives a shader its backdrop, as
+// the CPU does.
+func TestOpenGLBackdrop(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	for _, es := range []bool{false, true} {
+		for name, sc := range backdropCases() {
+			o, err := gl.NewOffscreen(es, sc.Width, sc.Height)
+			if err != nil {
+				t.Skip(err)
+			}
+			pix, err := o.Render(sc)
+			o.Release()
+			if err != nil {
+				t.Fatal(err)
+			}
+			gputest.Compare(t, "ui-shader-gl-backdrop-"+name, pix, sc.Width*4, sc)
+		}
+	}
+}

@@ -60,3 +60,15 @@ func TestMetalEffect(t *testing.T) {
 	}
 	gputest.Compare(t, "ui-shader-metal-effect", pix, sc.Width*4, sc)
 }
+
+// TestMetalBackdrop checks that Metal gives a shader its backdrop, as the
+// CPU does.
+func TestMetalBackdrop(t *testing.T) {
+	for name, sc := range backdropCases() {
+		pix, err := metal.RenderOffscreen(sc)
+		if err != nil {
+			t.Skip("no Metal:", err)
+		}
+		gputest.Compare(t, "ui-shader-metal-backdrop-"+name, pix, sc.Width*4, sc)
+	}
+}

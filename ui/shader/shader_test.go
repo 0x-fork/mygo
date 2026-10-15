@@ -1,6 +1,7 @@
 package shader_test
 
 import (
+	"fmt"
 	"image"
 	"strings"
 	"testing"
@@ -284,4 +285,140 @@ func TestKinds(t *testing.T) {
 		})
 	}
 	ui.NewTester(view, 10, 10).Image()
+}
+
+// Values set uniforms by variables looked up once, which the map's names
+// then override; setters check the variable's type and shader.
+func TestValues(t *testing.T) {
+	s := shader.MustCompile(`package main
+
+var Left vec4
+var Right vec4
+var Split float
+var Flip bool
+var Steps [2]int
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	x := pos.x
+	if Flip {
+		x = rectSize().x - x
+	}
+	if x < Split + float(Steps[0]+Steps[1]) {
+		return Left
+	}
+	return Right
+}
+`)
+	left, right, split, flip, steps := s.Uniform("Left"), s.Uniform("Right"), s.Uniform("Split"), s.Uniform("Flip"), s.Uniform("Steps")
+	v := s.NewValues().Color(left, ui.RGB(255, 0, 0)).Vec4(right, 0, 0, 1, 1).Float(split, 20).Ints(steps, 5, 5).Bool(flip, false)
+	var allocs float64
+	view := func(c *ui.Context) {
+		ui.Box(c).Fill().Background(ui.RGB(255, 255, 255)).Draw(func(p *ui.Painter, r ui.Rect) {
+			s.Draw(p, ui.Rect{X: 0, Y: 0, W: 100, H: 20}, shader.Options{Values: v})
+			s.Draw(p, ui.Rect{X: 0, Y: 30, W: 100, H: 20}, shader.Options{Values: v, Uniforms: map[string]any{"Flip": true}})
+			allocs = testing.AllocsPerRun(50, func() { s.Draw(p, ui.Rect{X: 0, Y: 60, W: 100, H: 20}, shader.Options{Values: v}) })
+		})
+	}
+	img := ui.NewTester(view, 100, 80).Image()
+	at := func(x, y int) [4]uint8 {
+		o := img.PixOffset(x, y)
+		return [4]uint8(img.Pix[o : o+4])
+	}
+	red, blue := [4]uint8{255, 0, 0, 255}, [4]uint8{0, 0, 255, 255}
+	for _, c := range []struct {
+		name string
+		x, y int
+		want [4]uint8
+	}{
+		{"left of the split", 25, 10, red},
+		{"right of the split", 35, 10, blue},
+		{"flipped by the map", 25, 40, blue},
+		{"flipped, far right", 75, 40, red},
+	} {
+		if got := at(c.x, c.y); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+	if allocs != 0 {
+		t.Errorf("Draw with Values allocates %v times", allocs)
+	}
+
+	mustPanic := func(name, want string, fn func()) {
+		t.Helper()
+		defer func() {
+			r := recover()
+			if r == nil || !strings.Contains(fmt.Sprint(r), want) {
+				t.Errorf("%s: panicked with %v, want %q", name, r, want)
+			}
+		}()
+		fn()
+	}
+	other := shader.MustCompile("package main\nvar Split float\nfunc Fragment() vec4 { return vec4(Split) }\n")
+	mustPanic("unknown variable", "no uniform variable Nope", func() { s.Uniform("Nope") })
+	mustPanic("bridge variable", "no uniform variable", func() { s.Uniform("__scale") })
+	mustPanic("wrong type", "not a float", func() { v.Float(right, 1) })
+	mustPanic("too many", "5 numbers", func() { v.Floats(right, 1, 2, 3, 4, 5) })
+	mustPanic("other shader", "not a uniform variable of the values' shader", func() { v.Float(other.Uniform("Split"), 1) })
+}
+
+// A shader reads what the window drew behind it, blurred as asked, from
+// Draw and from an element's effect.
+func TestBackdrop(t *testing.T) {
+	invert := shader.MustCompile(`package main
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	b := backdropAt(pos)
+	return vec4(b.a-b.rgb, b.a)
+}
+`)
+	tint := shader.MustCompile(`package main
+
+func ColorEffect(pos vec2, color vec4) vec4 {
+	b := backdropSample(pos)
+	return mix(b, color, color.a*0.5)
+}
+`)
+	view := func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() {
+			ui.Row(c).Height(50).Children(func() {
+				ui.Box(c).Width(50).FillHeight().Background(ui.RGB(255, 0, 0))
+				ui.Box(c).Width(50).FillHeight().Background(ui.RGB(0, 0, 255)).Draw(func(p *ui.Painter, r ui.Rect) {
+					// Over the red to the left too.
+					invert.Draw(p, ui.Rect{X: r.X - 25, Y: r.Y + 10, W: 50, H: 30}, shader.Options{})
+				})
+			})
+			ui.Box(c).Height(50).Background(ui.RGB(0, 255, 0)).Children(func() {
+				ui.Box(c).Width(40).Height(40).Background(ui.RGB(255, 255, 255)).Effect(tint.Effect(shader.Options{BackdropBlur: 2}))
+			})
+		})
+	}
+	img := ui.NewTester(view, 100, 100).Image()
+	at := func(x, y int) [4]uint8 {
+		o := img.PixOffset(x, y)
+		return [4]uint8(img.Pix[o : o+4])
+	}
+	if got := at(35, 25); got != [4]uint8{0, 255, 255, 255} {
+		t.Errorf("the inverted red: %v, want cyan", got)
+	}
+	if got := at(65, 25); got != [4]uint8{255, 255, 0, 255} {
+		t.Errorf("the inverted blue: %v, want yellow", got)
+	}
+	if got := at(10, 25); got != [4]uint8{255, 0, 0, 255} {
+		t.Errorf("beside the shader: %v, want red", got)
+	}
+	// White over green, half and half: light green.
+	if got := at(20, 70); got[0] < 100 || got[0] > 160 || got[1] != 255 || got[2] < 100 || got[2] > 160 {
+		t.Errorf("the effect over the green: %v, want white mixed half into green", got)
+	}
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "not shapes") {
+			t.Errorf("Fill of a shader reading its backdrop: %v, want a panic", r)
+		}
+	}()
+	ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) {
+			var path ui.Path
+			invert.FillPath(p, path.Circle(5, 5, 4), shader.Options{})
+		})
+	}, 10, 10).Image()
 }

@@ -109,6 +109,41 @@ far, and the effect draws over it all. The element stays where it is for
 clicks, focus and accessibility: only what shows changes. An effect's
 shader reads images 0 to 2 of its own; image 3 is the content.
 
+## The backdrop
+
+A shader can read what the window drew behind it, as Flutter's
+`BackdropFilter` with a shader does: frosted panes, lenses, a tint that
+follows what scrolls under it. `backdropAt(p)` returns its pixel at `p`,
+and `backdropSample(p)` blends the pixels around `p`, `p` in DIPs as
+`pos` is; `Options.BackdropBlur` blurs it first, its standard deviation
+in DIPs:
+
+```go
+var frost = shader.MustCompile(`package main
+
+var Tint vec4
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	b := backdropSample(pos)
+	return mix(b, Tint, Tint.a)
+}
+`)
+
+ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) {
+	frost.Draw(p, r, shader.Options{
+		BackdropBlur: 12,
+		Uniforms:     map[string]any{"Tint": ui.RGBA(255, 255, 255, 0.3)},
+		Radius:       16,
+	})
+})
+```
+
+The renderers capture the backdrop as they do for the glass plugin's
+panes, every frame, so it follows whatever moves behind. An element's
+effect reads it too. A shader reading its backdrop draws rectangles
+(`Draw`, `Effect`), not shapes (`Fill`), and reads images 0, 1 and 3 of
+its own; image 2 is the backdrop.
+
 ## The language
 
 A shader is a Go file of package main. Its function `Fragment` returns the
@@ -174,6 +209,33 @@ for _, t := range ripples {
 fx.Draw(p, r, shader.Options{Uniforms: map[string]any{"Taps": taps, "Count": len(ripples)}})
 ```
 
+For values set every frame, `Values` sets them by variables looked up
+once, with no map, no conversions and no allocation each draw, as
+Flutter's `FragmentShader` and Skia's `SkRuntimeShaderBuilder` hold them:
+
+```go
+var (
+	timeVar = waves.Uniform("Time") // panics for a name the shader lacks
+	tintVar = waves.Uniform("Tint")
+	values  = waves.NewValues()
+)
+
+values.Float(timeVar, float32(t)).Color(tintVar, theme.Accent)
+waves.Draw(p, r, shader.Options{Values: values})
+```
+
+Each setter checks the variable's type (`Float`, `Vec2` to `Vec4`, `Int`,
+`Uint`, `Bool`, and `Floats`, `Ints` and `Uints` for vectors, matrices and
+arrays) and panics for another, as for too many numbers; drawing copies
+the values, so one `Values` serves every draw. `Options.Uniforms` then
+sets the names it holds over them.
+
+A color (`Values.Color`, or a `ui.Color` in `Options.Uniforms`) sets a
+`vec3` or `vec4` to its components from 0 to 1, not premultiplied, in
+sRGB; where the window draws a wide gamut, a color outside sRGB, as
+`ui.Oklch` makes, reaches the shader in extended sRGB (components below 0
+or above 1), as the window's own colors do.
+
 ## Images
 
 A shader reads up to four images, `Options.Images`: bitmaps, or canvases'
@@ -210,10 +272,14 @@ box.Draw(func(p *ui.Painter, r ui.Rect) {
 `Compile` reports what is wrong with a shader with its lines; compile
 shaders once, as package variables with `MustCompile`. `Compile` takes
 about a millisecond: it checks the shader and translates it into the
-GPU's language (Metal, HLSL or GLSL), and the GPU's driver compiles that
-when a window first draws the shader, which delays that frame. On macOS,
-that is about 100 ms, the first time the app runs on the Mac; Metal keeps
-what it compiled on disk, so later launches draw at once. Linux's Mesa
+GPU's language (Metal, HLSL or GLSL), which the GPU's driver then
+compiles, as SwiftUI's `Shader.compile(as:)` has it done ahead of use.
+On macOS, `Compile` starts that on a goroutine of its own: Metal's
+library and pipeline take about 0.2 s together the first time the app
+runs on the Mac, and the renderers of every window draw with them,
+waiting only for what is left; a shader compiled as a package variable
+is ready long before its first frame, and Metal keeps both on disk, so
+later launches have them at once. Linux's Mesa
 drivers keep theirs on disk too (in `~/.cache/mesa_shader_cache`): from
 a tenth to a third of a second on the CPU's llvmpipe, the first time,
 and a few milliseconds after. On Windows, Direct3D's compiler takes from

@@ -96,6 +96,11 @@ type Instance struct {
 	Transform0, Transform1, Transform2 [4]float32
 }
 
+// BackdropImage is the image of a shader of package ui/shader that holds
+// its backdrop, when it reads it (internal/shader.BackdropImage):
+// renderers bind their backdrop's texture in its place.
+const BackdropImage = 2
+
 // InstanceSize is the size of an Instance in bytes.
 const InstanceSize = int(unsafe.Sizeof(Instance{}))
 
@@ -125,6 +130,9 @@ type Batch struct {
 	// Textures the renderer's textures of its images, 0 for none.
 	Shader   *scene.EffectOp
 	Textures [4]uintptr
+	// Uniforms are the words of the shader's uniforms the batch draws
+	// with: the op's, or its wide ones for a wide gamut (Wide).
+	Uniforms []uint32
 	// Hole tells that the batch's instances make their shapes transparent
 	// (scene.OpHole): renderers blend them with a source factor of zero.
 	Hole bool
@@ -825,7 +833,7 @@ func (b *Builder) addEffect(s *scene.Scene, op *scene.Op) {
 	}
 	batch := Batch{Start: len(b.Instances), Count: 1, Scissor: cur.scissor, Effect: fx.Effect, ClipMask: b.preparedMask}
 	if fx.Effect.Shader != nil {
-		batch.Shader = fx
+		batch.Shader, batch.Uniforms = fx, b.uniformsOf(fx)
 		for i, img := range fx.Images {
 			if img != nil && img.W > 0 && img.H > 0 && b.imageTexture != nil {
 				batch.Textures[i] = b.imageTexture(img)
@@ -856,7 +864,7 @@ func (b *Builder) addMaskedEffect(s *scene.Scene, op *scene.Op, fx *scene.Effect
 	if a == nil || fx.Effect.Shader == nil || fx.Effect.Backdrop {
 		return
 	}
-	batch := Batch{Start: len(b.Instances), Scissor: cur.scissor, Effect: fx.Effect, Shader: fx}
+	batch := Batch{Start: len(b.Instances), Scissor: cur.scissor, Effect: fx.Effect, Shader: fx, Uniforms: b.uniformsOf(fx)}
 	for i, img := range fx.Images {
 		if img != nil && img.W > 0 && img.H > 0 && b.imageTexture != nil {
 			batch.Textures[i] = b.imageTexture(img)
@@ -892,6 +900,15 @@ func (b *Builder) addMaskedEffect(s *scene.Scene, op *scene.Op, fx *scene.Effect
 	if batch.Count > 0 {
 		b.Batches = append(b.Batches, batch)
 	}
+}
+
+// uniformsOf returns the words of fx's uniforms to draw with: its wide
+// ones, for a wide gamut, when it has them.
+func (b *Builder) uniformsOf(fx *scene.EffectOp) []uint32 {
+	if b.Wide && fx.WideUniforms != nil {
+		return fx.WideUniforms
+	}
+	return fx.Uniforms
 }
 
 // addHole appends a hole within the current clip, in a batch of holes:

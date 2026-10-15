@@ -751,7 +751,18 @@ func (r *Renderer) effectPipeline(e *scene.Effect) id {
 		src, fn = e.Metal.Source, "shader_ps" // ShaderSource's
 	}
 	var lib id
-	if len(e.Metal.Compiled) > 0 && e.Metal.Sum == gpu.SourceSum(src) {
+	if e.Shader != nil {
+		// Made as the shader compiled (PrecompileShader).
+		if shared, pipe, ok := sharedShader(r.device, src, f.format); ok {
+			if pipe != 0 {
+				release(&shared)
+				p.pipe = pipe
+				return p.pipe
+			}
+			lib = shared
+		}
+	}
+	if lib == 0 && len(e.Metal.Compiled) > 0 && e.Metal.Sum == gpu.SourceSum(src) {
 		lib = r.libraryFromData(e.Metal.Compiled)
 	}
 	if lib == 0 {
@@ -1126,7 +1137,7 @@ const maxBytes = 4096
 // bindShader binds what the shader of batch b reads: its uniforms, laid
 // out as its effect says, in buffer 2, and its images in textures 5 to 8.
 func (r *Renderer) bindShader(enc id, b gpu.Batch) {
-	r.shaderBytes = b.Effect.Shader.Pack(r.shaderBytes, b.Shader.Uniforms)
+	r.shaderBytes = b.Effect.Shader.Pack(r.shaderBytes, b.Uniforms)
 	if n := len(r.shaderBytes); n > 0 && n <= maxBytes {
 		send(enc, "setFragmentBytes:length:atIndex:", uintptr(unsafe.Pointer(&r.shaderBytes[0])), uintptr(n), 2)
 	} else if n > 0 {
@@ -1135,6 +1146,10 @@ func (r *Renderer) bindShader(enc id, b gpu.Batch) {
 		release(&buf) // the encoder keeps it
 	}
 	for i, t := range b.Textures {
+		if i == gpu.BackdropImage && b.Backdrop != 0 {
+			// A shader reading its backdrop reads it as this image.
+			t = uintptr(r.cur.backdrop[0].tex)
+		}
 		send(enc, "setFragmentTexture:atIndex:", or(id(t), r.empty), uintptr(5+i))
 	}
 }

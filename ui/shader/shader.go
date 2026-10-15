@@ -21,7 +21,8 @@
 // uint, float, vec2 to vec4, ivec2 to ivec4, uvec2 to uvec4, mat2 to mat4
 // and arrays of them, GLSL's built-in functions (sin, mix, smoothstep,
 // dot, ...), functions of its own, if, and for loops. Exported variables
-// at the package level are uniforms, which Options.Uniforms sets.
+// at the package level are uniforms, which Options.Uniforms sets by name,
+// or Values by variables looked up once (Shader.Uniform).
 //
 // A shader reads up to four images, bitmaps or canvases (ui.Canvas),
 // through these functions, in the images' pixels from their top left
@@ -47,6 +48,7 @@ import (
 	"math"
 	"reflect"
 	"regexp"
+	"sync"
 
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/shader"
@@ -63,6 +65,7 @@ type Shader struct {
 	uniforms map[string]uniform
 	words    int
 	kind     kind
+	backdrop bool // it reads its backdrop
 }
 
 // kind is what a shader draws, by its entry point.
@@ -94,12 +97,28 @@ type uniform struct {
 // The bridge's uniforms, which Draw sets: the images' sizes, the
 // rectangle's size, the pixels a DIP and where an effect's box lies in
 // its content, the first words.
-var bridge = []string{shader.ImageSizesUniform, shader.RectSizeUniform, shader.ScaleUniform, shader.LayerInsetUniform}
+var bridge = []string{shader.ImageSizesUniform, shader.RectSizeUniform, shader.ScaleUniform, shader.LayerInsetUniform,
+	shader.BackdropRow0Uniform, shader.BackdropRow1Uniform, shader.BackdropAreaUniform}
 
+// The words of the bridge's uniforms, which Compile checks.
 const (
-	scaleWord = 2*shader.MaxImages + 2
-	insetWord = scaleWord + 1
+	scaleWord   = 2*shader.MaxImages + 2
+	insetWord   = scaleWord + 1
+	row0Word    = insetWord + 2
+	row1Word    = row0Word + 3
+	areaWord    = row1Word + 3
+	bridgeWords = areaWord + 4
 )
+
+// bridgeWordsAt are where the bridge's uniforms start, in its order.
+var bridgeWordsAt = []int{0, scaleWord - 2, scaleWord, insetWord, row0Word, row1Word, areaWord}
+
+// readsBackdrop finds a shader reading its backdrop.
+var readsBackdrop = regexp.MustCompile(`\bbackdrop(At|Sample)\b`)
+
+// backdropImage reads a shader's backdrop, which its own images leave
+// free.
+var backdropImage = regexp.MustCompile(`\bimage` + fmt.Sprint(shader.BackdropImage) + `(At|Sample|Size)\b`)
 
 // layerImage reads an effect's content, which its own images leave free.
 var layerImage = regexp.MustCompile(`\bimage` + fmt.Sprint(shader.LayerImage) + `(At|Sample|Size)\b`)
@@ -158,16 +177,23 @@ func Compile(src string) (*Shader, error) {
 			return nil, fmt.Errorf("shader: the uniforms start with %v, not %v", p.UniformNames, bridge)
 		}
 	}
+	backdrop := readsBackdrop.MatchString(src)
+	if backdrop && backdropImage.MatchString(src) {
+		return nil, fmt.Errorf("shader: a shader reading its backdrop reads image%d no more: it holds the backdrop (backdropAt, backdropSample)", shader.BackdropImage)
+	}
 	prog, err := interp.New(p)
 	if err != nil {
 		return nil, err
 	}
-	s := &Shader{prog: prog, uniforms: map[string]uniform{}, kind: k}
+	s := &Shader{prog: prog, uniforms: map[string]uniform{}, kind: k, backdrop: backdrop}
 	for i, n := range interp.UniformWords(p) {
+		if i < len(bridgeWordsAt) && s.words != bridgeWordsAt[i] {
+			return nil, fmt.Errorf("shader: the bridge's %s at word %d, not %d", p.UniformNames[i], s.words, bridgeWordsAt[i])
+		}
 		s.uniforms[p.UniformNames[i]] = uniform{t: p.Uniforms[i], word: s.words, n: n}
 		s.words += n
 	}
-	s.fx = &scene.Effect{Name: "shader", Pixels: func() scene.EffectPixels { return &pixels{prog: prog} }}
+	s.fx = &scene.Effect{Name: "shader", Backdrop: backdrop, Pixels: func() scene.EffectPixels { return &pixels{prog: prog, backdrop: backdrop} }}
 	lanes, size := code(p, s.fx)
 	l := &scene.ShaderLayout{Size: size}
 	for _, at := range lanes {
@@ -197,6 +223,10 @@ type Options struct {
 	// zero, and a name the shader has not is left out. Integers set ints
 	// and uints by their low 32 bits, as Go converts them.
 	Uniforms map[string]any
+	// Values, unless nil, are values of the shader's uniform variables set
+	// by Uniform (Shader.NewValues), with no map and no conversions each
+	// frame; Uniforms then sets the variables it names over them.
+	Values *Values
 	// Images are the images image0 to image3 read: bitmaps, or canvases'
 	// (ui.Canvas.Bitmap); nil for none, which reads as transparent.
 	Images [4]*ui.Bitmap
@@ -208,13 +238,17 @@ type Options struct {
 	// element's box, as its shadows, the effect draws over all of it, and
 	// it reads as transparent further away.
 	MaxSampleOffset ui.Point
+	// BackdropBlur, for a shader reading its backdrop (backdropAt,
+	// backdropSample), is the standard deviation of the backdrop's blur,
+	// in DIPs, 0 for none.
+	BackdropBlur float32
 }
 
 // Draw fills r with the shader, in DIPs of p, as p's other drawings are:
 // clipped, transformed and faded with the painter.
 func (s *Shader) Draw(p *ui.Painter, r ui.Rect, o Options) {
 	s.must(fragment)
-	p.ShaderEffect(s.fx, r, o.Radius, s.lanes(p, r, o), o.Images)
+	p.ShaderEffect(s.fx, r, o.Radius, s.input(p, r, r, o, ui.Point{}))
 }
 
 // Fill paints the text, paths and icons that fn paints with p with the
@@ -225,7 +259,10 @@ func (s *Shader) Draw(p *ui.Painter, r ui.Rect, o Options) {
 // and images, paints as it would. Options.Radius does not apply.
 func (s *Shader) Fill(p *ui.Painter, box ui.Rect, o Options, fn func()) {
 	s.must(fragment)
-	p.ShaderFill(s.fx, box, s.lanes(p, box, o), o.Images, fn)
+	if s.backdrop {
+		panic("shader: a shader reading its backdrop fills rectangles (Draw), not shapes (Fill)")
+	}
+	p.ShaderFill(s.fx, box, s.input(p, box, box, o, ui.Point{}), fn)
 }
 
 // FillPath fills path with the shader (non-zero winding), the shader
@@ -298,12 +335,10 @@ func (fx Effect) PaintEffect(p *ui.Painter, box ui.Rect, content *ui.Bitmap, ins
 	}
 	o := fx.o
 	o.Images[shader.LayerImage] = content
-	words := fx.s.lanes(p, box, o)
-	words[insetWord], words[insetWord+1] = math.Float32bits(inset.X), math.Float32bits(inset.Y)
 	s := p.Scale()
 	w, h := content.Size()
 	area := ui.Rect{X: box.X - inset.X/s, Y: box.Y - inset.Y/s, W: float32(w) / s, H: float32(h) / s}
-	p.ShaderEffect(fx.s.fx, area, 0, words, o.Images)
+	p.ShaderEffect(fx.s.fx, area, 0, fx.s.input(p, box, area, o, inset))
 }
 
 // must panics unless s is a shader of kind k.
@@ -313,10 +348,24 @@ func (s *Shader) must(k kind) {
 	}
 }
 
-// lanes returns the words of the uniforms' lanes of the shader drawn with o
-// in r, the box it fills, with the bridge's first.
-func (s *Shader) lanes(p *ui.Painter, r ui.Rect, o Options) []uint32 {
-	words := make([]uint32, s.words)
+// wideColor is a color of a uniform in extended sRGB, outside sRGB.
+type wideColor struct {
+	u uniform
+	c [4]float32
+}
+
+// input returns what the shader reads drawn with o in r, the box it
+// fills, over area, the box's corner at inset in pixels from area's: the words of
+// the uniforms' lanes, the bridge's first, in the frame's words, and those
+// a wide gamut reads, when colors differ there.
+func (s *Shader) input(p *ui.Painter, r, area ui.Rect, o Options, inset ui.Point) ui.ShaderInput {
+	words := p.EffectWords(s.words)
+	if v := o.Values; v != nil {
+		if v.s != s {
+			panic("shader: Options.Values of another shader")
+		}
+		copy(words[bridgeWords:], v.words[bridgeWords:])
+	}
 	for i, b := range o.Images {
 		if b != nil {
 			w, h := b.Size()
@@ -325,16 +374,62 @@ func (s *Shader) lanes(p *ui.Painter, r ui.Rect, o Options) []uint32 {
 	}
 	words[scaleWord-2], words[scaleWord-1] = math.Float32bits(r.W), math.Float32bits(r.H)
 	words[scaleWord] = math.Float32bits(p.Scale())
+	words[insetWord], words[insetWord+1] = math.Float32bits(inset.X), math.Float32bits(inset.Y)
+	var blur float32
+	if s.backdrop {
+		blur = max(o.BackdropBlur, 0) * p.Scale()
+		bk := p.EffectBackdrop(area, blur, inset)
+		i := shader.BackdropImage
+		words[2*i], words[2*i+1] = math.Float32bits(float32(bk.W)), math.Float32bits(float32(bk.H))
+		for k, x := range bk.ToFrame[0] {
+			words[row0Word+k] = math.Float32bits(x)
+		}
+		for k, x := range bk.ToFrame[1] {
+			words[row1Word+k] = math.Float32bits(x)
+		}
+		words[areaWord], words[areaWord+1], words[areaWord+2] = math.Float32bits(bk.Origin[0]), math.Float32bits(bk.Origin[1]), math.Float32bits(bk.Down)
+	}
+	var mapColors []colorValue
 	for name, v := range o.Uniforms {
-		if u, ok := s.uniforms[name]; ok && name[0] != '_' {
-			kind := u.t.Scalar()
-			if u.t.Main == shaderir.Array {
-				kind = u.t.Sub[0].Scalar()
+		u, ok := s.uniforms[name]
+		if !ok || name[0] == '_' {
+			continue
+		}
+		if c, ok := v.(ui.Color); ok && (u.t.Main == shaderir.Vec3 || u.t.Main == shaderir.Vec4) {
+			mapColors = append(mapColors, colorValue{u, c})
+			continue
+		}
+		kind := u.t.Scalar()
+		if u.t.Main == shaderir.Array {
+			kind = u.t.Sub[0].Scalar()
+		}
+		set(words[u.word:u.word+u.n], kind, name, v)
+	}
+	in := ui.ShaderInput{Uniforms: words, Images: o.Images, Blur: blur}
+	// Colors, in sRGB, and outside it, in extended sRGB, for a wide gamut.
+	var buf [8]wideColor
+	wide := buf[:0]
+	var set []colorValue
+	if o.Values != nil {
+		set = o.Values.colors
+	}
+	for _, list := range [2][]colorValue{set, mapColors} {
+		for _, cv := range list {
+			srgb, w := p.EffectColor(cv.c)
+			writeColor(words[cv.u.word:cv.u.word+cv.u.n], srgb)
+			if w != srgb {
+				wide = append(wide, wideColor{cv.u, w})
 			}
-			set(words[u.word:u.word+u.n], kind, name, v)
 		}
 	}
-	return words
+	if len(wide) > 0 {
+		in.WideUniforms = p.EffectWords(s.words)
+		copy(in.WideUniforms, words)
+		for _, x := range wide {
+			writeColor(in.WideUniforms[x.u.word:x.u.word+x.u.n], x.c)
+		}
+	}
+	return in
 }
 
 // set writes value v of uniform name into its lanes, as numbers of kind:
@@ -415,6 +510,10 @@ type pixels struct {
 	in    interp.Inputs
 	rect  scene.Rect
 	scale float32
+	// backdrop tells that the shader reads its backdrop, as its image
+	// shader.BackdropImage, the texels of bd.
+	backdrop bool
+	bd       sync.Once
 }
 
 func (x *pixels) Begin(op *scene.EffectOp, rect scene.Rect, radii [4]float32) {
@@ -428,19 +527,34 @@ func (x *pixels) Begin(op *scene.EffectOp, rect scene.Rect, radii [4]float32) {
 			x.in.Images = append(x.in.Images, sceneImage{img})
 		}
 	}
+	x.bd = sync.Once{}
 	x.scale = 1
 	if len(op.Uniforms) > scaleWord {
 		x.scale = math.Float32frombits(op.Uniforms[scaleWord])
 	}
 }
 
-func (x *pixels) Color(px, py float32, _ *scene.BackdropImage) [4]float32 {
+func (x *pixels) Color(px, py float32, b *scene.BackdropImage) [4]float32 {
+	if x.backdrop && b != nil {
+		// The first color's backdrop, every color's, which cores ask for
+		// at once.
+		x.bd.Do(func() { x.in.Images[shader.BackdropImage] = backdropTexels{b} })
+	}
 	c, ok := x.prog.Color(&x.in, [4]float32{px, py, 0, 1}, (px-x.rect.X)/x.scale, (py-x.rect.Y)/x.scale)
 	if !ok {
 		return [4]float32{}
 	}
 	return c
 }
+
+// backdropTexels are the texels of an effect's backdrop as the
+// interpreter reads them, as the GPU renderers' backdrop textures hold
+// them.
+type backdropTexels struct{ b *scene.BackdropImage }
+
+func (t backdropTexels) Size() (int, int) { return t.b.W, t.b.H }
+
+func (t backdropTexels) At(x, y int) [4]float32 { return [4]float32(t.b.Pix[4*(y*t.b.W+x):][:4]) }
 
 // sceneImage is an image of a scene as the interpreter reads it.
 type sceneImage struct{ img *scene.Image }

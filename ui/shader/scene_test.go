@@ -253,3 +253,58 @@ func effectScene(s *Shader) *scene.Scene {
 	sc.Effects = append(sc.Effects, scene.EffectOp{Effect: s.fx, Uniforms: words, Images: images})
 	return sc
 }
+
+// backdropSource inverts what is behind it, and dims it toward the right.
+const backdropSource = `package main
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	b := backdropSample(pos + vec2(0, 3*sin(pos.x/8)))
+	k := 1 - 0.5*pos.x/rectSize().x
+	return vec4((b.a-b.rgb)*k, b.a)
+}
+`
+
+// backdropScene returns a scene of s over stripes, reading its backdrop
+// blurred by blur pixels, its op under m, with the bridge's words as
+// Painter.EffectBackdrop sets them at scale 1.
+func backdropScene(s *Shader, blur float32, m scene.Affine) *scene.Scene {
+	sc := &scene.Scene{Width: 240, Height: 120, Clear: scene.Color{R: 250, G: 250, B: 250, A: 255}}
+	for i := range 12 {
+		c := scene.Color{R: uint8(40 + 18*i), G: uint8(200 - 15*i), B: 90, A: 255}
+		sc.Ops = append(sc.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: float32(i * 20), Y: 0, W: 10, H: 120}, Color: c})
+	}
+	r := scene.Rect{X: 40, Y: 30, W: 150, H: 60}
+	bk := scene.BackdropOf(m.Bounds(r), blur, sc.Width, sc.Height)
+	tw, th := bk.Size()
+	words := make([]uint32, s.words)
+	f := func(i int, v float32) { words[i] = math.Float32bits(v) }
+	f(2*shader.BackdropImage, float32(tw))
+	f(2*shader.BackdropImage+1, float32(th))
+	f(scaleWord-2, r.W)
+	f(scaleWord-1, r.H)
+	f(scaleWord, 1)
+	a, b, c, d, x, y := float32(1), float32(0), float32(0), float32(1), float32(0), float32(0)
+	if m.Set {
+		a, b, c, d, x, y = m.A, m.B, m.C, m.D, m.X, m.Y
+	}
+	for k, v := range [3]float32{a, c, a*r.X + c*r.Y + x} {
+		f(row0Word+k, v)
+	}
+	for k, v := range [3]float32{b, d, b*r.X + d*r.Y + y} {
+		f(row1Word+k, v)
+	}
+	f(areaWord, float32(bk.Area.Min.X))
+	f(areaWord+1, float32(bk.Area.Min.Y))
+	f(areaWord+2, float32(bk.Down))
+	sc.Ops = append(sc.Ops, scene.Op{Kind: scene.OpEffect, Rect: r, Radii: [4]float32{12, 12, 12, 12}, Transform: m, Start: int32(len(sc.Effects))})
+	sc.Effects = append(sc.Effects, scene.EffectOp{Effect: s.fx, Uniforms: words, Blur: blur})
+	return sc
+}
+
+// backdropCases are the backdrops the GPU tests draw: sharp, blurred, and
+// under a rotation.
+func backdropCases() map[string]*scene.Scene {
+	s := MustCompile(backdropSource)
+	rotate := scene.Translation(115, 60).Mul(scene.Rotation(12)).Mul(scene.Translation(-115, -60))
+	return map[string]*scene.Scene{"sharp": backdropScene(s, 0, scene.Affine{}), "blurred": backdropScene(s, 6, scene.Affine{}), "rotated": backdropScene(s, 3, rotate)}
+}

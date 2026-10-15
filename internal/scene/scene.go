@@ -301,6 +301,10 @@ type Scene struct {
 	Glyphs []Glyph
 	// Effects holds the effects of OpEffect operations.
 	Effects []EffectOp
+	// Words holds the words of the effects' uniforms (EffectOp.Uniforms
+	// and WideUniforms), which the frame's painter allocates from
+	// (Painter.EffectWords), kept from frame to frame.
+	Words []uint32
 	// Wide holds the colors outside the sRGB gamut of ops and glyphs (see
 	// Op.Wide), and those of the parameters of effects, which no op points
 	// at. Without any, the scene draws the same on every renderer.
@@ -364,6 +368,7 @@ func (s *Scene) Reset(width, height int, color Color) {
 	clear(s.Effects)
 	s.Effects = s.Effects[:0]
 	s.Wide = s.Wide[:0]
+	s.Words = s.Words[:0]
 	clear(s.Canvases)
 	s.Canvases = s.Canvases[:0]
 }
