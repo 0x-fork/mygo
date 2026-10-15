@@ -179,3 +179,21 @@ func TestCatchesUp(t *testing.T) {
 		t.Fatalf("busy %v, %d of %d words a minute later, want the whole reply", a.busy, m.shown, len(m.words))
 	}
 }
+
+// A reply that comes all at once, as when the window shows again after it
+// was hidden, shows its end at once rather than gliding up from below.
+func TestJumpsOnCatchUp(t *testing.T) {
+	a := newApp()
+	tt := ui.NewTester(a.view, 860, 500)
+	if err := tt.Click("Summarize my week"); err != nil {
+		t.Fatal(err)
+	}
+	a.step(60)
+	tt.Frame()
+	last := a.messages[len(a.messages)-1]
+	r, ok := tt.Find(last.text)
+	field, _ := tt.Find("Message")
+	if !ok || r.Y+r.H > field.Y-ringPadding-6-12 {
+		t.Errorf("the reply that came at once ends at %.0f, want it in view above %.0f at once", r.Y+r.H, field.Y-ringPadding-6-12)
+	}
+}

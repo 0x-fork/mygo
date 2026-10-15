@@ -23,6 +23,10 @@ const (
 	ringPadding, fieldRadius = 12, 16
 	// maxWidth is the conversation's width at most.
 	maxWidth = 660
+	// jumpWords is how many words coming in one frame make the
+	// conversation jump to its end rather than glide there: a reply
+	// writes a word or so a frame.
+	jumpWords = 12
 	// replySize is the size of the replies' text and replyLeading its line
 	// height, which "Thinking…" takes too, so that the row keeps its
 	// height as the first words replace it.
@@ -47,8 +51,10 @@ type app struct {
 	messages []*message
 	input    string
 	list     ui.ListState
-	next     int
-	replies  int
+	// seen is how many words of the replies the last frame showed.
+	seen    int
+	next    int
+	replies int
 	// The assistant's work, by the conversation's clock (now, in
 	// seconds): when the last message was sent (asked), when the
 	// assistant began to write (writing, 0 before), and whether it works.
@@ -121,7 +127,17 @@ func (a *app) welcome(c *ui.Context) {
 func (a *app) conversation(c *ui.Context) {
 	a.list.Key = func(i int) any { return a.messages[i].id }
 	a.list.FollowEnd = true
-	a.list.FollowAnimation = &ui.Smooth // glide up as the reply grows
+	// Glide up as the reply grows, but jump to the end when much came at
+	// once, as when the window shows again after it was hidden.
+	a.list.FollowAnimation = &ui.Smooth
+	shown := 0
+	for _, m := range a.messages {
+		shown += m.shown
+	}
+	if shown-a.seen > jumpWords {
+		a.list.FollowAnimation = nil
+	}
+	a.seen = shown
 	ui.List(c, &a.list, len(a.messages), func(i int) {
 		// Each message in the middle, the list as wide as the window, so
 		// that it scrolls wherever the pointer is.
