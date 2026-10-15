@@ -602,8 +602,7 @@ func TestEasingAndLoop(t *testing.T) {
 		e := coreBox(c)
 		values = append(values, e.Loop("spin", 50*time.Millisecond, Linear))
 	}, 50, 50)
-	time.Sleep(20 * time.Millisecond)
-	tt.Frame()
+	tt.Advance(20 * time.Millisecond)
 	moved := false
 	for _, v := range values {
 		if v < 0 || v >= 1 {

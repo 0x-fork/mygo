@@ -82,7 +82,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.editEvent(editEvent{kind: editCommand, text: ev.Text})
 	case platform.SurfaceFocus:
 		rt.windowFocused = true
-		rt.blinkStart = time.Now()
+		rt.blinkStart = rt.now()
 		rt.focusChanged()
 	case platform.SurfaceBlur:
 		rt.windowFocused = false
@@ -291,7 +291,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 		if newFocus != rt.focused {
 			rt.focused = newFocus
 			rt.focusVisible = false
-			rt.blinkStart = time.Now()
+			rt.blinkStart = rt.now()
 		}
 	}
 	h := rt.handler(chain)
@@ -612,14 +612,14 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool
 		return true
 	}
 	if h := rt.focusHandler(); h != nil && !rt.claimed(k) && rt.deliver(h, InputEvent{Kind: InputKeyDown, Key: key, PhysicalKey: physical, Mods: mods, Repeat: repeat}) {
-		rt.blinkStart = time.Now()
+		rt.blinkStart = rt.now()
 		return true
 	}
 	if s := rt.states[rt.focused]; s != nil && s.editor != nil && s.editor.onTextKey != nil && s.flags&flagEditable != 0 &&
 		!typesText(k) && (s.editor.wants(k) || !rt.claimed(k)) && s.editor.textKey(k) {
 		// OnTextKey took it as it came, as HandleInput does, but after the
 		// keys and text before it, which it reads.
-		rt.blinkStart = time.Now()
+		rt.blinkStart = rt.now()
 		rt.requestFrame()
 		return true
 	}
@@ -632,14 +632,14 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool
 			return false
 		}
 		s.editor.queue = append(s.editor.queue, editEvent{kind: editKey, mods: mods, key: key})
-		rt.blinkStart = time.Now()
+		rt.blinkStart = rt.now()
 		rt.requestFrame()
 		return false
 	}
 	if s := rt.states[rt.focused]; s != nil && s.flags&flagTypeSelect != 0 && !rt.claimed(k) {
 		// The first letters of a row of a list: they add up while typed
 		// quickly enough, with spaces once the first came.
-		now := time.Now()
+		now := rt.now()
 		if now.Sub(s.typedAt) >= typePause {
 			s.typed = ""
 		}
@@ -755,7 +755,7 @@ func (rt *engine) moveFocus(back bool) {
 	}
 	rt.focused = order[next]
 	rt.focusVisible = true
-	rt.blinkStart = time.Now()
+	rt.blinkStart = rt.now()
 	s := rt.states[rt.focused]
 	if s != nil && s.editor != nil {
 		s.editor.selectAll()
@@ -854,7 +854,7 @@ func (rt *engine) editEvent(ev editEvent) {
 			handled = rt.deliver(h, InputEvent{Kind: kind, Text: "paste"})
 		}
 		if handled {
-			rt.blinkStart = time.Now()
+			rt.blinkStart = rt.now()
 		}
 		return
 	}
@@ -871,7 +871,7 @@ func (rt *engine) editEvent(ev editEvent) {
 		return
 	}
 	s.editor.queue = append(s.editor.queue, ev)
-	rt.blinkStart = time.Now()
+	rt.blinkStart = rt.now()
 	rt.requestFrame()
 }
 
@@ -1102,7 +1102,7 @@ func (e *node) Focus() *node {
 	rt := e.c.rt
 	if rt.focused != e.id {
 		rt.focused = e.id
-		rt.blinkStart = time.Now()
+		rt.blinkStart = rt.now()
 	}
 	return e
 }

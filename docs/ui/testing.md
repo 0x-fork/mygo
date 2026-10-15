@@ -48,3 +48,16 @@ panics where the second key was given, as apps only log it.
 - **Frames.** `tt.Frame` draws a frame, for what changed outside the view,
   and `tt.Image()` is the last frame, for snapshots; `ui.Render` draws a
   view once at a given scale.
+- **Time.** A tester has a clock of its own, which stands still until
+  `tt.Advance(d)` moves it on by `d` and draws the frames due then. What
+  depends on time follows it: animations, `Context.After`, `Context.Now`,
+  the clicks that make a double click, the typing that undoes in one
+  step, the caret's blinking, tooltips and toasts. So a test reads the
+  same on a busy machine as on a fast one: never sleep to let something
+  happen, advance the clock.
+
+```go
+tt.Click("More")
+tt.Advance(100 * time.Millisecond) // half way through a 200 ms animation
+tt.Advance(time.Second)            // and done
+```

@@ -193,10 +193,16 @@ func coreRender(view func(c *context), width, height int, scale float32) *image.
 // Tester runs a view without a window, as a test drives it: it renders
 // frames in memory and sends the view pointer and keyboard input, between
 // which it settles the frames the view asks for.
+//
+// Its clock stands still unless the test moves it with Advance, so what
+// depends on time (animations, Context.After, the clicks that make a
+// double click, typing that undoes in one step, tooltips) does the same
+// however fast the machine runs the test.
 type Tester struct {
 	rt     *engine
 	h      *headless
 	clicks platform.ClickCounter
+	now    time.Time
 }
 
 // NewTester starts testing view in a window of width×height DIPs. Two
@@ -204,7 +210,8 @@ type Tester struct {
 // was given, as apps only log it.
 func coreNewTester(view func(c *context), width, height int) *Tester {
 	h := &headless{w: float32(width), h: float32(height), scale: 1}
-	t := &Tester{rt: newRuntime(view, h), h: h}
+	t := &Tester{rt: newRuntime(view, h), h: h, now: time.Now()}
+	t.rt.clock = func() time.Time { return t.now }
 	t.rt.collect = true
 	// Duplicate keys panic, so that the test fails where the key was given.
 	t.rt.strict = true
@@ -232,7 +239,7 @@ func (t *Tester) settle() {
 func (t *Tester) send(ev platform.SurfaceEvent) {
 	if ev.Kind == platform.PointerDown && ev.Clicks == 0 {
 		// Counted as a backend counts.
-		ev.Clicks = t.clicks.Press(ev.Button, ev.X, ev.Y, uint32(time.Now().UnixMilli()), platform.DefaultDoubleClick)
+		ev.Clicks = t.clicks.Press(ev.Button, ev.X, ev.Y, uint32(t.now.UnixMilli()), platform.DefaultDoubleClick)
 	}
 	t.rt.event(ev)
 	t.settle()
@@ -308,6 +315,15 @@ func (t *Tester) SetDirection(d Direction) {
 
 // Frame renders another frame, as when the view's state changed.
 func (t *Tester) Frame() { t.h.requested.Store(true); t.settle() }
+
+// Advance moves the tester's clock on by d, then renders the frames the
+// view asks for, as d passing: an animation of 200 ms is a quarter of the
+// way after Advance(50 * time.Millisecond), and done after another
+// Advance(150 * time.Millisecond).
+func (t *Tester) Advance(d time.Duration) {
+	t.now = t.now.Add(d)
+	t.Frame()
+}
 
 // Image returns the last frame.
 func (t *Tester) Image() *image.RGBA { return t.h.image() }

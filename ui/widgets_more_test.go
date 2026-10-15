@@ -177,8 +177,7 @@ func TestToast(t *testing.T) {
 	if len(tt.rt.toasts) != 1 {
 		t.Errorf("the same message shows %d times", len(tt.rt.toasts))
 	}
-	tt.rt.toasts[0].at = time.Now().Add(-toastTime)
-	tt.Frame()
+	tt.Advance(toastTime)
 	if tt.HasText("Saved") {
 		t.Error("the toast stays once its time is over")
 	}
@@ -442,7 +441,7 @@ func TestTooltipHidesOnPress(t *testing.T) {
 	}, 400, 200)
 	rest := func(x, y float32) {
 		tt.Move(x, y)
-		tt.rt.tips.hoverSince = time.Now().Add(-time.Second)
+		tt.rt.tips.hoverSince = tt.now.Add(-time.Second)
 		tt.Frame()
 	}
 	r, _ := tt.Find("Save")
