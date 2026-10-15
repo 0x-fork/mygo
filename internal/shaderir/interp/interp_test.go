@@ -299,3 +299,58 @@ func Fragment(dst vec4, pos vec2) vec4 {
 		t.Errorf("%v, want %v", got, want)
 	}
 }
+
+// A uint's complement is in its 32 bits, ints shift by uints, ranges run
+// over uints and index arrays with them, uint loops run past int's
+// range, and a shift of an untyped constant takes the type of its
+// context, as in Go.
+func TestUintForms(t *testing.T) {
+	p, prog := compile(t, `package main
+
+var Seed uint
+var Shift int
+
+const N uint = 7
+
+func top(m int) uint {
+	return 1 << m
+}
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	var bits [4]uint
+	for i := range Seed%3 + 1 {
+		bits[i] = ^uint(0) >> (i * 8)
+	}
+	s := int(pos.x)
+	s >>= Seed % 3
+	sel := bits[uint(int(pos.y))%4] & (1 << (s % 31))
+	sum := uint(0)
+	for j := uint(4294967290); j < 4294967295; j++ {
+		sum += j & N
+	}
+	var shifted uint = 1 << Shift
+	return vec4(float(sel>>8), float(shifted|^(1<<Shift)&N), float(sum), float(top(Shift)|N&(1<<Shift)))
+}
+`)
+	const seed, shift = 0x3fa1c2d9, 2
+	in := &interp.Inputs{Uniforms: uniforms(p, map[string][]uint32{"Seed": {seed}, "Shift": {shift}})}
+	for _, pos := range [][2]float32{{60, 0}, {80, 1}, {40, 2}, {60, 3}, {100, 1}} {
+		var bits [4]uint32
+		for i := range uint32(seed%3 + 1) {
+			bits[i] = ^uint32(0) >> (i * 8)
+		}
+		s := int32(pos[0])
+		s >>= uint32(seed % 3)
+		sel := bits[uint32(int32(pos[1]))%4] & (1 << (s % 31))
+		sum := uint32(0)
+		for j := uint32(4294967290); j < 4294967295; j++ {
+			sum += j & 7
+		}
+		var shifted uint32 = 1 << shift
+		want := [4]float32{float32(sel >> 8), float32(shifted | ^uint32(1<<shift)&7), float32(sum), float32(uint32(1<<shift) | 7&(1<<shift))}
+		got, _ := prog.Color(in, [4]float32{}, pos[0], pos[1])
+		if got != want {
+			t.Errorf("%v: %v, want %v", pos, got, want)
+		}
+	}
+}

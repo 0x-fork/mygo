@@ -88,6 +88,20 @@ func (cs *compileState) typeConsts(pos token.Pos, b *block, stmts []shaderir.Stm
 			check(&s.Exprs[j])
 		}
 		if s.Type == shaderir.For {
+			// A uint counter starts and ends at uints, and steps up or down
+			// by a uint.
+			if s.ForVarType.Main == shaderir.Uint {
+				delta := s.ForDelta
+				if delta != nil && gconstant.Sign(delta) < 0 {
+					delta = gconstant.UnaryOp(token.SUB, delta, 0)
+				}
+				for _, v := range []gconstant.Value{s.ForInit, s.ForEnd, delta} {
+					if !cs.checkUintConstRange(pos, v) {
+						ok = false
+					}
+				}
+				continue
+			}
 			for _, v := range []gconstant.Value{s.ForInit, s.ForEnd, s.ForDelta} {
 				if !cs.checkIntConstRange(pos, v) {
 					ok = false
@@ -141,22 +155,28 @@ func (m *unsignedMarker) own(e *shaderir.Expr) {
 	m.mark(e, shaderir.TypeOf(e, m.env).Scalar())
 }
 
-// operands marks es, operands of one type: constants among them take the
-// type of the others, or want when all are constants.
+// operands marks es, operands of one type: constants and untyped shifts
+// among them take the type of the others, or want when all are such.
 func (m *unsignedMarker) operands(es []shaderir.Expr, want shaderir.BasicType) {
 	for i := range es {
-		if es[i].Type != shaderir.NumberExpr {
+		if !flexible(&es[i]) {
 			want = shaderir.TypeOf(&es[i], m.env).Scalar()
 			break
 		}
 	}
 	for i := range es {
-		if es[i].Type == shaderir.NumberExpr {
+		if flexible(&es[i]) {
 			m.mark(&es[i], want)
 		} else {
 			m.own(&es[i])
 		}
 	}
+}
+
+// flexible reports whether e takes the type of its context: a constant not
+// yet marked as a uint, or an untyped shift.
+func flexible(e *shaderir.Expr) bool {
+	return e.Type == shaderir.NumberExpr && !e.Unsigned || e.Untyped
 }
 
 func (m *unsignedMarker) call(e *shaderir.Expr) {
@@ -189,7 +209,7 @@ func (m *unsignedMarker) call(e *shaderir.Expr) {
 		return
 	}
 	for i := range args {
-		if args[i].Type == shaderir.NumberExpr {
+		if flexible(&args[i]) {
 			m.mark(&args[i], kind)
 		} else {
 			m.own(&args[i])

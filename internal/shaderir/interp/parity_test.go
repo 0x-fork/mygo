@@ -68,6 +68,20 @@ func Fragment(dst vec4, pos vec2) vec4 {
 	}
 	u := uvec3(Seed + uint(int(pos.x)))
 	k += float(u.y%5)*0.01 + smoothstep(Time, Time, Time)
+	// A uint's complement, an int shifted by a uint, a range over a uint
+	// indexing an array, a shift of an untyped constant in a uint, and a
+	// uint loop past int's range.
+	var bits [4]uint
+	for i := range Seed%3 + 1 {
+		bits[i] = ^uint(0) >> (i * 8)
+	}
+	s := int(pos.x)
+	s >>= Seed % 3
+	sel := bits[uint(int(pos.y))%4] & (1 << (s % 31))
+	k += float(sel>>(s%31)) * 0.03
+	for j := uint(4294967290); j < 4294967293; j++ {
+		k += float(j%3) * 0.01
+	}
 	c := vec3(n, smoothstep(0.2, 0.8, n), clamp(glow, 0, 1))
 	c.rb = c.br * vec2(1, 0.5+0.5*sin(pos.x/7))
 	c.g = fract(c.g + k)

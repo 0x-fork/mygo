@@ -155,6 +155,12 @@ type Expr struct {
 	// infers it: a constant of it is written as one (1u), which GLSL ES
 	// needs, as it converts no int to uint.
 	Unsigned bool
+
+	// Untyped marks an integer expression that is not a constant but takes
+	// the type of its context, as in Go: a shift of an untyped constant by
+	// a count that is not one, and operations of such shifts with untyped
+	// constants. Its type is int where the context gives none.
+	Untyped bool
 }
 
 type ExprType int

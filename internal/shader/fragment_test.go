@@ -70,8 +70,19 @@ func TestUint(t *testing.T) {
 		{"var v uvec2; v.x ^= 7; v %= 3; _ = v.yx + uvec2(dst.xy)", ""},
 		{"x := int(2654435769); _ = x", "overflows int"},
 		{"_ = max(uint(1), 2, 3); _ = clamp(uvec2(1), uint(0), 4)", ""},
+		{"x := ^uint(0); y := ^N; _, _ = x, y", ""},
+		{"x := -uint(1); _ = x", "overflows uint"},
+		{"i := 5; var u uint = 1; i >>= u; i <<= N; _ = i", ""},
+		{"s := uint(0); for i := uint(0); i < 3000000000; i++ { s += i }; _ = s", ""},
+		{"s := uint(0); for i := uint(4000000000); i > 3000000000; i -= 3000000000 { s += i }; _ = s", ""},
+		{"s := uint(0); for i := uint(0); i < 5000000000; i++ { s += i }; _ = s", "overflows uint"},
+		{"var n uint; s := uint(0); for i := range n { s += i }; for i := range N { s += i }; _ = s", ""},
+		{"var a [4]float; var u uint; _ = a[u]", ""},
+		{"var m int; var x uint = 1 << m; y := N & (1 << m); x |= 1 << m; _, _ = x, y", ""},
+		{"var m int; var f float = 1 << m; _ = f", "cannot use type int as type float"},
+		{"var m int; x := 1 << m; var u uint; _ = x + u", "types don't match"},
 	} {
-		src := "package main\n\nfunc Fragment(dst vec4, pos vec2) vec4 {\n\t" + c.body + "\n\treturn dst\n}\n"
+		src := "package main\n\nconst N uint = 7\n\nfunc Fragment(dst vec4, pos vec2) vec4 {\n\t" + c.body + "\n\treturn dst\n}\n"
 		_, err := shader.CompileFragment([]byte(src))
 		switch {
 		case c.err == "" && err != nil:
@@ -79,6 +90,53 @@ func TestUint(t *testing.T) {
 		case c.err != "" && (err == nil || !strings.Contains(err.Error(), c.err)):
 			t.Errorf("%s: %v, want an error saying %q", c.body, err, c.err)
 		}
+	}
+}
+
+// Integer constants are written as uints exactly where they are: a shift
+// of an untyped constant by a count that is not one takes the type of its
+// context, as in Go, and int where it has none.
+func TestUntypedShift(t *testing.T) {
+	src := `package main
+
+const N uint = 7
+
+func top(m int) uint {
+	return 1 << m
+}
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	m := int(pos.x)
+	var x uint = 1 << m
+	y := N & ^(1 << m)
+	i := 1 << m
+	return vec4(float(x), float(y), float(i), float(top(m)))
+}
+`
+	p, err := shader.CompileFragment([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := glsl.Fragment(p, "shaderFragment", "flipY")
+	for _, want := range []string{
+		"return (1u) << (l0);",
+		" = (1u) << (l2);",
+		" = (7u) & (~((1u) << (l2)));",
+		" = (1) << (l2);",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in\n%s", want, got)
+		}
+	}
+}
+
+// Redeclaring a function MyGo declares for shaders is an error at the
+// shader's declaration, not in MyGo's source after it.
+func TestRedeclaredBridge(t *testing.T) {
+	src := "package main\n\nfunc rectSize() vec2 {\n\treturn vec2(0)\n}\n\nfunc Fragment(dst vec4, pos vec2) vec4 {\n\treturn dst\n}\n"
+	_, err := shader.CompileFragment([]byte(src))
+	if err == nil || !strings.HasPrefix(err.Error(), "3:6: rectSize redeclared") {
+		t.Errorf("%v, want an error at 3:6", err)
 	}
 }
 

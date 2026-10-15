@@ -155,11 +155,12 @@ func (cs *compileState) parseStmt(block *block, fname string, stmt ast.Stmt, inP
 					}
 				}
 			} else {
+				// A shift's count may be of either kind of integer.
+				shift := op == shaderir.LeftShift || op == shaderir.RightShift
 				switch lts[0].Main {
 				case shaderir.Uint, shaderir.UVec2, shaderir.UVec3, shaderir.UVec4:
-					// A shift's count may be of either kind of integer.
-					shift := op == shaderir.LeftShift || op == shaderir.RightShift
-					if rts[0].Main != shaderir.Uint && !(shift && rts[0].Main == shaderir.Int) {
+					// An untyped shift takes the type of the uint.
+					if rts[0].Main != shaderir.Uint && !(shift && rts[0].Main == shaderir.Int) && !rhs[0].Untyped {
 						if !rts[0].Equal(&shaderir.Type{}) {
 							cs.addError(stmt.Pos(), fmt.Sprintf("invalid operation: mismatched types %s and %s", lts[0].String(), typeString(rts[0], rhs[0].Const)))
 							return nil, false
@@ -169,7 +170,7 @@ func (cs *compileState) parseStmt(block *block, fname string, stmt ast.Stmt, inP
 						}
 					}
 				case shaderir.Int, shaderir.IVec2, shaderir.IVec3, shaderir.IVec4:
-					if rts[0].Main != shaderir.Int {
+					if rts[0].Main != shaderir.Int && !(shift && rts[0].Main == shaderir.Uint) {
 						if !rts[0].Equal(&shaderir.Type{}) {
 							cs.addError(stmt.Pos(), fmt.Sprintf("invalid operation: mismatched types %s and %s", lts[0].String(), typeString(rts[0], rhs[0].Const)))
 							return nil, false
@@ -494,7 +495,7 @@ func (cs *compileState) parseStmt(block *block, fname string, stmt ast.Stmt, inP
 				}
 			}
 
-			if !t.Equal(&outT) {
+			if !canAssign(&outT, &t, &expr) {
 				cs.addError(positions[i], fmt.Sprintf("cannot use type %s as type %s in %s", typeString(t, expr.Const), &outT, result))
 				return nil, false
 			}
@@ -730,7 +731,7 @@ func (cs *compileState) assign(block *block, fname string, pos token.Pos, lhs, r
 			}
 
 			for i := range lts {
-				if !canAssign(&lts[i], &rts[i], r[i].Const) {
+				if !canAssign(&lts[i], &rts[i], &r[i]) {
 					cs.addError(e.Pos(), fmt.Sprintf("cannot use type %s as type %s in assignment", typeString(rts[i], r[i].Const), lts[i].String()))
 					return nil, false
 				}
@@ -854,7 +855,7 @@ func (cs *compileState) assign(block *block, fname string, pos token.Pos, lhs, r
 				return nil, false
 			}
 
-			if !canAssign(&lts[0], &rhsTypes[i], rhsExprs[i].Const) {
+			if !canAssign(&lts[0], &rhsTypes[i], &rhsExprs[i]) {
 				cs.addError(e.Pos(), fmt.Sprintf("cannot use type %s as type %s in assignment", rhsTypes[i].String(), lts[0].String()))
 				return nil, false
 			}
@@ -959,11 +960,19 @@ func typeString(t shaderir.Type, c gconstant.Value) string {
 	return t.String()
 }
 
-func canAssign(lt *shaderir.Type, rt *shaderir.Type, rc gconstant.Value) bool {
+// canAssign reports whether r, an expression of type rt, can be assigned to
+// a variable of type lt.
+func canAssign(lt *shaderir.Type, rt *shaderir.Type, r *shaderir.Expr) bool {
 	if lt.Equal(rt) {
 		return true
 	}
 
+	// An untyped shift takes the type it goes to.
+	if r.Untyped && lt.Main == shaderir.Uint {
+		return true
+	}
+
+	rc := r.Const
 	if rc == nil {
 		return false
 	}
@@ -1188,8 +1197,11 @@ func (cs *compileState) parseForRange(block *block, fname string, stmt *ast.Rang
 	var end gconstant.Value
 	var endExpr shaderir.Expr
 	var elmType shaderir.Type
+	// The counter is of the count's type, int or uint.
+	vartype := shaderir.Type{Main: shaderir.Int}
 	switch t.Main {
-	case shaderir.Int:
+	case shaderir.Int, shaderir.Uint:
+		vartype = shaderir.Type{Main: t.Main}
 		if stmt.Value != nil {
 			cs.addError(stmt.Value.Pos(), "range over an integer permits only one iteration variable")
 			return nil, false
@@ -1242,7 +1254,7 @@ func (cs *compileState) parseForRange(block *block, fname string, stmt *ast.Rang
 	var count []shaderir.Stmt
 	if end == nil {
 		idx := block.totalLocalVariableCount()
-		block.vars = append(block.vars, variable{typ: shaderir.Type{Main: shaderir.Int}})
+		block.vars = append(block.vars, variable{typ: vartype})
 		local := shaderir.Expr{Type: shaderir.LocalVariable, Index: idx}
 		count = append(count, shaderir.Stmt{Type: shaderir.Assign, Exprs: []shaderir.Expr{local, endExpr}})
 		endExpr = local
@@ -1256,7 +1268,6 @@ func (cs *compileState) parseForRange(block *block, fname string, stmt *ast.Rang
 		return nil, false
 	}
 	pseudoBlock.loop = true
-	vartype := shaderir.Type{Main: shaderir.Int}
 	varidx := pseudoBlock.totalLocalVariableCount()
 	pseudoBlock.addNamedLocalVariable(keyname, vartype, keypos)
 	validx := pseudoBlock.totalLocalVariableCount()

@@ -329,7 +329,7 @@ func (cs *compileState) inInternalRegion(pos token.Pos) bool {
 
 // checkPackageLevelNames reports an error and returns false if two package-level declarations in f have the same name.
 func (cs *compileState) checkPackageLevelNames(f *ast.File) bool {
-	names := map[string]struct{}{}
+	names := map[string]token.Pos{}
 	for _, d := range f.Decls {
 		var idents []*ast.Ident
 		switch d := d.(type) {
@@ -349,11 +349,17 @@ func (cs *compileState) checkPackageLevelNames(f *ast.File) bool {
 			if n.Name == "_" {
 				continue
 			}
-			if _, ok := names[n.Name]; ok {
+			if first, ok := names[n.Name]; ok {
+				// A name the internal region declares again is the user's
+				// mistake, at their declaration.
+				if cs.inInternalRegion(n.Pos()) && !cs.inInternalRegion(first) {
+					cs.addError(first, fmt.Sprintf("%s redeclared in this block: MyGo declares it for shaders", n.Name))
+					return false
+				}
 				cs.addError(n.Pos(), fmt.Sprintf("%s redeclared in this block", n.Name))
 				return false
 			}
-			names[n.Name] = struct{}{}
+			names[n.Name] = n.Pos()
 		}
 	}
 	return true
@@ -820,7 +826,7 @@ func (s *compileState) parseVariable(block *block, fname string, vs *ast.ValueSp
 			}
 
 			for i, rt := range rts {
-				if !canAssign(&t, &rt, es[i].Const) {
+				if !canAssign(&t, &rt, &es[i]) {
 					s.addError(n.Pos(), fmt.Sprintf("cannot use type %s as type %s in variable declaration", typeString(rt, es[i].Const), t.String()))
 				}
 				if es[i].Const != nil {
@@ -872,7 +878,7 @@ func (s *compileState) parseVariable(block *block, fname string, vs *ast.ValueSp
 				}
 			}
 
-			if !canAssign(&t, &inittypes[i], initexprs[i].Const) {
+			if !canAssign(&t, &inittypes[i], &initexprs[i]) {
 				s.addError(n.Pos(), fmt.Sprintf("cannot use type %s as type %s in variable declaration", inittypes[i].String(), t.String()))
 			}
 
@@ -947,7 +953,7 @@ func (s *compileState) parseConstant(block *block, fname string, vs *ast.ValueSp
 			// A constant without a declared type has the type of its value, which is none for an untyped value.
 			t = ts[0]
 		}
-		if !t.Equal(&shaderir.Type{}) && !canAssign(&t, &ts[0], es[0].Const) {
+		if !t.Equal(&shaderir.Type{}) && !canAssign(&t, &ts[0], &es[0]) {
 			s.addError(vs.Values[i].Pos(), fmt.Sprintf("cannot use %v as %s value in constant declaration", es[0].Const, t.String()))
 			return nil, false
 		}

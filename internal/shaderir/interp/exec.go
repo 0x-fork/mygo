@@ -211,6 +211,7 @@ func (c *compiler) lvalue(fn *function, e *shaderir.Expr) func(s *state, src int
 		et := shaderir.TypeOf(e, env{c, fn})
 		size, count := lanes(&et), elements(&bt)
 		idx := c.expr(fn, &e.Exprs[1])
+		unsigned := shaderir.TypeOf(&e.Exprs[1], env{c, fn}).Scalar() == shaderir.Uint
 		// Write the element into a copy of the base, then the base back.
 		tmp := c.alloc(bt)
 		read := c.expr(fn, base)
@@ -219,7 +220,7 @@ func (c *compiler) lvalue(fn *function, e *shaderir.Expr) func(s *state, src int
 		return func(s *state, src int) {
 			eval(s, read, idx)
 			copy(s.r[tmp.off:tmp.off+bn], s.r[read.off:read.off+bn])
-			i := clampIndex(int32(s.r[idx.off]), count)
+			i := clampIndex(indexAt(s.r[idx.off], unsigned), count)
 			copy(s.r[tmp.off+i*size:tmp.off+(i+1)*size], s.r[src:src+size])
 			write(s, tmp.off)
 		}
@@ -265,8 +266,17 @@ func elements(t *shaderir.Type) int {
 
 // clampIndex keeps an index within count, where a GPU's would be
 // undefined.
-func clampIndex(i int32, count int) int {
-	return int(min(max(i, 0), int32(count-1)))
+func clampIndex(i int64, count int) int {
+	return int(min(max(i, 0), int64(count-1)))
+}
+
+// indexAt returns the index in r, a uint's bits when unsigned, else an
+// int's.
+func indexAt(r uint32, unsigned bool) int64 {
+	if unsigned {
+		return int64(r)
+	}
+	return int64(int32(r))
 }
 
 func swizzle(s string) []int {
@@ -402,6 +412,7 @@ func (c *compiler) index(fn *function, e *shaderir.Expr) operand {
 	bt := shaderir.TypeOf(&e.Exprs[0], en)
 	size, count := lanes(&t), elements(&bt)
 	ie := &e.Exprs[1]
+	unsigned := shaderir.TypeOf(ie, en).Scalar() == shaderir.Uint
 	// An element of a uniform is read from the uniforms, not the whole.
 	if e.Exprs[0].Type == shaderir.UniformVariable {
 		w := c.uniforms[e.Exprs[0].Index]
@@ -409,21 +420,21 @@ func (c *compiler) index(fn *function, e *shaderir.Expr) operand {
 		o := c.alloc(t)
 		return operand{off: o.off, t: t, run: func(s *state) {
 			eval(s, idx)
-			i := clampIndex(int32(s.r[idx.off]), count)
+			i := clampIndex(indexAt(s.r[idx.off], unsigned), count)
 			copy(s.r[o.off:o.off+size], s.in.Uniforms[w+i*size:w+(i+1)*size])
 		}}
 	}
 	base := c.expr(fn, &e.Exprs[0])
 	if ie.Type == shaderir.NumberExpr {
 		i64, _ := constant.Int64Val(constant.ToInt(ie.Const))
-		i := clampIndex(int32(i64), count)
+		i := clampIndex(i64, count)
 		return operand{run: base.run, off: base.off + i*size, t: t}
 	}
 	idx := c.expr(fn, ie)
 	o := c.alloc(t)
 	return operand{off: o.off, t: t, run: func(s *state) {
 		eval(s, base, idx)
-		i := clampIndex(int32(s.r[idx.off]), count)
+		i := clampIndex(indexAt(s.r[idx.off], unsigned), count)
 		copy(s.r[o.off:o.off+size], s.r[base.off+i*size:base.off+(i+1)*size])
 	}}
 }

@@ -162,16 +162,38 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 		}
 		lhs[0].Const, rhs[0].Const = l, r
 
+		// A shift of an untyped constant by a count that is not one is
+		// untyped (Expr.Untyped), as are operations of such shifts and
+		// untyped constants: their type comes from their context.
+		untypedInt := func(e *shaderir.Expr, t shaderir.Type) bool {
+			return e.Untyped || e.Const != nil && t.Main == shaderir.None && e.Const.Kind() == gconstant.Int
+		}
+		shift := op2 == shaderir.LeftShift || op2 == shaderir.RightShift
+		var untyped bool
+		switch op2 {
+		case shaderir.LeftShift, shaderir.RightShift:
+			untyped = untypedInt(&lhs[0], lhst)
+		case shaderir.Add, shaderir.Sub, shaderir.ComponentWiseMul, shaderir.Div, shaderir.ModOp, shaderir.And, shaderir.AndNot, shaderir.Or, shaderir.Xor:
+			untyped = untypedInt(&lhs[0], lhst) && untypedInt(&rhs[0], rhst)
+		}
+		// An untyped shift takes the type of a uint it goes with.
+		if lhs[0].Untyped && !shift && rhst.Scalar() == shaderir.Uint {
+			lhst = shaderir.Type{Main: shaderir.Uint}
+		}
+		if rhs[0].Untyped && !shift && lhst.Scalar() == shaderir.Uint {
+			rhst = shaderir.Type{Main: shaderir.Uint}
+		}
+
 		// If either is typed, resolve the other type.
 		// If both are untyped, keep them untyped.
 		if lhst.Main != shaderir.None || rhst.Main != shaderir.None {
 			// An integer constant takes the other operand's kind of integer, or int
 			// for a shift's count.
 			lkind, rkind := shaderir.Int, shaderir.Int
-			if rhst.Scalar() == shaderir.Uint && op2 != shaderir.LeftShift && op2 != shaderir.RightShift {
+			if rhst.Scalar() == shaderir.Uint && !shift {
 				lkind = shaderir.Uint
 			}
-			if lhst.Scalar() == shaderir.Uint && op2 != shaderir.LeftShift && op2 != shaderir.RightShift {
+			if lhst.Scalar() == shaderir.Uint && !shift {
 				rkind = shaderir.Uint
 			}
 			if lhs[0].Const != nil && lhst.Main == shaderir.None {
@@ -228,8 +250,9 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 
 			return []shaderir.Expr{
 				{
-					Type:  shaderir.NumberExpr,
-					Const: v,
+					Type:     shaderir.NumberExpr,
+					Const:    v,
+					Unsigned: t.Main == shaderir.Uint,
 				},
 			}, []shaderir.Type{t}, stmts, true
 		}
@@ -242,9 +265,10 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 
 		return []shaderir.Expr{
 			{
-				Type:  shaderir.Binary,
-				Op:    op2,
-				Exprs: []shaderir.Expr{lhs[0], rhs[0]},
+				Type:    shaderir.Binary,
+				Op:      op2,
+				Exprs:   []shaderir.Expr{lhs[0], rhs[0]},
+				Untyped: untyped,
 			},
 		}, []shaderir.Type{t}, stmts, true
 
@@ -948,7 +972,7 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 		}
 
 		for i, p := range f.ir.InParams {
-			if !canAssign(&p, &argts[i], args[i].Const) {
+			if !canAssign(&p, &argts[i], &args[i]) {
 				cs.addError(argPositions[i], fmt.Sprintf("cannot use type %s as type %s in %s", typeString(argts[i], args[i].Const), p.String(), argumentName(f.name, i, len(args))))
 				return nil, nil, nil, false
 			}
@@ -1141,13 +1165,19 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 				cs.addError(e.Pos(), fmt.Sprintf("invalid operation: operator %s not defined on %s", e.Op, exprs[0].Const.String()))
 				return nil, nil, nil, false
 			}
-			v := gconstant.UnaryOp(e.Op, exprs[0].Const, 0)
+			// The complement of a uint is in its 32 bits.
+			var prec uint
+			if ts[0].Main == shaderir.Uint {
+				prec = 32
+			}
+			v := gconstant.UnaryOp(e.Op, exprs[0].Const, prec)
 			// Use the original type as it is.
 			// Keep the type untyped if the original expression is untyped (#2705).
 			return []shaderir.Expr{
 				{
-					Type:  shaderir.NumberExpr,
-					Const: v,
+					Type:     shaderir.NumberExpr,
+					Const:    v,
+					Unsigned: exprs[0].Unsigned,
 				},
 			}, ts[:1], stmts, true
 		}
@@ -1182,9 +1212,10 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 		}
 		return []shaderir.Expr{
 			{
-				Type:  shaderir.Unary,
-				Op:    op,
-				Exprs: exprs,
+				Type:    shaderir.Unary,
+				Op:      op,
+				Exprs:   exprs,
+				Untyped: exprs[0].Untyped,
 			},
 		}, ts[:1], stmts, true
 
@@ -1228,7 +1259,7 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 
 			expr := exprs[0]
 			if expr.Const == nil {
-				if !canAssign(&t.Sub[0], &ets[0], expr.Const) {
+				if !canAssign(&t.Sub[0], &ets[0], &expr) {
 					cs.addError(e.Pos(), fmt.Sprintf("cannot use type %s as type %s in array literal", ets[0].String(), t.Sub[0].String()))
 					return nil, nil, nil, false
 				}
@@ -1305,7 +1336,7 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 			if !cs.forceToInt(e.Index, &idx) {
 				return nil, nil, nil, false
 			}
-		} else if its[0].Main != shaderir.Int {
+		} else if its[0].Main != shaderir.Int && its[0].Main != shaderir.Uint {
 			cs.addError(e.Index.Pos(), fmt.Sprintf("index must be int but %s", its[0].String()))
 			return nil, nil, nil, false
 		}
@@ -1400,8 +1431,9 @@ func (cs *compileState) parseIdent(block *block, e *ast.Ident, markLocalVariable
 	}
 	if c, ok := block.findConstant(e.Name); ok {
 		return shaderir.Expr{
-			Type:  shaderir.NumberExpr,
-			Const: c.value,
+			Type:     shaderir.NumberExpr,
+			Const:    c.value,
+			Unsigned: c.typ.Main == shaderir.Uint,
 		}, c.typ, true
 	}
 	if i, ok := cs.findFunction(e.Name); ok {
