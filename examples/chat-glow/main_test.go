@@ -76,3 +76,47 @@ func TestSplitWords(t *testing.T) {
 		t.Errorf("%d words in \"a b  c\\n\\nd\", want 4", n)
 	}
 }
+
+// The conversation scrolls: once it is longer than the window, it shows
+// its end, the whole of the last reply above the composer, not under it.
+func TestScrollsToEnd(t *testing.T) {
+	a := newApp()
+	tt := ui.NewTester(a.view, 860, 500)
+	for i := range 3 {
+		if i == 0 {
+			if err := tt.Click("Summarize my week"); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tt.Click("Message"); err != nil {
+				t.Fatal(err)
+			}
+			tt.Type("And then?")
+			tt.Key(0, ui.KeyEnter)
+		}
+		// The reply comes in word by word, as it shows.
+		for a.busy {
+			a.step(0.1)
+			tt.Frame()
+		}
+	}
+	if len(a.messages) != 6 {
+		t.Fatalf("%d messages, want 6", len(a.messages))
+	}
+	tt.Frame()
+	if !a.list.AtEnd() {
+		t.Error("the conversation does not show its end")
+	}
+	last := a.messages[len(a.messages)-1]
+	r, ok := tt.Find(last.text)
+	if !ok {
+		t.Fatal("the last reply does not show")
+	}
+	field, _ := tt.Find("Message")
+	if r.Y+r.H > field.Y-ringPadding {
+		t.Errorf("the last reply ends at %.0f, under the composer at %.0f", r.Y+r.H, field.Y)
+	}
+	if r.H < 3*14 {
+		t.Errorf("the last reply shows %.0f DIPs of its lines, want all of them", r.H)
+	}
+}

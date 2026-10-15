@@ -114,12 +114,13 @@ func (a *app) welcome(c *ui.Context) {
 func (a *app) conversation(c *ui.Context) {
 	a.list.Key = func(i int) any { return a.messages[i].id }
 	a.list.FollowEnd = true
-	a.list.FollowAnimation = &ui.Smooth
-	ui.Row(c).Grow(1).Justify(ui.Center).Children(func() {
-		ui.List(c, &a.list, len(a.messages), func(i int) {
-			a.message(c, a.messages[i])
-		}).Grow(1).MaxWidth(maxWidth+48).Padding(52, 24, 16, 24).Gap(22).Justify(ui.End)
-	})
+	ui.List(c, &a.list, len(a.messages), func(i int) {
+		// Each message in the middle, the list as wide as the window, so
+		// that it scrolls wherever the pointer is.
+		ui.Row(c).Justify(ui.Center).Children(func() {
+			ui.Column(c).Grow(1).MaxWidth(maxWidth).Children(func() { a.message(c, a.messages[i]) })
+		})
+	}).Grow(1).Padding(52, 24, 16, 24).Gap(22).Justify(ui.End)
 }
 
 // message builds a message: the user's in a bubble on the right, the
