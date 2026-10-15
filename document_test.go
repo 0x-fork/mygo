@@ -107,17 +107,16 @@ func writeTemp(t *testing.T, name, content string) string {
 
 func readString(t *testing.T, path string) string {
 	t.Helper()
-	b, err := os.ReadFile(path)
+	b, err := readAppFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return string(b)
 }
 
-// fileIs reports whether the file at path holds want, false while it
-// cannot be read: Windows refuses to open a file being replaced.
+// fileIs reports whether the file at path holds want.
 func fileIs(path, want string) bool {
-	b, err := os.ReadFile(path)
+	b, err := readAppFile(path)
 	return err == nil && string(b) == want
 }
 
