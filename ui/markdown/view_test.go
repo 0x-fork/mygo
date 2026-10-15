@@ -191,6 +191,31 @@ func TestThemeOverrides(t *testing.T) {
 	}
 }
 
+// TestThemeLink checks that links draw in Theme.Link, not the window
+// theme's accent.
+func TestThemeLink(t *testing.T) {
+	o := &Options{Theme: &Theme{Link: ui.RGB(255, 0, 0)}}
+	tt := ui.NewTester(func(c *ui.Context) { View(c, "plain [a link](https://example.com)", o) }, 300, 80)
+	img := tt.Image()
+	acc := ui.LightTheme().Accent
+	reds, accent := 0, 0
+	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			r, g, b = r>>8, g>>8, b>>8
+			if r > 200 && g < 60 && b < 60 {
+				reds++
+			}
+			if r == uint32(acc.R) && g == uint32(acc.G) && b == uint32(acc.B) {
+				accent++
+			}
+		}
+	}
+	if reds == 0 || accent > 0 {
+		t.Errorf("%d pixels in Theme.Link, %d in the window theme's accent", reds, accent)
+	}
+}
+
 func TestSlug(t *testing.T) {
 	for in, want := range map[string]string{"Hello, World!": "hello-world", "API v2 — notes": "api-v2--notes", "foo_bar-baz": "foo_bar-baz"} {
 		if got := Slug(in); got != want {
