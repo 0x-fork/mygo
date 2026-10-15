@@ -88,6 +88,8 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── gpu/d3d11/      the Direct3D 11 renderer of scenes, and device/ for its devices
 │   ├── gpu/metal/      the Metal renderer of scenes
 │   ├── gpu/gl/         the OpenGL and WebGL 2 renderer of scenes
+│   ├── shader/         the compiler of shaders in Go's syntax, forked from Ebitengine's Kage
+│   ├── shaderir/       its IR; glsl/, hlsl/ and msl/ write it for the GPU renderers, interp/ runs it on the CPU
 │   ├── svg/            SVG parsing and drawing, for icons and images
 │   ├── tsgen/          TypeScript client generator
 │   ├── i18ngen/        checks catalogs of messages, writes their Go and TypeScript functions
