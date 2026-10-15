@@ -22,6 +22,10 @@ const (
 	ringPadding, fieldRadius = 12, 16
 	// maxWidth is the conversation's width at most.
 	maxWidth = 660
+	// replySize is the size of the replies' text and replyLeading its line
+	// height, which "Thinking…" takes too, so that the row keeps its
+	// height as the first words replace it.
+	replySize, replyLeading = 15, 1.5
 )
 
 // suggestions are what the empty conversation offers to ask.
@@ -114,6 +118,7 @@ func (a *app) welcome(c *ui.Context) {
 func (a *app) conversation(c *ui.Context) {
 	a.list.Key = func(i int) any { return a.messages[i].id }
 	a.list.FollowEnd = true
+	a.list.FollowAnimation = &ui.Smooth // glide up as the reply grows
 	ui.List(c, &a.list, len(a.messages), func(i int) {
 		// Each message in the middle, the list as wide as the window, so
 		// that it scrolls wherever the pointer is.
@@ -143,10 +148,10 @@ func (a *app) message(c *ui.Context, m *message) {
 			avatar.Draw(func(p *ui.Painter, r ui.Rect) { a.drawStillOrb(p, r, m.id) })
 		}
 		if m.shown == 0 && last && a.busy {
-			ui.Box(c).Size(120, 22).Label("Thinking").Draw(func(p *ui.Painter, r ui.Rect) { a.drawThinking(p, r, t) })
+			ui.Box(c).Size(120, replySize*replyLeading).Label("Thinking").Draw(func(p *ui.Painter, r ui.Rect) { a.drawThinking(p, r, t) })
 			return
 		}
-		ui.Text(c, strings.Join(m.words[:m.shown], "")).Selectable().LineHeight(1.5).TextColor(t.Text).Grow(1).MinWidth(0)
+		ui.Text(c, strings.Join(m.words[:m.shown], "")).Selectable().FontSize(replySize).LineHeight(replyLeading).TextColor(t.Text).Grow(1).MinWidth(0)
 	})
 }
 
@@ -229,13 +234,15 @@ func (a *app) drawRing(p *ui.Painter, r ui.Rect) {
 
 // drawThinking draws "Thinking…" with a shine sweeping across it.
 func (a *app) drawThinking(p *ui.Painter, r ui.Rect, t *ui.Theme) {
-	const text, size = "Thinking…", 15
+	const text = "Thinking…"
+	_, h := p.MeasureText(0, ui.Span{Text: text, Size: replySize})
+	y := r.Y + (r.H-h)/2
 	if !p.Accelerated() {
-		p.Text(r.X, r.Y+2, text, size, t.TextMuted)
+		p.Text(r.X, y, text, replySize, t.TextMuted)
 		return
 	}
 	base, shine := t.TextMuted, t.Text
-	shimmer.Text(p, r.X, r.Y+2, text, size, shader.Options{Values: a.sh.shimmer.
+	shimmer.Text(p, r.X, y, text, replySize, shader.Options{Values: a.sh.shimmer.
 		Float(shimmerTime, float32(a.now)).Color(shimmerBase, base).Color(shimmerShine, shine)})
 }
 

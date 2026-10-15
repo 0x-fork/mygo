@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/egoist/mygo/internal/wait"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -103,20 +104,20 @@ func TestScrollsToEnd(t *testing.T) {
 	if len(a.messages) != 6 {
 		t.Fatalf("%d messages, want 6", len(a.messages))
 	}
-	tt.Frame()
-	if !a.list.AtEnd() {
-		t.Error("the conversation does not show its end")
-	}
+	// The rows glide up to their place (FollowAnimation), on the clock.
 	last := a.messages[len(a.messages)-1]
-	r, ok := tt.Find(last.text)
-	if !ok {
-		t.Fatal("the last reply does not show")
-	}
-	field, _ := tt.Find("Message")
-	if r.Y+r.H > field.Y-ringPadding {
-		t.Errorf("the last reply ends at %.0f, under the composer at %.0f", r.Y+r.H, field.Y)
-	}
-	if r.H < 3*14 {
+	var r, field ui.Rect
+	wait.Until(t, "the end of the conversation in view", func() bool {
+		tt.Frame()
+		var ok bool
+		r, ok = tt.Find(last.text)
+		field, _ = tt.Find("Message")
+		// The list ends ringPadding and the field's own 6 above the field,
+		// and its rows 16 above that once they settled: a reply still
+		// gliding is cut off at the list's end, not that far above it.
+		return ok && a.list.AtEnd() && r.H > 0 && r.Y+r.H <= field.Y-ringPadding-6-12
+	})
+	if r.H < 3*replySize {
 		t.Errorf("the last reply shows %.0f DIPs of its lines, want all of them", r.H)
 	}
 }
