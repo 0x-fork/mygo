@@ -935,7 +935,7 @@ func (r *Renderer) effectShader(e *scene.Effect) uintptr {
 	r.effects[e] = p
 	code := e.HLSL.Compiled
 	if len(code) == 0 || e.HLSL.Sum != gpu.SourceSum(EffectSource(e.HLSL.Source)) {
-		code, p.err = CompileEffect(e.HLSL.Source)
+		code, p.err = compileEffectCode(e.HLSL.Source)
 	}
 	if p.err == nil {
 		if hr := call(r.device, devCreatePixelShader, uintptr(unsafe.Pointer(&code[0])), uintptr(len(code)), 0, uintptr(unsafe.Pointer(&p.ps))); failed(hr) {

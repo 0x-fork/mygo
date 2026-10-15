@@ -139,10 +139,12 @@ that is about 100 ms, the first time the app runs on the Mac; Metal keeps
 what it compiled on disk, so later launches draw at once. Linux's Mesa
 drivers keep theirs on disk too (in `~/.cache/mesa_shader_cache`): from
 a tenth to a third of a second on the CPU's llvmpipe, the first time,
-and a few milliseconds after. On Windows,
-Direct3D's compiler keeps nothing: each window compiles the shaders it
-draws again, from a tenth of a second for a short shader to a second for
-one of a few hundred lines. A shader costs
+and a few milliseconds after. On Windows, Direct3D's compiler takes from
+a tenth of a second for a short shader to a second for one of a few
+hundred lines, so `Compile` starts it on a goroutine of its own: the
+renderers of every window share the code, waiting on their first draw
+only for what is left, and it stays in the user's cache directory
+(`MyGo\ShaderCache`) for later launches. A shader costs
 little to draw on a GPU, whatever it computes per pixel; on the CPU (the
 renderer of last resort, and `ui.Tester`) it runs interpreted, a few
 microseconds a pixel: seconds for a window. A shader covering much of the

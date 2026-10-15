@@ -2892,7 +2892,16 @@ either.
   (`ShaderSource`, `shader_ps`), which `ui/shader` builds, so that apps
   drawing none do not carry it. `ui` itself only has `Painter.ShaderEffect`:
   the compiler, its package variables and go/parser stay out of apps that
-  draw no shader.
+  draw no shader. Direct3D's compiler takes from 0.1 s to more than 1 s
+  for a shader's effect (the renderer's head and tail, with its coverage,
+  are most of a small one's; optimization levels barely change it), so
+  `ui/shader` starts it as it compiles one (`d3d11.PrecompileEffect`), on
+  goroutines, as many at once as the CPUs but one. The renderers share
+  the code (`compileEffectCode`), waiting for what is left, and it stays
+  in `%LOCALAPPDATA%\MyGo\ShaderCache`, a file named by the SHA-256 of
+  what it compiled from, one directory for the user as Windows' own
+  D3DSCache is, the least recently used removed beyond 32 MB. Effects
+  compiled ahead of time, and apps without shaders, do not link it.
 - **Corners.** On macOS, rounded corners are continuous, as AppKit's and
   SwiftUI's (`scene.Op.Continuous`), and drawn as Core Animation draws
   them on screen, with the function of its shaders (QuartzCore's
