@@ -438,6 +438,11 @@ const (
 	qsAllInput         = 0x04FF
 	mwmoInputAvailable = 0x0004
 	pmRemove           = 0x0001
+	qsSendMessage      = 0x0040
+	pmNoRemove         = 0x0000
+	pmQSSendMessage    = qsSendMessage << 16
+
+	clipbrdECantOpen = 0x800401D0
 
 	sOK          = 0
 	eNoInterface = 0x80004002

@@ -725,14 +725,15 @@ func TestChannels(t *testing.T) {
 		t.Fatalf("Send did not wait for the page: %v", err)
 	case <-time.After(50 * time.Millisecond):
 	}
-	// The main thread posts the values Send queued as it gets to them.
+	// Send queued each value and posted the flush that hands it to the
+	// page before it returned. The main loop runs functions in the order
+	// they were posted, so once one posted now has run, that flush has too,
+	// however long the main thread took to get to it.
+	onMain(func() {})
 	asks := 0
-	for deadline := time.Now().Add(3 * time.Second); asks < 2 && time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-		asks = 0
-		for _, m := range pageMessages(t, fw) {
-			if m["c"] == float64(8) && m["a"] == float64(1) {
-				asks++
-			}
+	for _, m := range pageMessages(t, fw) {
+		if m["c"] == float64(8) && m["a"] == float64(1) {
+			asks++
 		}
 	}
 	if asks != 2 {
@@ -1003,15 +1004,26 @@ func TestEval(t *testing.T) {
 }
 
 // TestEvalLateReply: on the main thread, a reply arriving after the
-// context was canceled must not block.
+// cancellation of the context was delivered, before EvalContext took it,
+// must not block.
 func TestEvalLateReply(t *testing.T) {
 	w, fw := testWindow(t, WindowOptions{})
 	ctx, cancel := context.WithCancel(context.Background())
+	delivered := make(chan struct{})
+	var once sync.Once
+	evalCanceled = func() { once.Do(func() { close(delivered) }) }
+	t.Cleanup(func() { evalCanceled = nil })
 	fw.AsyncCallback = func(body string, reply func(string, error)) {
 		postMain(func() {
 			cancel()
-			time.Sleep(50 * time.Millisecond) // the cancellation is delivered...
-			reply(`{"ok":true,"v":1}`, nil)   // ...then the page answers
+			// The main thread, which EvalContext waits on, is busy here: the
+			// cancellation is delivered...
+			select {
+			case <-delivered:
+			case <-time.After(time.Minute):
+				t.Error("the cancellation was not delivered")
+			}
+			reply(`{"ok":true,"v":1}`, nil) // ...then the page answers
 		})
 	}
 	done := make(chan error, 1)
