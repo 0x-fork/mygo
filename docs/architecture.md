@@ -3655,6 +3655,33 @@ the test binary's app ID. It passes on Debian 13 (portal 1.20, Plasma 6.3)
 and Debian 12 (portal 1.16, Plasma 5.27); Ubuntu 24.04 (portal 1.18, Plasma
 5.27) binds no shortcuts for any app.
 
+### Waiting in tests
+
+A test never decides on how long something took. CI runners are slow
+and loaded at random, so a test that sleeps then checks, or gives up
+after a few seconds, fails now and then although the code is right, and
+a longer timeout only makes that rarer. So:
+
+- Wait for the condition or the event itself, with `internal/wait`:
+  `wait.Until(t, "the window closed", w.IsDestroyed)`, `wait.For(t,
+  "the reply", ch)`, `wait.Context(t)` for calls that take a context.
+  Its guard, a minute, only turns a hang into a failure that says what
+  never happened. It is not tuned: a wait that reaches it found a race
+  that lost the event, or a condition that can't become true, and the
+  fix goes there.
+- Wait for what the product says it did, not for a side effect that
+  comes later: the backup's state rather than its file, an identity the
+  watch saw rather than a stat after it, the input queue drained rather
+  than bytes counted.
+- Native UI tests move the `ui.Tester`'s clock with `Advance`; it stands
+  still otherwise, so animations, delays and double clicks don't depend
+  on the machine.
+- Performance is measured by counts (steps, allocations) in tests, by
+  time only in benchmarks, which `bench.yml` tracks.
+- Checks that nothing happens (`select` on `time.After` with nothing to
+  fail) may wait a short while: a slow machine can only make them miss
+  a bug, never fail right code.
+
 ### Benchmarks
 
 `.github/workflows/bench.yml` measures every push to main on GitHub's

@@ -28,6 +28,7 @@ import (
 	"github.com/egoist/mygo/internal/fake"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/tsgen"
+	"github.com/egoist/mygo/internal/wait"
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 )
@@ -104,8 +105,8 @@ func secret(fw *fake.Window) string {
 // received waits until the page received a message matching pred.
 func received(t *testing.T, fw *fake.Window, pred func(m map[string]any) bool) map[string]any {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	var found map[string]any
+	if wait.Poll(func() bool {
 		for _, s := range fw.Scripts() {
 			const prefix = "__mygo.receive("
 			if !strings.HasPrefix(s, prefix) {
@@ -117,11 +118,14 @@ func received(t *testing.T, fw *fake.Window, pred func(m map[string]any) bool) m
 			}
 			for _, m := range msgs {
 				if pred(m) {
-					return m
+					found = m
+					return true
 				}
 			}
 		}
-		time.Sleep(5 * time.Millisecond)
+		return false
+	}) {
+		return found
 	}
 	t.Fatalf("message not received; scripts: %q", fw.Scripts())
 	return nil
@@ -593,7 +597,7 @@ func TestCallContextCanceledOnNavigation(t *testing.T) {
 	onMain(func() { fw.H.NavigationCommitted("https://next.example/") })
 	select {
 	case <-pc.Done():
-	case <-time.After(time.Second):
+	case <-time.After(wait.Guard):
 		t.Fatal("page context not canceled after navigation")
 	}
 	if w.pageContext().Err() != nil {
@@ -784,7 +788,7 @@ func TestChannels(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("call context of a channel closed early: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(wait.Guard):
 		t.Fatal("a channel the page closed before its call started did not cancel the call")
 	}
 	if err := <-s.sent; !errors.Is(err, ErrChannelClosed) {
@@ -812,7 +816,7 @@ func TestChannelsClosedAtOnce(t *testing.T) {
 	for range n {
 		select {
 		case <-s.stopped:
-		case <-time.After(5 * time.Second):
+		case <-time.After(wait.Guard):
 			t.Fatal("a call whose channel the page closed was not canceled")
 		}
 	}
@@ -1020,7 +1024,7 @@ func TestEvalLateReply(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("EvalContext = %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(wait.Guard):
 		t.Fatal("the late reply blocked the main thread")
 	}
 }
@@ -1050,7 +1054,7 @@ func request(t *testing.T, fw *fake.Window, method, url string, body io.Reader) 
 	onMain(func() { fw.H.SchemeRequest(req) })
 	select {
 	case <-rec.finished:
-	case <-time.After(3 * time.Second):
+	case <-time.After(wait.Guard):
 		t.Fatal("request did not finish")
 	}
 	return rec
@@ -1151,7 +1155,7 @@ func TestProtocolCORS(t *testing.T) {
 		onMain(func() { fw.H.SchemeRequest(req) })
 		select {
 		case <-rec.finished:
-		case <-time.After(3 * time.Second):
+		case <-time.After(wait.Guard):
 			t.Fatal("request did not finish")
 		}
 		return rec
@@ -1256,7 +1260,7 @@ func TestProtocolBodyWriter(t *testing.T) {
 		onMain(func() { fw.H.SchemeRequest(req) })
 		select {
 		case <-rec.finished:
-		case <-time.After(3 * time.Second):
+		case <-time.After(wait.Guard):
 			t.Fatal("request did not finish")
 		}
 	}
@@ -1675,7 +1679,7 @@ func TestThemePreferences(t *testing.T) {
 		if p != want {
 			t.Errorf("Preferences from another goroutine = %+v, want %+v", p, want)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(wait.Guard):
 		t.Fatal("Preferences from another goroutine hung")
 	}
 }
@@ -2005,7 +2009,7 @@ func TestGlobalShortcut(t *testing.T) {
 	onMain(func() { fb.PressHotkey("CmdOrCtrl+Shift+K") })
 	select {
 	case <-pressed:
-	case <-time.After(time.Second):
+	case <-time.After(wait.Guard):
 		t.Error("shortcut callback not called")
 	}
 	GlobalShortcut.Unregister("CmdOrCtrl+Shift+K")
@@ -2175,7 +2179,7 @@ func TestSingleInstance(t *testing.T) {
 		if !slices.Contains(args, "--from-second") || !slices.Contains(args, "instance") {
 			t.Errorf("forwarded args = %q", args)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(wait.Guard):
 		t.Fatal("OnSecondInstance not called")
 	}
 	// Deep links started a second instance: the first one opens them.
@@ -2184,7 +2188,7 @@ func TestSingleInstance(t *testing.T) {
 		if u != "mygo-test://open?x=1" {
 			t.Errorf("OnOpenURL got %q", u)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(wait.Guard):
 		t.Fatal("OnOpenURL not called for the forwarded URL")
 	}
 }

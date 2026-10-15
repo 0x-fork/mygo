@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/internal/wait"
 	"github.com/egoist/mygo/plugins/updater/internal/markdown"
 )
 
@@ -74,7 +75,7 @@ func (h *harness) shown() *session {
 	select {
 	case s := <-h.presented:
 		return s
-	case <-time.After(5 * time.Second):
+	case <-time.After(wait.Guard):
 		h.t.Fatal("no window was shown")
 		return nil
 	}
@@ -93,7 +94,7 @@ func (h *harness) noWindow() {
 // waitView waits for s to show a view whose title starts with title.
 func waitView(t *testing.T, s *session, title string) view {
 	t.Helper()
-	deadline := time.After(5 * time.Second)
+	deadline := time.After(wait.Guard)
 	for {
 		v, changed := s.Current()
 		if strings.HasPrefix(v.Title, title) {
@@ -111,7 +112,7 @@ func waitDone(t *testing.T, done chan struct{}) {
 	t.Helper()
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(wait.Guard):
 		t.Fatal("the check did not end")
 	}
 }

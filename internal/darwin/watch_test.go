@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/wait"
 )
 
 func TestFSEventsEventMapping(t *testing.T) {
@@ -102,7 +103,7 @@ func watchTestNext(t *testing.T, notices chan platform.FileWatchNotice, target u
 // the mapping calls dirty.
 func watchTestNextKinds(t *testing.T, notices chan platform.FileWatchNotice, target uint64, kinds []platform.FileWatchKind, names ...string) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(wait.Guard)
 	for time.Now().Before(deadline) {
 		select {
 		case n := <-notices:

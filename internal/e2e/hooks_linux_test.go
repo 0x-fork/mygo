@@ -4,10 +4,10 @@ package e2e
 
 import (
 	"testing"
-	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/internal/linux"
+	"github.com/egoist/mygo/internal/wait"
 )
 
 func activateMenu(w *mygo.Window, path ...string) (err error) {
@@ -145,18 +145,9 @@ func enterMenuBar(w *mygo.Window, key string) (during, after, supported bool) {
 		mygo.RunOnMain(func() { shown, open = linux.TestMenuBarState(w.NativeHandle()) })
 		return shown, open
 	}
-	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if shown, open := state(); shown && open {
-			during = true
-			break
-		}
-	}
+	during = wait.Poll(func() bool { shown, open := state(); return shown && open })
 	mygo.RunOnMain(func() { linux.TestCloseMenuBar(w.NativeHandle()) })
-	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if after, _ = state(); !after {
-			break
-		}
-	}
+	wait.Poll(func() bool { after, _ = state(); return !after })
 	return during, after, true
 }
 

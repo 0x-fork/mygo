@@ -21,6 +21,7 @@ import (
 
 	"github.com/egoist/mygo/internal/fake"
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/wait"
 )
 
 // fileWatchTestNotice reports notice for the target at path, found by
@@ -46,8 +47,7 @@ var fileWatchTestEvents = map[*FileWatcher][]FileEvent{}
 // last or the next one.
 func fileWatchTestNext(t *testing.T, w *FileWatcher) FileEvent {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	ctx := wait.Context(t)
 	for len(fileWatchTestEvents[w]) == 0 {
 		batch, err := w.Next(ctx)
 		if err != nil {
@@ -66,8 +66,7 @@ func fileWatchTestNext(t *testing.T, w *FileWatcher) FileEvent {
 // fileWatchTestBatch returns the next batch.
 func fileWatchTestBatch(t *testing.T, w *FileWatcher) []FileEvent {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	ctx := wait.Context(t)
 	batch, err := w.Next(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -93,17 +92,16 @@ func TestFileWatchLifecycle(t *testing.T) {
 	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileCreate, Path: "a"}}) {
 		t.Fatalf("batch = %+v", batch)
 	}
-	wait, cancelWait := context.WithCancel(context.Background())
+	canceled, cancelWait := context.WithCancel(context.Background())
 	cancelWait()
-	if _, err = w.Next(wait); !errors.Is(err, context.Canceled) {
+	if _, err = w.Next(canceled); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
 	w.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	ctx := wait.Context(t)
 	if _, err = w.Next(ctx); err != io.EOF || w.Err() != nil {
 		t.Fatal(err, w.Err())
 	}
@@ -213,7 +211,8 @@ func TestFileWatchBackpressure(t *testing.T) {
 			t.Fatal(err)
 		}
 		fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: name, Kind: platform.FileWatchCreate})
-		time.Sleep(20 * time.Millisecond)
+		// The first look's batch waits for Next before the second notice.
+		wait.Until(t, "a batch of "+name, w.waiting)
 	}
 	if batch := fileWatchTestBatch(t, w); !slices.Equal(batch, []FileEvent{{Op: FileCreate, Path: "a"}}) {
 		t.Fatalf("first batch = %+v", batch)
@@ -528,8 +527,7 @@ func TestFileWatchSubtree(t *testing.T) {
 		t.Fatal("the root was not enrolled again")
 	}
 	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "../x"})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	ctx := wait.Context(t)
 	if _, err := w.Next(ctx); err == nil || errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("a name out of the tree: %v", err)
 	}
