@@ -958,6 +958,8 @@ type TrayHandler interface {
 
 // Tray is a status bar / notification area icon.
 type Tray interface {
+	// SetID names the icon across launches (macOS's autosave name).
+	SetID(id string)
 	SetImage(png []byte, template bool) error
 	SetTitle(title string)
 	SetToolTip(tip string)

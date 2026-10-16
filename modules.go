@@ -635,6 +635,13 @@ func (g *GlobalShortcutModule) pressed(id int) {
 
 // TrayOptions configures NewTray.
 type TrayOptions struct {
+	// ID names the icon across launches, unique among the app's icons: on
+	// macOS, where the user moves menu bar items by dragging them with ⌘
+	// held, the icon goes back where the user put it, as an app's several
+	// items each keep their place. Empty, a new icon goes left of those
+	// already there. It does nothing on Linux and Windows, whose panels
+	// and notification areas place icons themselves.
+	ID string
 	// Icon is a PNG image, ideally 16x16 points (32x32 pixels for Retina).
 	Icon []byte
 	// IconIsTemplate lets macOS tint a black-and-transparent icon to match
@@ -674,6 +681,9 @@ func NewTray(opts TrayOptions) (*Tray, error) {
 		t.native, err = backend().NewTray(trayHandler{t})
 		if err != nil {
 			return
+		}
+		if opts.ID != "" {
+			t.native.SetID(opts.ID)
 		}
 		if len(opts.Icon) > 0 {
 			if err = t.native.SetImage(opts.Icon, opts.IconIsTemplate); err != nil {
