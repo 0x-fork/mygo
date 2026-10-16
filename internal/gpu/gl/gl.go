@@ -59,6 +59,7 @@ const (
 	glInvalidIndex       = 0xFFFFFFFF
 	glStreamDraw         = 0x88E0
 	glFloat              = 0x1406
+	glRGBA32F            = 0x8814
 	glUnsignedByte       = 0x1401
 	glTexture2D          = 0x0DE1
 	glTexture0           = 0x84C0
@@ -152,6 +153,15 @@ type Renderer struct {
 	// laid out in shaderBytes, which binding point 0 reads.
 	ubo         uint32
 	shaderBytes []byte
+	// stops is the texture of the stops of gradients (uStops), stopsTex
+	// the scene drawn's, 0 for none; blurred are the textures of the images
+	// the frame draws blurred, the first used of them, and blurTmp the
+	// textures their passes go through.
+	stops    texture
+	stopsTex uint32
+	blurred  []target
+	used     int
+	blurTmp  [2]target
 
 	b gpu.Builder
 }
@@ -170,8 +180,8 @@ type effectProgram struct {
 // passProgram is the program of a pass computing backdrops and its
 // uniforms' locations.
 type passProgram struct {
-	program                                     uint32
-	origin, limit, shift, dir, down, rad, sigma int32
+	program                                           uint32
+	origin, limit, shift, dir, down, rad, sigma, mode int32
 }
 
 // New returns a renderer for the current GL context.
@@ -232,6 +242,7 @@ func (r *Renderer) init() error {
 	glUniform1i(glGetUniformLocation(r.program, "uColor"), 1)
 	glUniform1i(glGetUniformLocation(r.program, "uImage"), 2)
 	glUniform1i(glGetUniformLocation(r.program, "uClipMask"), 4)
+	glUniform1i(glGetUniformLocation(r.program, "uStops"), stopsUnit)
 	glUseProgram(0)
 	if r.down, err = passLink(header, "DOWN"); err != nil {
 		return err
@@ -392,6 +403,7 @@ func passLink(header, name string) (passProgram, error) {
 	p.down = glGetUniformLocation(p.program, "uDown")
 	p.rad = glGetUniformLocation(p.program, "uRadius")
 	p.sigma = glGetUniformLocation(p.program, "uSigma")
+	p.mode = glGetUniformLocation(p.program, "uMode")
 	glUseProgram(0)
 	return p, nil
 }
@@ -533,6 +545,7 @@ func (r *Renderer) Render(s *scene.Scene) error {
 
 func (r *Renderer) draw(s *scene.Scene) error {
 	r.frame++
+	r.used = 0
 	glActiveTexture(glTexture0)
 	if err := r.syncAtlas(&r.mask, s.MaskAtlas, glR8, glRed); err != nil {
 		return err
@@ -632,7 +645,10 @@ func (r *Renderer) deleteCanvas(t *canvasTexture) {
 
 // drawScene draws s into the framebuffer bound, with b.
 func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder) error {
+	b.BlurredImage = r.blurImage
 	s = b.Build(s, r.imageTexture)
+	b.BlurredImage = nil
+	r.syncStops(b)
 	// Canvases' rows go up, as GL's: images showing them sample them
 	// flipped, which their source rectangles may be (scene.OpImage).
 	if len(r.canvasTex) > 0 {
@@ -728,7 +744,7 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder) error {
 	// expects it.
 	glDisable(glScissorTest)
 	glDisable(glBlend)
-	for unit := range 9 {
+	for unit := range stopsUnit + 1 {
 		glActiveTexture(glTexture0 + uint32(unit))
 		glBindTexture(glTexture2D, 0)
 	}
@@ -738,6 +754,149 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder) error {
 	glBindVertexArray(0)
 	glUseProgram(0)
 	return nil
+}
+
+// stopsUnit is the texture unit of the stops of gradients (uStops).
+const stopsUnit = 9
+
+// syncStops uploads the stops of the gradients b built into r.stops,
+// which r.stopsTex then is, or 0 for none.
+func (r *Renderer) syncStops(b *gpu.Builder) {
+	r.stopsTex = 0
+	w, h := b.StopsSize()
+	if w == 0 {
+		return
+	}
+	data := b.Stops
+	for len(data) < 4*w*h {
+		data = append(data, 0)
+	}
+	b.Stops = data[:len(b.Stops)]
+	glActiveTexture(glTexture0)
+	if r.stops.tex == 0 || r.stops.w != w || r.stops.h < h {
+		if r.stops.tex != 0 {
+			glDeleteTextures(1, &r.stops.tex)
+		}
+		glGenTextures(1, &r.stops.tex)
+		glBindTexture(glTexture2D, r.stops.tex)
+		// Floats of 32 bits are not filterable: nearest, or the texture is
+		// incomplete and reads as zero.
+		glTexParameteri(glTexture2D, glTextureMinFilter, glNearest)
+		glTexParameteri(glTexture2D, glTextureMagFilter, glNearest)
+		glTexParameteri(glTexture2D, glTextureWrapS, glClampToEdge)
+		glTexParameteri(glTexture2D, glTextureWrapT, glClampToEdge)
+		glTexImage2D(glTexture2D, 0, glRGBA32F, int32(w), int32(h), 0, glRGBA, glFloat, unsafe.Pointer(&data[0]))
+		r.stops.w, r.stops.h = w, h
+	} else {
+		glBindTexture(glTexture2D, r.stops.tex)
+		glTexSubImage2D(glTexture2D, 0, 0, 0, int32(w), int32(h), glRGBA, glFloat, unsafe.Pointer(&data[0]))
+	}
+	glBindTexture(glTexture2D, 0)
+	r.stopsTex = r.stops.tex
+}
+
+// target is a texture drawn into, with its framebuffer.
+type target struct {
+	tex, fb uint32
+	w, h    int
+}
+
+// fit makes t a w×h texture of RGBA8 to draw into, unless it is.
+func (t *target) fit(w, h int) error {
+	if t.tex != 0 && t.w == w && t.h == h {
+		return nil
+	}
+	if t.tex != 0 {
+		glDeleteTextures(1, &t.tex)
+	}
+	t.tex = newTexture(glRGBA8, glRGBA, w, h, nil, 0)
+	if t.fb == 0 {
+		glGenFramebuffers(1, &t.fb)
+	}
+	glBindFramebuffer(glFramebuffer, t.fb)
+	glFramebufferTexture2D(glFramebuffer, glColorAttachment0, glTexture2D, t.tex, 0)
+	if glCheckFramebufferState(glFramebuffer) != glFramebufferDone {
+		return fmt.Errorf("gl: cannot draw into a %d×%d texture", w, h)
+	}
+	t.w, t.h = w, h
+	return nil
+}
+
+func (t *target) release() {
+	if t.tex != 0 {
+		glDeleteTextures(1, &t.tex)
+	}
+	if t.fb != 0 {
+		glDeleteFramebuffers(1, &t.fb)
+	}
+	*t = target{}
+}
+
+// blurImage computes the area of img that bk says blurred
+// (gpu.Builder.BlurredImage) into a texture of the frame's own, whose
+// rows go down as an image's, as internal/raster computes it, and returns
+// it, or 0. It leaves the framebuffer bound as it was.
+func (r *Renderer) blurImage(img *scene.Image, bk scene.Backdrop) uintptr {
+	src := uint32(r.imageTexture(img))
+	w, h := bk.Size()
+	if src == 0 || w <= 0 || h <= 0 || w > r.maxSize || h > r.maxSize {
+		return 0
+	}
+	var fb int32
+	glGetIntegerv(glFramebufferBinding, &fb)
+	defer glBindFramebuffer(glFramebuffer, uint32(fb))
+	for i := range r.blurTmp {
+		if t := &r.blurTmp[i]; t.w < w || t.h < h {
+			if t.fit(max(w, t.w), max(h, t.h)) != nil {
+				return 0
+			}
+		}
+	}
+	if r.used == len(r.blurred) {
+		r.blurred = append(r.blurred, target{})
+	}
+	out := &r.blurred[r.used]
+	r.used++
+	if out.fit(w, h) != nil {
+		return 0
+	}
+	glDisable(glBlend)
+	glEnable(glScissorTest)
+	glBindVertexArray(r.passVAO)
+	glActiveTexture(glTexture0)
+	glBindTexture(glTexture2D, src)
+	p := gpu.ImageDownPass(bk)
+	if img.Scene != nil {
+		// A canvas, whose rows go up: its row y is h-1-y.
+		p.Shift = [2]int32{0, int32(img.H - 1)}
+	} else {
+		p.Mode |= gpu.PassUnflipped
+	}
+	r.down.set(p)
+	if bk.Radius == 0 {
+		r.passInto(out, w, h)
+		glDisable(glScissorTest)
+		return uintptr(out.tex)
+	}
+	r.passInto(&r.blurTmp[0], w, h)
+	r.blur.set(gpu.ImageBlurPass(bk, [2]int32{1, 0}))
+	glBindTexture(glTexture2D, r.blurTmp[0].tex)
+	r.passInto(&r.blurTmp[1], w, h)
+	r.blur.set(gpu.ImageBlurPass(bk, [2]int32{0, 1}))
+	glBindTexture(glTexture2D, r.blurTmp[1].tex)
+	r.passInto(out, w, h)
+	glBindTexture(glTexture2D, 0)
+	glDisable(glScissorTest)
+	return uintptr(out.tex)
+}
+
+// passInto draws the program in use into the w×h texels at the start of
+// t, reading the texture bound to unit 0.
+func (r *Renderer) passInto(t *target, w, h int) {
+	glBindFramebuffer(glFramebuffer, t.fb)
+	glViewport(0, 0, int32(t.w), int32(t.h))
+	glScissor(0, 0, int32(w), int32(h))
+	glDrawArraysInstanced(glTriangleStrip, 0, 4, 1)
 }
 
 // bindState sets the state the instances of s draw with, leaving texture
@@ -751,6 +910,8 @@ func (r *Renderer) bindState(s *scene.Scene) {
 		glActiveTexture(glTexture0 + uint32(unit))
 		glBindTexture(glTexture2D, tex)
 	}
+	glActiveTexture(glTexture0 + stopsUnit)
+	glBindTexture(glTexture2D, or(r.stopsTex, r.empty))
 	glActiveTexture(glTexture0 + 2)
 	glEnable(glBlend)
 	r.blendFunc(false)
@@ -805,6 +966,7 @@ func (pp *passProgram) set(p gpu.Pass) {
 	glUniform1i(pp.down, p.Down)
 	glUniform1i(pp.rad, p.Radius)
 	glUniform1f(pp.sigma, p.Sigma)
+	glUniform1i(pp.mode, p.Mode)
 }
 
 // pass draws the program in use into the w×h texels at the start of
@@ -879,6 +1041,7 @@ func (r *Renderer) forget() {
 	}
 	clear(r.canvases)
 	clear(r.canvasTex)
+	r.stops, r.stopsTex, r.blurred, r.used, r.blurTmp = texture{}, 0, nil, 0, [2]target{}
 }
 
 // Software reports whether the context draws on the CPU, as Mesa's
@@ -913,7 +1076,14 @@ func (r *Renderer) Release() {
 	for _, t := range r.canvases {
 		r.deleteCanvas(t)
 	}
-	for _, tex := range []*uint32{&r.mask.tex, &r.color.tex, &r.empty, &r.grab.tex, &r.backdrop[0].tex, &r.backdrop[1].tex} {
+	for i := range r.blurred {
+		r.blurred[i].release()
+	}
+	for i := range r.blurTmp {
+		r.blurTmp[i].release()
+	}
+	r.blurred, r.used = nil, 0
+	for _, tex := range []*uint32{&r.mask.tex, &r.color.tex, &r.empty, &r.grab.tex, &r.backdrop[0].tex, &r.backdrop[1].tex, &r.stops.tex} {
 		if *tex != 0 {
 			glDeleteTextures(1, tex)
 		}

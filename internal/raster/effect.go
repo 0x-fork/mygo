@@ -16,6 +16,9 @@ type drawer struct {
 	job   bandJob
 	bd    backdrop
 	fx    map[*scene.Effect]scene.EffectPixels
+	// blurred holds, by op, the images of the scene drawn that blur theirs
+	// (blurImages).
+	blurred []*blurredImage
 }
 
 // pixels returns what draws e on the CPU, made the first time, or nil for

@@ -277,6 +277,11 @@ type pathJob struct {
 // filled (non-zero winding), or with width > 0 stroked that many pixels
 // wide with round joins and caps.
 func (p *Painter) drawPath(f *flatPath, width float32, c Color, g *LinearGradient) {
+	p.drawPathPaint(f, width, c, g, nil)
+}
+
+// drawPathPaint is drawPath in a linear gradient (g) or a conic one (cg).
+func (p *Painter) drawPathPaint(f *flatPath, width float32, c Color, g *LinearGradient, cg *ConicGradient) {
 	if f.polys() == 0 {
 		return
 	}
@@ -335,12 +340,16 @@ func (p *Painter) drawPath(f *flatPath, width float32, c Color, g *LinearGradien
 	c = c.Alpha(p.opacity)
 	p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{X: x0, Y: y0, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: c.scene(), Wide: p.glyphWide(c)})
 	op := scene.Op{Kind: scene.OpGlyphs, Start: start, End: start + 1}
-	if g != nil {
+	if g != nil || cg != nil {
 		// The gradient spans the path's bounds.
 		op.Rect = scene.Rect{X: minX - hw, Y: minY - hw, W: maxX - minX + 2*hw, H: maxY - minY + 2*hw}
 		op.Opacity = p.opacity
-		p.gradient(&op, *g)
-		op.Wide = p.wide(g.From, g.To, Color{})
+		if g != nil {
+			p.gradient(&op, *g)
+			op.Wide = p.wide(g.From, g.To, Color{})
+		} else {
+			p.conic(&op, *cg)
+		}
 	}
 	p.add(op)
 }
@@ -396,6 +405,26 @@ func (f *flatPath) capFade(width float32) float32 {
 		return 1
 	}
 	return f.kept / width
+}
+
+// FillPathConicGradient fills a path with a conic gradient around its
+// bounds.
+func (p *Painter) FillPathConicGradient(path *Path, g ConicGradient) {
+	f := &p.rt.paths.flat
+	path.flatten(f, p.scale)
+	p.drawPathPaint(f, 0, Color{R: 255, G: 255, B: 255, A: 255}, nil, &g)
+}
+
+// StrokePathConicGradient draws the outline of a path as StrokePath does,
+// in a conic gradient around its bounds.
+func (p *Painter) StrokePathConicGradient(path *Path, width float32, g ConicGradient) {
+	f := &p.rt.paths.flat
+	path.flatten(f, p.scale)
+	// Trimmed short, it fades as its caps would (capFade).
+	saved := p.opacity
+	p.opacity *= f.capFade(width * p.scale)
+	p.drawPathPaint(f, width*p.scale, Color{R: 255, G: 255, B: 255, A: 255}, nil, &g)
+	p.opacity = saved
 }
 
 // StrokePathGradient draws the outline of a path as StrokePath does, in a

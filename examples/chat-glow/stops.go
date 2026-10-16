@@ -82,14 +82,41 @@ func (s *stops) show(now float64) []stop {
 	return out
 }
 
-// at returns the stops at now as the shader's Stops: a color and a place
-// each.
-func (s *stops) at(now float64) []float32 {
-	var out []float32
-	for _, x := range s.show(now) {
-		out = append(out, float32(x.l), float32(x.a), float32(x.b), float32(x.at))
+// gradient returns the stops at now as a gradient's: their colors at
+// their places, and at 0 and at 1 the color between the last and the
+// first, blended in Oklab, so that the colors go round without a seam
+// where the gradient starts.
+func (s *stops) gradient(now float64) []ui.GradientStop {
+	st := s.show(now)
+	first, last := st[0], st[len(st)-1]
+	k := (1 - last.at) / max(first.at+1-last.at, 1e-6)
+	seam := srgb(last.l+(first.l-last.l)*k, last.a+(first.a-last.a)*k, last.b+(first.b-last.b)*k)
+	out := make([]ui.GradientStop, 0, len(st)+2)
+	out = append(out, ui.GradientStop{Color: seam, At: 0})
+	for _, x := range st {
+		out = append(out, ui.GradientStop{Color: srgb(x.l, x.a, x.b), At: float32(x.at)})
 	}
-	return out
+	return append(out, ui.GradientStop{Color: seam, At: 1})
+}
+
+// srgb returns the color of Oklab's (l, a, b) in sRGB.
+func srgb(l, a, b float64) ui.Color {
+	lc := l + 0.3963377774*a + 0.2158037573*b
+	mc := l - 0.1055613458*a - 0.0638541728*b
+	sc := l - 0.0894841775*a - 1.2914855480*b
+	lc, mc, sc = lc*lc*lc, mc*mc*mc, sc*sc*sc
+	enc := func(v float64) uint8 {
+		v = min(max(v, 0), 1)
+		if v <= 0.0031308 {
+			v *= 12.92
+		} else {
+			v = 1.055*math.Pow(v, 1/2.4) - 0.055
+		}
+		return uint8(math.Round(v * 255))
+	}
+	return ui.RGB(enc(4.0767416621*lc-3.3077115913*mc+0.2309699292*sc),
+		enc(-1.2684380046*lc+2.6097574011*mc-0.3413193965*sc),
+		enc(-0.0041960863*lc-0.7034186147*mc+1.7076147010*sc))
 }
 
 // oklab returns c, in sRGB, in Oklab.

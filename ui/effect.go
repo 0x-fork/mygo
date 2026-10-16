@@ -47,14 +47,19 @@ func (e *node) Effect(fx Effect) *node { e.effect = fx; return e }
 // which every GPU renderer's textures allow.
 const maxEffectLayer = 8192
 
-// paintEffect paints e through its effect, and reports whether it did:
-// e's subtree rendered into its state's canvas, then the effect over its
-// box. It paints nothing of e outside p's clip.
+// paintEffect paints e through its effect, or blurred (Blur), and reports
+// whether it did: e's subtree rendered into its state's canvas, then the
+// effect over its box, or the canvas blurred. It paints nothing of e
+// outside p's clip.
 func (p *Painter) paintEffect(e *node) bool {
-	if e.effect == nil || e.effecting {
+	if e.effect == nil && e.blur <= 0 || e.effecting {
 		return false
 	}
-	m := e.effect.EffectMargin()
+	// A blur reaches 3 sigma: as far as it shows.
+	m := Point{3 * e.blur, 3 * e.blur}
+	if e.effect != nil {
+		m = e.effect.EffectMargin()
+	}
 	m.X, m.Y = max(m.X, 0), max(m.Y, 0)
 	box := Rect{e.x, e.y, e.w, e.h}
 	if box.W <= 0 || box.H <= 0 || !p.visible(box, max(m.X, m.Y)+4) {
@@ -94,7 +99,17 @@ func (p *Painter) paintEffect(e *node) bool {
 		shift(e, -dx, -dy)
 		e.effecting = false
 	})
-	e.effect.PaintEffect(p, box, cv.Bitmap(), Point{box.X*s - x0, box.Y*s - y0})
+	if e.effect != nil {
+		e.effect.PaintEffect(p, box, cv.Bitmap(), Point{box.X*s - x0, box.Y*s - y0})
+		return true
+	}
+	// The canvas blurred, in its pixels, where it was drawn from.
+	area := Rect{X: x0 / s, Y: y0 / s, W: float32(w) / s, H: float32(h) / s}
+	rect := p.snap(area)
+	if p.transform.Set {
+		rect = scene.Rect{X: x0, Y: y0, W: float32(w), H: float32(h)}
+	}
+	p.add(scene.Op{Kind: scene.OpImage, Rect: rect, Image: cv.img, Src: scene.Rect{W: float32(w), H: float32(h)}, Opacity: p.opacity, Blur: e.blur * s})
 	return true
 }
 

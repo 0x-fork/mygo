@@ -206,6 +206,36 @@ func BackdropOf(r Rect, blur float32, w, h int) Backdrop {
 	return Backdrop{Area: area.Intersect(image.Rect(0, 0, w, h)), Down: down, Sigma: sigma, Radius: radius}
 }
 
+// ImageBlur returns how an image's area is blurred by blur, the standard
+// deviation in its pixels (Op.Blur): averaged over squares of Down pixels
+// a side and blurred as a backdrop is (BackdropOf), within the area, which
+// it reads as transparent beyond.
+func ImageBlur(area image.Rectangle, blur float32) Backdrop {
+	b := BackdropOf(Rect{}, blur, 0, 0)
+	b.Area = area
+	return b
+}
+
+// ImageSrc returns where src, a rectangle of an image's pixels within the
+// area b blurs, lies in the blurred texels.
+func (b Backdrop) ImageSrc(src Rect) Rect {
+	k := float32(b.Down)
+	return Rect{X: (src.X - float32(b.Area.Min.X)) / k, Y: (src.Y - float32(b.Area.Min.Y)) / k, W: src.W / k, H: src.H / k}
+}
+
+// ImageArea returns the pixels of an image of w×h that src, a rectangle
+// of them, touches, which a blur of it reads.
+func ImageArea(src Rect, w, h int) image.Rectangle {
+	if src.W < 0 {
+		src.X, src.W = src.X+src.W, -src.W
+	}
+	if src.H < 0 {
+		src.Y, src.H = src.Y+src.H, -src.H
+	}
+	return image.Rect(int(math.Floor(float64(src.X))), int(math.Floor(float64(src.Y))),
+		int(math.Ceil(float64(src.X+src.W))), int(math.Ceil(float64(src.Y+src.H)))).Intersect(image.Rect(0, 0, w, h))
+}
+
 // Size returns the size of the averaged image, in texels.
 func (b Backdrop) Size() (w, h int) {
 	return (b.Area.Dx() + b.Down - 1) / b.Down, (b.Area.Dy() + b.Down - 1) / b.Down

@@ -2843,6 +2843,22 @@ func (_handle Element) BasisPercent(p float32) Element {
 	return wrapElement(_node.BasisPercent(p))
 }
 
+// Blur blurs the element, with its children, by sigma DIPs, the standard
+// deviation of a Gaussian, as CSS's filter: blur() does: what it draws
+// spreads that far around, transparent beyond, on the GPU. It renders
+// into a bitmap first, as Effect does, about 3 sigma larger each way, and
+// an element with an Effect draws through it instead. Hit testing, focus
+// and accessibility do not change: only what shows.
+func (_handle Element) Blur(sigma float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Blur(sigma))
+}
+
 // Bold sets a bold font weight.
 func (_handle Element) Bold() Element {
 	_node := _handle.node()
@@ -2878,6 +2894,21 @@ func (_handle Element) BorderColor(c Color) Element {
 	return wrapElement(_node.BorderColor(c))
 }
 
+// BorderConicGradient paints the element's border (Border, BorderWidth)
+// with a conic gradient around the element, in place of its color: a ring
+// of colors, as SwiftUI's strokeBorder with an AngularGradient draws.
+//
+//	ui.Box(c).Size(120, 80).Radius(16).Border(4, ui.Color{}).BorderConicGradient(ui.ConicGradient{Stops: rainbow})
+func (_handle Element) BorderConicGradient(g ConicGradient) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.BorderConicGradient(g))
+}
+
 func (_handle Element) BorderEndWidth(v float32) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -2886,6 +2917,18 @@ func (_handle Element) BorderEndWidth(v float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.BorderEndWidth(v))
+}
+
+// BorderLinearGradient paints the element's border (Border, BorderWidth)
+// with a linear gradient across the element, in place of its color.
+func (_handle Element) BorderLinearGradient(g LinearGradient) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.BorderLinearGradient(g))
 }
 
 // BorderStartWidth and BorderEndWidth set the width of the border on the
@@ -3139,6 +3182,22 @@ func (_handle Element) Composing() bool {
 	_ctx := _node.c
 	_ = _ctx
 	return _node.Composing()
+}
+
+// ConicGradient fills the element with a conic gradient, its colors
+// turning around a point (CSS's conic-gradient()):
+//
+//	ui.Box(c).Size(80, 80).Radius(40).ConicGradient(ui.ConicGradient{
+//		Stops: []ui.GradientStop{{red, 0}, {yellow, 1.0 / 3}, {blue, 2.0 / 3}, {red, 1}},
+//	})
+func (_handle Element) ConicGradient(g ConicGradient) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.ConicGradient(g))
 }
 
 // ContentTransition animates the element's content as it changes, as t
@@ -3553,8 +3612,8 @@ func (_handle Element) DroppedFiles() []string {
 // What the element renders, with its children, shadows and what its Draw
 // callbacks paint, renders into a bitmap of the GPU, the size of its box
 // and the effect's margin (Effect.EffectMargin) around it, every frame
-// the element paints, which the effect then draws over the box,
-// transformed, clipped and faded as the element would be. Web views
+// the element paints, which the effect then draws over the box and the
+// margin, transformed, clipped and faded as the element would be. Web views
 // inside the element do not show through an effect.
 func (_handle Element) Effect(fx Effect) Element {
 	_node := _handle.node()

@@ -10,8 +10,6 @@ import (
 var (
 	//go:embed palette.kage
 	paletteSource string
-	//go:embed edge.kage
-	edgeSource string
 	//go:embed orb.kage
 	orbSource string
 	//go:embed ring.kage
@@ -22,7 +20,6 @@ var (
 
 // The shaders, those that glow with palette.kage's colors after it.
 var (
-	edge    = shader.MustCompile("package main\n" + paletteSource + edgeSource)
 	orb     = shader.MustCompile("package main\n" + paletteSource + orbSource)
 	ring    = shader.MustCompile("package main\n" + paletteSource + ringSource)
 	shimmer = shader.MustCompile("package main\n" + shimmerSource)
@@ -30,19 +27,18 @@ var (
 
 // The shaders' uniforms, looked up once, and their values, set each frame.
 var (
-	edgeStops, edgeStrength, edgeBurst, edgeCorner = edge.Uniform("Stops"), edge.Uniform("Strength"), edge.Uniform("Burst"), edge.Uniform("Corner")
-	orbPhase, orbEnergy                            = orb.Uniform("Phase"), orb.Uniform("Energy")
-	ringTime, ringStrength, ringPad, ringRadius    = ring.Uniform("Time"), ring.Uniform("Strength"), ring.Uniform("Pad"), ring.Uniform("Radius")
-	shimmerTime, shimmerBase, shimmerShine         = shimmer.Uniform("Time"), shimmer.Uniform("Base"), shimmer.Uniform("Shine")
+	orbPhase, orbEnergy                         = orb.Uniform("Phase"), orb.Uniform("Energy")
+	ringTime, ringStrength, ringPad, ringRadius = ring.Uniform("Time"), ring.Uniform("Strength"), ring.Uniform("Pad"), ring.Uniform("Radius")
+	shimmerTime, shimmerBase, shimmerShine      = shimmer.Uniform("Time"), shimmer.Uniform("Base"), shimmer.Uniform("Shine")
 )
 
 // shaders holds a window's values of the shaders' uniforms.
 type shaders struct {
-	edge, orb, still, ring, shimmer *shader.Values
+	orb, still, ring, shimmer *shader.Values
 }
 
 func newShaders() shaders {
-	return shaders{edge.NewValues(), orb.NewValues(), orb.NewValues(), ring.NewValues(), shimmer.NewValues()}
+	return shaders{orb.NewValues(), orb.NewValues(), ring.NewValues(), shimmer.NewValues()}
 }
 
 // drawOrb draws the orb in r, or, where the window draws without a GPU, a

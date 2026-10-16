@@ -155,8 +155,14 @@ func TestStops(t *testing.T) {
 	if s.since != shuffleEvery {
 		t.Error("the stops did not move again on time")
 	}
-	if len(s.at(1)) != 4*len(glowColors) {
-		t.Errorf("%d numbers for the shader, want %d", len(s.at(1)), 4*len(glowColors))
+	g := s.gradient(1)
+	if len(g) != len(glowColors)+2 || g[0].At != 0 || g[len(g)-1].At != 1 || g[0].Color != g[len(g)-1].Color {
+		t.Errorf("gradient %v, want the colors between two stops of one color at 0 and 1", g)
+	}
+	// Its colors round-trip through Oklab.
+	l, a, b := oklab(glowColors[3])
+	if c := srgb(l, a, b); c != glowColors[3] {
+		t.Errorf("%v through Oklab is %v", glowColors[3], c)
 	}
 }
 

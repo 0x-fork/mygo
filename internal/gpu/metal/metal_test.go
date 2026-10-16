@@ -722,8 +722,10 @@ func TestMatchesTheUpstreamShader(t *testing.T) {
 			continue
 		}
 		for _, c := range shaderIdentityCases() {
-			got := renderRaw(t, r, c.Scene, wide)
-			want := renderRaw(t, ref, c.Scene, wide)
+			// What the upstream shader draws: no gradients of stops yet.
+			sc := gputest.WithoutNewPaints(c.Scene)
+			got := renderRaw(t, r, sc, wide)
+			want := renderRaw(t, ref, sc, wide)
 			if d := differing(got, want); d != 0 {
 				t.Errorf("%s wide=%v: %d bytes differ from the upstream shader", c.Name, wide, d)
 			}

@@ -2844,12 +2844,18 @@ either.
   editing commands instead.
 - **Scenes** are flat lists of operations in device pixels: rounded
   rectangles with borders of a width per side, solid or dashed, filled
-  with a color, a linear gradient mixed in sRGB or Oklab, or stripes;
+  with a color, a linear gradient mixed in sRGB or Oklab, a gradient of
+  stops, linear or conic (`Scene.Stops`, which ops point into, at most 32
+  each), or stripes, the border painted with the op's gradient where it
+  says so (`BorderPaint`);
   shadows (blurred rounded rectangles, cut by the box casting them, as
   CSS's box-shadow is, or inner ones, inside the box where the hole they
   leave, blurred, does not cover it, as box-shadow: inset is); runs of
   glyphs, whose masks may take a gradient (paths drawn with one); images,
-  in color or gray; effects (`OpEffect`); holes (`OpHole`), rounded
+  in color or gray, blurred or not (an image's `Blur`: averaged over
+  squares and blurred along rows and columns as a backdrop is, but
+  transparent beyond its source rectangle, which `ui`'s `Element.Blur`
+  draws its layer with); effects (`OpEffect`); holes (`OpHole`), rounded
   rectangles made transparent, what was painted there gone, for web
   views; and pushed and popped clips.
   Renderers draw the whole scene each frame and retain only textures.
@@ -3127,7 +3133,17 @@ either.
   small pipelines (`down` and `blur`, scissored to the texels they
   compute, reading them with `Load`, `read` or `texelFetch`) into textures
   as large as the frame's largest backdrop, and goes on with the pass, the
-  backdrop bound for the effect. Each renderer draws scenes offscreen for
+  backdrop bound for the effect. An image drawn blurred goes through the
+  same two pipelines before the frame's pass, which the builder asks for
+  as it meets it (`Builder.BlurredImage`), from the image's texture into
+  one of the frame's own, in BGRA8 whatever the frame's format, reading
+  what lies beyond the image as transparent (`gpu.PassClear`); OpenGL
+  reads canvases flipped and uploaded images not (`gpu.PassUnflipped`).
+  The stops of gradients travel in a texture of 32-bit floats the
+  builder fills each frame (`Builder.Stops`, two texels a stop: its
+  color, then its place and its color in Oklab), bound to texture 9 (t10
+  in Direct3D), from which the shaders' `stopsAt` mixes them as
+  `internal/raster` does. Each renderer draws scenes offscreen for
   the tests of packages defining effects (`RenderOffscreen`,
   `NewOffscreen`).
 - **Canvases** (`scene.NewCanvas`, `ui.Canvas`) are images drawn from a

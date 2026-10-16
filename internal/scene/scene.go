@@ -141,15 +141,27 @@ type Op struct {
 	Border      [4]float32
 	BorderColor Color
 	Dashed      bool
+	// BorderPaint paints an OpFill's border with Paint, its gradient of
+	// stops (Paint.HasStops), times BorderColor (opaque white for the
+	// gradient as it is), and its inside with plain Color.
+	BorderPaint bool
 
 	// Inset makes an OpShadow an inner shadow.
 	Inset bool
-	Blur  float32
+	// Blur is an OpShadow's blur, and an OpImage's: the standard deviation
+	// of a Gaussian blur of the image's Src, in its pixels, before it is
+	// drawn, transparent beyond Src, as CSS's filter: blur() is. Large
+	// blurs are computed at a fraction of the size, as backdrops' are
+	// (BackdropOf).
+	Blur float32
 	// Cast is the box casting an OpShadow, with CastRadii.
 	Cast      Rect
 	CastRadii [4]float32
 
 	Start, End int32
+	// Stops are a gradient's colors with stops (PaintLinearStops and the
+	// others), Scene.Stops[Stops[0]:Stops[1]].
+	Stops [2]int32
 
 	Image     *Image
 	Src       Rect
@@ -177,7 +189,34 @@ const (
 	// unit vector across the stripes, their width and their period, from
 	// the top-left corner of Rect.
 	PaintStripes
+	// PaintLinearStops is a linear gradient of the op's Stops, from
+	// (Gradient[0], Gradient[1]) at 0 to (Gradient[2], Gradient[3]) at 1,
+	// mixed in sRGB; PaintLinearStopsOklab mixes them in Oklab.
+	PaintLinearStops
+	PaintLinearStopsOklab
+	// PaintConic is a conic gradient of the op's Stops around
+	// (Gradient[0], Gradient[1]), from 0 at the angle Gradient[2], in
+	// radians clockwise from upwards, to 1 a turn later, mixed in sRGB, as
+	// CSS's conic-gradient() is; PaintConicOklab mixes them in Oklab.
+	PaintConic
+	PaintConicOklab
 )
+
+// Stop is a color of a gradient with stops (Op.Stops), at a place along
+// it from 0 to 1. A gradient shows its first color before its first stop
+// and its last after its last, and mixes premultiplied colors between, as
+// CSS does; stops in order, at most MaxStops of them.
+type Stop struct {
+	Color Color
+	At    float32
+}
+
+// MaxStops is how many stops a gradient has at most, which the shaders
+// loop through.
+const MaxStops = 32
+
+// HasStops reports whether paint takes its colors from the op's Stops.
+func (p Paint) HasStops() bool { return p >= PaintLinearStops && p <= PaintConicOklab }
 
 // Uniform returns the widths of a border as wide on every side.
 func Uniform(w float32) [4]float32 { return [4]float32{w, w, w, w} }
@@ -299,6 +338,8 @@ type Scene struct {
 	Clear  Color
 	Ops    []Op
 	Glyphs []Glyph
+	// Stops holds the stops of gradients (Op.Stops).
+	Stops []Stop
 	// Effects holds the effects of OpEffect operations.
 	Effects []EffectOp
 	// Words holds the words of the effects' uniforms (EffectOp.Uniforms
@@ -365,6 +406,7 @@ func (s *Scene) Reset(width, height int, color Color) {
 	clear(s.Ops)
 	s.Ops = s.Ops[:0]
 	s.Glyphs = s.Glyphs[:0]
+	s.Stops = s.Stops[:0]
 	clear(s.Effects)
 	s.Effects = s.Effects[:0]
 	s.Wide = s.Wide[:0]

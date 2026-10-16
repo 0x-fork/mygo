@@ -298,11 +298,22 @@ func glTexImage2D(target uint32, level, internalFormat, w, h, border int32, form
 		call("texImage2D", target, level, internalFormat, w, h, border, format, typ, js.Null())
 		return
 	}
-	call("texImage2D", target, level, internalFormat, w, h, border, format, typ, jsBytes(pix, uploadSize(w, h, format)), 0)
+	call("texImage2D", target, level, internalFormat, w, h, border, format, typ, jsPixels(pix, w, h, format, typ), 0)
 }
 
 func glTexSubImage2D(target uint32, level, x, y, w, h int32, format, typ uint32, pix unsafe.Pointer) {
-	call("texSubImage2D", target, level, x, y, w, h, format, typ, jsBytes(pix, uploadSize(w, h, format)), 0)
+	call("texSubImage2D", target, level, x, y, w, h, format, typ, jsPixels(pix, w, h, format, typ), 0)
+}
+
+// jsPixels returns the pixels of an upload as WebGL takes them: bytes, or
+// for floats (glFloat) a Float32Array over them.
+func jsPixels(pix unsafe.Pointer, w, h int32, format, typ uint32) js.Value {
+	n := uploadSize(w, h, format)
+	if typ != glFloat {
+		return jsBytes(pix, n)
+	}
+	b := jsBytes(pix, 4*n)
+	return js.Global().Get("Float32Array").New(b.Get("buffer"), 0, n)
 }
 
 func glTexParameteri(target, param uint32, v int32) { call("texParameteri", target, param, v) }

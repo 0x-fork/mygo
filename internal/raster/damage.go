@@ -30,6 +30,7 @@ type Renderer struct {
 	clear   scene.Color
 	ops     []scene.Op
 	glyphs  []scene.Glyph
+	stops   []scene.Stop
 	effects []scene.EffectOp
 	words   []uint32
 	// bounds is where each operation of the last scene drew; versions has
@@ -225,6 +226,11 @@ func (r *Renderer) same(i int, s *scene.Scene, j int, maskRects, colorRects []im
 		ga, gb = r.glyphs[x[0]:x[1]], s.Glyphs[y[0]:y[1]]
 	}
 	a.Start, a.End, b.Start, b.End = 0, 0, 0, 0
+	// Gradients' stops are compared by what Stops point at.
+	if !sameStops(r.stops, a.Stops, s.Stops, b.Stops) {
+		return false
+	}
+	a.Stops, b.Stops = [2]int32{}, [2]int32{}
 	// The CPU draws the sRGB colors, not those outside its gamut, which
 	// Wide points at in each scene's own table.
 	a.Wide, b.Wide = 0, 0
@@ -241,6 +247,26 @@ func (r *Renderer) same(i int, s *scene.Scene, j int, maskRects, colorRects []im
 		}
 	case scene.OpEffect:
 		if int(sa) >= len(r.effects) || int(sb) >= len(s.Effects) || !r.effects[sa].Same(&s.Effects[sb]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameStops reports whether stops sa[a[0]:a[1]] of the last scene are
+// those sb[b[0]:b[1]] of the new one.
+func sameStops(sa []scene.Stop, a [2]int32, sb []scene.Stop, b [2]int32) bool {
+	if a[1]-a[0] != b[1]-b[0] {
+		return false
+	}
+	if a[1] <= a[0] {
+		return true
+	}
+	if int(a[1]) > len(sa) || int(b[1]) > len(sb) || a[0] < 0 || b[0] < 0 {
+		return false
+	}
+	for i := range a[1] - a[0] {
+		if sa[a[0]+i] != sb[b[0]+i] {
 			return false
 		}
 	}
@@ -352,6 +378,7 @@ func (r *Renderer) remember(s *scene.Scene) {
 	}
 	r.ops = append(r.ops[:0], s.Ops...)
 	r.glyphs = append(r.glyphs[:0], s.Glyphs...)
+	r.stops = append(r.stops[:0], s.Stops...)
 	if len(r.effects) > len(s.Effects) {
 		clear(r.effects[len(s.Effects):])
 	}

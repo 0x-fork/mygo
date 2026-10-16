@@ -67,8 +67,10 @@ type app struct {
 	// still stops what moves on its own, while the desktop asks for less
 	// motion.
 	still bool
-	// stops are the edge glow's colors around the window, moving about.
+	// stops are the edge glow's colors around the window, moving about,
+	// and gpu tells that the last frame drew on a GPU, where it glows.
 	stops stops
+	gpu   bool
 	sh    shaders
 }
 
@@ -88,6 +90,8 @@ func (a *app) view(c *ui.Context) {
 	}
 
 	root := ui.Column(c).Fill().Background(t.Background)
+	// Whether frames draw on a GPU, for the next frames' glow.
+	root.Draw(func(p *ui.Painter, r ui.Rect) { a.gpu = p.Accelerated() })
 	root.Children(func() {
 		if len(a.messages) == 0 {
 			a.welcome(c)
@@ -99,7 +103,7 @@ func (a *app) view(c *ui.Context) {
 		bar := c.TitleBar()
 		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(max(bar.Height, 32)).DragWindow()
 		// The edges' glow, over everything, which the pointer goes through.
-		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Draw(a.drawEdge)
+		a.edge(c)
 	})
 }
 
@@ -225,22 +229,36 @@ func drawSendIcon(p *ui.Painter, r ui.Rect, busy bool, c ui.Color) {
 	p.StrokePath(&arrow, 2.2, c)
 }
 
-// drawEdge draws the window's edges glowing while the assistant works.
-func (a *app) drawEdge(p *ui.Painter, r ui.Rect) {
-	if a.glow <= 0.001 || !p.Accelerated() {
+// glowLayers are the edge glow's layers, as the SwiftUI recreation of
+// Apple Intelligence's glow draws them (jacobamobin/
+// AppleIntelligenceGlowEffect): its outline stroked inside the window's
+// edge this wide and blurred this much, by SwiftUI's radius, whose
+// standard deviation is 0.95 of it, measured.
+var glowLayers = []struct{ width, blur float32 }{{6, 0}, {9, 4}, {11, 12}, {15, 15}}
+
+// edge builds the window's edges glowing while the assistant works: the
+// window's outline stroked with a conic gradient of the glow's colors,
+// their stops moving about, a crisp line and lines blurred over it, which
+// the pointer goes through.
+func (a *app) edge(c *ui.Context) {
+	// Without a GPU, four layers of the window blurred every frame cost too
+	// much: none.
+	if a.glow <= 0.001 || !a.gpu {
 		return
 	}
 	corner := float32(10)
 	if runtime.GOOS == "darwin" {
 		corner = 16
 	}
-	burst := a.now - a.asked
-	if a.still {
-		burst = 10
-	}
-	edge.Draw(p, r, shader.Options{Values: a.sh.edge.
-		Floats(edgeStops, a.stops.at(a.now)...).Float(edgeStrength, float32(ease(a.glow))).
-		Float(edgeBurst, float32(burst)).Float(edgeCorner, corner)})
+	// From the right, as SwiftUI's AngularGradient goes, blended in Oklab
+	// as SwiftUI blends it.
+	g := ui.ConicGradient{Stops: a.stops.gradient(a.now), Angle: 90, Oklab: true}
+	ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Opacity(float32(ease(a.glow))).Children(func() {
+		for _, l := range glowLayers {
+			ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Radius(corner).
+				Border(l.width, ui.Color{}).BorderConicGradient(g).Blur(0.95 * l.blur)
+		}
+	})
 }
 
 // drawRing draws the composer's ring, faint at rest and bright while the
