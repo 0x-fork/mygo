@@ -976,5 +976,12 @@ type Notification struct {
 	Silent   bool
 	// Group gathers the notifications that share it (threadIdentifier on
 	// macOS).
-	Group string
+	Group  string
+	Sender *NotificationSender
+}
+
+// NotificationSender describes an incoming direct message's sender.
+type NotificationSender struct {
+	ID, Name string
+	Avatar   []byte
 }

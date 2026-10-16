@@ -776,6 +776,23 @@ type NotificationOptions struct {
 	// Notification Center (macOS), such as the messages of a conversation.
 	// Empty leaves them in the app's.
 	Group string
+	// Sender describes the sender of an incoming direct message. macOS 12+
+	// can show its avatar with the app's small icon when the signed app has
+	// the Communication Notifications capability. Otherwise, or if preparing
+	// the communication fails, it shows the ordinary notification.
+	// Other platforms ignore Sender. NewNotification copies it and Avatar.
+	Sender *NotificationSender
+}
+
+// NotificationSender is the sender of an incoming direct message.
+type NotificationSender struct {
+	// ID is a stable identifier for the person in the app.
+	ID string
+	// Name is the display name; empty uses the notification's Title.
+	Name string
+	// Avatar is an encoded image, such as PNG or JPEG. An empty ID or Avatar
+	// leaves the notification ordinary. MyGo does not fetch remote images.
+	Avatar []byte
 }
 
 // Notification is a desktop notification.
@@ -832,6 +849,13 @@ func NewNotification(opts NotificationOptions) *Notification {
 		// Unique across runs too, as notifications outlive them.
 		id = "mygo-" + randomText()
 	}
+	if opts.Sender != nil {
+		sender := *opts.Sender
+		sender.Name = cmp.Or(sender.Name, opts.Title)
+		sender.Avatar = slices.Clone(sender.Avatar)
+		opts.Sender = &sender
+		enableNotificationSenders()
+	}
 	return &Notification{id: id, opts: opts}
 }
 
@@ -858,14 +882,18 @@ func (n *Notification) Show() error {
 	notifications.Unlock()
 	ch := make(chan error, 1)
 	onMain(func() {
-		backend().ShowNotification(&platform.Notification{
+		note := &platform.Notification{
 			ID:       n.id,
 			Title:    n.opts.Title,
 			Subtitle: n.opts.Subtitle,
 			Body:     n.opts.Body,
 			Silent:   n.opts.Silent,
 			Group:    n.opts.Group,
-		}, func(err error) { deliver(ch, err) })
+		}
+		if s := n.opts.Sender; s != nil {
+			note.Sender = &platform.NotificationSender{ID: s.ID, Name: s.Name, Avatar: s.Avatar}
+		}
+		backend().ShowNotification(note, func(err error) { deliver(ch, err) })
 	})
 	err := await(ch)
 	if err != nil && !shown {
