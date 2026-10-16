@@ -134,16 +134,15 @@ type ListState struct {
 	following bool
 	started   bool
 	// followLag is how far below its place the end shows as it glides
-	// there (FollowAnimation); followRow and followKey are the last row of
-	// the frame before, followBelow how much content was from its top to
-	// the end, and followWidth the width of rows then: more content below
-	// that row, as it grows or rows come after it, is the end moving down.
+	// there (FollowAnimation). follow is the list as the last layout of it
+	// left it, followWas as the frame before left it, and followBase the
+	// glide as it was at the start of followFrame: the layouts of a frame
+	// all start from them.
 	followLag   channel
-	followRow   int
-	followKey   any
-	followBelow float64
-	followWidth float32
-	followSeen  bool
+	follow      followMark
+	followWas   followMark
+	followBase  channel
+	followFrame uint64
 	laidOut     bool
 	// wroteY is the offset the list set, to tell it from scrolling.
 	wroteY  float64
@@ -197,6 +196,23 @@ type listRequest struct {
 type listRowID struct {
 	row int
 	key any
+}
+
+// followMark is a list following its end as a layout left it: its last
+// row (row, with key), how much content was from that row's top to the
+// end (below), how tall the content was, padding included, and the list,
+// and how wide its rows were. More content below that row, as it grows or
+// rows come after it, is the end moving down. hugs tells that the list is
+// as tall as its content, or was before the content changed and its
+// height has yet to follow.
+type followMark struct {
+	seen           bool
+	row            int
+	key            any
+	below, content float64
+	height         float64
+	width          float32
+	hugs           bool
 }
 
 // ScrollTo scrolls the list to show row at align: Start shows it at the
@@ -1232,7 +1248,7 @@ func (e *node) layoutList(w, h float32) {
 			shift(H - end())
 		}
 	}
-	glide := s.glideToEnd(e, n, lo, hi, H, func(d float64) { shift(d); cover() })
+	glide := s.glideToEnd(e, n, lo, hi, H, padTop+padBottom+hs.top(n, gap)-gap, func(d float64) { shift(d); cover() })
 	for k := 0; k < listOverscan && hi < n-1 && ensure(hi+1); k++ {
 		yHi += ht(hi) + gap
 		hi++
@@ -1320,46 +1336,67 @@ func (e *node) layoutList(w, h float32) {
 }
 
 // glideToEnd moves the rows of a list following its end with a
-// FollowAnimation below their place, by as much as the end moved down
-// since the frame before, and on toward their place, as the animation
-// says; it returns how far below it they show. Rows lo to hi are placed,
-// and shift moves them. What moved is measured in the content, so that
-// the list growing or shrinking moves nothing.
-func (s *ListState) glideToEnd(e *node, n, lo, hi int, H float64, shift func(float64)) float64 {
+// FollowAnimation below their place, by as much as the content that
+// changed moved the rows that stay, and on toward their place, as the
+// animation says; it returns how far below it they show. Rows lo to hi
+// are placed, C is how tall the content is, padding included, and shift
+// moves them. Each layout of a frame starts from the frame before, so
+// that the last, which shows, has the list's height for its content.
+func (s *ListState) glideToEnd(e *node, n, lo, hi int, H, C float64, shift func(float64)) float64 {
 	rt, now := e.c.rt, e.c.now
 	if s.FollowAnimation == nil || !s.following || s.req.set || hi != n-1 || rt.preferences().ReduceMotion || rt.instant() {
-		s.followLag, s.followSeen = channel{}, false
+		s.followLag, s.follow, s.followFrame = channel{}, followMark{}, 0
 		return 0
 	}
 	hs, gap := &s.heights, s.gap
 	below := func(i int) float64 { return hs.top(n, gap) - hs.top(i, gap) }
 	ch := &s.followLag
-	if ch.at.IsZero() {
-		ch.at = now
+	if rt.frame != s.followFrame {
+		if ch.at.IsZero() {
+			ch.at = now
+		}
+		ch.advance(now)
+		s.followFrame, s.followWas, s.followBase = rt.frame, s.follow, *ch
+	} else {
+		*ch = s.followBase
 	}
-	ch.advance(now)
-	if s.followSeen && s.width == s.followWidth {
-		// The row last at the end: as much as came below it, the rows
-		// come up from below; as much as went, the glide takes back.
-		prev, ok := s.followRow, s.followRow < n
-		if s.Key != nil && s.followKey != nil {
-			prev, ok = s.find(s.followKey, s.followRow, n)
+	hugs := H-C < 0.5 && C-H < 0.5
+	if p := s.followWas; p.seen && s.width == p.width {
+		// The row last at the end: as much as what changed below it moves
+		// the rows that stay, they show where they were, and go on to
+		// their place.
+		prev, ok := p.row, p.row < n
+		if s.Key != nil && p.key != nil {
+			prev, ok = s.find(p.key, p.row, n)
 		}
 		if !ok {
 			*ch = channel{at: now}
-		} else if d := below(prev) - s.followBelow; d > 0.5 {
-			ch.value = min(ch.value+d, H)
-			ch.retarget(0, *s.FollowAnimation)
-		} else if d < -0.5 {
-			// The rows stay where they show, above their place, and go
-			// down to it.
-			ch.value = max(ch.value+d, -H)
-			ch.retarget(0, *s.FollowAnimation)
+		} else {
+			d := below(prev) - p.below
+			if d < 0.5 && d > -0.5 {
+				d = 0
+			}
+			// A list as tall as its content follows it, in the frame or
+			// the next: the rows keep their place in it. Another moves its
+			// rows itself as its height changes (a window resized, a
+			// composer below grew), and the glide only takes what the
+			// content moved them in the list as it is.
+			dh, dc := H-p.height, C-p.height
+			follows := p.hugs && (dh > 0.5 && dh <= dc+0.5 || dh < -0.5 && dh >= dc-0.5)
+			was := H
+			if follows {
+				was = p.height
+			}
+			if m := followPlace(e.justify, C-d, was) - followPlace(e.justify, C, H); m > 0.5 || m < -0.5 {
+				ch.value = max(min(ch.value+m, H), -H)
+				ch.retarget(0, *s.FollowAnimation)
+			}
+			hugs = hugs || p.hugs && (d != 0 || follows)
 		}
 	}
-	s.followSeen, s.followRow, s.followBelow, s.followWidth, s.followKey = true, n-1, below(n-1), s.width, nil
+	s.follow = followMark{seen: true, row: n - 1, below: below(n - 1), content: C, height: H, width: s.width, hugs: hugs}
 	if s.Key != nil {
-		s.followKey = s.Key(n - 1)
+		s.follow.key = s.Key(n - 1)
 	}
 	if ch.moving || ch.pending {
 		rt.animating = true
@@ -1369,6 +1406,20 @@ func (s *ListState) glideToEnd(e *node, n, lo, hi int, H float64, shift func(flo
 		shift(lag)
 	}
 	return lag
+}
+
+// followPlace returns how far below their place in the content a list of
+// height H following its end shows its rows, when the content is C tall:
+// the end at the bottom of rows that overflow it, and where justify puts
+// rows that fit it.
+func followPlace(justify Align, C, H float64) float64 {
+	switch {
+	case C > H || justify == End:
+		return H - C
+	case justify == Center:
+		return (H - C) / 2
+	}
+	return 0
 }
 
 // relayoutList lays the list out anew scrolled to y, as revealing its
