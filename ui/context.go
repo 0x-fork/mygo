@@ -466,7 +466,13 @@ func coreLocal[T any](e *node, key any, init func() T) *T {
 type state struct {
 	rt            *engine
 	pendingSubmit bool
+	pendingChange bool
 	noticeQueued  bool
+
+	// rowPressed marks a row of a list the pointer pressed, until the
+	// release; pressChose, that the press chose it, so that its click does
+	// not choose again.
+	rowPressed, pressChose bool
 
 	world scene.Affine
 	clips bool

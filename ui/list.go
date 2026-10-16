@@ -76,8 +76,16 @@ type ListState struct {
 	// that move the choice does; Cmd+A chooses all. On Linux and Windows,
 	// Ctrl with those keys moves without choosing, and Ctrl+Space adds the
 	// row there or takes it out. Selected, set as well, is the row last
-	// chosen, where the keys move from.
+	// chosen, where the keys move from. A right-click on a row not chosen
+	// chooses it before its context menu opens, as Finder and Qt do, so
+	// the menu acts on it.
 	Selection Selector
+	// MenuKeepsSelection leaves the rows chosen as they are when a
+	// right-click opens a row's context menu: without it, a list with
+	// Selection chooses the row clicked unless it is chosen, and in a Table
+	// choosing cells the cell too, unless it is in the block. A list with
+	// Selected alone never chooses on a right-click.
+	MenuKeepsSelection bool
 	// Label returns the text of row i: typing the first letters of a
 	// row's text while the list has the keyboard focus chooses it, and
 	// assistive technology reads it as the row's name.
@@ -93,6 +101,36 @@ type ListState struct {
 	// number of rows for the end. Move them there: the list shows where
 	// they would go as they are dragged, and scrolls near its edges.
 	Reorder func(rows []int, to int)
+	// DragSelect, with Selection, chooses rows as the pointer drags over
+	// them from the row it pressed: those from that row to the one under
+	// the pointer, as a Shift-click on it would, and with Cmd (Ctrl on
+	// Linux and Windows) held as the press began, those besides the rows
+	// chosen. Held near the list's top or bottom, or past them, the drag
+	// scrolls the list. A press on a row not chosen chooses it as the
+	// pointer goes down, as a click would, and a press on a row chosen
+	// waits for the release, so that a drag of the choice keeps it; this
+	// is so in a Table choosing cells too. A list cannot both DragSelect
+	// and Reorder.
+	DragSelect bool
+	// CellSelect, with Selection, makes a Table choose a block of cells:
+	// the rows chosen, times the columns from Cells.Anchor to Cells.Cursor
+	// in the order shown. A click on a cell chooses its row as a click on
+	// the row does and its column; a Shift-click extends the rows and the
+	// columns to it, and a Cmd-click adds its row or takes it out, keeping
+	// the columns. Dragging over cells chooses those it goes over, as
+	// DragSelect does the rows, scrolling sideways too. Left and Right
+	// move Cells.Cursor, and Shift with them extends the columns, except in
+	// an OutlineTable, where they open and close the rows as they do
+	// without CellSelect; the keys that move the rows leave one column,
+	// unless with Shift. The cells
+	// of the block show as a chosen row does, as do the RowHeader cells of
+	// whole rows chosen, and the one at Cells.Cursor in the row the keys
+	// move from has a border while the table has the focus. A RowHeader
+	// column chooses whole rows. A table cannot both CellSelect and
+	// Reorder.
+	CellSelect bool
+	// Cells are the columns of the block CellSelect chooses.
+	Cells ColumnRange
 	// Sort, when set, is the column a Table's rows are sorted by: a click
 	// on the header of a Sortable column sorts by it, ascending, and
 	// another reverses the order, which the header shows. Sort the rows as
@@ -124,6 +162,12 @@ type ListState struct {
 	// or -1 for the part of the header past the columns, as AppKit's
 	// clickedColumn. A menu built without items does not open.
 	HeaderMenu func(m *Menu, col int)
+	// CellMenu, when set, gives a Table's cells a context menu, built as
+	// ContextMenu's is, over the whole cell with its padding: row and col
+	// are as the cell builder receives them. A menu built without items
+	// does not open. A context menu of what a cell holds takes the
+	// right-click over it instead.
+	CellMenu func(m *Menu, row, col int)
 
 	// The place: the first row in view, and how far the list is scrolled
 	// past its top: the row's top is that far above where the content
@@ -169,6 +213,8 @@ type ListState struct {
 	// and chose those from it to pivot+span last.
 	lead, pivot, span int
 	pivotKey          any
+	// pivotRow is the pivot as the last frame left it, of key pivotKey.
+	pivotRow int
 
 	header listHeader
 	// rows are the last frame's rows by their elements' IDs, to find the
@@ -181,6 +227,19 @@ type ListState struct {
 	editables, editablesNow bool
 	editKey                 any
 	editAsked               bool
+	// dragSel is the drag choosing rows (DragSelect): the row pressed, the
+	// state of its element, and whether it adds to the rows chosen.
+	dragSel struct {
+		on, add bool
+		from    int
+		id      uint64
+		// fromCol is the column of the cell pressed (CellSelect), by ID,
+		// or "" for a RowHeader cell.
+		fromCol string
+	}
+	// tableCols are the columns of the Table choosing cells (CellSelect)
+	// in the order shown, in this frame.
+	tableCols []tableCol
 }
 
 // listRequest is where the app or the user asked the list to go: to row
@@ -394,6 +453,12 @@ func buildList(c *context, e, owner *node, s *ListState, n int, row func(i int),
 	if f.e != nil && f.frame == rt.frame && f.pass == rt.pass {
 		panic("ui: a ListState shown by two Lists")
 	}
+	if rt.listMenu == nil {
+		rt.listMenu, rt.listDrag = (*engine).chooseRowAt, (*engine).scrollDragSelect
+	}
+	if (s.DragSelect || s.CellSelect && flat) && s.Reorder != nil {
+		panic("ui: a list cannot both DragSelect (or CellSelect) and Reorder")
+	}
 	n = max(n, 0)
 	*f = listFrame{c: c, e: e, owner: owner, s: s, n: n, row: row, frame: rt.frame, pass: rt.pass, flat: flat, tree: tree, grid: kind == gridList, theme: c.theme, rows: f.rows[:0], at: f.at}
 	if rt.pass == 0 {
@@ -416,6 +481,11 @@ func buildList(c *context, e, owner *node, s *ListState, n int, row func(i int),
 		focus, ok := s.focusedRow(e, n)
 		if ok && (focus < first || focus >= last) {
 			f.build(focus)
+		}
+		// So does the row a drag choosing rows began on, which holds the
+		// press as the list scrolls it away.
+		if d := &s.dragSel; d.on && d.from < n && (d.from < first || d.from >= last) && (!ok || d.from != focus) {
+			f.build(d.from)
 		}
 		if s.Header != nil && n > 0 {
 			if h := s.headerAbove(a, n); h >= 0 && (h < first || h >= last) && (!ok || h != focus) {
@@ -456,12 +526,14 @@ func (s *ListState) sync(e *node, n int) {
 			}
 			*sel, s.selRow = j, j
 		}
-		if s.pivotKey != nil {
+		if s.pivotKey != nil && s.pivot == s.pivotRow {
+			// Follow the pivot's key, as the choice does, unless this
+			// frame's input already moved the pivot.
 			j, ok := s.find(s.pivotKey, s.pivot, n)
 			if !ok {
 				j = -1
 			}
-			s.pivot = j
+			s.pivot, s.pivotRow = j, j
 		}
 	}
 	if n != s.heights.n {
@@ -585,17 +657,29 @@ func (f *listFrame) build(i int) *node {
 	default:
 		w.Role(RoleListItem)
 	}
+	if d := &s.dragSel; d.on && d.id == w.id && !w.st.pressed {
+		// The drag ended on its own row: not a click on it.
+		d.on, w.st.clicks, w.st.doubleClicks = false, 0, 0
+	}
 	prev := f.rb
 	f.rb = rowBuild{f: f, i: i, key: key, clicked: w.st.clicks > 0 && w.st.clickMods == 0, double: w.st.doubleClicks > 0}
 	rb := &f.rb
 	if sel := s.cursor(); sel != nil && !f.isHeader(i) {
 		t := c.theme
 		w.flags |= flagClickable | flagHover | flagChoosable
+		if f.dragSelects() {
+			w.flags |= flagDraggable // the moves of a press come as frames
+		}
 		rb.chosen = f.chosen(i, key)
 		*valueBinding[listRowInput](w) = listRowInput{f: f, i: i}
 		w.onValueInput(listRowValueInput)
 		on := f.chosen(i, key)
-		w.Selected(on)
+		if f.choosesCells() {
+			// Its cells in the block show the choice (Table).
+			w.checked = 1 + int8(b2f(on))
+		} else {
+			w.Selected(on)
+		}
 		switch r := t.Radius; {
 		case f.flat && !s.RoundRows:
 		case s.Selection != nil && s.gap == 0 && on:
@@ -617,7 +701,7 @@ func (f *listFrame) build(i int) *node {
 				w.bg = t.SurfaceHover
 			}
 		}
-		if owner := f.owner; s.Selection != nil && *sel == i && !on {
+		if owner := f.owner; s.Selection != nil && *sel == i && !on && !f.choosesCells() {
 			// Where the keys moved without choosing.
 			w.DrawOver(func(p *Painter, r Rect) {
 				if owner.FocusVisible() {
@@ -902,6 +986,76 @@ func (f *listFrame) lead(i int, pivot bool) {
 	s.ScrollIntoView(i)
 }
 
+// ExtendTo chooses the rows from the one Shift extends from to row, as a
+// Shift-click on it does, and makes row the one the keys move from: for an
+// app's own keys, as a key that extends the choice to the last row. Call it
+// in the view, after the list is built. It does nothing without Selection.
+func (s *ListState) ExtendTo(row int) {
+	f := &s.frame
+	if s.Selection == nil || f.owner == nil || row < 0 || row >= f.n || f.isHeader(row) {
+		return
+	}
+	f.extend(row, false)
+}
+
+// chooseRowAt chooses the row of a list with Selection in chain, the
+// elements under the pointer, unless it is chosen or the list's
+// MenuKeepsSelection is set: a right-click acts on the row it is on, as in
+// Finder, and on all those chosen when it is one of them. In a Table
+// choosing cells, it chooses the cell at the window's x, unless that is in
+// the block.
+func (rt *engine) chooseRowAt(chain []uint64, x, y float32) {
+	for _, id := range chain {
+		s := rt.states[id]
+		if s == nil || s.flags&flagChoosable == 0 || s.flags&flagDisabled != 0 {
+			continue
+		}
+		b, ok := s.valueBinding.(*listRowInput)
+		if !ok || b.i >= b.f.n || b.f.s.Selection == nil || b.f.s.MenuKeepsSelection {
+			return
+		}
+		if f := b.f; !f.chosenAt(b.i, x, y) {
+			f.clickAt(b.i, x, y, 0)
+			rt.requestFrame()
+		}
+		return
+	}
+}
+
+// chosenAt reports whether row i is chosen and, in a table choosing
+// cells, the cell at the window's point (x, y) is in the block.
+func (f *listFrame) chosenAt(i int, x, y float32) bool {
+	if !f.chosen(i, f.key(i)) {
+		return false
+	}
+	if in := f.c.rt.cellInBlock; f.choosesCells() && in != nil {
+		return in(f, x, y)
+	}
+	return true
+}
+
+// clickAt chooses row i as a click on it with mods does, and in a table
+// choosing cells the cell at the window's point (x, y).
+func (f *listFrame) clickAt(i int, x, y float32, mods Modifiers) {
+	f.click(i, mods)
+	if f.choosesCells() && f.c.rt.cellClick != nil {
+		f.c.rt.cellClick(f, x, y, mods)
+	}
+}
+
+// chooseAll chooses every row, as Cmd+A does.
+func (f *listFrame) chooseAll() {
+	changed := false
+	for j := range f.n {
+		if !f.isHeader(j) {
+			changed = f.s.Selection.set(f.key(j), true) || changed
+		}
+	}
+	if changed {
+		f.changed()
+	}
+}
+
 // step returns the first row from i on by d that is not a header, or -1.
 func (f *listFrame) step(i, d int) int {
 	for i += d; i >= 0 && i < f.n; i += d {
@@ -1014,16 +1168,11 @@ func (f *listFrame) navigate() {
 	case how == cursor:
 		f.lead(to, false)
 	}
+	if f.choosesCells() {
+		f.cellKeys(how == move || how == cursor, all)
+	}
 	if all {
-		changed := false
-		for j := range n {
-			if !f.isHeader(j) {
-				changed = s.Selection.set(f.key(j), true) || changed
-			}
-		}
-		if changed {
-			f.changed()
-		}
+		f.chooseAll()
 	}
 	if flip && *sel >= 0 && *sel < n && !f.isHeader(*sel) {
 		f.toggle(*sel)
@@ -1464,6 +1613,7 @@ func (s *ListState) remember(e *node, first, last int, atEnd bool, scroll float6
 			s.selKey = s.Key(*sel)
 		}
 	}
+	s.pivotRow = s.pivot
 	if s.Key != nil && s.Selection != nil && s.pivot >= 0 && s.pivot < n {
 		s.pivotKey = s.Key(s.pivot)
 	}
