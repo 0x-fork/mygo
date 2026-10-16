@@ -166,8 +166,8 @@ func TestReviewByLineFramesForever(t *testing.T) {
 	tt.Advance(400 * time.Millisecond)
 	frames = 0
 	tt.Frame()
-	if frames >= 20 {
-		t.Errorf("one Frame ran %d frames: the view keeps asking for them with nothing to show", frames)
+	if frames >= 20 || tt.FramePending() {
+		t.Errorf("one Frame ran %d frames, one pending %v: the view keeps asking for them with nothing to show", frames, tt.FramePending())
 	}
 }
 

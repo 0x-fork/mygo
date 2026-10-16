@@ -140,7 +140,9 @@ type windowHost struct {
 	idleTimer *time.Timer
 	idleAt    time.Time
 	idleArmed bool
-	detached  bool
+	// afterT and repaintT are the timers of After and Painter.After.
+	afterT, repaintT *time.Timer
+	detached         bool
 	// shown tells that a frame was presented, which makes the window
 	// ready to show.
 	shown bool
@@ -493,6 +495,34 @@ func (h *windowHost) detach() {
 }
 
 func (h *windowHost) requestFrame() { h.conn.Surface.RequestFrame() }
+
+func (h *windowHost) afterTimer(at time.Time) {
+	switch {
+	case at.IsZero():
+		if h.afterT != nil {
+			h.afterT.Stop()
+		}
+	case h.afterT != nil:
+		h.afterT.Reset(max(time.Until(at), time.Millisecond))
+	default:
+		h.afterT = time.AfterFunc(max(time.Until(at), time.Millisecond), h.invalidate)
+	}
+}
+
+func (h *windowHost) repaintTimer(at time.Time) {
+	if at.IsZero() {
+		if h.repaintT != nil {
+			h.repaintT.Stop()
+		}
+		return
+	}
+	d := max(time.Until(at), time.Millisecond)
+	if h.repaintT == nil {
+		h.repaintT = time.AfterFunc(d, func() { h.post(h.rt.repaintNow) })
+	} else {
+		h.repaintT.Reset(d)
+	}
+}
 
 func (h *windowHost) startDataDrag(data transfer.Data, local any, options transfer.DragOptions, x, y float32) error {
 	return h.conn.StartDataDrag(data, local, options, float64(x), float64(y))

@@ -255,6 +255,7 @@ func TestFadeReplayed(t *testing.T) {
 	text, done = "", false
 	tt.Frame()
 	text = src
+	tt.Frame()
 	faded := false
 	for range 20 {
 		tt.Advance(10 * time.Millisecond)
@@ -303,16 +304,14 @@ func TestRevealBySentence(t *testing.T) {
 		}
 	}, 600, 400)
 	text = "First sentence here. Second one is still"
-	for range 10 {
-		tt.Advance(10 * time.Millisecond)
-	}
+	tt.Frame()
+	tt.Advance(100 * time.Millisecond)
 	if got := strings.Join(tt.Texts(), ""); got != "First sentence here." {
 		t.Errorf("streaming shows %q", got)
 	}
 	done = true
-	for range 10 {
-		tt.Advance(10 * time.Millisecond)
-	}
+	tt.Frame()
+	tt.Advance(100 * time.Millisecond)
 	if got := strings.Join(tt.Texts(), ""); got != text {
 		t.Errorf("done, shows %q", got)
 	}

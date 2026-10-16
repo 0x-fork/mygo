@@ -1,10 +1,12 @@
 package richtext
 
 import (
+	"bytes"
 	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -69,6 +71,23 @@ func joinRun(run, text string) string {
 func typeRunes(tt *ui.Tester, s string) {
 	for _, r := range s {
 		tt.Type(string(r))
+	}
+}
+
+// The caret blinks by the frames' time, and shows again as it moves.
+func TestRichTextCaretBlinks(t *testing.T) {
+	const blink = 530 * time.Millisecond
+	tt, _ := richTester(t, NewDocument(Text{}))
+	tt.Type("hello")
+	shown := bytes.Clone(tt.Image().Pix)
+	tt.Advance(blink)
+	if bytes.Equal(tt.Image().Pix, shown) {
+		t.Fatal("the caret still shows a blink on")
+	}
+	tt.Key(0, ui.KeyLeft)
+	tt.Key(0, ui.KeyRight)
+	if !bytes.Equal(tt.Image().Pix, shown) {
+		t.Error("the caret does not show as it moved")
 	}
 }
 

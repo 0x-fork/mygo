@@ -3,8 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/egoist/mygo/internal/wait"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -106,17 +106,15 @@ func TestScrollsToEnd(t *testing.T) {
 	}
 	// The rows glide up to their place (FollowAnimation), on the clock.
 	last := a.messages[len(a.messages)-1]
-	var r, field ui.Rect
-	wait.Until(t, "the end of the conversation in view", func() bool {
-		tt.Frame()
-		var ok bool
-		r, ok = tt.Find(last.text)
-		field, _ = tt.Find("Message")
-		// The list ends ringPadding and the field's own 6 above the field,
-		// and its rows 16 above that once they settled: a reply still
-		// gliding is cut off at the list's end, not that far above it.
-		return ok && a.list.AtEnd() && r.H > 0 && r.Y+r.H <= field.Y-ringPadding-6-12
-	})
+	tt.Advance(2 * time.Second)
+	r, ok := tt.Find(last.text)
+	field, _ := tt.Find("Message")
+	// The list ends ringPadding and the field's own 6 above the field,
+	// and its rows 16 above that once they settled: a reply still
+	// gliding is cut off at the list's end, not that far above it.
+	if !ok || !a.list.AtEnd() || r.H <= 0 || r.Y+r.H > field.Y-ringPadding-6-12 {
+		t.Fatalf("the end of the conversation is not in view: the last reply at %+v, the field at %+v, at the end %v", r, field, a.list.AtEnd())
+	}
 	if r.H < 3*replySize {
 		t.Errorf("the last reply shows %.0f DIPs of its lines, want all of them", r.H)
 	}

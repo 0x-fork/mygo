@@ -2044,8 +2044,8 @@ either.
   leaves that frame due. A frame of another size, or after the text
   system forgot its layouts (`text.System.Generation`, as it lets go of
   fonts the elements' layouts hold), builds anew all the same. The timers
-  the last frame built armed stay; `Painter.After` has a timer of its
-  own, which posts to the main thread.
+  the last frame built armed stay; the host arms them (`afterTimer`,
+  `repaintTimer`), and `Painter.After`'s posts to the main thread.
   While nothing of the window shows (`platform.OccludableSurface`: a macOS
   window hidden, minimized or covered by other windows, whose display link
   still ticks, at the display's rate for half a minute, then at about 40
@@ -3344,8 +3344,11 @@ either.
   tries for it the same way. A window without a GPU at its first frame
   draws in memory for good.
 - **Tests.** `ui.Tester` runs views against a host in memory
-  (`ui/headless.go`) with the CPU renderer; the fake backend's surface lets
-  the core's tests drive content windows through `package mygo`.
+  (`ui/headless.go`) with the CPU renderer, at its own time
+  (`engine.clock`), which stands still until `Tester.Advance` moves it.
+  Its host runs no timer; it notes their deadlines, and `Advance` runs
+  the frames due. The fake backend's surface lets the core's tests drive
+  content windows through `package mygo`.
   `BenchmarkFrame` in `ui` measures a frame of a large window on the CPU,
   and `BenchmarkListScroll` the frames scrolling a list of a million rows;
   `BenchmarkDiff*` the frames of a window as godiff's, two lists of texts

@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -265,6 +266,23 @@ func TestCodeEditorLines(t *testing.T) {
 	ct.want("[    a\n    b]")
 	ct.key(ui.Cmd, ui.KeyBracketLeft)
 	ct.want("[a\nb]")
+}
+
+// The caret blinks by the frames' time, and shows again as it moves.
+func TestCodeEditorCaretBlinks(t *testing.T) {
+	ct := newEditorTest(t, "", "hello|")
+	tt := ct.tt
+	ct.key(0, ui.KeyLeft)
+	shown := bytes.Clone(tt.Image().Pix)
+	tt.Advance(blinkInterval)
+	if bytes.Equal(tt.Image().Pix, shown) {
+		t.Fatal("the caret still shows a blink on")
+	}
+	ct.key(0, ui.KeyRight)
+	ct.key(0, ui.KeyLeft)
+	if !bytes.Equal(tt.Image().Pix, shown) {
+		t.Error("the caret does not show as it moved")
+	}
 }
 
 func TestCodeEditorUndo(t *testing.T) {

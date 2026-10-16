@@ -71,6 +71,14 @@ type headless struct {
 	webViews   []placedWebView
 	tabbedInto NativeWebView
 	tabbedBack bool
+
+	// invalidated asks for a frame built anew, as a window's Changed.
+	invalidated atomic.Bool
+	// afterAt and repaintAt are when the timers of After and Painter.After
+	// are due, zero for none; afterFrom is when After's was armed. No
+	// timer runs: the Tester's time may stop or leap.
+	afterAt, afterFrom, repaintAt time.Time
+	clock                         func() time.Time
 }
 
 func (h *headless) size() (float32, float32, float32) { return h.w, h.h, h.scale }
@@ -80,8 +88,15 @@ func (h *headless) present(s *scene.Scene) {
 	h.last = s
 	h.img.Render(s)
 }
+func (h *headless) afterTimer(at time.Time) {
+	h.afterAt = at
+	if h.clock != nil {
+		h.afterFrom = h.clock()
+	}
+}
 func (h *headless) framePath() string                          { return "drawn in memory" }
 func (h *headless) requestFrame()                              { h.requested.Store(true) }
+func (h *headless) repaintTimer(at time.Time)                  { h.repaintAt = at }
 func (h *headless) setCursor(c Cursor)                         { h.cursor = c }
 func (h *headless) setTextInput(t platform.TextInputState)     { h.ime = t }
 func (h *headless) updateAccessibility(t *platform.AccessTree) { h.keepAccess(t) }
@@ -147,7 +162,10 @@ func (h *headless) locale() string                    { return h.lang }
 func (h *headless) region() i18n.Region               { return h.reg }
 func (h *headless) titleBar() TitleBar                { return h.bar }
 func (h *headless) vibrancy() bool                    { return h.material }
-func (h *headless) invalidate()                       { h.requested.Store(true) }
+func (h *headless) invalidate() {
+	h.invalidated.Store(true)
+	h.requested.Store(true)
+}
 
 // openURL notes the link, and gives done the error FailOpenURL set before
 // the next frame, as a window gives it after the system opened the link.
@@ -202,7 +220,10 @@ type Tester struct {
 	rt     *engine
 	h      *headless
 	clicks platform.ClickCounter
-	now    time.Time
+	// now is the Tester's time, which only Advance moves, and frameAt
+	// that of the last frame.
+	now     time.Time
+	frameAt time.Time
 }
 
 // NewTester starts testing view in a window of width×height DIPs. Two
@@ -211,7 +232,8 @@ type Tester struct {
 func coreNewTester(view func(c *context), width, height int) *Tester {
 	h := &headless{w: float32(width), h: float32(height), scale: 1}
 	t := &Tester{rt: newRuntime(view, h), h: h, now: time.Now()}
-	t.rt.clock = func() time.Time { return t.now }
+	t.rt.clock = t.Now
+	h.clock = t.Now
 	t.rt.collect = true
 	// Duplicate keys panic, so that the test fails where the key was given.
 	t.rt.strict = true
@@ -222,18 +244,108 @@ func coreNewTester(view func(c *context), width, height int) *Tester {
 
 // settle runs frames until the view asks for no more, or 20 of them.
 func (t *Tester) settle() {
+	t.frameAt = t.Now()
 	for i := 0; i < 20; i++ {
 		t.h.requested.Store(false)
-		for len(t.h.later) > 0 {
-			fn := t.h.later[0]
-			t.h.later = t.h.later[1:]
-			fn()
-		}
+		t.h.invalidated.Store(false)
+		t.runLater()
 		t.rt.runFrame()
-		if !t.h.requested.Load() && len(t.h.later) == 0 {
+		if !t.asked() {
 			return
 		}
 	}
+}
+
+// asked reports whether the view asked for a frame.
+func (t *Tester) asked() bool { return t.h.requested.Load() || len(t.h.later) > 0 }
+
+// runLater runs what the view asked to run after the frame.
+func (t *Tester) runLater() {
+	for len(t.h.later) > 0 {
+		fn := t.h.later[0]
+		t.h.later = t.h.later[1:]
+		fn()
+	}
+}
+
+// Now returns the Tester's time, that of its next frame, which stands
+// still until Advance moves it.
+func (t *Tester) Now() time.Time { return t.now }
+
+// Advance moves the Tester's clock on by d, running the frames due
+// meanwhile at their times: one each refresh while something moves, and
+// those of After and Painter.After when they come due. An animation of
+// 200 ms is a quarter of the way after Advance(50 * time.Millisecond),
+// and done after another Advance(150 * time.Millisecond).
+func (t *Tester) Advance(d time.Duration) {
+	end := t.now.Add(max(d, 0))
+	for {
+		at, ok := t.due()
+		if !ok || at.After(end) {
+			break
+		}
+		t.now = at
+		if h := t.h; !h.afterAt.IsZero() && !at.Before(h.afterAt) {
+			h.afterAt = time.Time{}
+			h.invalidate()
+		}
+		if h := t.h; !h.repaintAt.IsZero() && !at.Before(h.repaintAt) {
+			h.repaintAt = time.Time{}
+			t.rt.repaintNow()
+		}
+		if t.asked() {
+			// Built anew after invalidate, as a window's.
+			if t.h.invalidated.Swap(false) {
+				t.rt.redraw = false
+			}
+			t.h.requested.Store(false)
+			t.runLater()
+			t.rt.surfaceFrame()
+			t.frameAt = at
+		}
+	}
+	t.now = end
+}
+
+// due returns when the next frame is due: the next refresh if one was
+// asked for, or a timer's.
+func (t *Tester) due() (time.Time, bool) {
+	now := t.Now()
+	var at time.Time
+	consider := func(due time.Time) {
+		if due.Before(now) {
+			due = now
+		}
+		if at.IsZero() || due.Before(at) {
+			at = due
+		}
+	}
+	if t.asked() {
+		hz := t.h.hz
+		if hz <= 0 {
+			hz = 60
+		}
+		consider(t.frameAt.Add(time.Duration(float64(time.Second) / float64(hz))))
+	}
+	if due, ok := t.timerDue(t.h.afterAt, t.h.afterFrom); ok {
+		consider(due)
+	}
+	if due, ok := t.timerDue(t.h.repaintAt, t.frameAt); ok {
+		consider(due)
+	}
+	return at, !at.IsZero()
+}
+
+// timerDue returns when a timer for at, armed at armed, fires: at least a
+// millisecond later, as a window's.
+func (t *Tester) timerDue(at, armed time.Time) (time.Time, bool) {
+	if at.IsZero() {
+		return at, false
+	}
+	if soonest := armed.Add(time.Millisecond); at.Before(soonest) {
+		at = soonest
+	}
+	return at, true
 }
 
 func (t *Tester) send(ev platform.SurfaceEvent) {
@@ -316,14 +428,11 @@ func (t *Tester) SetDirection(d Direction) {
 // Frame renders another frame, as when the view's state changed.
 func (t *Tester) Frame() { t.h.requested.Store(true); t.settle() }
 
-// Advance moves the tester's clock on by d, then renders the frames the
-// view asks for, as d passing: an animation of 200 ms is a quarter of the
-// way after Advance(50 * time.Millisecond), and done after another
-// Advance(150 * time.Millisecond).
-func (t *Tester) Advance(d time.Duration) {
-	t.now = t.now.Add(d)
-	t.Frame()
-}
+// FramePending reports whether the view still asks for a frame, as one
+// that animates or never settles does after an input or Frame. The
+// frames of After and Painter.After wait for Advance to reach their
+// time, as the clock stands still until then.
+func (t *Tester) FramePending() bool { return t.asked() }
 
 // Image returns the last frame.
 func (t *Tester) Image() *image.RGBA { return t.h.image() }
