@@ -211,7 +211,10 @@ An app may show several icons, as a menu bar app showing its measures each
 in an item of its own. On macOS a new icon goes left of those already
 there, and the user moves icons by dragging them with ⌘ held: give each an
 `ID`, unique among the app's icons, and it goes back where the user put it
-whenever it is made again, at the next launch or after `Destroy`.
+whenever it is made again, at the next launch or after `Destroy`. On
+Windows, where the user chooses which icons show on the taskbar rather
+than in its overflow, an icon with an `ID` keeps that choice, whatever
+order the app makes its icons in.
 
 A template icon follows the menu bar by itself. An icon in color, as one
 drawing each of its measures in its own color, draws its ink for the bar

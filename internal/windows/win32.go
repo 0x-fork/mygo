@@ -291,6 +291,8 @@ const (
 	// wmAppCookieView tells the application window to close the hidden web
 	// view of the cookies, outside the callbacks of that web view (cookies.go).
 	wmAppCookieView = wmApp + 8
+	// wmAppTrayAdd adds the tray icons made since (tray.go).
+	wmAppTrayAdd = wmApp + 9
 
 	wsOverlapped       = 0x00000000
 	wsPopup            = 0x80000000

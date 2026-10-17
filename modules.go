@@ -639,8 +639,10 @@ type TrayOptions struct {
 	// macOS, where the user moves menu bar items by dragging them with ⌘
 	// held, the icon goes back where the user put it, as an app's several
 	// items each keep their place. Empty, a new icon goes left of those
-	// already there. It does nothing on Linux and Windows, whose panels
-	// and notification areas place icons themselves.
+	// already there. On Windows, which places icons itself, the icon keeps
+	// whether the user shows it on the taskbar or in its overflow, as the
+	// app makes it again or makes its icons in another order. It does
+	// nothing on Linux, whose panels place icons themselves.
 	ID string
 	// Icon is a PNG image, ideally 16x16 points (32x32 pixels for Retina).
 	Icon []byte

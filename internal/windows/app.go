@@ -342,6 +342,9 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 	case wmAppTray:
 		b.trayMessage(uint32(wp), uint32(loword(lp)))
 		return 0, true
+	case wmAppTrayAdd:
+		b.addNewTrays()
+		return 0, true
 	case wmHotkey:
 		b.h.HotkeyPressed(int(wp))
 		return 0, true
@@ -386,7 +389,9 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 	if m == b.taskbarCreated && m != 0 {
 		// Explorer restarted: the notification area forgot our icons.
 		for _, t := range b.trays {
-			t.add()
+			if t.added {
+				t.add()
+			}
 		}
 		return 0, true
 	}
