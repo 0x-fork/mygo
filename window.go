@@ -513,8 +513,11 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		Modal:          o.Modal,
 		UserAgent:      po.UserAgent,
 		Zoom:           po.ZoomFactor,
-		Schemes:        Protocol.schemes(),
-		Panel:          o.Panel,
+		// Tab reaches every control, as desktop apps do, unless the app
+		// asked for Safari's behavior.
+		TabFocusesLinks: !po.SafariTabFocus,
+		Schemes:         Protocol.schemes(),
+		Panel:           o.Panel,
 	}
 	if o.Panel {
 		p.Minimizable, p.Maximizable, p.Fullscreenable = false, false, false

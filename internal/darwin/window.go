@@ -368,6 +368,12 @@ func (w *window) createWebView(content NSRect) {
 	if respondsTo(prefs, "setElementFullscreenEnabled:") {
 		send(prefs, "setElementFullscreenEnabled:", 1)
 	}
+	// Tab reaches buttons, links and the other controls too, as it does in
+	// Chrome, Electron and WebView2, whatever the system's keyboard
+	// navigation setting, unless the app asked for Safari's behavior.
+	if respondsTo(prefs, "setTabFocusesLinks:") {
+		send(prefs, "setTabFocusesLinks:", boolArg(o.TabFocusesLinks))
+	}
 
 	// Every window gets its own content controller so messages, scripts and
 	// the bridge configuration never leak between windows.
