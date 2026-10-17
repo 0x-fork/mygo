@@ -415,12 +415,21 @@ func (ed *editor) wheel(ev ui.InputEvent) bool {
 	return moved
 }
 
+// trackWidth is the room the scroll bar's track takes at the right edge:
+// none when the editor shows no scroll bars, as with FitContent.
+func (ed *editor) trackWidth() float32 {
+	if ed.o.noScrollbar || ed.o.fitContent {
+		return 0
+	}
+	return scrollbarWidth
+}
+
 // scrollbars reports which scroll bars the editor shows, and takes
 // presses on: the vertical one while it scrolls, as it does past the end
 // of a short text, and the horizontal one while a line runs under the
 // vertical one or beyond.
 func (ed *editor) scrollbars() (vertical, horizontal bool) {
-	if ed.o.noScrollbar || ed.o.fitContent {
+	if ed.trackWidth() == 0 {
 		return false, false
 	}
 	return ed.scrollMax() > 0, !ed.view.wrap && ed.view.maxLine > ed.r.W-ed.textX-scrollbarWidth
