@@ -353,6 +353,7 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 		case lp != 0 && wstr(lp) == settingImmersiveColorSet:
 			b.applyTheme()
 			b.h.ThemeChanged()
+			b.traysAppearance()
 		case lp != 0 && wstr(lp) == settingIntl:
 			// The display languages or the regional formats.
 			b.h.LocaleChanged()

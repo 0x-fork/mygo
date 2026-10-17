@@ -656,16 +656,18 @@ type TrayOptions struct {
 
 // Tray is an icon in the menu bar (macOS) or notification area.
 type Tray struct {
-	native  platform.Tray
-	menu    *Menu
-	onClick listeners[func()]
-	onRight listeners[func()]
+	native       platform.Tray
+	menu         *Menu
+	onClick      listeners[func()]
+	onRight      listeners[func()]
+	onAppearance listeners[func()]
 }
 
 type trayHandler struct{ t *Tray }
 
-func (h trayHandler) Clicked()      { fire(&h.t.onClick) }
-func (h trayHandler) RightClicked() { fire(&h.t.onRight) }
+func (h trayHandler) Clicked()           { fire(&h.t.onClick) }
+func (h trayHandler) RightClicked()      { fire(&h.t.onRight) }
+func (h trayHandler) AppearanceChanged() { fire(&h.t.onAppearance) }
 
 // NewTray adds an icon to the menu bar or notification area. It must be
 // called after the application is ready.
@@ -769,6 +771,25 @@ func (t *Tray) OnClick(fn func()) (off func()) { return t.onClick.add(fn, false)
 
 // OnRightClick is called when the icon is right-clicked.
 func (t *Tray) OnRightClick(fn func()) (off func()) { return t.onRight.add(fn, false) }
+
+// Dark reports whether the bar the icon shows on is dark: the macOS menu
+// bar, as AppKit tints its items (by the system's appearance, or the
+// wallpaper under a translucent menu bar), or the Windows taskbar, in
+// the system's mode, which may differ from the apps'. It is false on
+// Linux, where panels draw their icon themes their own way.
+//
+// A template icon (TrayOptions.IconIsTemplate) follows the bar by itself:
+// Dark is for an icon in color, as one drawing its measures in theirs,
+// which draws its ink light on a dark bar, and dark on a light one. With
+// several displays, it is the bar of the display with the menu bar.
+func (t *Tray) Dark() bool {
+	return onMainValue(func() bool { return t.native != nil && t.native.Dark() })
+}
+
+// OnAppearanceChange is called when the bar the icon shows on turns dark
+// or light (see Dark), on the main thread: set the icon drawn for it
+// again.
+func (t *Tray) OnAppearanceChange(fn func()) (off func()) { return t.onAppearance.add(fn, false) }
 
 // NotificationOptions configures a desktop notification.
 type NotificationOptions struct {

@@ -954,12 +954,17 @@ type Secrets interface {
 type TrayHandler interface {
 	Clicked()
 	RightClicked()
+	// AppearanceChanged tells that the bar the icon shows on turned dark
+	// or light.
+	AppearanceChanged()
 }
 
 // Tray is a status bar / notification area icon.
 type Tray interface {
 	// SetID names the icon across launches (macOS's autosave name).
 	SetID(id string)
+	// Dark reports whether the bar the icon shows on is dark.
+	Dark() bool
 	SetImage(png []byte, template bool) error
 	SetTitle(title string)
 	SetToolTip(tip string)

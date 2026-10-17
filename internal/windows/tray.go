@@ -68,11 +68,14 @@ type tray struct {
 	// notification is the id of the notification the icon shows, if any.
 	notification string
 	temporary    bool // added only to show a notification
+	// dark is the taskbar's appearance, as last told.
+	dark bool
 }
 
 func (b *Backend) NewTray(h platform.TrayHandler) (platform.Tray, error) {
 	b.nextTray++
 	t := &tray{b: b, h: h, id: b.nextTray}
+	t.dark = t.Dark()
 	b.trays[t.id] = t
 	t.add()
 	return t, nil
@@ -116,6 +119,13 @@ func (t *tray) SetImage(data []byte, template bool) error {
 }
 
 func (t *tray) SetTitle(string) {}
+
+// Dark reports whether the taskbar is dark: Windows draws it in the
+// system's mode, which may differ from the apps'.
+func (t *tray) Dark() bool {
+	light, ok := regDWORD(hkeyCurrentUser, personalizeKey, "SystemUsesLightTheme")
+	return ok && light == 0
+}
 
 // SetID does nothing: the notification area keeps where icons go by the
 // executable's path.
@@ -340,3 +350,13 @@ func (b *Backend) RegisterHotkey(id int, acc string) error {
 }
 
 func (b *Backend) UnregisterHotkey(id int) { procUnregisterHotKey.Call(b.appHwnd, uintptr(id)) }
+
+// traysAppearance tells the icons whose taskbar turned dark or light.
+func (b *Backend) traysAppearance() {
+	for _, t := range b.trays {
+		if dark := t.Dark(); dark != t.dark {
+			t.dark = dark
+			t.h.AppearanceChanged()
+		}
+	}
+}
