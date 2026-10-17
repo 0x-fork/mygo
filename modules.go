@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"image/png"
 	"math"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -46,10 +47,18 @@ func (ShellModule) ShowItemInFolder(path string) {
 	onMain(func() { backend().Shell().ShowItemInFolder(path) })
 }
 
-// TrashItem moves a file or directory to the trash.
+// TrashItem moves a file or directory to the trash, the recycle bin on
+// Windows. A relative path is relative to the working directory. It fails,
+// and leaves the item where it is, when the item cannot go to the trash
+// and would be deleted permanently instead: on Windows one too big for the
+// recycle bin, or on a drive without one, as network shares are.
 func (ShellModule) TrashItem(path string) error {
 	needsApp("Shell.TrashItem")
-	return onMainValue(func() error { return backend().Shell().TrashItem(path) })
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	return onMainValue(func() error { return backend().Shell().TrashItem(abs) })
 }
 
 // FileIcon returns the icon the file manager shows for a file, a folder or
