@@ -466,13 +466,30 @@ func (t *Tester) HasText(s string) bool {
 	return false
 }
 
-// Click clicks the center of the element showing text or labeled s.
-func (t *Tester) Click(s string) error {
+// targetCenter returns the center of the element showing text or labeled s,
+// or an error when no element matches or its center lies outside the window.
+// Find walks the element tree without checking geometry, so it can return an
+// element the window never shows; clicking it would land on nothing while
+// reporting success.
+func (t *Tester) targetCenter(s string) (float32, float32, error) {
 	r, ok := t.Find(s)
 	if !ok {
-		return fmt.Errorf("ui: no element shows %q", s)
+		return 0, 0, fmt.Errorf("ui: no element shows %q", s)
 	}
-	t.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	x, y := r.X+r.W/2, r.Y+r.H/2
+	if x < 0 || y < 0 || x >= t.h.w || y >= t.h.h {
+		return 0, 0, fmt.Errorf("ui: %q is at (%v, %v), outside the window", s, x, y)
+	}
+	return x, y, nil
+}
+
+// Click clicks the center of the element showing text or labeled s.
+func (t *Tester) Click(s string) error {
+	x, y, err := t.targetCenter(s)
+	if err != nil {
+		return err
+	}
+	t.ClickAt(x, y)
 	return nil
 }
 
@@ -482,11 +499,11 @@ func (t *Tester) ClickAt(x, y float32) { t.ClickAtWith(0, x, y) }
 // ClickWith clicks the center of the element showing text or labeled s
 // holding the modifier keys mods, as a Shift-click.
 func (t *Tester) ClickWith(mods Modifiers, s string) error {
-	r, ok := t.Find(s)
-	if !ok {
-		return fmt.Errorf("ui: no element shows %q", s)
+	x, y, err := t.targetCenter(s)
+	if err != nil {
+		return err
 	}
-	t.ClickAtWith(mods, r.X+r.W/2, r.Y+r.H/2)
+	t.ClickAtWith(mods, x, y)
 	return nil
 }
 
