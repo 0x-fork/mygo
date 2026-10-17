@@ -376,6 +376,18 @@ func (w *window) createWebView(content NSRect) {
 	w.addUserScripts(o.Zoom)
 	send(cfg, "setUserContentController:", uintptr(w.ucc))
 
+	// WebKit appends the application name to the user agent of the web view,
+	// and window.open() hands us the configuration of the window that opens
+	// it: the options of the new window decide, as they do on Linux and
+	// Windows, where a window never inherits a suffix.
+	var appName id
+	if o.UserAgentSuffix != "" {
+		appName = nsString(o.UserAgentSuffix)
+	}
+	if o.UserAgentSuffix != "" || o.Native != 0 {
+		send(cfg, "setApplicationNameForUserAgent:", uintptr(appName))
+	}
+
 	w.web = msgInitRectID(send(class("MyGoWebView"), "alloc"), sel("initWithFrame:configuration:"), NSRect{Size: content.Size}, cfg)
 	release(cfg)
 	send(w.web, "setNavigationDelegate:", uintptr(w.delegate))
@@ -392,7 +404,11 @@ func (w *window) createWebView(content NSRect) {
 		send(w.web, "setInspectable:", boolArg(o.DevTools))
 	}
 	if o.UserAgent != "" {
-		send(w.web, "setCustomUserAgent:", uintptr(nsString(o.UserAgent)))
+		ua := o.UserAgent
+		if o.UserAgentSuffix != "" {
+			ua += " " + o.UserAgentSuffix
+		}
+		send(w.web, "setCustomUserAgent:", uintptr(nsString(ua)))
 	}
 	if o.Zoom > 0 && o.Zoom != 1 {
 		msgSetFloat(w.web, sel("setPageZoom:"), o.Zoom)
@@ -1158,8 +1174,13 @@ func (w *window) SetUserAgent(ua string) {
 	withPool(func() {
 		var s id
 		if ua != "" {
+			if suffix := w.opts.UserAgentSuffix; suffix != "" {
+				ua += " " + suffix
+			}
 			s = nsString(ua)
 		}
+		// An empty one restores the default user agent, which the
+		// configuration still appends its suffix to.
 		send(w.web, "setCustomUserAgent:", uintptr(s))
 	})
 }

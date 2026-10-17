@@ -45,4 +45,12 @@ type PageOptions struct {
 	ZoomFactor float64
 	// UserAgent overrides the user agent string.
 	UserAgent string
+	// UserAgentSuffix appends to the page's user agent instead of
+	// replacing it, as UserAgent does: the app's name and version, such as
+	// "MyApp/1.2", for the sites that read them. It appends to UserAgent
+	// too, which SetUserAgent keeps as well; leading and trailing spaces
+	// are trimmed. Some sites serve a bare web view, whose user agent
+	// names no browser, older pages: "Version/17.0 Safari/605.1.15" makes the
+	// page look like Safari.
+	UserAgentSuffix string
 }

@@ -216,8 +216,8 @@ func (w *window) setUp(controller uintptr) {
 	comCall(s, setPutAreDevToolsEnabled, boolArg(o.DevTools))
 	comCall(s, setPutAreDefaultContextMenusEnabled, 1)
 	comCall(s, setPutIsZoomControlEnabled, 1)
-	if o.UserAgent != "" {
-		w.setUserAgent(o.UserAgent)
+	if o.UserAgent != "" || o.UserAgentSuffix != "" {
+		w.setUpUserAgent()
 	}
 	w.applyWebViewBackground()
 
@@ -770,12 +770,49 @@ func (w *window) SetZoom(f float64) {
 
 func (w *window) Zoom() float64 { return w.zoom }
 
+// setUpUserAgent applies UserAgent and UserAgentSuffix, which appends to
+// WebView2's own user agent when it is all that is set.
+func (w *window) setUpUserAgent() {
+	s2 := queryInterface(w.settings, &iidICoreWebView2Settings2)
+	if s2 == 0 {
+		return
+	}
+	defer release(s2)
+	ua := w.opts.UserAgent
+	if suffix := w.opts.UserAgentSuffix; suffix != "" {
+		if ua == "" {
+			ua = userAgentOf(s2)
+		}
+		if ua != "" {
+			ua += " " + suffix
+		}
+	}
+	if ua != "" {
+		comCall(s2, set2PutUserAgent, uintptr(unsafe.Pointer(u16(ua))))
+	}
+}
+
+// userAgentOf returns the user agent Settings2 sets.
+func userAgentOf(s2 uintptr) string {
+	var p uintptr
+	comCall(s2, set2GetUserAgent, uintptr(unsafe.Pointer(&p)))
+	return takeWstr(p)
+}
+
+// setUserAgent sets the user agent the page sends; an empty one leaves the
+// current user agent, as WebView2 does. The suffix the options set appends to
+// a user agent it replaces.
 func (w *window) setUserAgent(ua string) {
 	s2 := queryInterface(w.settings, &iidICoreWebView2Settings2)
 	if s2 == 0 {
 		return
 	}
 	defer release(s2)
+	if ua != "" {
+		if suffix := w.opts.UserAgentSuffix; suffix != "" {
+			ua += " " + suffix
+		}
+	}
 	comCall(s2, set2PutUserAgent, uintptr(unsafe.Pointer(u16(ua))))
 }
 
@@ -790,9 +827,7 @@ func (w *window) UserAgent() string {
 		return ""
 	}
 	defer release(s2)
-	var p uintptr
-	comCall(s2, set2GetUserAgent, uintptr(unsafe.Pointer(&p)))
-	return takeWstr(p)
+	return userAgentOf(s2)
 }
 
 func (w *window) OpenDevTools() {
