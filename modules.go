@@ -656,7 +656,7 @@ type TrayOptions struct {
 	// Icon is a PNG image, ideally 16x16 points (32x32 pixels for Retina).
 	Icon []byte
 	// IconIsTemplate lets macOS tint a black-and-transparent icon to match
-	// the menu bar.
+	// the menu bar; Windows shows it white on a dark taskbar.
 	IconIsTemplate bool
 	// Title is shown next to the icon (macOS).
 	Title   string
