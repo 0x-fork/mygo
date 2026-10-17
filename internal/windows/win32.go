@@ -165,6 +165,7 @@ var (
 	procGetClipboardFormatNameW       = user32.NewProc("GetClipboardFormatNameW")
 	procFillRect                      = user32.NewProc("FillRect")
 	procGetNextWindow                 = user32.NewProc("GetWindow")
+	procGetTopWindow                  = user32.NewProc("GetTopWindow")
 	procInvalidateRectW               = user32.NewProc("InvalidateRect")
 	procUpdateLayeredWindow           = user32.NewProc("UpdateLayeredWindow")
 	procGetDC                         = user32.NewProc("GetDC")

@@ -436,12 +436,26 @@ type appController struct{ b *Backend }
 
 func (a appController) SetActivationPolicy(string) {}
 
+// Activate brings the app forward as macOS does, with its windows in their
+// order: a window of the app already in front stays there, else the one
+// the user had last, the highest of them in the z-order, comes forward.
+// Flyouts that never take the keyboard bring nothing forward.
 func (a appController) Activate() {
-	for _, w := range a.b.windows {
-		if w.IsVisible() {
-			w.Focus()
-			return
+	if fg, _, _ := procGetForegroundWindow.Call(); a.b.windows[fg] != nil {
+		return
+	}
+	const gwHwndNext = 2
+	h, _, _ := procGetTopWindow.Call(0)
+	for ; h != 0; h, _, _ = procGetNextWindow.Call(h, gwHwndNext) {
+		w := a.b.windows[h]
+		if w == nil || !w.IsVisible() {
+			continue
 		}
+		if f := w.opts.Flyout; f != nil && !f.Focusable {
+			continue
+		}
+		w.Focus()
+		return
 	}
 }
 
