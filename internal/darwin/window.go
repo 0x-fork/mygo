@@ -607,6 +607,12 @@ func (b *Backend) watchOutsideClicks() {
 		var open []*window
 		for _, w := range b.byNSWindow {
 			if w.opts.Flyout != nil && w.popover == 0 && w.flyout.Focusable && !w.closed && sendBool(w.win, "isVisible") {
+				// A press on its tray icon is left to the icon's click,
+				// which toggles it, rather than closing it for the click
+				// to open it again.
+				if t, ok := w.flyout.Tray.(*tray); ok && t.pressed() {
+					continue
+				}
 				open = append(open, w)
 			}
 		}
