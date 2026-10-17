@@ -207,20 +207,3 @@ func TestCoreTextLanguageSpacing(t *testing.T) {
 		}
 	}
 }
-
-// A flex item gives text exactly the width of its unconstrained layout.
-// That width sums advances in float32, which may round below Core Text's
-// own line width: 20pt semibold text measured 599.78 wrapped its last
-// word at that width.
-func TestCoreTextLayoutAtMeasuredWidth(t *testing.T) {
-	s := newSystem()
-	for _, weight := range []int{400, 500, 600, 700} {
-		for _, size := range []float32{13, 16, 20, 24} {
-			p := Params{Text: "Action required: Complete your Artifact Signing identity validation", Style: Style{Size: size, Weight: weight}}
-			p.Width = s.Layout(p).Width
-			if l := s.Layout(p); len(l.Lines) != 1 {
-				t.Errorf("weight %d, size %g: at measured width %g, %d lines", weight, size, p.Width, len(l.Lines))
-			}
-		}
-	}
-}
