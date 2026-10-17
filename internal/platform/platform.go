@@ -177,6 +177,9 @@ type AppHandler interface {
 type AppController interface {
 	SetActivationPolicy(policy string)
 	Activate()
+	// AllowForeground lets the next process to ask bring its windows to
+	// the front, which Windows only lets the process in front do.
+	AllowForeground()
 	Hide()
 	Unhide()
 	IsHidden() bool

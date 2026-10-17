@@ -86,6 +86,8 @@ type Backend struct {
 	LoginItem string
 	// DockMenu is the menu of the Dock icon.
 	DockMenu *platform.Menu
+	// ForegroundAllowed counts AllowForeground calls.
+	ForegroundAllowed int
 	// Cleared counts ClearBrowsingData calls.
 	Cleared int
 	// cookies holds the cookies of the pages, by name, domain and path.
@@ -759,6 +761,7 @@ type app struct{ b *Backend }
 
 func (app) SetActivationPolicy(string)                {}
 func (app) Activate()                                 {}
+func (a app) AllowForeground()                        { a.b.ForegroundAllowed++ }
 func (app) Hide()                                     {}
 func (app) Unhide()                                   {}
 func (app) IsHidden() bool                            { return false }

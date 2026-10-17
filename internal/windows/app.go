@@ -441,6 +441,15 @@ type appController struct{ b *Backend }
 
 func (a appController) SetActivationPolicy(string) {}
 
+// AllowForeground passes the app's right to the foreground on to the next
+// process to ask (ASFW_ANY). Only the process in front has it to pass on,
+// so an app passes it before it closes its windows: a process it starts
+// once they closed could no longer take it from the app.
+func (a appController) AllowForeground() {
+	const asfwAny = ^uintptr(0)
+	procAllowSetForegroundWindow.Call(asfwAny)
+}
+
 // Activate brings the app forward as macOS does, with its windows in their
 // order: a window of the app already in front stays there, else the one
 // the user had last, the highest of them in the z-order, comes forward.

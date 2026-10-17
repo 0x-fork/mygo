@@ -118,6 +118,7 @@ var (
 	procGetWindowLongPtrW             = user32.NewProc("GetWindowLongPtrW")
 	procSetWindowLongPtrW             = user32.NewProc("SetWindowLongPtrW")
 	procSetForegroundWindow           = user32.NewProc("SetForegroundWindow")
+	procAllowSetForegroundWindow      = user32.NewProc("AllowSetForegroundWindow")
 	procGetForegroundWindow           = user32.NewProc("GetForegroundWindow")
 	procNotifyWinEvent                = user32.NewProc("NotifyWinEvent")
 	procSetFocus                      = user32.NewProc("SetFocus")
