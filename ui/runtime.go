@@ -132,6 +132,17 @@ type engine struct {
 	under []opaqueBox
 	holes []Rect
 
+	// layouts counts the frames laid out, laySeq the elements laid out
+	// (layoutBox) and computed those of them not as in the frame before;
+	// layGen is the text system's generation of the last layout, when
+	// layGenOK. noLayoutCache lays every element out anew, as
+	// TestLayoutCacheMatches compares (layoutcache.go).
+	layouts, laySeq uint64
+	computed        uint32
+	layGen          uint64
+	layGenOK        bool
+	noLayoutCache   bool
+
 	states map[uint64]*state
 	// free are states pruned, which new elements take: rows coming into
 	// a list's view take those of rows that went out of it.

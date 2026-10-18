@@ -513,6 +513,8 @@ type state struct {
 	// lookup (lookState), 0 for a state it created.
 	lookedSeen uint64
 	lookedPass int
+	// lay is what the element's last layout was (layoutcache.go).
+	lay layoutRecord
 	// The element's box and its visible part in the last frame.
 	x, y, w, h     float32
 	vx, vy, vw, vh float32

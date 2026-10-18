@@ -430,7 +430,11 @@ func gridColumns(e *node, s *gridScratch, items []gridItem, nc int, avail, cw fl
 func gridIntrinsic(e *node, maxContent bool) float32 {
 	s := &e.c.rt.grid
 	firstItem, firstF := len(s.items), len(s.f)
-	defer func() { s.items, s.f = s.items[:firstItem], s.f[:firstF] }()
+	defer func() {
+		// Laid out again only when it changed, it lets go of its elements.
+		clear(s.items[firstItem:])
+		s.items, s.f = s.items[:firstItem], s.f[:firstF]
+	}()
 	items, nc, _ := gridPlace(e, s)
 	sizes := gridColumns(e, s, items, nc, inf, inf, !maxContent)
 	w := e.gapX * float32(max(nc-1, 0))
@@ -447,7 +451,10 @@ func gridIntrinsic(e *node, maxContent bool) float32 {
 func gridLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	s := &e.c.rt.grid
 	firstItem, firstF, firstC := len(s.items), len(s.f), len(s.cs)
-	defer func() { s.items, s.f, s.cs = s.items[:firstItem], s.f[:firstF], s.cs[:firstC] }()
+	defer func() {
+		clear(s.items[firstItem:])
+		s.items, s.f, s.cs = s.items[:firstItem], s.f[:firstF], s.cs[:firstC]
+	}()
 	items, nc, nr := gridPlace(e, s)
 	cols := gridColumns(e, s, items, nc, cw, cw, false)
 

@@ -200,6 +200,50 @@ const (
 	setAll = setLang<<1 - 1
 )
 
+// layoutStyle is what lays an element out, of what the view sets on it:
+// an element whose layoutStyle, text style, children and the like are
+// those of the frame before lays out as it did then (layoutcache.go),
+// which compares them. Whatever else of the element its layout reads goes
+// into the comparison there; TestLayoutInputs keeps node's other fields
+// out of layout.
+type layoutStyle struct {
+	// First, as what changes most, so that comparing finds it soonest.
+	text string
+
+	kind                 kind
+	row                  bool
+	wrap                 bool
+	reverse, wrapReverse bool
+	// dir is the element's direction (dirRTL, dirSet), and logical which
+	// of its horizontal edges were set by their start or end
+	// (direction.go).
+	dir, logical           uint8
+	justify, align, self   Align
+	alignContent           Align
+	gapX, gapY             float32
+	pad                    [4]float32 // top, right, bottom, left
+	border                 [4]float32 // top, right, bottom, left
+	margin                 [4]float32 // Auto for auto margins
+	width, height          length
+	minW, minH, maxW, maxH length
+	grow, shrink           float32
+	basis                  length
+	inset                  [4]length
+	aspect                 float32
+	grid                   bool
+	justifyItems           Align // of a grid
+	cell                   gridCell
+	justifySelf            Align
+	// baselines is set on the row of a field in a form, which lines up
+	// the first lines of its label and control.
+	baselines bool
+
+	maxLines int
+	single   bool
+	noWrap   bool
+	ellipsis string
+}
+
 // Element is a node of a frame's user interface. The functions that create
 // elements return them so that their methods can style them and ask about
 // their interaction, and the methods return the element for chaining:
@@ -217,7 +261,6 @@ type node struct {
 	valueInput func(*node)
 	c          *context
 	id         uint64
-	kind       kind
 	flags      uint32
 	parent     *node
 	first      *node
@@ -229,30 +272,10 @@ type node struct {
 	// track is the ScrollState of a scroll container (TrackScroll).
 	track *ScrollState
 
-	// Layout.
-	row                  bool
-	wrap                 bool
-	reverse, wrapReverse bool
-	// dir is the element's direction (dirRTL, dirSet), and logical which
-	// of its horizontal edges were set by their start or end
-	// (direction.go).
-	dir, logical           uint8
-	justify, align, self   Align
-	alignContent           Align
-	gapX, gapY             float32
-	pad                    [4]float32 // top, right, bottom, left
-	margin                 [4]float32 // Auto for auto margins
-	width, height          length
-	minW, minH, maxW, maxH length
-	grow, shrink           float32
-	basis                  length
-	inset                  [4]length
-	aspect                 float32
-	grid                   bool
-	cols, rows             []Track // of a grid
-	justifyItems           Align   // of a grid
-	cell                   gridCell
-	justifySelf            Align
+	// layoutStyle holds what lays the element out, and cols and rows
+	// the tracks of a grid.
+	layoutStyle
+	cols, rows []Track
 
 	// Visual geometry, composed after layout.
 	transform        Transform
@@ -280,7 +303,6 @@ type node struct {
 	fill        fillKind
 	grad        LinearGradient
 	stripes     stripes
-	border      [4]float32 // top, right, bottom, left
 	borderC     Color
 	borderStyle BorderStyle
 	radius      [4]float32
@@ -309,7 +331,6 @@ type node struct {
 	copyData   func(parts []SelectedText) transfer.Data
 
 	// Content.
-	text     string
 	spans    []Span // of a RichText
 	spansKey string // their styles, for the layout
 	// A text holding inline elements (inline.go) keeps its own text, and
@@ -322,10 +343,6 @@ type node struct {
 	runes     [2]int
 	frags     []Rect
 	ts        textStyle
-	maxLines  int
-	single    bool
-	noWrap    bool
-	ellipsis  string
 	image     *Bitmap
 	svg       *SVG // of an Icon, or an Image in its own colors
 	webView   NativeWebView
@@ -416,11 +433,9 @@ type node struct {
 	description string
 	invalid     bool
 	// field is set on a Field, form on a Form, whose layout makes its
-	// labels as wide as the widest, and baselines on the row of a field in
-	// a form, which lines up the first lines of its label and control.
-	field     *fieldParts
-	form      *formBuild
-	baselines bool
+	// labels as wide as the widest.
+	field *fieldParts
+	form  *formBuild
 	// rowMinW is the least width of the rows of a list scrolling sideways,
 	// as a table's; followX is the scroll container whose horizontal
 	// offset the element's content follows, as a table's header follows
@@ -440,14 +455,12 @@ type node struct {
 	chooseMany bool
 	gridFit    *gridFit
 	tl         *text.Layout
-	measures   [4]measure
-	nmeasure   int
-	leaf       [2]float32 // the max-content and min-content widths of text
-	leafOK     bool
-	// intr holds the max-content and min-content widths of the element
-	// (intrinsic), measured once a frame, intrOK which of them it holds.
-	intr   [2]float32
-	intrOK uint8
+	measured
+	// lay says what the layout cache may do with the element
+	// (layOwner, layReuse), and laid when layoutBox last laid it out, in
+	// engine.laySeq.
+	lay  uint8
+	laid uint64
 	// leaving marks a copy of an element gone, which its exit transition
 	// animates (1 if it was in its parent's flow, 2 if absolute), and
 	// ghosts an element holding such copies. attach is where Attach puts
@@ -460,8 +473,22 @@ type node struct {
 	serial int32
 }
 
+// measure is the height of an element at a width (naturalHeight).
 type measure struct {
-	availW, availH, w, h float32
+	availW, h float32
+}
+
+// measured is what the layout measured of an element in a frame, for
+// measuring it again.
+type measured struct {
+	measures [4]measure
+	nmeasure int
+	leaf     [2]float32 // the max-content and min-content widths of text
+	leafOK   bool
+	// intr holds the max-content and min-content widths of the element
+	// (intrinsic), measured once a frame, intrOK which of them it holds.
+	intr   [2]float32
+	intrOK uint8
 }
 
 // Rect is a rectangle in DIPs.

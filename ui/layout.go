@@ -71,6 +71,7 @@ func base(v float32) float32 {
 func layoutTree(root *node, w, h float32) {
 	rt := root.c.rt
 	rt.consumed = false
+	rt.beginLayout(root)
 	layoutBox(root, w, h)
 	// Lists build rows as they lay out, which may ask to come into view.
 	for _, e := range root.c.reveal {
@@ -356,6 +357,7 @@ func contentWidth(e *node, maxContent bool) float32 {
 func (e *node) forgetIntrinsic() {
 	for p := e; p != nil && p.intrOK != 0; p = p.parent {
 		p.intrOK = 0
+		p.keepMeasured()
 	}
 }
 
@@ -521,8 +523,28 @@ func boxLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	return flexLayout(e, cw, ch, commit)
 }
 
-// layoutBox gives the element its size and lays out its content.
+// layoutBox gives the element its size and lays out its content, as it
+// did in the last frame when it can (layoutcache.go).
 func layoutBox(e *node, w, h float32) {
+	rt := e.c.rt
+	rt.laySeq++
+	e.laid = rt.laySeq
+	if e.lay&layReuse != 0 {
+		if r := &e.st.lay; r.sized && r.w == w && r.h == h {
+			reuseBox(e, r)
+			return
+		}
+	}
+	start := rt.laySeq
+	rt.computed++
+	computeBox(e, w, h)
+	if e.lay&layOwner != 0 {
+		keepBox(e, w, h, start)
+	}
+}
+
+// computeBox gives the element its size and lays out its content.
+func computeBox(e *node, w, h float32) {
 	e.w, e.h = w, h
 	cw, ch := max(w-e.padX(), 0), max(h-e.padY(), 0)
 	switch e.kind {
@@ -640,7 +662,12 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	scratch := &e.c.rt.flex
 	firstItem, firstLine := len(scratch.items), len(scratch.lines)
 	baselines := align == Baseline // whether children align by their baselines
-	defer func() { scratch.items, scratch.lines = scratch.items[:firstItem], scratch.lines[:firstLine] }()
+	defer func() {
+		// Laid out again only when they change (layoutcache.go), the
+		// items let go of their elements.
+		clear(scratch.items[firstItem:])
+		scratch.items, scratch.lines = scratch.items[:firstItem], scratch.lines[:firstLine]
+	}()
 	for c := e.first; c != nil; c = c.next {
 		if c.flags&flagAbsolute != 0 {
 			continue

@@ -2013,7 +2013,8 @@ either.
   focus colors appear together; holding the pointer asks for no further
   build passes. The engine lays it out with flexbox (`layout.go`) or
   as a grid (`grid.go`, CSS grid's placement and track sizing for fixed,
-  fractional and content-sized tracks); commits the boxes to the elements'
+  fractional and content-sized tracks), laying out again only what changed
+  since the last frame (see below); commits the boxes to the elements'
   states with the hit list in paint order, the focus order and the labels;
   paints a `scene.Scene`; and presents it. Input between frames goes to the
   states of the last frame's elements. An element's identity hashes its
@@ -2029,6 +2030,30 @@ either.
   frame that moved one builds another for what read the old one. Frames
   happen only when asked: input, `Invalidate`, `After`, or `AnimationFrame`
   while something moves.
+  The view builds the whole tree each frame, but layout reuses what did not
+  change (`ui/layoutcache.go`), as Blink reuses the layout result of a box
+  not marked as needing layout in the same constraint space and Flutter
+  skips a render object whose constraints are those of its last layout.
+  Nothing marks a rebuilt tree, so before laying out `sameLayout` compares
+  each element with what its state kept of it from the last frame: its
+  `layoutStyle` (the fields of `node` that lay it out, embedded in it), the
+  flags and inherited text styles the layout reads, its grid's tracks, its
+  spans, its image's size, and its children, the same elements in the same
+  order, each the same in turn. `layoutBox` then reuses the last layout of
+  an element that is the same when it gets a box of the same size: its
+  text's layout and its children's boxes, laying out again any child laid
+  out at another size since; what was measured of it (its content widths
+  and heights) is reused too, so that a container laid out again measures
+  its unchanged children at once. Transforms and scroll offsets of other
+  containers apply after layout and change nothing there. Elements that lay
+  out by more than they are built with are never reused, nor anything
+  around them: a List (rows built as it lays out), a Form, a Table's
+  fitted columns and a toolbar (which change elements inside them as they
+  lay out, so neither is anything inside those), an input, an element
+  attached to another. A field added to `node` must say whether layout
+  reads it (`TestLayoutInputs`); `TestLayoutCacheMatches` lays random trees
+  out with and without the cache (`engine.noLayoutCache`) as they change
+  at random, frame after frame.
   A frame asked for only by drawings that move (`Painter.AnimationFrame`,
   `Painter.After`, as spinners and progress bars of unknown length do)
   paints the elements of the last frame again at its own time
