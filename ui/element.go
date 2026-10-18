@@ -294,6 +294,12 @@ type node struct {
 	poseM    scene.Affine
 	poseFade float32
 	reposed  bool
+	// ink bounds, in the window, all that the element and those inside it
+	// may paint, as commit found it: x0, y0, x1, y1. Unless noCull, what
+	// it paints is no more than that, so that painting skips it where ink
+	// is clipped out (paintable).
+	ink    [4]float32
+	noCull bool
 	// backface hides it while its 3D transform turns its back to the
 	// viewer (BackfaceHidden).
 	backface bool
@@ -312,12 +318,15 @@ type node struct {
 	effecting   bool
 	// grads holds a conic fill and a border's gradient, which few elements
 	// have; blur is the standard deviation of the element's blur, in DIPs.
-	grads        *gradients
-	blur         float32
-	opacity      float32
-	opacitySet   bool
-	cursor       Cursor
-	paintFn      func(p *Painter, r Rect)
+	grads      *gradients
+	blur       float32
+	opacity    float32
+	opacitySet bool
+	cursor     Cursor
+	paintFn    func(p *Painter, r Rect)
+	// styleFn sets the colors and opacity the element paints with, as it
+	// is painted: it changes nothing else, so that an element out of view
+	// can skip it.
 	styleFn      func(e *node)
 	paintAfterFn func(p *Painter, r Rect)
 

@@ -93,6 +93,8 @@ type lcModel struct {
 	bitmaps [2]*Bitmap
 	icon    *SVG
 	w, h    int
+	// extra styles an element further, when set.
+	extra func(n *lcNode, e *node)
 }
 
 func newLCModel(seed uint64) *lcModel {
@@ -280,6 +282,9 @@ func (m *lcModel) build(c *context, tester int) {
 				f(e)
 			}
 		}
+		if m.extra != nil {
+			m.extra(n, e)
+		}
 		if n.kind == lcBox || n.kind == lcPopover || n.kind == lcParagraph || n.kind == lcAttached {
 			e.Children(func() {
 				for _, ch := range n.children {
@@ -449,7 +454,7 @@ func TestLayoutInputs(t *testing.T) {
 		"ownText merged spansKey collapsed rowMinW field"
 	// Fields the layout never reads.
 	other := "epoch key valueInput id depth track transform originX originY originSet world content contentSet " +
-		"pose poseAnim poseSet poseM poseFade reposed backface bg fill grad stripes borderC borderStyle radius " +
+		"pose poseAnim poseSet poseM poseFade reposed ink noCull backface bg fill grad stripes borderC borderStyle radius " +
 		"shadows material effect effecting grads blur opacity opacitySet cursor paintFn styleFn paintAfterFn " +
 		"inputFn textClient caret takesText noIME copyData webView fit gray dismissed rotate label widget role " +
 		"checked expanded vertical tip highlighted accValue accRange hasRange accFill accStep barInset scrollBase " +

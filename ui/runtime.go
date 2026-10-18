@@ -131,6 +131,11 @@ type engine struct {
 	// holes it painted, kept from one frame to the next.
 	under []opaqueBox
 	holes []Rect
+	// culled counts the elements painting skipped (Painter.paintable),
+	// unless noCull, which paints them all, as TestPaintCullMatches
+	// compares.
+	culled uint64
+	noCull bool
 
 	// layouts counts the frames laid out, laySeq the elements laid out
 	// (layoutBox) and computed those of them not as in the frame before;
@@ -294,6 +299,10 @@ type engine struct {
 	input      bool
 	painted    [3]float32
 	gen        uint64
+	// inkStale tells that elements moved since commit found their ink
+	// (node.ink), as poses do in frames that only paint: painting then
+	// skips none.
+	inkStale bool
 	repaintDue time.Time
 	// late is set when lists built elements while laying out.
 	late bool
@@ -919,6 +928,7 @@ func (rt *engine) commit(root *node, w, h float32) {
 	// The window, which the inspector shares with the root.
 	full := Rect{0, 0, w, h}
 	rt.commitElement(root, full, false)
+	rt.inkStale = false
 	rt.arrangeFocus()
 	rt.noteGroups()
 }
@@ -981,7 +991,8 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	if (e.flags&flagEditable != 0 || e.flags&flagSelectable != 0 && s.editor != nil) && s.cursor == 0 {
 		s.cursor = CursorText + 1
 	}
-	v := intersect(e.visualRect(Rect{e.x, e.y, e.w, e.h}), clip)
+	vis := e.visualRect(Rect{e.x, e.y, e.w, e.h})
+	v := intersect(vis, clip)
 	s.vx, s.vy, s.vw, s.vh = v.X, v.Y, v.W, v.H
 	s.cx, s.cy = e.x+e.contentX(), e.y+e.contentY()
 	s.cw, s.ch = max(e.w-e.padX(), 0), max(e.h-e.padY(), 0)
@@ -1055,6 +1066,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 			rt.commitElement(ch, clip, invisible)
 		}
 	}
+	e.setInk(vis)
 }
 
 func intersect(a, b Rect) Rect {
