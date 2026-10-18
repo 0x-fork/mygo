@@ -1239,6 +1239,9 @@ func attachTo(c, e *node, pw, ph float32) {
 	at, self = at.physical(c.rtl()), self.physical(c.rtl())
 	ax, ay := at.fractions()
 	sx, sy := self.fractions()
+	if c.flags&flagScrollY != 0 {
+		h = min(h, roomAlong(t.Y, t.H, beside(ay, sy), c.m(0)+c.m(2), c.c.h))
+	}
 	x := alongTarget(t.X, t.W, ax, sx, w, c.m(3)-c.m(1), c.c.w)
 	y := alongTarget(t.Y, t.H, ay, sy, h, c.m(0)-c.m(2), c.c.h)
 	dx, dy := c.relative(pw, ph)
@@ -1249,6 +1252,22 @@ func attachTo(c, e *node, pw, ph float32) {
 
 // windowMargin keeps what overlays place apart from the window's edges.
 const windowMargin = 4
+
+// roomAlong returns the most an element attached to target can be along
+// an axis of the window, limit long, and stay in it: the larger side of
+// target for one placed beside it, else the window. One that scrolls, as a
+// select's long list of options, is no longer.
+func roomAlong(t0, tsize float32, beside bool, margins, limit float32) float32 {
+	room := limit - 2*windowMargin - margins
+	if beside {
+		room = max(t0, limit-(t0+tsize)) - windowMargin - margins
+	}
+	return max(room, 0)
+}
+
+// beside reports whether an element with its point at fraction self on
+// its target's point at fraction at goes before or after the target.
+func beside(at, self float32) bool { return at == 1 && self == 0 || at == 0 && self == 1 }
 
 // alongTarget returns where an element size long goes along an axis of the
 // window, limit long, with its point at fraction self on target's point at
@@ -1266,8 +1285,7 @@ func alongTarget(t0, tsize, at, self, size, off, limit float32) float32 {
 			p = q
 		}
 	}
-	beside := at == 1 && self == 0 || at == 0 && self == 1
-	if !beside && over(p) > 0 {
+	if !beside(at, self) && over(p) > 0 {
 		p = max(windowMargin, min(p, limit-windowMargin-size))
 	}
 	return p
