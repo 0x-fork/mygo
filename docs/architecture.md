@@ -3310,7 +3310,37 @@ either.
     again, and releases GPU instance buffers, atlas/image textures and
     backdrop textures: an idle window keeps one frame of memory. Its
     drawables are not `framebufferOnly`, as effects sample the drawable
-    for their backdrops. Colors
+    for their backdrops.
+    A frame draws only what changed since its drawable was drawn. Core
+    Animation hands the layer's drawables out in turn, and each holds the
+    frame drawn into it last: the renderer keeps, by the drawable's
+    texture (retained, so that no other takes its address), what changed
+    in the frames since (`gpu.Ages`, as EGL's buffer age says), found by
+    comparing each scene with the last (`scene.Differ`, as the CPU
+    renderer does), grows it by the backdrops of the effects it meets,
+    and, while that is less than half the frame, loads the drawable
+    rather than clearing it, copies a texel cleared to the frame's color
+    over the area (with the `down` pass, so that the GPU converts the
+    color as it does clearing), and draws the batches scissored to it,
+    leaving out those outside. Apple's tile-based GPUs then load and store
+    only the tiles the pass draws in: a caret blinking in a window of
+    3200×2000 pixels takes 0.4 ms of the GPU a frame rather than 2.4,
+    and a spinner 0.4 rather than 2.9, on an M5. Copying the last frame
+    forward instead (a blit) costs about what drawing it whole does, 0.34
+    ms against 0.43 at 3456×2000. A frame whose scene is the last one's
+    draws nothing and takes no drawable. Apple does not document that
+    drawables keep what was drawn: a drawable not seen yet, the drawables
+    of a new size or format, and those after the timer shrank them draw
+    whole, and `MYGO_PARTIAL=0` draws every frame whole. The pixels are
+    those of the frame drawn whole, byte for byte: an op that the builder
+    puts under another pipeline than in the last frame (a batch
+    specialized for other classes, a pipeline made meanwhile) draws a
+    unit in the last place apart here and there, so its bounds count as
+    changed (`pipelineDamage`), as do those of a clip that starts or stops
+    holding an op drawn under a transform, which it then cuts with a mask
+    (`scene.Differ`); `TestPartialFramesMatchWhole` draws random scenes
+    changing frame after frame into three targets in turn and compares
+    each frame with it drawn whole. Colors
     outside the sRGB gamut (`ui.Oklch`, as CSS's `oklch()`) are in a
     table of the scene (`scene.Scene.Wide`), which ops and glyphs point
     into with a 16-bit index (`Op.Wide`, in room the op's other fields
@@ -3370,9 +3400,10 @@ either.
   solid spans inside shapes and only the edges of shadows computed, and
   blends ordinary opaque mask glyphs in integers, retaining the general
   path for gradients, corrected/subpixel text and rounded clip edges. It
-  redraws only what differs from the last scene (`raster.Renderer`), with
-  the effects reading their backdrops that meets and those backdrops, in
-  rectangles apart from each other (`addBackdrops`): it is
+  redraws only what differs from the last scene (`raster.Renderer`, with
+  `scene.Differ`, which compares the operations of two scenes from both
+  ends), with the effects reading their backdrops that meets and those
+  backdrops, in rectangles apart from each other (`AddBackdrops`): it is
   the renderer of tests, of `MYGO_GPU=0` and of Linux where OpenGL would not
   run on a GPU, and the one a window falls back to when its GPU renderer
   fails.
@@ -3409,7 +3440,8 @@ either.
   With a GPU renderer, every frame draws on the GPU, small changes too, so
   a gesture never switches renderers mid-way: on the CPU, a frame
   redrawing glass or a blur that content scrolls under takes 30 to 70 ms
-  on a large window, where Metal takes 2 to 3.
+  on a large window, where Metal takes 2 to 3. Metal draws only what
+  changed (above); Direct3D 11 and OpenGL draw every frame whole.
 
   Two seconds after the last frame (`frameIdle`), the host frees the frame
   drawn in memory, as large as the window, which the next frame draws whole,

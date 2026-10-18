@@ -82,7 +82,7 @@ type renderer struct {
 func Render(dst *Image, s *scene.Scene) {
 	drawCanvases(s)
 	var r Renderer
-	r.d.draw(dst, s, image.Rect(0, 0, dst.W, dst.H), r.opBounds(s, nil))
+	r.d.draw(dst, s, image.Rect(0, 0, dst.W, dst.H), r.opBounds(s))
 }
 
 // A large area is drawn on several cores at once, in bands of bandRows

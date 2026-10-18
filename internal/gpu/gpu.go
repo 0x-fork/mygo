@@ -279,6 +279,10 @@ type Builder struct {
 	// NoFold draws the ops that only translate under their transforms (see
 	// scene.TranslationFolder), for tests that compare the two.
 	NoFold bool
+	// OpStart holds, for each op of the scene built, the index of its
+	// first instance in Instances, and then their number: the instances of
+	// op i are those from OpStart[i] to OpStart[i+1].
+	OpStart []int32
 	// Culled is how many ops the last Build left out as covered.
 	Culled, OpaqueCores int
 	fold                scene.TranslationFolder
@@ -432,8 +436,10 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 	b.stack = append(b.stack[:0], clip{rect: everything, bounds: scene.Rect{W: float32(s.Width), H: float32(s.Height)},
 		scissor: Scissor{0, 0, int32(s.Width), int32(s.Height)}})
 	b.planCull(s)
+	b.OpStart = b.OpStart[:0]
 	for i := range s.Ops {
 		op := &s.Ops[i]
+		b.OpStart = append(b.OpStart, int32(len(b.Instances)))
 		if b.culled[i] {
 			continue
 		}
@@ -615,6 +621,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 		}
 	}
 
+	b.OpStart = append(b.OpStart, int32(len(b.Instances)))
 	b.joinLast()
 	b.dropIdleMasks(idleMaskBytes)
 	b.imageTexture = nil
