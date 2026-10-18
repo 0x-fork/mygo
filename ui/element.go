@@ -27,6 +27,11 @@ const (
 	SpaceBetween
 	SpaceAround
 	SpaceEvenly
+	// Baseline lines up the first lines of text of the children of a row,
+	// or of a grid's row, as a large price beside its small unit does
+	// (AlignItems and AlignSelf). A child without text lines up its
+	// bottom. Across a column it is Start.
+	Baseline
 	alignAuto
 )
 
@@ -439,6 +444,10 @@ type node struct {
 	nmeasure   int
 	leaf       [2]float32 // the max-content and min-content widths of text
 	leafOK     bool
+	// intr holds the max-content and min-content widths of the element
+	// (intrinsic), measured once a frame, intrOK which of them it holds.
+	intr   [2]float32
+	intrOK uint8
 	// leaving marks a copy of an element gone, which its exit transition
 	// animates (1 if it was in its parent's flow, 2 if absolute), and
 	// ghosts an element holding such copies. attach is where Attach puts
@@ -1329,6 +1338,8 @@ func (e *node) Bounds() Rect {
 
 // add appends a child.
 func (e *node) add(child *node) {
+	// Lists build rows as they lay out, after the list was measured.
+	e.forgetIntrinsic()
 	child.parent = e
 	child.depth = e.depth + 1
 	if e.last == nil {

@@ -347,6 +347,9 @@ type engine struct {
 	labels     []labelNode
 	tips       tooltips
 	scrollDrag scrollDrag
+	// wheeling are the elements of the scroll containers that the notches
+	// of a mouse wheel scroll smoothly (glideWheels).
+	wheeling []uint64
 	// lastPress is the element of the press (id) and of the one before
 	// (prev), and how many of the backend's count of clicks were before
 	// the first on it.
@@ -465,6 +468,7 @@ func (rt *engine) runFrame() {
 	rt.painted = [3]float32{w, h, scale}
 	rt.animating, rt.repainting, rt.repaintAt = false, false, time.Time{}
 	rt.routeKeys()
+	rt.glideWheels(now)
 	if rt.drag != nil {
 		// The source's element is this frame's, if it builds one.
 		rt.drag.elem = nil
