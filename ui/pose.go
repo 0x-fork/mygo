@@ -40,6 +40,7 @@ func (e *node) AnimatePose(p Pose, a Animation) *node {
 		a.Spring.physics()
 	}
 	e.pose, e.poseAnim, e.poseSet = p, a, true
+	scene.FoldTranslations() // renderers draw poses that only move as untransformed content
 	return e
 }
 

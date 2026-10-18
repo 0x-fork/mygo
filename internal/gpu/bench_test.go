@@ -26,3 +26,25 @@ func benchBuild(b *testing.B, scale float32, layers, sprites int) {
 	b.ReportMetric(float64(len(bld.Instances)), "instances")
 	b.ReportMetric(float64(len(bld.Batches)), "batches")
 }
+
+// BenchmarkBuildTranslatedBoxes turns 600 rounded boxes casting shadows,
+// each under a translation, into instances, the translations folded into
+// them (BenchmarkBuildTranslatedBoxesUnfolded: under their transforms).
+func BenchmarkBuildTranslatedBoxes(b *testing.B) { benchBuildBoxes(b, true, false) }
+
+func BenchmarkBuildTranslatedBoxesUnfolded(b *testing.B) { benchBuildBoxes(b, true, true) }
+
+// BenchmarkBuildBoxes turns the same boxes placed without transforms into
+// instances.
+func BenchmarkBuildBoxes(b *testing.B) { benchBuildBoxes(b, false, false) }
+
+func benchBuildBoxes(b *testing.B, translated, noFold bool) {
+	s := gputest.BoxesScene(1280, 800, 600, translated)
+	bld := Builder{Classes: true, ClipSkip: true, NoFold: noFold}
+	image := func(*scene.Image) uintptr { return 1 }
+	for b.Loop() {
+		bld.Build(s, image)
+	}
+	b.ReportMetric(float64(len(bld.Instances)), "instances")
+	b.ReportMetric(float64(len(bld.Batches)), "batches")
+}

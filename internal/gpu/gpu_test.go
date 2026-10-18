@@ -2,6 +2,7 @@ package gpu
 
 import (
 	"bytes"
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/internal/gpu/gputest"
@@ -36,7 +37,7 @@ func TestAffineInstancesPreserveGeometryAndWideColors(t *testing.T) {
 func TestAffineClipMaskCacheFollowsClipInsteadOfContent(t *testing.T) {
 	s := &scene.Scene{Width: 100, Height: 80, Ops: []scene.Op{
 		{Kind: scene.OpPushClip, Rect: scene.Rect{X: 10, Y: 10, W: 70, H: 50}, Radii: [4]float32{8, 8, 8, 8}},
-		{Kind: scene.OpFill, Rect: scene.Rect{W: 25, H: 15}, Color: scene.Color{R: 255, A: 255}, Transform: scene.Translation(20, 15)},
+		{Kind: scene.OpFill, Rect: scene.Rect{W: 25, H: 15}, Color: scene.Color{R: 255, A: 255}, Transform: scene.Translation(20, 15).Mul(scene.Rotation(10))},
 		{Kind: scene.OpPopClip},
 	}}
 	var b Builder
@@ -49,7 +50,7 @@ func TestAffineClipMaskCacheFollowsClipInsteadOfContent(t *testing.T) {
 	}
 	id, version := mask.ID(), mask.Version()
 	pixels := append([]byte(nil), mask.Pix...)
-	s.Ops[1].Transform = scene.Translation(35, 25)
+	s.Ops[1].Transform = scene.Translation(35, 25).Mul(scene.Rotation(10))
 	build()
 	if mask.ID() != id || mask.Version() != version || !bytes.Equal(mask.Pix, pixels) {
 		t.Fatal("moving content rerasterized its stationary clip")
@@ -414,7 +415,7 @@ func TestBatchClasses(t *testing.T) {
 		{Kind: scene.OpShadow, Rect: r(0), Color: red, Blur: 8},
 		{Kind: scene.OpGlyphs, Start: 0, End: 1},
 		{Kind: scene.OpImage, Rect: r(0), Image: img, Src: scene.Rect{W: 2, H: 2}},
-		{Kind: scene.OpFill, Rect: r(120), Color: red, Transform: scene.Translation(1, 1)},
+		{Kind: scene.OpFill, Rect: r(120), Color: red, Transform: scene.Translation(1, 1).Mul(scene.Scaling(1.01, 1))},
 	}
 	var b Builder
 	b.Classes = true
@@ -484,8 +485,8 @@ func TestFillsInsideTheirClipSkipItsCoverage(t *testing.T) {
 	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 20, Y: 20, W: 100, H: 100}, Radii: [4]float32{8, 8, 8, 8}})
 	fill(scene.Rect{X: 50, Y: 50, W: 10, H: 10}) // 5: under a rounded clip
 	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPopClip})
-	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 10, Y: 10, W: 50, H: 50}, Color: scene.Color{A: 255}, Transform: scene.Translation(3, 3)}) // 6
-	want := map[int]bool{0: true, 1: true, 2: true}                                                                                                                   // 1, the frame, lies in the root clip, which is unbounded
+	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 10, Y: 10, W: 50, H: 50}, Color: scene.Color{A: 255}, Transform: scene.Translation(3, 3).Mul(scene.Scaling(1.01, 1))}) // 6
+	want := map[int]bool{0: true, 1: true, 2: true}                                                                                                                                               // 1, the frame, lies in the root clip, which is unbounded
 	tex := func(*scene.Image) uintptr { return 1 }
 	var b Builder
 	b.NoCull = true
@@ -572,5 +573,35 @@ func TestShaderWideUniforms(t *testing.T) {
 			t.Errorf("wide %v: the batch draws with %v, want %v", w, b.Batches[0].Uniforms, want)
 		}
 		b.Release()
+	}
+}
+
+// Boxes that translations move build the instances and batches of the same
+// boxes placed without transforms: the shaders' own classes, not the
+// general one.
+func TestTranslationsFold(t *testing.T) {
+	build := func(s *scene.Scene, noFold bool) Builder {
+		b := Builder{Classes: true, ClipSkip: true, NoFold: noFold}
+		b.Build(s, func(*scene.Image) uintptr { return 1 })
+		return b
+	}
+	translated := gputest.BoxesScene(400, 300, 60, true)
+	want, got := build(gputest.BoxesScene(400, 300, 60, false), false), build(translated, false)
+	if !slices.Equal(got.Instances, want.Instances) || !slices.EqualFunc(got.Batches, want.Batches, func(a, b Batch) bool {
+		return a.Start == b.Start && a.Count == b.Count && a.Class == b.Class && a.Scissor == b.Scissor
+	}) {
+		t.Fatal("translated boxes build other instances than boxes in their places")
+	}
+	for _, bt := range got.Batches {
+		if bt.Class == ClassGeneral {
+			t.Fatalf("a batch of translated boxes takes the general shader: %+v", bt)
+		}
+	}
+	if translated.Ops[0].Transform.Set == false {
+		t.Fatal("building changed the scene")
+	}
+	unfolded := build(translated, true)
+	if unfolded.Batches[0].Class != ClassGeneral {
+		t.Fatal("NoFold folded the translations")
 	}
 }

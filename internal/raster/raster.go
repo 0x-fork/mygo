@@ -112,6 +112,9 @@ const (
 // (d.bd), then the effect and the operations up to the next. The area
 // holds the backdrops of the effects in it (Renderer.diff).
 func (d *drawer) draw(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) {
+	// Ops that only translate draw as those without transforms do, as on
+	// the GPU (gpu.Builder).
+	s = d.fold.Fold(s)
 	area = area.Intersect(image.Rect(0, 0, dst.W, dst.H))
 	d.blurred = d.blurImages(s, area, bounds)
 	defer func() { d.blurred = nil }()

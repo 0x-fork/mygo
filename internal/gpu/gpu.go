@@ -264,8 +264,12 @@ type Builder struct {
 	GeneralFill, NoClipSkip bool
 	// ClipSkip enables the clip-coverage flag understood by the Metal shader.
 	ClipSkip bool
+	// NoFold draws the ops that only translate under their transforms (see
+	// scene.TranslationFolder), for tests that compare the two.
+	NoFold bool
 	// Culled is how many ops the last Build left out as covered.
 	Culled, OpaqueCores int
+	fold                scene.TranslationFolder
 	opaque              bool
 	culled              []bool
 	plan                []cullInfo
@@ -397,6 +401,9 @@ func (b *Builder) pushed(top *clip, op *scene.Op, encloses bool) clip {
 // clip, or rounded (or masked) with transformed content inside: the others
 // cut in the shader as in a scene without transforms.
 func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene.Scene {
+	if !b.NoFold {
+		s = b.fold.Fold(s)
+	}
 	b.markEnclosing(s)
 	b.imageTexture = image
 	b.maskUsed = 0

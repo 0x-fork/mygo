@@ -4,6 +4,8 @@ import (
 	"math"
 	"slices"
 	"time"
+
+	"github.com/egoist/mygo/internal/scene"
 )
 
 // ElementTransition animates an element (Element.Transition) from what the
@@ -86,6 +88,7 @@ const defaultDuration = 200 * time.Millisecond
 // collapsing fades in place.
 func (e *node) Transition(t ElementTransition) *node {
 	e.c.transitions = append(e.c.transitions, transitionUse{e: e, t: t})
+	scene.FoldTranslations() // renderers draw the poses that only move as untransformed content
 	return e
 }
 

@@ -75,3 +75,12 @@ func benchRender(b *testing.B, s *scene.Scene) {
 	}
 	b.ReportMetric(gpu*1000/float64(b.N), "GPU-ms")
 }
+
+// BenchmarkRenderBoxes draws 600 rounded boxes casting shadows at
+// 1280×800, and BenchmarkRenderTranslatedBoxes the same boxes under
+// translations, as an animation moves them.
+func BenchmarkRenderBoxes(b *testing.B) { benchRender(b, gputest.BoxesScene(1280, 800, 600, false)) }
+
+func BenchmarkRenderTranslatedBoxes(b *testing.B) {
+	benchRender(b, gputest.BoxesScene(1280, 800, 600, true))
+}

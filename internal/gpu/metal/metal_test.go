@@ -73,6 +73,13 @@ func TestDrawsAsTheCPURenderer(t *testing.T) {
 		}
 		gputest.Compare(t, "metal-perspective", pix, s.Width*4, s)
 	}
+	for i, s := range gputest.TranslatedScenes() {
+		pix, err := r.renderOffscreen(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gputest.Compare(t, "metal-translated"+[]string{"", "-between-pixels"}[i], pix, s.Width*4, s)
+	}
 	s = gputest.ContinuousScene()
 	pix, err := r.renderOffscreen(s)
 	if err != nil {
@@ -1061,4 +1068,27 @@ func TestPrecompileShader(t *testing.T) {
 	if _, _, ok := sharedShader(r.device, src+"// another\n", precompiledFormat); ok {
 		t.Error("a source never precompiled is shared")
 	}
+}
+
+// Boxes that translations move draw the pixels of the same boxes placed
+// without transforms, and those of the CPU renderer.
+func TestTranslatedBoxes(t *testing.T) {
+	r, err := newRenderer()
+	if err != nil {
+		unavailable(t, err)
+	}
+	defer r.Release()
+	placed, err := r.renderOffscreen(gputest.BoxesScene(400, 300, 60, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := gputest.BoxesScene(400, 300, 60, true)
+	moved, err := r.renderOffscreen(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(moved, placed) {
+		t.Error("translated boxes draw other pixels than boxes in their places")
+	}
+	gputest.Compare(t, "metal-translated-boxes", moved, s.Width*4, s)
 }
