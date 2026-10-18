@@ -799,21 +799,26 @@ func userAgentOf(s2 uintptr) string {
 	return takeWstr(p)
 }
 
-// setUserAgent sets the user agent the page sends; an empty one leaves the
-// current user agent, as WebView2 does. The suffix the options set appends to
-// a user agent it replaces.
+// setUserAgent sets the user agent the page sends, which WebView2 decides for
+// an empty one. The suffix the options set stays on the end of it.
 func (w *window) setUserAgent(ua string) {
 	s2 := queryInterface(w.settings, &iidICoreWebView2Settings2)
 	if s2 == 0 {
 		return
 	}
 	defer release(s2)
-	if ua != "" {
-		if suffix := w.opts.UserAgentSuffix; suffix != "" {
-			ua += " " + suffix
-		}
+	suffix := w.opts.UserAgentSuffix
+	if ua != "" && suffix != "" {
+		ua += " " + suffix
 	}
 	comCall(s2, set2PutUserAgent, uintptr(unsafe.Pointer(u16(ua))))
+	if ua == "" && suffix != "" {
+		// Whether WebView2 kept the user agent or went back to its own,
+		// the suffix stays on the end of it.
+		if cur := userAgentOf(s2); cur != "" && !strings.HasSuffix(cur, " "+suffix) {
+			comCall(s2, set2PutUserAgent, uintptr(unsafe.Pointer(u16(cur+" "+suffix))))
+		}
+	}
 }
 
 func (w *window) SetUserAgent(ua string) { w.withWebView(func() { w.setUserAgent(ua) }) }
