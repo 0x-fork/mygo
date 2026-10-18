@@ -17,7 +17,6 @@ import (
 	"image"
 	"os"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -483,10 +482,9 @@ type Renderer struct {
 	ages       gpu.Ages
 	redrew     redrawn
 	redrewPart gpu.Scissor
-	// keys has, for each op of the frame built, a hash of the pipelines
-	// its instances draw with, and lastKeys those of the last frame drawn
-	// (see pipelineDamage).
-	keys, lastKeys []uint64
+	// pipelines has a hash of the pipelines each op draws with (see
+	// pipelineDamage).
+	pipelines gpu.Pipelines
 
 	// drawState is the frames'.
 	drawState
@@ -1721,44 +1719,15 @@ func (r *Renderer) drawFrame(s *scene.Scene, damage []image.Rectangle, known boo
 		return 0, err
 	}
 	r.diff.Remember(s)
-	r.keys, r.lastKeys = r.lastKeys, r.keys
+	r.pipelines.Remember()
 	return cb, nil
 }
 
 // pipelineDamage adds to damage, what changed in the frame built since the
 // last one drawn (unless not known), the bounds of the ops that draw with
-// other pipelines than they did, and returns it. The pipelines of a batch
-// are specialized for what it holds (gpu.Class), which other ops change,
-// and one is made while the frames draw with the general one: they draw
-// the same pixels but for a unit in the last place here and there, which
-// a frame drawn whole would change.
+// other pipelines than they did (gpu.Pipelines), and returns it.
 func (r *Renderer) pipelineDamage(damage []image.Rectangle, known bool) []image.Rectangle {
-	b := &r.b
-	n := len(b.OpStart) - 1
-	r.keys = slices.Grow(r.keys[:0], n)[:n]
-	clear(r.keys)
-	op := 0
-	for i, bt := range b.Batches {
-		lo, hi := int32(bt.Start), int32(bt.Start+bt.Count)
-		for op < n && b.OpStart[op+1] <= lo {
-			op++
-		}
-		for k := op; k < n && b.OpStart[k] < hi; k++ {
-			if b.OpStart[k+1] > b.OpStart[k] {
-				r.keys[k] = (r.keys[k] ^ uint64(r.drawState.pipes[i])) * 1099511628211
-			}
-		}
-	}
-	if !known {
-		return damage
-	}
-	bounds := r.diff.Bounds()
-	for j, key := range r.keys {
-		if i, ok := r.diff.Match(j); ok && i < len(r.lastKeys) && r.lastKeys[i] != key {
-			damage = append(damage, bounds[j])
-		}
-	}
-	return damage
+	return r.pipelines.Damage(&r.b, func(i int) uint64 { return uint64(r.drawState.pipes[i]) }, &r.diff, damage, known)
 }
 
 // partOf returns the part of the frame s to draw into the drawable's

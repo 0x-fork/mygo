@@ -206,6 +206,11 @@ func (h *windowHost) event(ev platform.SurfaceEvent) bool {
 		}
 		return false
 	}
+	if ev.Kind == platform.SurfaceResize {
+		if r, ok := h.gpu.(invalidator); ok {
+			r.Invalidate()
+		}
+	}
 	if ev.Kind == platform.SurfaceFrame {
 		if ev.Paced && h.waitDisplay(time.Now()) {
 			return true
@@ -255,6 +260,12 @@ type gpuRenderer interface {
 	Render(s *scene.Scene) error
 	Release()
 }
+
+// invalidator is a GPU renderer drawing only what changed into a target
+// that keeps what was drawn but as the surface resizes, even to the same
+// size, as a GtkGLArea makes its buffers anew as GTK allocates it:
+// Invalidate has the next frame draw whole.
+type invalidator interface{ Invalidate() }
 
 // wideRenderer is a GPU renderer that can draw the colors of scenes outside
 // the sRGB gamut (Metal's).

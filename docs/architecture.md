@@ -3395,7 +3395,20 @@ either.
     the probe below (`glContext`). In browsers the same renderer draws
     with WebGL 2, which is OpenGL ES 3.0 (see
     [Browsers](#browsers-internalweb)): only where its functions come from
-    differs, `load_linux.go` or `load_js.go`.
+    differs, `load_linux.go` or `load_js.go`. A frame draws only what
+    changed since the last (`Renderer.Partial`, with `scene.Differ` and
+    `gpu.Pipelines`, as Metal's), into a framebuffer that keeps what was
+    drawn, so there is no buffer age to track: it clears the area with the
+    scissor test on, which `glClear` keeps to, and draws the batches
+    scissored to it. GTK keeps the GtkGLArea's framebuffer from render to
+    render, but makes its buffers anew, holding nothing defined, whenever
+    it allocates the area, at the same size too: a `SurfaceResize` has the
+    next frame draw whole (`Invalidate`). A canvas's WebGL 2 context keeps
+    its drawing buffer (`preserveDrawingBuffer`), which browsers then copy
+    as they composite each frame drawn; in Chrome on an M5 a caret blinking
+    still took a quarter of the GPU's time it took drawn whole, and a frame
+    that changed nothing leaves the canvas alone. On Mesa's llvmpipe a
+    caret blink in a window of 1280×760 pixels took a sixth of the time.
 
   Linux draws with OpenGL only where it runs on a GPU. A GL context loads
   Mesa for good: some 50 MB of libraries (LLVM, which distributions' Mesa
@@ -3461,8 +3474,8 @@ either.
   With a GPU renderer, every frame draws on the GPU, small changes too, so
   a gesture never switches renderers mid-way: on the CPU, a frame
   redrawing glass or a blur that content scrolls under takes 30 to 70 ms
-  on a large window, where Metal takes 2 to 3. Metal draws only what
-  changed (above); Direct3D 11 and OpenGL draw every frame whole.
+  on a large window, where Metal takes 2 to 3. Metal and OpenGL draw only
+  what changed (above); Direct3D 11 draws every frame whole.
 
   Two seconds after the last frame (`frameIdle`), the host frees the frame
   drawn in memory, as large as the window, which the next frame draws whole,
