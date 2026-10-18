@@ -3865,6 +3865,17 @@ no renderer can be created. They compare raw BGRA8 and float16 output with
 both disabled optimizations and the shader from upstream f2eca9f7, including
 canvases and pixelated sprites.
 
+`BenchmarkStressFrame` in `ui` times the frames of views that change all
+they show every frame, in a window of 900×640 at scale 2: 600 rounded
+boxes casting shadows moving and changing color, 300 labels whose numbers
+change, a column of 1000 rows in a clipped box moved by a translation,
+a `List` of 100,000 rows scrolling 3 rows a frame, and a dashboard of 12
+cards with shadows, texts and progress bars. Its host (`stressHost`)
+hands the scene on rather than draw it on the CPU, so `ns/op` is the
+frame built, laid out and painted. `BenchmarkStressFrameGPU` draws the
+same frames with Metal (`metal.Offscreen`), its `GPU-ms` the GPU's time,
+which the page shows as the GPU metric.
+
 Benchmarks are described on the page by their doc comments, which the
 site reads when it is built: start them with the benchmark's name.
 
