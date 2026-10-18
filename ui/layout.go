@@ -323,6 +323,31 @@ func intrinsic(e *node, maxContent bool) float32 {
 	if v, ok := e.width.resolve(-1); ok {
 		return e.clampW(v, inf)
 	}
+	// Measured once a frame: each container measures its children, and
+	// measuring them again for every container around them would take
+	// as long as the tree is deep.
+	i := b2i(!maxContent)
+	if e.intrOK&(1<<i) != 0 {
+		return e.intr[i]
+	}
+	w := measureIntrinsic(e, maxContent)
+	e.intr[i] = w
+	e.intrOK |= 1 << i
+	return w
+}
+
+// forgetIntrinsic forgets the widths intrinsic measured of the element and
+// of those around it, whose content it is, as what layout changes in it
+// changes them: the rows a List builds, the labels a Form aligns.
+func (e *node) forgetIntrinsic() {
+	for p := e; p != nil && p.intrOK != 0; p = p.parent {
+		p.intrOK = 0
+	}
+}
+
+// measureIntrinsic measures the max-content or min-content width of an
+// element sized by its content.
+func measureIntrinsic(e *node, maxContent bool) float32 {
 	var w float32
 	switch {
 	case e.kind != kindBox:
