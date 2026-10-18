@@ -502,3 +502,22 @@ func TestCodeEditorMultiClick(t *testing.T) {
 	ct.tt.Frame()
 	ct.want("[select customers from orders\n]x")
 }
+
+// Soft wraps of long lines are measured a few lines a frame, as the
+// budget allows, rather than all at once, and every frame measures some.
+func TestCodeEditorWrapLongLines(t *testing.T) {
+	ct := newEditorTest(t, "", strings.Repeat(strings.Repeat("word ", 20_000)+"\n", 10))
+	ct.st.SoftWrap = true
+	ct.tt.Frame()
+	v := &ct.st.ed.view
+	// Measure again, as after a resize, with a budget spent from the start.
+	v.setWrap(true, v.wrapWidth-10)
+	if v.measureWraps(0, -1) {
+		t.Fatal("measured all the long lines at once")
+	}
+	for calls := 2; !v.measureWraps(0, -1); calls++ {
+		if calls > v.text.LineCount() {
+			t.Fatalf("lines not all measured after %d calls", calls)
+		}
+	}
+}
