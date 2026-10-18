@@ -118,6 +118,10 @@ type gridItem struct {
 	e                *node
 	col, row         int // from 0
 	colSpan, rowSpan int
+	// baseline is how far below the top of its margin box the baseline of
+	// an item aligned by its baseline is, which laid it out.
+	baseline float32
+	laidOut  bool
 }
 
 // contrib is the size an item asks of the tracks it spans.
@@ -450,7 +454,7 @@ func gridLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	// The rows, from the heights of the items at the widths their columns
 	// give them.
 	at := len(s.f)
-	for range 2*nr + 2*len(items) {
+	for range 3*nr + 2*len(items) {
 		s.f = append(s.f, 0)
 	}
 	for range items {
@@ -458,6 +462,9 @@ func gridLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	}
 	rows, limits := s.f[at:at+nr], s.f[at+nr:at+2*nr]
 	widths, offs := s.f[at+2*nr:at+2*nr+len(items)], s.f[at+2*nr+len(items):at+2*nr+2*len(items)]
+	// How far below the top of each row the baseline of its items aligned
+	// by their baselines is.
+	rowBase := s.f[at+2*nr+2*len(items) : at+3*nr+2*len(items)]
 	cs := s.cs[firstC:]
 	align := e.align
 	if align == alignAuto {
@@ -479,8 +486,27 @@ func gridLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 		}
 		w, off := gridPlaceIn(c, area, c.width, c.marginX(), ms, me, gridJustify(e, c), cw, func(avail float32) float32 { return fitWidth(c, avail, cw) }, c.clampW)
 		widths[i], offs[i] = w, off
-		h := heightAt(c, w, ch) + c.marginY()
+		h := heightAt(c, w, ch)
+		if it.rowSpan == 1 && byBaseline(c, align, e) {
+			layoutBox(c, w, h)
+			it.laidOut = true
+			b, ok := boxBaseline(c)
+			if !ok {
+				b = h
+			}
+			it.baseline = c.m(0) + b
+			rowBase[it.row] = max(rowBase[it.row], it.baseline)
+		}
+		h += c.marginY()
 		cs[i] = contrib{start: it.row, span: it.rowSpan, min: h, max: h}
+	}
+	// An item aligned by its baseline asks for the room above it that
+	// lines its baseline up with its row's.
+	for i := range items {
+		if it := &items[i]; it.laidOut {
+			cs[i].min += rowBase[it.row] - it.baseline
+			cs[i].max = cs[i].min
+		}
 	}
 	sizeTracks(e.rows, nr, ch, e.gapY, cs, false, e.alignContent == alignAuto, rows, limits)
 
@@ -533,6 +559,9 @@ func gridLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 			}
 			return heightAt(c, w, ch)
 		}, c.clampH)
+		if it.laidOut {
+			offY = rowBase[it.row] - it.baseline + c.m(0)
+		}
 		y := rowAt[it.row] + offY
 		if rtl {
 			// x is from the right of the content, which is as wide as the
@@ -544,7 +573,9 @@ func gridLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 			x = right - x - w
 		}
 		c.x, c.y = e.contentX()+x, e.contentY()+y
-		layoutBox(c, w, h)
+		if !it.laidOut || h != c.h {
+			layoutBox(c, w, h)
+		}
 		dx, dy := c.relative(cw, ch)
 		c.x += dx
 		c.y += dy

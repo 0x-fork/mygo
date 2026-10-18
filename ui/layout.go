@@ -582,10 +582,14 @@ type flexItem struct {
 	pad                  float32 // padding and border along the main axis
 	minMain, maxMain     float32
 	main, cross          float32
-	frozen               bool
 	violation            float32 // how far clamping moved main, resolving
 	marginMain, marginCr float32
-	line                 int
+	// baseline is how far from the start of its margin box across the
+	// line the baseline of an item aligned by its baseline (byBaseline)
+	// is, and laidOut is set on those of a row, laid out to find theirs.
+	baseline                float32
+	frozen, byBase, laidOut bool
+	line                    int
 }
 
 type flexLine struct {
@@ -593,6 +597,7 @@ type flexLine struct {
 	main       float32 // sum of outer main sizes and gaps
 	cross      float32
 	pos        float32 // where it starts across the container
+	baseline   float32 // of the items aligned by their baselines, below its top
 }
 
 // flexScratch holds the items and lines of the flex containers being laid
@@ -634,6 +639,7 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	}
 	scratch := &e.c.rt.flex
 	firstItem, firstLine := len(scratch.items), len(scratch.lines)
+	baselines := align == Baseline // whether children align by their baselines
 	defer func() { scratch.items, scratch.lines = scratch.items[:firstItem], scratch.lines[:firstLine] }()
 	for c := e.first; c != nil; c = c.next {
 		if c.flags&flagAbsolute != 0 {
@@ -701,6 +707,7 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 		it.pad, it.base = pad, max(it.base, pad)
 		it.minMain, it.maxMain = max(it.minMain, pad), max(it.maxMain, pad)
 		it.hyp = max(it.minMain, min(it.base, it.maxMain))
+		baselines = baselines || c.self == Baseline
 		// After the child's measures, which lay out containers in it.
 		scratch.items = append(scratch.items, it)
 	}
@@ -763,6 +770,40 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 				}
 			}
 			ln.cross = max(ln.cross, it.cross+it.marginCr)
+		}
+		// The items aligned by their baselines line them up: the line
+		// is as high as the highest baseline above and the deepest
+		// descent below.
+		// Across a column, their left edges are their baselines, as in
+		// Chrome, even laid out right to left.
+		ascent, descent := -inf, -inf
+		for i := ln.start; i < ln.end && baselines; i++ {
+			it := &items[i]
+			c := it.e
+			if !byBaseline(c, align, e) {
+				continue
+			}
+			switch {
+			case row:
+				layoutBox(c, it.main, it.cross)
+				it.laidOut = true
+				b, ok := boxBaseline(c)
+				if !ok {
+					b = it.cross
+				}
+				it.baseline = c.m(0) + b
+			case e.rtl():
+				it.baseline = c.m(1) + it.cross
+			default:
+				it.baseline = c.m(3)
+			}
+			it.byBase = true
+			ascent = max(ascent, it.baseline)
+			descent = max(descent, it.cross+it.marginCr-it.baseline)
+		}
+		if finite(-ascent) {
+			ln.baseline = ascent
+			ln.cross = max(ln.cross, ascent+descent)
 		}
 	}
 	if len(lines) == 1 && finite(crossSize) && !e.wrap {
@@ -885,6 +926,8 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 			case autoS:
 				crossOff = max(free, 0)
 			case autoE:
+			case it.byBase:
+				crossOff = ln.baseline - it.baseline
 			default:
 				switch selfAlign(c, align) {
 				case Center:
@@ -900,7 +943,9 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 			if row {
 				c.x = e.contentX() + mainOff
 				c.y = e.contentY() + crossOff
-				layoutBox(c, it.main, it.cross)
+				if !it.laidOut {
+					layoutBox(c, it.main, it.cross)
+				}
 			} else {
 				c.x = e.contentX() + crossOff
 				c.y = e.contentY() + mainOff
@@ -935,6 +980,70 @@ func crossOf(c *node, cw float32, align Align, wrap bool) float32 {
 func stretches(c *node, align Align, row bool) bool {
 	m := crossMargins[b2i(row)]
 	return selfAlign(c, align) == Stretch && c.kind != kindIcon && !isAuto(c.margin[m[0]]) && !isAuto(c.margin[m[1]])
+}
+
+// byBaseline reports whether c, a child of the row (or grid) e, lines up
+// its baseline with its siblings', as aligning by align asks: not where
+// automatic margins place it across, nor in a row wrapping in reverse,
+// where Baseline is Start.
+func byBaseline(c *node, align Align, e *node) bool {
+	m := crossMargins[b2i(e.row && !e.grid)]
+	if e.grid {
+		m = [2]int{0, 2}
+	}
+	return selfAlign(c, align) == Baseline && !isAuto(c.margin[m[0]]) && !isAuto(c.margin[m[1]]) && !e.wrapReverse
+}
+
+// boxBaseline returns how far below the top of an element laid out its
+// first baseline is, as CSS's: that of its first line of text, or that of
+// its first child (in a row, of the first child aligned by its baseline),
+// which a child without one takes from its bottom; false for an element
+// with neither text nor children.
+func boxBaseline(e *node) (float32, bool) {
+	switch e.kind {
+	case kindText:
+		if e.tl != nil && len(e.tl.Lines) > 0 {
+			return e.contentY() + e.tl.Lines[0].Baseline, true
+		}
+		return 0, false
+	case kindInput:
+		if ed := e.st.editor; ed != nil {
+			if l := ed.firstLine(); l != nil {
+				return ed.originY + l.Baseline, true
+			}
+		}
+		return 0, false
+	case kindImage, kindIcon:
+		return 0, false
+	}
+	align := e.align
+	if align == alignAuto {
+		align = Stretch
+	}
+	var first *node
+	for ch := e.first; ch != nil; ch = ch.next {
+		if ch.flags&(flagAbsolute|flagInvisible) != 0 {
+			continue
+		}
+		if first == nil {
+			first = ch
+		}
+		if !e.row || e.grid {
+			break
+		}
+		if byBaseline(ch, align, e) {
+			first = ch
+			break
+		}
+	}
+	if first == nil {
+		return 0, false
+	}
+	b, ok := boxBaseline(first)
+	if !ok {
+		b = first.h
+	}
+	return first.y + b, true
 }
 
 func selfAlign(c *node, align Align) Align {

@@ -27,6 +27,11 @@ const (
 	SpaceBetween
 	SpaceAround
 	SpaceEvenly
+	// Baseline lines up the first lines of text of the children of a row,
+	// or of a grid's row, as a large price beside its small unit does
+	// (AlignItems and AlignSelf). A child without text lines up its
+	// bottom. Across a column it is Start.
+	Baseline
 	alignAuto
 )
 
