@@ -470,6 +470,50 @@ func TestListKeysKeepTheChoice(t *testing.T) {
 	}
 }
 
+// The app choosing a row of rows it changed, at the index the choice had,
+// is not rows moving: with a Selection, the choice follows its item only
+// while the Selection still holds it.
+func TestListKeysAppChoiceAtTheSameIndex(t *testing.T) {
+	ids := []string{"notes", "plan"}
+	sel := 0
+	var chosen Selection[string]
+	chosen.Add("notes")
+	s := ListState{Selected: &sel, Selection: &chosen, Key: func(i int) any { return ids[i] }}
+	tt := coreNewTester(func(c *context) {
+		coreList(c, &s, len(ids), func(i int) { coreText(c, ids[i]).Height(20) }).Grow(1)
+	}, 300, 400)
+	// A paste brings "icon", which sorts first: the app chooses it, at the
+	// row "notes" had.
+	ids = []string{"icon", "notes", "plan"}
+	chosen.Clear()
+	chosen.Add("icon")
+	sel = 0
+	tt.Frame()
+	if sel != 0 || !chosen.Has("icon") || chosen.Len() != 1 {
+		t.Errorf("chose the pasted row 0: cursor %d, chosen %v", sel, slices.Collect(chosen.All()))
+	}
+	// "notes", chosen, renamed in its place: the app chooses it by its
+	// new name.
+	chosen.Clear()
+	chosen.Add("notes")
+	sel = 1
+	tt.Frame()
+	ids = []string{"icon", "minutes", "plan"}
+	chosen.Clear()
+	chosen.Add("minutes")
+	tt.Frame()
+	if sel != 1 {
+		t.Errorf("the renamed row, chosen by the app, lost the cursor: %d", sel)
+	}
+	// Rows coming above a choice the app keeps still move the cursor
+	// with it.
+	ids = []string{"a", "b", "icon", "minutes", "plan"}
+	tt.Frame()
+	if sel != 3 || ids[sel] != "minutes" {
+		t.Errorf("two rows added above: cursor %d", sel)
+	}
+}
+
 func TestListKeepsTheFocusedRow(t *testing.T) {
 	texts := make([]string, 300)
 	var s ListState
