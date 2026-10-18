@@ -3187,7 +3187,13 @@ either.
   Metal opts into three further builder capabilities: marking fills whose
   clip coverage is one, splitting opaque cores from blended edges, and
   batching by fragment class. Other renderers keep the original instance
-  flags and class-independent batching. An effect draws in a batch of its own, with a pipeline of
+  flags and class-independent batching. Metal binds the instance buffer
+  once a pass and draws each batch with its first instance as the base
+  instance, which `[[instance_id]]` includes; a batch binds its pipeline,
+  image, clip mask and scissor rectangle only when they changed, with
+  selectors looked up once, and the scissor goes by pointer
+  (`setScissorRects:count:`) rather than through a reflective purego
+  function: messages from Go cost about half a microsecond each. An effect draws in a batch of its own, with a pipeline of
   its own, which the renderer makes the first time the effect draws; one
   reading its backdrop draws after a backdrop step (`Builder.Backdrops`):
   the renderer ends its pass, reads the backdrop's area of what it drew
@@ -3918,7 +3924,11 @@ cards with shadows, texts and progress bars. Its host (`stressHost`)
 hands the scene on rather than draw it on the CPU, so `ns/op` is the
 frame built, laid out and painted. `BenchmarkStressFrameGPU` draws the
 same frames with Metal (`metal.Offscreen`), its `GPU-ms` the GPU's time,
-which the page shows as the GPU metric.
+which the page shows as the GPU metric, and its `encode-ms` the CPU's
+time encoding each frame (building its instances, uploading what changed
+in its atlases, encoding its passes), the Encode metric, as the Metal
+renderer's benchmarks report too (`BenchmarkRenderPanels`: a page of
+cards taking hundreds of batches).
 
 Benchmarks are described on the page by their doc comments, which the
 site reads when it is built: start them with the benchmark's name.

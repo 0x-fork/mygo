@@ -115,7 +115,6 @@ var (
 	extendedSRGB      uintptr
 	msgReplaceRegion  func(obj id, sel objc.SEL, r mtlRegion, level uint, bytes unsafe.Pointer, bytesPerRow uint)
 	msgGetBytes       func(obj id, sel objc.SEL, bytes unsafe.Pointer, bytesPerRow uint, r mtlRegion, level uint)
-	msgSetScissor     func(obj id, sel objc.SEL, r mtlScissorRect)
 	msgSetClearColor  func(obj id, sel objc.SEL, c mtlClearColor)
 	msgSetSize        func(obj id, sel objc.SEL, s cgSize)
 	msgSetRect        func(obj id, sel objc.SEL, r cgRect)
@@ -123,6 +122,10 @@ var (
 	msgSetFloat       func(obj id, sel objc.SEL, v float64)
 	selMu             sync.Mutex
 	selectors         = map[string]objc.SEL{}
+	renderPass        id // MTLRenderPassDescriptor
+
+	// The selectors sent for each batch, looked up once.
+	selSetPipeline, selSetFragmentTexture, selSetScissorRects, selDraw objc.SEL
 
 	dispatchDataCreate, dispatchRelease uintptr
 
@@ -214,12 +217,16 @@ func load() error {
 		})
 		purego.RegisterFunc(&msgReplaceRegion, msgSend)
 		purego.RegisterFunc(&msgGetBytes, msgSend)
-		purego.RegisterFunc(&msgSetScissor, msgSend)
 		purego.RegisterFunc(&msgSetClearColor, msgSend)
 		purego.RegisterFunc(&msgSetSize, msgSend)
 		purego.RegisterFunc(&msgSetRect, msgSend)
 		purego.RegisterFunc(&msgSetFloat, msgSend)
 		purego.RegisterFunc(&msgRect, stret)
+		renderPass = class("MTLRenderPassDescriptor")
+		selSetPipeline = sel("setRenderPipelineState:")
+		selSetFragmentTexture = sel("setFragmentTexture:atIndex:")
+		selSetScissorRects = sel("setScissorRects:count:")
+		selDraw = sel("drawPrimitives:vertexStart:vertexCount:instanceCount:baseInstance:")
 		srgb, _, _ = purego.SyscallN(colorSpace, *(*uintptr)(ptr(name)))
 		extendedSRGB, _, _ = purego.SyscallN(colorSpace, *(*uintptr)(ptr(extendedName)))
 	})
@@ -253,6 +260,27 @@ func send(obj id, selector string, args ...uintptr) id {
 	n := copy(a[2:], args)
 	r, _, _ := purego.SyscallN(msgSend, a[:n+2]...)
 	return r
+}
+
+// msg2 and msg5 send messages with a selector looked up already and two
+// or five integer arguments, for the calls of each batch: unlike send,
+// they make no copy of their arguments, which purego.SyscallN allocates
+// once.
+func msg2(obj id, selector objc.SEL, a, b uintptr) {
+	purego.SyscallN(msgSend, obj, uintptr(selector), a, b)
+}
+
+func msg5(obj id, selector objc.SEL, a, b, c, d, e uintptr) {
+	purego.SyscallN(msgSend, obj, uintptr(selector), a, b, c, d, e)
+}
+
+// setScissor sets the scissor rectangle of enc to sc. setScissorRects:count:
+// takes it by pointer, as an integer argument, where setScissorRect: would
+// take the struct in registers, through a function purego calls with
+// reflection. The rectangle is the renderer's, already on the heap.
+func (r *Renderer) setScissor(enc id, sc gpu.Scissor) {
+	r.scissor = mtlScissorRect{uint(sc.Left), uint(sc.Top), uint(sc.Right - sc.Left), uint(sc.Bottom - sc.Top)}
+	msg2(enc, selSetScissorRects, uintptr(unsafe.Pointer(&r.scissor)), 1)
 }
 
 func release(obj *id) {
@@ -376,6 +404,9 @@ type Renderer struct {
 	device, queue, sampler id
 	// shaderBytes holds the uniforms of the shader being drawn, laid out.
 	shaderBytes []byte
+	// scissor is the scissor rectangle setScissor sets last, which it
+	// passes by pointer.
+	scissor mtlScissorRect
 	// lib is the library of the shader, which the pipelines of the classes
 	// of batches are made from as they are first used.
 	lib id
@@ -1188,10 +1219,16 @@ func (r *Renderer) drawBuilt(cb id, s *scene.Scene, target id, d *drawState, par
 	if err != nil {
 		return err
 	}
-	bound, pipe := r.empty, r.cur.pipeline
+	// The instances are bound once for the pass: each batch draws its own
+	// with the index of its first as the base instance, which
+	// [[instance_id]] includes. What a batch binds, it binds only when it
+	// changed since the last.
+	bindInstances(enc, instBuf)
+	st := passState{pipe: r.cur.pipeline, image: r.empty, scissor: noScissor}
 	if part != nil && !part.Empty() {
 		r.clearArea(enc, *part)
-		pipe = r.cur.downPipe
+		st.pipe, st.scissor = r.cur.downPipe, *part
+		send(enc, "setFragmentBuffer:offset:atIndex:", instBuf, 0, 0) // clearArea's bytes took its place
 	}
 	for i, b := range d.b.Batches {
 		sc := frameScissor(b.Scissor, s)
@@ -1209,29 +1246,52 @@ func (r *Renderer) drawBuilt(cb id, s *scene.Scene, target id, d *drawState, par
 			if enc, err = r.begin(cb, target, loadActionLoad, s, &d.b); err != nil {
 				return err
 			}
-			send(enc, "setFragmentTexture:atIndex:", r.cur.backdrop[0].tex, 3)
-			bound, pipe = r.empty, r.cur.pipeline
+			msg2(enc, selSetFragmentTexture, r.cur.backdrop[0].tex, 3)
+			bindInstances(enc, instBuf)
+			st = passState{pipe: r.cur.pipeline, image: r.empty, scissor: noScissor}
 		}
-		if want != pipe {
-			pipe = want
-			send(enc, "setRenderPipelineState:", pipe)
+		if want != st.pipe {
+			st.pipe = want
+			purego.SyscallN(msgSend, enc, uintptr(selSetPipeline), want)
 		}
-		if b.Image != 0 && b.Image != bound {
-			bound = b.Image
-			send(enc, "setFragmentTexture:atIndex:", bound, 2)
+		if b.Image != 0 && b.Image != st.image {
+			st.image = b.Image
+			msg2(enc, selSetFragmentTexture, st.image, 2)
 		}
-		send(enc, "setFragmentTexture:atIndex:", or(id(b.ClipMask), r.empty), 4)
+		if clip := or(id(b.ClipMask), r.empty); clip != st.clip {
+			st.clip = clip
+			msg2(enc, selSetFragmentTexture, clip, 4)
+		}
 		if b.Shader != nil {
 			r.bindShader(enc, b)
 		}
-		offset := uintptr(b.Start * gpu.InstanceSize)
-		send(enc, "setVertexBuffer:offset:atIndex:", instBuf, offset, 0)
-		send(enc, "setFragmentBuffer:offset:atIndex:", instBuf, offset, 0)
-		msgSetScissor(enc, sel("setScissorRect:"), mtlScissorRect{uint(sc.Left), uint(sc.Top), uint(sc.Right - sc.Left), uint(sc.Bottom - sc.Top)})
-		send(enc, "drawPrimitives:vertexStart:vertexCount:instanceCount:", primitiveTriStrip, 0, 4, uintptr(b.Count))
+		if sc != st.scissor {
+			st.scissor = sc
+			r.setScissor(enc, sc)
+		}
+		msg5(enc, selDraw, primitiveTriStrip, 0, 4, uintptr(b.Count), uintptr(b.Start))
 	}
 	send(enc, "endEncoding")
 	return nil
+}
+
+// passState is what a pass bound last: its pipeline, the image (texture
+// 2), the clip mask (texture 4, none bound yet while 0) and the scissor
+// rectangle.
+type passState struct {
+	pipe, image, clip id
+	scissor           gpu.Scissor
+}
+
+// noScissor stands for no scissor rectangle set yet: a frame's are never
+// at negative places.
+var noScissor = gpu.Scissor{Left: -1, Top: -1, Right: -1, Bottom: -1}
+
+// bindInstances binds the instance buffer of a pass, from its start, for
+// the vertex and the fragment functions.
+func bindInstances(enc, buf id) {
+	send(enc, "setVertexBuffer:offset:atIndex:", buf, 0, 0)
+	send(enc, "setFragmentBuffer:offset:atIndex:", buf, 0, 0)
 }
 
 // maxBytes is the most setFragmentBytes takes; larger uniforms go in a
@@ -1261,7 +1321,7 @@ func (r *Renderer) bindShader(enc id, b gpu.Batch) {
 // begin starts encoding the drawing of s into target, which it clears or
 // keeps (load), with the state the instances draw with.
 func (r *Renderer) begin(cb, target id, load uintptr, s *scene.Scene, b *gpu.Builder) (id, error) {
-	rpd := send(class("MTLRenderPassDescriptor"), "renderPassDescriptor")
+	rpd := send(renderPass, "renderPassDescriptor")
 	ca := send(send(rpd, "colorAttachments"), "objectAtIndexedSubscript:", 0)
 	send(ca, "setTexture:", target)
 	send(ca, "setLoadAction:", load)
@@ -1272,7 +1332,8 @@ func (r *Renderer) begin(cb, target id, load uintptr, s *scene.Scene, b *gpu.Bui
 	if !r.checked {
 		if err := need(enc, "render encoder", "setRenderPipelineState:", "setVertexBytes:length:atIndex:", "setVertexBuffer:offset:atIndex:",
 			"setFragmentBuffer:offset:atIndex:", "setFragmentBytes:length:atIndex:", "setFragmentTexture:atIndex:", "setFragmentSamplerState:atIndex:",
-			"setScissorRect:", "drawPrimitives:vertexStart:vertexCount:instanceCount:", "endEncoding"); err != nil {
+			"setScissorRects:count:", "drawPrimitives:vertexStart:vertexCount:instanceCount:", "drawPrimitives:vertexStart:vertexCount:instanceCount:baseInstance:",
+			"endEncoding"); err != nil {
 			if enc != 0 {
 				send(enc, "endEncoding")
 			}
@@ -1308,7 +1369,7 @@ func (r *Renderer) clearTexel(cb id, s *scene.Scene) {
 			return
 		}
 	}
-	rpd := send(class("MTLRenderPassDescriptor"), "renderPassDescriptor")
+	rpd := send(renderPass, "renderPassDescriptor")
 	ca := send(send(rpd, "colorAttachments"), "objectAtIndexedSubscript:", 0)
 	send(ca, "setTexture:", f.clear)
 	send(ca, "setLoadAction:", loadActionClear)
@@ -1329,7 +1390,7 @@ func (r *Renderer) clearArea(enc id, area gpu.Scissor) {
 	send(enc, "setRenderPipelineState:", f.downPipe)
 	send(enc, "setFragmentTexture:atIndex:", or(f.clear, r.empty), 0)
 	send(enc, "setFragmentBytes:length:atIndex:", uintptr(unsafe.Pointer(&p)), unsafe.Sizeof(p), 0)
-	msgSetScissor(enc, sel("setScissorRect:"), mtlScissorRect{uint(area.Left), uint(area.Top), uint(area.Right - area.Left), uint(area.Bottom - area.Top)})
+	r.setScissor(enc, area)
 	send(enc, "drawPrimitives:vertexStart:vertexCount:instanceCount:", primitiveTriStrip, 0, 4, 1)
 	send(enc, "setFragmentTexture:atIndex:", or(r.mask.tex, r.empty), 0)
 }
@@ -1435,7 +1496,7 @@ func (r *Renderer) readBackdrop(cb, target id, bk scene.Backdrop) {
 // pass encodes drawing the w×h texels at the start of dst with pipe,
 // which reads src.
 func (r *Renderer) pass(cb, pipe, src, dst id, w, h int, p *gpu.Pass) {
-	rpd := send(class("MTLRenderPassDescriptor"), "renderPassDescriptor")
+	rpd := send(renderPass, "renderPassDescriptor")
 	ca := send(send(rpd, "colorAttachments"), "objectAtIndexedSubscript:", 0)
 	send(ca, "setTexture:", dst)
 	send(ca, "setLoadAction:", loadActionDontCare)
@@ -1444,7 +1505,7 @@ func (r *Renderer) pass(cb, pipe, src, dst id, w, h int, p *gpu.Pass) {
 	send(enc, "setRenderPipelineState:", pipe)
 	send(enc, "setFragmentTexture:atIndex:", src, 0)
 	send(enc, "setFragmentBytes:length:atIndex:", uintptr(unsafe.Pointer(p)), unsafe.Sizeof(*p), 0)
-	msgSetScissor(enc, sel("setScissorRect:"), mtlScissorRect{0, 0, uint(w), uint(h)})
+	r.setScissor(enc, gpu.Scissor{Right: int32(w), Bottom: int32(h)})
 	send(enc, "drawPrimitives:vertexStart:vertexCount:instanceCount:", primitiveTriStrip, 0, 4, 1)
 	send(enc, "endEncoding")
 }
