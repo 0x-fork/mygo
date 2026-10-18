@@ -3283,19 +3283,33 @@ either.
     shows no stretched frames; the others present as soon as the GPU has
     them (`presentDrawable:`), sparing a pass of AppKit's display cycle
     and a commit of the transaction each: an animation at 120 Hz takes
-    about half the main thread's time it would. A frame presented so
-    that waited for its drawable, as the display held the others until
-    its next refresh, has the next skip a refresh (`Behind`, at most
-    once a second), or the frames after would wait as long, most of each
-    refresh, blocking the main thread. Instances use two frame slots, for
+    about half the main thread's time it would. The main thread never
+    waits for the display: after each frame presented as soon as drawn, a
+    goroutine on a thread of its own (`present.go`) takes the next frame's
+    drawable, which `nextDrawable` holds back while the display holds the
+    others, most of a refresh at times. A frame that comes while it does
+    is built at once, its canvases and instances ready, and waits
+    (`pendingFrame`); once the goroutine has the drawable, it has the
+    main thread (`SetPost`, through `surface.Conn.Post`) draw the frame
+    into it and present it. Frames of the display link's ticks
+    (`platform.SurfaceEvent.Paced`) are not built while one waits
+    (`Renderer.Ready`, `windowHost.waitDisplay`): the next draws once it
+    was presented (`platform.PacedSurface.FrameNow`), at the time its tick
+    asked for it, so that what moves keeps its pace; the link keeps
+    ticking meanwhile. Other frames, as a resize's, draw the waiting one
+    first. Frames presented with the transaction, which change the layer,
+    take their drawable on the main thread, as the first after a pause
+    does, after any being taken. Building a frame before its drawable
+    comes, as blocking for it did, keeps the GPU as busy: building only
+    once the drawable came drew a sixth fewer frames where the GPU took
+    most of each refresh. Instances use two frame slots, for
     the main target and each canvas, and a slot waits only for the command
     buffer that last used it. Updating an atlas or image texture in place
     still waits for every frame in flight. Rendering a canvas into its
     texture stays ordered on the command queue. The layer keeps three
     drawables, as Core Animation makes while a window animates: with two,
-    on a ProMotion display, frames waited for one most of each refresh, a
-    skip catching up for a few frames only, and a fifth of the frames went
-    undrawn. The third costs a frame of memory while a window animates.
+    on a ProMotion display, frames waited for one most of each refresh,
+    and a fifth of the frames went undrawn. The third costs a frame of memory while a window animates.
     Waiting for a drawable remains separate from waiting for an instance
     buffer, so offscreen encode timings do not establish presentation latency.
     Opaque fill cores use an unblended pipeline in BGRA8; float16 keeps
@@ -3940,10 +3954,13 @@ to show on screen in native UI: from when an event arrives to when the
 frame showing it reaches the display, as its drawable's presented handler
 tells (`presentedTime`). Each run is a process with a window shown without
 activating the app, which types into a text area, scrolls a list with the
-trackpad or drags a box, with events at any time within a refresh, and
-prints what the latency is made of: waiting for the main thread, handling
-the event, waiting for the frame to start, building it, waiting for a
-drawable, and from the drawable to the screen. The window server settles
+trackpad or drags a box, with events at any time within a refresh, or
+animates with no input (`anim`, and `heavy`, which keeps the GPU busy
+most of each refresh), and prints what the latency is made of: waiting
+for the main thread, handling the event, then to the frame's present
+(the next tick, building, a drawable), and to the screen; and of the
+frames, how long the main thread waited for drawables, and what share of
+the refreshes showed a new frame. The window server settles
 in a state that lasts a run and changes from run to run, so compare the
 medians of several runs (`-runs`, six by default), alternating builds.
 
@@ -3973,7 +3990,7 @@ What was measured and left as it is:
   29 when frames presented at the tick missed the composite, was 11 ms
   slower in a run where they made it, and drew a fifth fewer frames.
 - *Skipping a refresh when frames show a refresh late*, as the presented
-  handlers tell, as `Behind` does when a drawable was waited for: in a bare
+  handlers tell: in a bare
   CAMetalLayer window a skip brought most runs from 25.9 to 17.5 ms, but
   MyGo's frames, which take longer from the tick to their present, stayed
   late after skips.

@@ -227,6 +227,9 @@ type engine struct {
 	strict bool
 	// clock is a Tester's time, time.Now when nil.
 	clock func() time.Time
+	// frameAt is the time of the next frame, when the display asked for it
+	// earlier than it draws (windowHost.waitDisplay).
+	frameAt time.Time
 
 	pointerX, pointerY float32
 	pointerIn          bool
@@ -305,7 +308,7 @@ type engine struct {
 	// inkStale tells that elements moved since commit found their ink
 	// (node.ink), as poses do in frames that only paint: painting then
 	// skips none.
-	inkStale bool
+	inkStale   bool
 	repaintDue time.Time
 	// late is set when lists built elements while laying out.
 	late bool
@@ -479,7 +482,7 @@ func (rt *engine) runFrame() {
 	rt.input = false
 	rt.focusRead = false
 	rt.stats.begin(rt)
-	now := rt.now()
+	now := rt.frameTime()
 	w, h, scale := rt.host.size()
 	// The content takes the room the inspector leaves.
 	appW := rt.insp.contentWidth(w)
@@ -615,6 +618,17 @@ func (rt *engine) now() time.Time {
 	return time.Now()
 }
 
+// frameTime returns the time of a frame starting: when the display's
+// refresh asked for it, for a frame that waited for the display to be
+// able to show it, so that what moves keeps its pace; now otherwise.
+func (rt *engine) frameTime() time.Time {
+	if t := rt.frameAt; !t.IsZero() {
+		rt.frameAt = time.Time{}
+		return t
+	}
+	return rt.now()
+}
+
 // next asks for the frame that what moves needs: one built anew while the
 // view animates, one painting the elements again while only drawings move,
 // as soon as the display can show it or when they change next. While
@@ -693,7 +707,7 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 	defer rt.endFrame()
 	rt.stats.begin(rt)
 	start := time.Now()
-	rt.c.now = rt.now()
+	rt.c.now = rt.frameTime()
 	rt.text.BeginFrame()
 	rt.repainting, rt.repaintAt = false, time.Time{}
 	root := rt.c.root

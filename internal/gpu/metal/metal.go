@@ -434,12 +434,17 @@ type Renderer struct {
 
 	// synced tells that the layer presents with the Core Animation
 	// transaction, and holes that the last frame had holes (web views
-	// under it). waited tells that the last frame, presented as soon as
-	// drawn, waited for its drawable; behind that the last Render drew
-	// nothing to catch up with the display, and skippedAt when one last
-	// did.
-	synced, holes, waited, behind bool
-	skippedAt                     time.Time
+	// under it). pre fetches the drawables of frames following each
+	// other, and pending is a frame waiting for its drawable (present.go).
+	synced, holes bool
+	pre           presenter
+	pending       pendingFrame
+	// post runs a function on the main thread (SetPost), fetched has the
+	// presenter's thread draw pending through it, and wake is what Ready
+	// was given while a frame was pending.
+	post    func(func())
+	fetched func()
+	wake    func()
 
 	mask   texture
 	color  texture
@@ -513,8 +518,7 @@ func New(layer uintptr) (r *Renderer, err error) {
 		// passes sample then.
 		send(ml, "setFramebufferOnly:", 0)
 		// Two drawables are too few: on a ProMotion display, frames
-		// waited for one most of each refresh, and skipping a refresh to
-		// catch up (render) helped for a few frames only. Three, as Core
+		// waited for one most of each refresh. Three, as Core
 		// Animation makes while a window animates, also let both instance
 		// slots have a frame in flight while the display shows a third.
 		// They cost a frame of memory until the window idles (trim).
@@ -1544,9 +1548,16 @@ func hasHoles(s *scene.Scene) bool {
 	return false
 }
 
-// Behind reports whether the last Render drew nothing, to catch up with
-// the display: the window draws the frame again at the next refresh.
-func (r *Renderer) Behind() bool { return r.behind }
+// Ready reports whether a frame following the last one can draw at once,
+// as none waits for its drawable (present.go); otherwise wake runs, on the
+// main thread, once it has.
+func (r *Renderer) Ready(wake func()) bool {
+	if r.pending.cb == 0 {
+		return true
+	}
+	r.wake = wake
+	return false
+}
 
 func or(a, b id) id {
 	if a != 0 {
@@ -1564,12 +1575,6 @@ func (r *Renderer) Render(s *scene.Scene) (err error) {
 	return err
 }
 
-// behindAfter is how long a frame presented as soon as drawn waits for its
-// drawable before the next skips a refresh (Behind), at most once a
-// second: a drawable frees within a millisecond or so while frames show at
-// the refresh after they present.
-const behindAfter = 4 * time.Millisecond
-
 func (r *Renderer) render(s *scene.Scene) error {
 	if r.err != nil {
 		return r.err
@@ -1577,6 +1582,19 @@ func (r *Renderer) render(s *scene.Scene) error {
 	scale := float64(s.Scale)
 	if scale <= 0 {
 		scale = 1
+	}
+	changes := r.layerChanges(s, scale)
+	if r.pending.cb != 0 {
+		// A frame not paced by the display, as a resize's, draws after
+		// the one waiting for its drawable, which fetches none for it
+		// when it takes its own.
+		if err := r.finishPending(!changes && !hasHoles(s) && !r.holes); err != nil {
+			return err
+		}
+	}
+	if changes {
+		// No drawable is being fetched while the layer changes.
+		r.pre.wait()
 	}
 	r.cur = &r.formats[0]
 	if r.wide {
@@ -1592,16 +1610,10 @@ func (r *Renderer) render(s *scene.Scene) error {
 	holes := hasHoles(s)
 	sync := changed || holes || r.holes
 	r.holes = holes
-	now := time.Now()
-	r.behind = !sync && r.waited && now.Sub(r.lastRender) < 50*time.Millisecond && now.Sub(r.skippedAt) > time.Second
-	r.waited = false
-	if r.behind {
-		// The last frame waited for a drawable, as the display held the
-		// others until its next refresh: the frames following it would wait as
-		// long, most of each refresh, blocking the main thread. Drawing
-		// none for a refresh catches up.
-		r.skippedAt = now
-		return nil
+	if sync {
+		// A drawable fetched before the layer changed, or to present
+		// on its own, is not this frame's.
+		r.pre.drain()
 	}
 	// What changed since the last frame drawn: a frame that changed
 	// nothing draws nothing, and needs no drawable.
@@ -1614,6 +1626,11 @@ func (r *Renderer) render(s *scene.Scene) error {
 		r.redrew = redrewNothing
 		return nil
 	}
+	if !sync && r.fetched != nil && !r.pre.ready(r.fetched) {
+		// The next drawable is being fetched: the frame is built now and
+		// drawn into it once the presenter has it.
+		return r.stash(s, damage, known)
+	}
 	var drawable id
 	cb, err := r.drawFrame(s, damage, known, func() id {
 		if sync != r.synced {
@@ -1624,10 +1641,15 @@ func (r *Renderer) render(s *scene.Scene) error {
 			send(r.layer, "setPresentsWithTransaction:", on)
 			r.synced = sync
 		}
-		if drawable = send(r.layer, "nextDrawable"); drawable == 0 {
+		if !sync {
+			drawable = r.prefetched()
+		}
+		if drawable == 0 {
+			drawable = send(r.layer, "nextDrawable")
+		}
+		if drawable == 0 {
 			return 0
 		}
-		r.waited = !sync && time.Since(now) > behindAfter
 		return send(drawable, "texture")
 	})
 	if err != nil {
@@ -1647,6 +1669,8 @@ func (r *Renderer) render(s *scene.Scene) error {
 	} else {
 		send(cb, "presentDrawable:", drawable)
 		send(cb, "commit")
+		// The next frame's drawable, while this one is shown.
+		r.pre.start(r.layer)
 	}
 	r.track(cb)
 	r.lastRender = time.Now()
@@ -1655,6 +1679,21 @@ func (r *Renderer) render(s *scene.Scene) error {
 		r.sweep()
 	}
 	return nil
+}
+
+// prefetched returns the drawable the presenter fetched, autoreleased, or
+// 0 when it has none of the layer's size.
+func (r *Renderer) prefetched() id {
+	d := r.pre.take()
+	if d == 0 {
+		return 0
+	}
+	t := send(d, "texture")
+	if int(send(t, "width")) != r.w || int(send(t, "height")) != r.h {
+		send(d, "release")
+		return 0
+	}
+	return send(d, "autorelease")
 }
 
 // drawFrame encodes the frame s, which changed damage since the last frame
@@ -1727,6 +1766,12 @@ func (r *Renderer) pipelineDamage(damage []image.Rectangle, known bool) []image.
 // (r.ages), the drawables showing in turn, and the backdrops of the
 // effects that meets.
 func (r *Renderer) partOf(s *scene.Scene, tex id) *gpu.Scissor {
+	return r.partIn(s.Width, s.Height, tex, func(d []image.Rectangle) []image.Rectangle { return r.diff.AddBackdrops(s, d) })
+}
+
+// partIn is partOf for a frame of w×h pixels, the backdrops of whose
+// effects backdrops adds; nil draws it whole.
+func (r *Renderer) partIn(w, h int, tex id, backdrops func([]image.Rectangle) []image.Rectangle) *gpu.Scissor {
 	if !r.ages.Has(tex) {
 		// Held until forgotten, so that no other texture takes its
 		// place: Core Animation makes drawables anew as it likes.
@@ -1734,10 +1779,10 @@ func (r *Renderer) partOf(s *scene.Scene, tex id) *gpu.Scissor {
 	}
 	since, ok := r.ages.Take(tex)
 	r.redrew = redrewWhole
-	if !ok || noPartial {
+	if !ok || noPartial || backdrops == nil {
 		return nil
 	}
-	area, ok := gpu.Partial(since, s.Width, s.Height, func(d []image.Rectangle) []image.Rectangle { return r.diff.AddBackdrops(s, d) })
+	area, ok := gpu.Partial(since, w, h, backdrops)
 	if !ok {
 		return nil
 	}
@@ -1863,6 +1908,8 @@ func (r *Renderer) trim() {
 	if r.layer == 0 || r.trimmed {
 		return
 	}
+	pool(r.dropPending)
+	r.pre.drain()
 	pool(func() {
 		r.waitLast()
 		r.releaseTextures()
@@ -1911,6 +1958,8 @@ func (r *Renderer) renderOffscreen(s *scene.Scene) (pix []byte, err error) {
 
 // Release frees the renderer's GPU objects and takes its layer out.
 func (r *Renderer) Release() {
+	pool(r.dropPending)
+	r.pre.stop()
 	r.b.Release()
 	if r.trimTimer != 0 {
 		purego.SyscallN(cfRunLoopTimerInvalidate, r.trimTimer)
