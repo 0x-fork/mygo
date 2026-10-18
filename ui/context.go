@@ -563,6 +563,9 @@ type state struct {
 	// track is the ScrollState of the last frame's element, which events
 	// that scroll it update (scrollTo).
 	track *ScrollState
+	// wheel is the notches of a mouse wheel on their way through the
+	// content (wheelScroll).
+	wheel *wheelGlide
 	// startX and startY are the offset before frame moveFrame moved it.
 	moveFrame      uint64
 	startX, startY float64
