@@ -656,3 +656,97 @@ func TestTranslationsFold(t *testing.T) {
 		t.Fatal("NoFold folded the translations")
 	}
 }
+
+// TestCornerSplitShrinksTheCurved checks that a card with continuous
+// corners and the shadows it casts are drawn as nine-patches: the pieces of
+// each tile what it drew whole, those drawn with the curves lie in the
+// corners' boxes, which hold a fraction of the pixels, and the others have
+// square corners, in batches without continuous corners; and that small
+// shapes, whose pixels are all near a corner, stay whole.
+func TestCornerSplitShrinksTheCurved(t *testing.T) {
+	card := scene.Rect{X: 100.5, Y: 80.25, W: 600, H: 400}
+	r := scene.Uniform(24)
+	s := &scene.Scene{Width: 800, Height: 600, Ops: []scene.Op{
+		{Kind: scene.OpShadow, Rect: scene.Rect{X: card.X, Y: card.Y + 4, W: card.W, H: card.H}, Radii: r, Color: scene.Color{A: 60}, Blur: 24,
+			Cast: card, CastRadii: r, Continuous: true},
+		{Kind: scene.OpShadow, Rect: card, Radii: r, Color: scene.Color{A: 60}, Blur: 4, Continuous: true},
+		{Kind: scene.OpFill, Rect: card, Radii: r, Color: scene.Color{R: 255, A: 200}, Border: scene.Uniform(2), BorderColor: scene.Color{B: 255, A: 255},
+			Continuous: true},
+	}}
+	var split, whole Builder
+	split.Classes, whole.Classes = true, true
+	split.SplitCorners()
+	whole.NoCornerSplit = true
+	split.Build(s, nil)
+	whole.Build(s, nil)
+	if len(whole.Instances) != 6 { // the first shadow in four pieces around its caster
+		t.Fatalf("%d instances whole, want 6", len(whole.Instances))
+	}
+	frame := Scissor{0, 0, 800, 600}
+	for _, kind := range []float32{1, 0} {
+		var curved, all int64
+		type cut struct {
+			rect [4]float32
+			free Scissor
+		}
+		var cuts []cut
+		for _, in := range whole.Instances {
+			if in.Params[0] == kind {
+				free, _, _ := cornersOf(&in, scene.Affine{})
+				cuts = append(cuts, cut{in.Rect, free})
+			}
+		}
+		for _, bt := range split.Batches {
+			for _, in := range split.Instances[bt.Start : bt.Start+bt.Count] {
+				if in.Params[0] != kind {
+					continue
+				}
+				all += bt.Scissor.area()
+				if in.Radii == [4]float32{} {
+					if bt.Continuous {
+						t.Errorf("kind %v: a piece with square corners in a batch with continuous ones", kind)
+					}
+					continue
+				}
+				if !bt.Continuous {
+					t.Errorf("kind %v: a piece with continuous corners in a batch without", kind)
+				}
+				curved += bt.Scissor.area()
+				// In the corners' boxes: out of the columns and the rows between them.
+				for _, c := range cuts {
+					cols := Scissor{c.free.Left, frame.Top, c.free.Right, frame.Bottom}
+					rows := Scissor{frame.Left, c.free.Top, frame.Right, c.free.Bottom}
+					if bt.Scissor.intersect(cols).area() != 0 && bt.Scissor.intersect(rows).area() != 0 &&
+						c.rect == in.Rect {
+						t.Errorf("kind %v: curved piece %v between the corners %v", kind, bt.Scissor, c.free)
+					}
+				}
+			}
+		}
+		var want int64
+		for _, bt := range whole.Batches {
+			for _, in := range whole.Instances[bt.Start : bt.Start+bt.Count] {
+				if in.Params[0] == kind {
+					want += bt.Scissor.area()
+				}
+			}
+		}
+		if all != want {
+			t.Errorf("kind %v: pieces cover %d px, whole %d", kind, all, want)
+		}
+		if 3*curved > want {
+			t.Errorf("kind %v: %d of %d px drawn with the curves", kind, curved, want)
+		}
+		t.Logf("kind %v: %d of %d px drawn with the curves", kind, curved, want)
+	}
+	// Small boxes are near their corners everywhere.
+	boxes := gputest.BoxesScene(640, 400, 120, false)
+	for i := range boxes.Ops {
+		boxes.Ops[i].Continuous = true
+	}
+	split.Build(boxes, nil)
+	whole.Build(boxes, nil)
+	if len(split.Instances) != len(whole.Instances) {
+		t.Errorf("small boxes: %d instances, %d whole", len(split.Instances), len(whole.Instances))
+	}
+}

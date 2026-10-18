@@ -1056,7 +1056,7 @@ func (r *Renderer) drawCanvas(cb id, c *scene.Image) error {
 	cs.Width, cs.Height = c.W, c.H
 	t.b.Wide = false
 	t.b.Opaque, t.b.Classes = r.b.Opaque, r.b.Classes
-	t.b.NoCull, t.b.NoShadowSplit, t.b.NoRingSplit = r.b.NoCull, r.b.NoShadowSplit, r.b.NoRingSplit
+	t.b.NoCull, t.b.NoShadowSplit, t.b.NoRingSplit, t.b.NoCornerSplit = r.b.NoCull, r.b.NoShadowSplit, r.b.NoRingSplit, r.b.NoCornerSplit
 	t.b.NoClasses, t.b.GeneralClasses = r.b.NoClasses, r.b.GeneralClasses
 	t.b.GeneralFill, t.b.NoClipSkip = r.b.GeneralFill, r.b.NoClipSkip
 	if err := r.drawInto(cb, cs, t.tex, &t.drawState); err != nil {
@@ -1069,6 +1069,7 @@ func (r *Renderer) drawCanvas(cb id, c *scene.Image) error {
 // drawInto encodes drawing s into target with d, in the format r.cur is.
 func (r *Renderer) drawInto(cb id, s *scene.Scene, target id, d *drawState) error {
 	d.b.ClipSkip = true
+	d.b.SplitCorners() // only Metal's shader draws continuous corners
 	d.b.BlurredImage = func(img *scene.Image, bk scene.Backdrop) uintptr { return r.blurImage(cb, img, bk) }
 	s = d.b.Build(s, r.imageTexture)
 	d.b.BlurredImage = nil

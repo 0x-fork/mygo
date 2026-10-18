@@ -246,6 +246,10 @@ type Builder struct {
 	// NoRingSplit draws every border-only fill as one instance (see
 	// addFill), for tests that compare the two.
 	NoRingSplit bool
+	// NoCornerSplit draws every shape with continuous corners as one
+	// instance (see addCorners), for tests that compare the two.
+	NoCornerSplit bool
+	cutCorners    func(b *Builder, in Instance, image uintptr, m scene.Affine)
 	// NoClasses puts every batch in ClassGeneral, for tests and
 	// measurements that compare the specialized shaders with the general one.
 	NoClasses bool
@@ -600,13 +604,14 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 			if op.Color != (scene.Color{}) {
 				tint = straight(op.Color)
 			}
-			b.add(Instance{
+			in := Instance{
 				Rect:   rect(op.Rect),
 				Radii:  scene.Corners(op.Rect, op.Radii, op.Continuous),
 				Color:  tint,
 				UV:     [4]float32{src.X / iw, src.Y / ih, (src.X + src.W) / iw, (src.Y + src.H) / ih},
 				Params: [4]float32{4, gray, nearest, opacity(op.Opacity)},
-			}, tex, op.Transform)
+			}
+			b.addCut(in, tex, op.Transform)
 		}
 	}
 
@@ -847,7 +852,7 @@ func (s Scissor) area() int64 {
 func (b *Builder) addShadow(in Instance, op *scene.Op, sigma float32) {
 	cur := &b.stack[len(b.stack)-1]
 	if b.NoShadowSplit || op.Cast.Empty() || op.Transform.Set || cur.scissor.Empty() {
-		b.add(in, 0, op.Transform)
+		b.addCut(in, 0, op.Transform)
 		return
 	}
 	core := shadowCore(op.Cast, scene.Corners(op.Cast, op.CastRadii, op.Continuous), op.Continuous)
@@ -857,7 +862,7 @@ func (b *Builder) addShadow(in Instance, op *scene.Op, sigma float32) {
 		Right: int32(math.Ceil(float64(op.Rect.X + op.Rect.W + reach))), Bottom: int32(math.Ceil(float64(op.Rect.Y + op.Rect.H + reach))),
 	}.intersect(cur.scissor)
 	if !worthSplitting(core, quad) {
-		b.add(in, 0, op.Transform)
+		b.addCut(in, 0, op.Transform)
 		return
 	}
 	b.addAround(in, op.Transform, core)
@@ -867,7 +872,8 @@ func (b *Builder) addShadow(in Instance, op *scene.Op, sigma float32) {
 // scissor rectangle of its own: they tile the current clip's scissor
 // rectangle less core, whatever the renderer's quad is (core must lie inside
 // the quad). The pixels are the same as drawing it whole, for an instance
-// that leaves the destination as it is within core.
+// that leaves the destination as it is within core. Each is cut into corners
+// and their twin (addCut).
 func (b *Builder) addAround(in Instance, m scene.Affine, core Scissor) {
 	cur := &b.stack[len(b.stack)-1]
 	whole := cur.scissor
@@ -884,7 +890,7 @@ func (b *Builder) addAround(in Instance, m scene.Affine, core Scissor) {
 			continue
 		}
 		b.scissorBatches(st, true)
-		b.add(in, 0, m)
+		b.addCut(in, 0, m)
 	}
 }
 
@@ -917,7 +923,7 @@ const opaqueMin = 16384
 func (b *Builder) addOpaque(in Instance, m scene.Affine, core Scissor) {
 	b.scissorBatches(core, true)
 	b.opaque = true
-	b.add(in, 0, m)
+	b.addCut(in, 0, m)
 	b.scissorBatches(Scissor{}, false)
 	b.opaque = false
 	b.OpaqueCores++
@@ -974,7 +980,7 @@ func (b *Builder) addFill(s *scene.Scene, in Instance, op *scene.Op) {
 	}
 	if b.NoRingSplit || op.Transform.Set || op.Paint != scene.PaintSolid || in.Color[3] != 0 || !scene.HasBorder(in.UV) ||
 		op.Rect.Empty() || cur.scissor.Empty() {
-		b.add(in, 0, op.Transform)
+		b.addCut(in, 0, op.Transform)
 		return
 	}
 	// A fill's quad reaches a pixel out of its rectangle (see the vertex shader).
@@ -984,7 +990,7 @@ func (b *Builder) addFill(s *scene.Scene, in Instance, op *scene.Op) {
 	}.intersect(cur.scissor)
 	core := ringCore(op.Rect, in.Radii, in.UV, op.Continuous)
 	if !worthSplitting(core, quad) {
-		b.add(in, 0, op.Transform)
+		b.addCut(in, 0, op.Transform)
 		return
 	}
 	b.addAround(in, op.Transform, core)

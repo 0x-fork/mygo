@@ -3165,6 +3165,13 @@ either.
   border-only fills draw as up to four scissored strips around interiors
   where their output is zero. These scissors never change a clip mask's
   sampling coordinates. Both transformations are shared by all GPU backends.
+  Large fills, shadows and images with continuous corners (negative radii,
+  which only Metal gets) draw as nine-patches (`gpu/corners.go`): their
+  corners' boxes as they are, and the cross between them as a twin with
+  square corners, in batches whose pipeline lacks the curves' code. Away
+  from the boxes the shader computes the same value either way: a fill's
+  pixel area, and a blurred shadow whose samples miss the curved rows or
+  whose blurred sides round to 0 and 1 (9 sigma from the curve).
   Metal opts into three further builder capabilities: marking fills whose
   clip coverage is one, splitting opaque cores from blended edges, and
   batching by fragment class. Other renderers keep the original instance

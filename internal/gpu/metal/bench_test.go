@@ -94,3 +94,8 @@ func BenchmarkRenderBoxes(b *testing.B) { benchRender(b, gputest.BoxesScene(1280
 func BenchmarkRenderTranslatedBoxes(b *testing.B) {
 	benchRender(b, gputest.BoxesScene(1280, 800, 600, true))
 }
+
+// BenchmarkRenderCards draws a dashboard of twelve cards with continuous
+// corners at 2560×1600 (gputest.CardsScene), each casting two shadows,
+// which the builder draws as nine-patches (gpu.Builder.SplitCorners).
+func BenchmarkRenderCards(b *testing.B) { benchRender(b, gputest.CardsScene(2560, 1600)) }

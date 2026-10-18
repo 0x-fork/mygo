@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -608,6 +609,54 @@ func TestSplitsDrawTheSamePixels(t *testing.T) {
 		t.Error("nothing was split")
 	}
 	r.b.NoRingSplit, r.b.NoShadowSplit = false, false
+}
+
+// TestCornerSplitDrawsTheSamePixels draws every identity case, and each
+// with continuous corners everywhere, with shapes of continuous corners
+// drawn as nine-patches (their corners and a twin with square corners) and
+// whole (gpu.Builder.NoCornerSplit), in BGRA8 and float16, and requires the
+// same bytes, and of the cards, the CPU renderer's pixels.
+func TestCornerSplitDrawsTheSamePixels(t *testing.T) {
+	r, err := newRenderer()
+	if err != nil {
+		unavailable(t, err)
+	}
+	defer r.Release()
+	cases := []gputest.CullCase{{Name: "cards", Scene: gputest.CardsScene(1400, 900)},
+		{Name: "odd cards", Scene: gputest.CardsScene(1001, 777)}, {Name: "retina cards", Scene: gputest.CardsScene(2560, 1600)}}
+	for _, c := range identityCases() {
+		cases = append(cases, c, gputest.CullCase{Name: c.Name + " (continuous)", Scene: gputest.Continuously(c.Scene)})
+	}
+	pieces := 0
+	for _, wide := range []bool{false, true} {
+		if wide && !r.SetWide(true) {
+			t.Log("no wide target:", r.wideErr)
+			continue
+		}
+		for _, c := range cases {
+			r.b.NoCornerSplit = false
+			split := renderRaw(t, r, c.Scene, wide)
+			n := len(r.b.Instances)
+			r.b.NoCornerSplit = true
+			whole := renderRaw(t, r, c.Scene, wide)
+			pieces += n - len(r.b.Instances)
+			if d := differing(split, whole); d != 0 {
+				t.Errorf("%s wide=%v: %d bytes differ between nine-patches and whole shapes", c.Name, wide, d)
+			}
+			if !wide && strings.HasSuffix(c.Name, "cards") {
+				r.b.NoCornerSplit = false
+				pix, err := r.renderOffscreen(c.Scene)
+				if err != nil {
+					t.Fatal(err)
+				}
+				gputest.Compare(t, "metal-"+strings.ReplaceAll(c.Name, " ", "-"), pix, c.Scene.Width*4, c.Scene)
+			}
+		}
+	}
+	if pieces == 0 {
+		t.Error("nothing was drawn in pieces")
+	}
+	r.b.NoCornerSplit = false
 }
 
 // holdPipelineBuilds blocks specialized compilation, including an accidental
