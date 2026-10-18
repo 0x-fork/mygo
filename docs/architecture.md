@@ -14,7 +14,11 @@ framework safely. Read it before changing anything under `internal/`.
   takes 44 MB on macOS, and the counter example 65 to 67 MB on Linux, tiled
   to half of a 4K display at scale 2, 15 MB of it the window's buffer,
   without loading Mesa (122 to 155 MB with it). Nothing
-  polls: all work is driven by native events or explicit wake-ups.
+  polls: all work is driven by native events or explicit wake-ups. A
+  window of native UI whose content settled asks for no frame and arms no
+  timer (`TestSettledWindowSleeps`): the display link pauses, Go's
+  scheduler sleeps, and the counter example idles at about 0.005% of a
+  core on macOS (an AppKit window, 0.002%) and wakes no thread under X11.
 - **No cgo.** Everything builds with `CGO_ENABLED=0`, so any platform can be
   cross-compiled from any machine. Native APIs are called at run time through
   [purego](https://github.com/ebitengine/purego) (`dlopen` + assembly
