@@ -5,6 +5,7 @@ import (
 	"image"
 	"math/rand/v2"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -545,5 +546,73 @@ func TestLayoutCacheInvalidates(t *testing.T) {
 				t.Error("nothing was laid out anew")
 			}
 		})
+	}
+}
+
+// A text element laid out anew, as the rows of a List are each frame,
+// takes the layout its state held of the same text rather than asking the
+// text system, and lets it go as the text system's generation changes.
+func TestHeldText(t *testing.T) {
+	var s ListState
+	tt := coreNewTester(func(c *context) {
+		coreList(c, &s, 3, func(i int) {
+			keep(i, coreTextf(c, "Row %d", i))
+		}).Grow(1)
+	}, 200, 200)
+	e := keyed(tt, 1)
+	held := e.st.text
+	if held == nil || !slices.Contains(held.at[:], e.tl) {
+		t.Fatalf("the state of the row's text holds %v, not its layout %p", held, e.tl)
+	}
+	// A copy of the layout, taller, which only the state holds.
+	i := slices.Index(held.at[:], e.tl)
+	copied := *e.tl
+	copied.Height += 10
+	held.at[i] = &copied
+	tt.Frame()
+	if e := keyed(tt, 1); e.tl != &copied || e.h != copied.Height {
+		t.Fatalf("laid out again, the row's text took %p (%v high), not the layout held, %v high", e.tl, e.h, copied.Height)
+	}
+	held.gen++
+	tt.Frame()
+	if e := keyed(tt, 1); e.tl == &copied || e.h == copied.Height {
+		t.Errorf("the text system's generation changed, and the row's text kept the layout held")
+	}
+}
+
+// A grid measures the widths of its items only where its columns read
+// them: those spanning a FitContent column, and those spanning an Fr
+// column where the grid's width is not known, as CSS's minmax(0, 1fr).
+func TestGridMeasures(t *testing.T) {
+	var fit bool
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Children(func() {
+			g := coreGrid(c).Width(300)
+			if fit {
+				g.ColumnTracks(FitContent(), Fr(1))
+			} else {
+				g.ColumnTracks(Fixed(40), Fr(1))
+			}
+			g.Children(func() {
+				keep("first", coreText(c, "first"))
+				keep("second", coreText(c, "second"))
+			})
+			// A grid as wide as its content asks.
+			coreRow(c).Children(func() {
+				coreGrid(c).Columns(2).Children(func() {
+					keep("sized", coreText(c, "sized"))
+					coreText(c, "by content")
+				})
+			})
+		})
+	}, 400, 300)
+	measured := func(k string) bool { return keyed(tt, k).leafOK }
+	if measured("first") || measured("second") || !measured("sized") {
+		t.Errorf("fixed and Fr columns: measured the first %v, the second %v; Fr columns sized by content: %v", measured("first"), measured("second"), measured("sized"))
+	}
+	fit = true
+	tt.Frame()
+	if !measured("first") || measured("second") {
+		t.Errorf("FitContent and Fr columns: measured the first %v, the second %v", measured("first"), measured("second"))
 	}
 }

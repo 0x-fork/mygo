@@ -140,8 +140,9 @@ type engine struct {
 	// layouts counts the frames laid out, laySeq the elements laid out
 	// (layoutBox) and computed those of them not as in the frame before;
 	// layGen is the text system's generation of the last layout, when
-	// layGenOK. noLayoutCache lays every element out anew, as
-	// TestLayoutCacheMatches compares (layoutcache.go).
+	// layGenOK. noLayoutCache lays every element out anew, measuring
+	// all there is to measure and keeping nothing of their text
+	// (heldText), as TestLayoutCacheMatches compares (layoutcache.go).
 	layouts, laySeq uint64
 	computed        uint32
 	layGen          uint64
@@ -777,7 +778,7 @@ func (rt *engine) prune() {
 				}
 				// Recycle the state itself, without keeping the editor,
 				// local resources or callbacks of the element that went.
-				*s = state{}
+				*s = state{text: s.text.emptied()}
 				if len(rt.free) < maxFree {
 					rt.free = append(rt.free, s)
 				}

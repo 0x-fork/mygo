@@ -2048,7 +2048,14 @@ either.
   text's layout and its children's boxes, laying out again any child laid
   out at another size since; what was measured of it (its content widths
   and heights) is reused too, so that a container laid out again measures
-  its unchanged children at once. Transforms and scroll offsets of other
+  its unchanged children at once. The state of a text element also keeps
+  the widths of its text and its last two layouts (`heldText`), found
+  again by their parameters, as Taffy keeps a node's measurements: an
+  element laid out anew whose text is the same, as the rows of a List
+  each frame, asks nothing of the text system's cache, whose key costs
+  more to hash than to compare. A grid measures the widths of only the
+  items its columns read (`contributes`): none for Fr columns with room
+  known, as CSS's minmax(0, 1fr). Transforms and scroll offsets of other
   containers apply after layout and change nothing there. Elements that lay
   out by more than they are built with are never reused, nor anything
   around them: a List (rows built as it lays out), a Form, a Table's

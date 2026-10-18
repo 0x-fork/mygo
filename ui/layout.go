@@ -283,23 +283,10 @@ func (e *node) leafWidths() (maxW, minW float32) {
 		}
 		// Measured once a frame: the layout asks for both widths a few
 		// times.
-		if e.leafOK {
-			return e.leaf[0], e.leaf[1]
+		if !e.leafOK {
+			e.leaf, e.leafOK = e.textWidths(), true
 		}
-		sys := textSystem()
-		p := e.textParams(0)
-		p.MaxLines = 0
-		full := sys.Layout(p).Width
-		min := float32(0)
-		switch {
-		case e.noWrap:
-			min = full
-		case !e.single:
-			p.Width, p.NoBreakWords = 1, true
-			min = sys.Layout(p).Width
-		}
-		e.leaf, e.leafOK = [2]float32{full, min}, true
-		return full, min
+		return e.leaf[0], e.leaf[1]
 	case kindImage:
 		w, _ := e.intrinsicSize()
 		return w, 0
@@ -487,7 +474,7 @@ func naturalHeight(e *node, w, cbH float32) float32 {
 func contentHeight(e *node, cw float32) float32 {
 	switch e.kind {
 	case kindText:
-		return textSystem().Layout(e.textParams(max(cw, 1))).Height
+		return e.textLayout(max(cw, 1)).Height
 	case kindImage, kindIcon:
 		if w, h := e.intrinsicSize(); w > 0 {
 			return cw * h / w
@@ -551,7 +538,7 @@ func computeBox(e *node, w, h float32) {
 	case kindText:
 		// Lists may build paragraphs while laying out, after the view's pass.
 		e.prepareSelectable()
-		e.tl = textSystem().Layout(e.textParams(max(cw, 1)))
+		e.tl = e.textLayout(max(cw, 1))
 		if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 {
 			// Selectable text hit-tests and selects in what it shows.
 			ed.layout = e.tl

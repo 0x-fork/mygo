@@ -321,3 +321,99 @@ func keepBox(e *node, w, h float32, start uint64) {
 		}
 	}
 }
+
+// heldText is what the state of a text element keeps of its text from
+// frame to frame: its max-content and min-content widths and its last
+// layouts, which it finds again by their parameters rather than hashing
+// them into the text system's cache, as Taffy keeps the measurements of a
+// node and Blink the LayoutResult of a box. An element laid out anew, as
+// when its siblings changed or as the rows of a List are, measures and
+// lays out its text at once where it is the same; one whose text changed
+// asks the text system. The text system lets go of the fonts its layouts
+// hold as its generation changes, and so do these.
+type heldText struct {
+	gen uint64
+	// leaf holds the max-content and min-content widths of the text laid
+	// out by leafKey, and by leafSingle, when leafOK.
+	leafKey    text.Params
+	leaf       [2]float32
+	leafSingle bool
+	leafOK     bool
+	// at are the last layouts at widths, next the one to replace.
+	at   [2]*text.Layout
+	next uint8
+}
+
+// heldText returns what e's state keeps of its text, nil where the
+// layout keeps nothing (engine.noLayoutCache).
+func (e *node) heldText() *heldText {
+	rt := e.c.rt
+	if rt.noLayoutCache {
+		return nil
+	}
+	t := e.st.text
+	if t == nil {
+		t = &heldText{gen: rt.gen}
+		e.st.text = t
+	} else if t.gen != rt.gen {
+		*t = heldText{gen: rt.gen}
+	}
+	return t
+}
+
+// emptied empties t, of a state recycled, which keeps it for the element
+// taking the state, as rows coming into view take those of rows gone.
+func (t *heldText) emptied() *heldText {
+	if t != nil {
+		*t = heldText{}
+	}
+	return t
+}
+
+// textWidths measures the max-content and min-content widths of e's text.
+func (e *node) textWidths() [2]float32 {
+	p := e.textParams(0)
+	p.MaxLines = 0
+	t := e.heldText()
+	if t != nil && t.leafOK && t.leafSingle == e.single && sameParams(&t.leafKey, &p) {
+		return t.leaf
+	}
+	sys := textSystem()
+	l := sys.Layout(p)
+	w := [2]float32{l.Width, 0}
+	switch {
+	case e.noWrap:
+		w[1] = w[0]
+	case !e.single:
+		p.Width, p.NoBreakWords = 1, true
+		w[1] = sys.Layout(p).Width
+	}
+	if t != nil {
+		// The layout's parameters own their strings, where the element's
+		// text may be a slice of a large document.
+		t.leafKey, t.leafSingle, t.leaf, t.leafOK = l.Params, e.single, w, true
+	}
+	return w
+}
+
+// textLayout returns the layout of e's text at a content width.
+func (e *node) textLayout(width float32) *text.Layout {
+	p := e.textParams(width)
+	t := e.heldText()
+	if t == nil {
+		return textSystem().Layout(p)
+	}
+	for _, l := range t.at {
+		if l != nil && sameParams(&l.Params, &p) {
+			return l
+		}
+	}
+	l := textSystem().Layout(p)
+	t.at[t.next] = l
+	t.next ^= 1
+	return l
+}
+
+// sameParams reports whether a and b lay text out alike, comparing their
+// texts first, which differ most often.
+func sameParams(a, b *text.Params) bool { return a.Text == b.Text && *a == *b }
