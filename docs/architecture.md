@@ -102,6 +102,7 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── accelerator/    parses "CmdOrCtrl+Shift+K"
 │   ├── update/         update manifests, signatures, archives and delta updates
 │   ├── idlemem/        measures apps' memory once idle, for the benchmarks
+│   ├── inputlatency/   measures how long input takes to reach the screen in native UI (macOS)
 │   └── e2e/            GUI tests and benchmarks against the real backend (MYGO_E2E=1)
 ├── packages/           Bun workspace (with the examples' frontends):
 │   ├── bridge/         the runtime injected into pages (→ internal/bridge/bridge.js)
@@ -3901,7 +3902,7 @@ The Metal `BenchmarkRenderFillRate` benchmark covers nested opaque layers,
 large border rings and stacked shadows at 3456×2000. It reports command
 buffer GPU timestamps with the existing benchmark harness; it waits for
 individual offscreen frames and does not measure display scheduling or
-input latency. `MYGO_FRAME_STATS` includes instance and batch counts,
+input latency, which `internal/inputlatency` measures (below). `MYGO_FRAME_STATS` includes instance and batch counts,
 culled operations, opaque cores and Metal specialization fallbacks.
 `MYGO_GPU_REQUIRED=1` makes the Metal optimization identity tests fail if
 no renderer can be created. They compare raw BGRA8 and float16 output with
@@ -3921,6 +3922,66 @@ which the page shows as the GPU metric.
 
 Benchmarks are described on the page by their doc comments, which the
 site reads when it is built: start them with the benchmark's name.
+
+### Input latency
+
+`go run ./internal/inputlatency` measures, on macOS, how long input takes
+to show on screen in native UI: from when an event arrives to when the
+frame showing it reaches the display, as its drawable's presented handler
+tells (`presentedTime`). Each run is a process with a window shown without
+activating the app, which types into a text area, scrolls a list with the
+trackpad or drags a box, with events at any time within a refresh, and
+prints what the latency is made of: waiting for the main thread, handling
+the event, waiting for the frame to start, building it, waiting for a
+drawable, and from the drawable to the screen. The window server settles
+in a state that lasts a run and changes from run to run, so compare the
+medians of several runs (`-runs`, six by default), alternating builds.
+
+On an M5 with a 120 Hz external display (eight runs each, Oct 2026), a
+key typed in a text area shows in 26.6 ms on average (99th percentile
+31.9), a trackpad scroll of a list in 27.2 ms (31.4) and a drag in 27.6 ms
+(31.7); on the built-in display at 60 Hz, 33, 46 and 43 ms. Of a scroll's
+27 ms, 4.2 wait for the display link's next tick (half a refresh), 0.4
+build and paint the frame, no time waits for a drawable, and 22.7 go from
+the drawable to the screen: the window server composites the frames it
+has at a refresh, and the display shows that composite two refreshes after
+the refresh the frame was presented in, the third when it was presented
+too late in the refresh before. A bare CAMetalLayer window takes as long. A
+typed key's frame starts at once (a frame after a pause draws in the pass
+of the run loop that asked for it), but handling the key takes 3.4 ms:
+the text input tells the input method where the text it changed is
+(`textInputAdapter.changed`), which lays its paragraph out, here 1,800
+characters, which the frame then reuses.
+
+What was measured and left as it is:
+
+- *Drawing late in the refresh*, a deadline before the next vsync rather
+  than at the tick, for frames to show later input: the window server's
+  composite comes from half a millisecond before the vsync to a
+  millisecond and a half after it, from run to run, and the GPU must have
+  finished the frame by then. Drawing 3 ms before the vsync saved 2 ms of
+  29 when frames presented at the tick missed the composite, was 11 ms
+  slower in a run where they made it, and drew a fifth fewer frames.
+- *Skipping a refresh when frames show a refresh late*, as the presented
+  handlers tell, as `Behind` does when a drawable was waited for: in a bare
+  CAMetalLayer window a skip brought most runs from 25.9 to 17.5 ms, but
+  MyGo's frames, which take longer from the tick to their present, stayed
+  late after skips.
+- *CAMetalDisplayLink* with `preferredFrameLatency` 1 or 2 took a refresh
+  more than drawing at a CADisplayLink's tick (33 against 17 to 25 ms at
+  120 Hz), besides keeping the layer from giving drawables outside its
+  callbacks (synchronous resize frames).
+- *Two drawables* or *presenting with the transaction* settled in the same
+  states from run to run, with no gain that held, and with two drawables
+  frames waited for them.
+
+On Windows, `SetMaximumFrameLatency(1)` keeps one frame ahead of the
+screen: a frame drawn while one waits blocks in `Present` until the
+refresh shows it, and the next frame, drawn when input asks for one after
+`Present` returns, reads input from that refresh, as a frame waiting for
+a swap chain's frame latency object before it draws would. Linux's frames
+follow GTK's frame clock. Neither is measured: GitHub's runners and the
+containers have no display that refreshes.
 
 ### Binary size
 
