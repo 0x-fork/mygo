@@ -453,6 +453,19 @@ func TestCodeEditorWords(t *testing.T) {
 	ct.want("[FooBarBaz]")
 }
 
+func TestCodeEditorBracketsFar(t *testing.T) {
+	// 70 KB in 71 lines: past the 64 KB bound, within the 1000 lines.
+	far := strings.Repeat(strings.Repeat("x", 1000)+"\n", 70)
+	for _, text := range []string{"f(\n" + far + "|)", "f(|\n" + far + ")", "f(\n" + far + ")|"} {
+		ct := newEditorTest(t, "go", text)
+		at := ct.st.Selections()[0].Head
+		ct.run(MoveToBracket)
+		if got := ct.st.Selections()[0].Head; got != at {
+			t.Errorf("caret at %d moved to %d", at, got)
+		}
+	}
+}
+
 // Two editors of one buffer follow each other's edits.
 func TestCodeEditorSharedBuffer(t *testing.T) {
 	buf := NewBuffer("hello world")
