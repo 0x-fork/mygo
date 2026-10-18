@@ -359,6 +359,10 @@ type WindowOptions struct {
 	DevTools  bool
 	UserAgent string
 	Zoom      float64
+	// TabFocusesLinks makes Tab reach links and form controls that are not
+	// text fields (macOS, WKPreferences.tabFocusesLinks); the other
+	// platforms reach them already.
+	TabFocusesLinks bool
 	// Native carries backend specific state, e.g. the WKWebViewConfiguration
 	// WebKit hands us for window.open().
 	Native uintptr

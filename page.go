@@ -45,4 +45,10 @@ type PageOptions struct {
 	ZoomFactor float64
 	// UserAgent overrides the user agent string.
 	UserAgent string
+	// SafariTabFocus leaves Tab to text fields and elements with a
+	// tabindex, as Safari does while the system's keyboard navigation
+	// (System Settings › Keyboard › Keyboard navigation) is off (macOS).
+	// By default Tab reaches links, buttons, checkboxes and selects too,
+	// as it does in Chrome, Electron and WebView2.
+	SafariTabFocus bool
 }
