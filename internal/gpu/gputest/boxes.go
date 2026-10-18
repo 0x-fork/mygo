@@ -25,3 +25,34 @@ func BoxesScene(w, h, n int, translated bool) *scene.Scene {
 	}
 	return s
 }
+
+// RowsScene returns a w×h frame of a list of n rows, as a window of a list
+// draws them: each a rounded background, a label of glyphs, a rounded
+// badge and a second label, so that plain fills and glyphs alternate.
+func RowsScene(w, h, n int) *scene.Scene {
+	s := &scene.Scene{Width: w, Height: h, Clear: scene.Color{R: 250, G: 250, B: 250, A: 255}}
+	atlas, text, glyphs := glyphContent()
+	s.MaskAtlas, s.Text = atlas, text
+	run := func(x, y float32, k int, c scene.Color) {
+		start := len(s.Glyphs)
+		for _, g := range glyphs[:k] {
+			g.X, g.Y, g.Color = g.X-40+x, y, c
+			s.Glyphs = append(s.Glyphs, g)
+		}
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: int32(start), End: int32(len(s.Glyphs))})
+	}
+	rowH := float32(h-16) / float32(n)
+	for i := range n {
+		y := 8 + float32(i)*rowH
+		bg := scene.Color{R: 236, G: 238, B: 242, A: 255}
+		if i%2 == 1 {
+			bg = scene.Color{R: 244, G: 245, B: 247, A: 255}
+		}
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 8, Y: y, W: float32(w) - 16, H: rowH - 2}, Radii: scene.Uniform(4), Color: bg})
+		run(20, y+1.5, 8+i%5, scene.Color{R: 30, G: 30, B: 34, A: 255})
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 260, Y: y + 2, W: 40, H: rowH - 6}, Radii: scene.Uniform(6),
+			Color: scene.Color{R: uint8(60 + i*29%160), G: 120, B: 220, A: 255}})
+		run(320, y+1.5, 4+i%7, scene.Color{R: 110, G: 110, B: 120, A: 255})
+	}
+	return s
+}

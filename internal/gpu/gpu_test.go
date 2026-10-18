@@ -417,8 +417,7 @@ func TestBatchClasses(t *testing.T) {
 		{Kind: scene.OpImage, Rect: r(0), Image: img, Src: scene.Rect{W: 2, H: 2}},
 		{Kind: scene.OpFill, Rect: r(120), Color: red, Transform: scene.Translation(1, 1).Mul(scene.Scaling(1.01, 1))},
 	}
-	var b Builder
-	b.Classes = true
+	b := Builder{Classes: true, NoJoin: true}
 	b.Build(s, func(*scene.Image) uintptr { return 1 })
 	want := []Class{ClassPlain, ClassFill, ClassShadow, ClassGlyph, ClassImage, ClassGeneral}
 	if len(b.Batches) != len(want) {
@@ -437,6 +436,58 @@ func TestBatchClasses(t *testing.T) {
 	for i, bt := range b.Batches {
 		if bt.Class != ClassGeneral {
 			t.Errorf("NoClasses: batch %d has class %d", i, bt.Class)
+		}
+	}
+}
+
+// TestJoinBatches checks that runs of small batches of other classes join
+// into one batch holding their classes, that batches covering many pixels
+// keep theirs, and that batches drawing with other state stay apart.
+func TestJoinBatches(t *testing.T) {
+	red := scene.Color{R: 255, A: 255}
+	box := func(x, y float32) scene.Rect { return scene.Rect{X: x, Y: y, W: 20, H: 20} }
+	s := &scene.Scene{Width: 400, Height: 300}
+	for i := range 4 {
+		x := float32(i * 30)
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpShadow, Rect: box(x, 10), Color: scene.Color{A: 60}, Blur: 4},
+			scene.Op{Kind: scene.OpFill, Rect: box(x, 10), Radii: scene.Uniform(4), Color: red})
+	}
+	// A large fill keeps its class, the fill of the last box sharing its
+	// batch, and the small batches after it join.
+	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 0, Y: 50, W: 300, H: 200}, Color: scene.Color{G: 200, A: 200}},
+		scene.Op{Kind: scene.OpFill, Rect: box(10, 60), Color: red, Border: scene.Uniform(1), BorderColor: red},
+		scene.Op{Kind: scene.OpShadow, Rect: box(40, 60), Color: scene.Color{A: 60}, Blur: 4},
+		// A clip: another scissor rectangle.
+		scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 100, Y: 100, W: 50, H: 50}},
+		scene.Op{Kind: scene.OpFill, Rect: box(110, 110), Color: red},
+		scene.Op{Kind: scene.OpPopClip},
+		// A transformed fill joins as the general class: every path.
+		scene.Op{Kind: scene.OpFill, Rect: box(200, 60), Color: red},
+		scene.Op{Kind: scene.OpFill, Rect: box(230, 60), Color: red, Transform: scene.Rotation(0.1)})
+	b := Builder{Classes: true}
+	b.Build(s, func(*scene.Image) uintptr { return 1 })
+	type got struct {
+		count  int
+		class  Class
+		joined uint32
+	}
+	want := []got{{7, ClassGeneral, 1<<ClassShadow | 1<<ClassPlain}, {2, ClassPlain, 0}, {2, ClassGeneral, 1<<ClassFill | 1<<ClassShadow},
+		{1, ClassPlain, 0}, {2, ClassGeneral, 0}}
+	var have []got
+	for _, bt := range b.Batches {
+		have = append(have, got{bt.Count, bt.Class, bt.Joined})
+	}
+	if !slices.Equal(have, want) {
+		t.Errorf("batches %+v, want %+v", have, want)
+	}
+	for _, off := range []func(*Builder){func(b *Builder) { b.NoJoin = true }, func(b *Builder) { b.NoClasses = true }, func(b *Builder) { b.Classes = false }} {
+		b := Builder{Classes: true}
+		off(&b)
+		b.Build(s, func(*scene.Image) uintptr { return 1 })
+		for _, bt := range b.Batches {
+			if bt.Joined != 0 {
+				t.Errorf("a batch joined classes: %+v", bt)
+			}
 		}
 	}
 }
@@ -593,7 +644,7 @@ func TestTranslationsFold(t *testing.T) {
 		t.Fatal("translated boxes build other instances than boxes in their places")
 	}
 	for _, bt := range got.Batches {
-		if bt.Class == ClassGeneral {
+		if bt.Class == ClassGeneral && bt.Joined == 0 {
 			t.Fatalf("a batch of translated boxes takes the general shader: %+v", bt)
 		}
 	}

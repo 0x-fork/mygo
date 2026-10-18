@@ -148,6 +148,11 @@ type Batch struct {
 	// not specialize their shader ignore them.
 	Class      Class
 	Continuous bool
+	// Joined, for a batch of ClassGeneral that joined small batches of
+	// other classes (see joinLast), has a bit (1 << Class) for each
+	// class among them: a renderer may draw it with a shader holding
+	// only their paths, which draws the same pixels. 0 is every path.
+	Joined uint32
 }
 
 // Class says which paths of the fragment shader a batch's instances take.
@@ -264,6 +269,9 @@ type Builder struct {
 	GeneralFill, NoClipSkip bool
 	// ClipSkip enables the clip-coverage flag understood by the Metal shader.
 	ClipSkip bool
+	// NoJoin keeps the batches of each class apart, however small (see
+	// joinLast), for tests and measurements that compare the two.
+	NoJoin bool
 	// NoFold draws the ops that only translate under their transforms (see
 	// scene.TranslationFolder), for tests that compare the two.
 	NoFold bool
@@ -271,6 +279,7 @@ type Builder struct {
 	Culled, OpaqueCores int
 	fold                scene.TranslationFolder
 	opaque              bool
+	joinSmall           bool // whether the last batch joinLast saw covers few pixels
 	culled              []bool
 	plan                []cullInfo
 	planStack           []clip
@@ -414,6 +423,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 	b.Backdrops = b.Backdrops[:0]
 	b.Stops = b.Stops[:0]
 	b.OpaqueCores = 0
+	b.joinSmall = false
 	everything := scene.Rect{X: -1e6, Y: -1e6, W: 2e6, H: 2e6}
 	b.stack = append(b.stack[:0], clip{rect: everything, bounds: scene.Rect{W: float32(s.Width), H: float32(s.Height)},
 		scissor: Scissor{0, 0, int32(s.Width), int32(s.Height)}})
@@ -600,9 +610,70 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 		}
 	}
 
+	b.joinLast()
 	b.dropIdleMasks(idleMaskBytes)
 	b.imageTexture = nil
 	return s
+}
+
+// joinArea is the most pixels a batch may cover for joinLast to join it
+// with its neighbors of other classes. On an M5 a draw call costs about 1.1 µs
+// of the CPU and 0.1 µs of the GPU, and a plain fill drawn with the shader of
+// joined classes costs the GPU 0.02 ns a pixel more with glyphs or shadows,
+// 0.04 with other fills and 0.075 with the general shader: at this many
+// pixels, the worst of them costs what the call it saves does.
+const joinArea = 128 * 128
+
+// joinLast joins the last batch, which no instance joins any more, into the
+// one before it when they differ only in their class and each batch they
+// were made of covers few pixels (joinArea): one batch of the general
+// class, Joined holding their classes. Scenes that interleave classes op by
+// op (each box a shadow then its fill, each row a fill then its label) would
+// otherwise draw a call per instance, which costs the CPU more than drawing
+// their few pixels with a shader of several classes costs the GPU. Batches
+// covering more keep their class, and their shader specialized for it.
+func (b *Builder) joinLast() {
+	n := len(b.Batches)
+	if n == 0 || !b.Classes || b.NoClasses || b.NoJoin {
+		return
+	}
+	bt := &b.Batches[n-1]
+	// The pixels of its quads (as the vertex shader grows them), at most.
+	area := float32(0)
+	for _, in := range b.Instances[bt.Start : bt.Start+bt.Count] {
+		e := float32(1)
+		if in.Params[0] == 1 {
+			e += 3 * in.Params[2]
+		}
+		if area += (in.Rect[2] + 2*e) * (in.Rect[3] + 2*e); area > joinArea {
+			break
+		}
+	}
+	fits := area <= joinArea
+	if last := &b.Batches[max(n-2, 0)]; n > 1 && b.joinSmall && fits && last.Scissor == bt.Scissor &&
+		last.ClipMask == bt.ClipMask && last.Opaque == bt.Opaque && last.Effect == nil && bt.Effect == nil && !last.Hole && !bt.Hole &&
+		(last.Image == 0 || bt.Image == 0 || last.Image == bt.Image) {
+		if j := last.Classes() | bt.Classes(); j != 1<<last.Class {
+			last.Class, last.Joined = ClassGeneral, j
+			if j&1 != 0 {
+				last.Joined = 0 // a general batch among them: every path
+			}
+		}
+		last.Count += bt.Count
+		last.Continuous = last.Continuous || bt.Continuous
+		last.Image |= bt.Image
+		b.Batches = b.Batches[:n-1]
+	}
+	b.joinSmall = fits
+}
+
+// Classes returns the classes of the instances of b, a bit (1 << Class) for
+// each (see Joined).
+func (b *Batch) Classes() uint32 {
+	if b.Joined != 0 {
+		return b.Joined
+	}
+	return 1 << b.Class
 }
 
 // addStops adds the stops of op's gradient to b.Stops, at most
@@ -688,8 +759,9 @@ func (b *Builder) add(in Instance, image uintptr, m scene.Affine) {
 		// code of those that need more.
 		b.Batches[n-1].Continuous = b.Batches[n-1].Continuous || continuous
 	} else {
+		b.joinLast()
 		b.Batches = append(b.Batches, Batch{Start: len(b.Instances), Scissor: sc, Image: image, ClipMask: b.preparedMask, Opaque: b.opaque, Class: class, Continuous: continuous})
-		n++
+		n = len(b.Batches)
 	}
 	if image != 0 {
 		b.Batches[n-1].Image = image

@@ -656,15 +656,17 @@ const (
 // function vs and the fragment function fs of lib, blending premultiplied
 // colors over what is drawn, or as mode says.
 func (r *Renderer) newPipeline(lib id, fs string, format uint, mode blendMode) (id, error) {
-	return r.newClassPipeline(lib, fs, format, mode, gpu.ClassGeneral, true)
+	return r.newClassPipeline(lib, fs, format, mode, 1<<gpu.ClassGeneral, true)
 }
 
 // classConstants are the function constants (the second, continuous corners,
 // being the batch's) (shader.metal) of each class
 // of batches: whether the fragment function has the code of instances under a
 // transform, continuous corners, plain fills, other fills, shadows, glyphs,
-// subpixel glyphs and images.
+// subpixel glyphs and images. A function of several classes has the constants
+// of each.
 var classConstants = [gpu.NumClasses][8]bool{
+	gpu.ClassGeneral:  {true, true, true, true, true, true, true, true},
 	gpu.ClassPlain:    {2: true},
 	gpu.ClassFill:     {3: true},
 	gpu.ClassShadow:   {4: true},
@@ -673,12 +675,12 @@ var classConstants = [gpu.NumClasses][8]bool{
 	gpu.ClassImage:    {7: true},
 }
 
-// specialized returns the function fs of lib with the constants of class cl
-// (owned). A function that has none (a library of an effect compiled before
+// specialized returns the function fs of lib with the constants of the
+// classes cl (gpu.Batch.Classes) (owned). A function that has none (a library of an effect compiled before
 // they existed) is returned as it is; for the general class, the constants are
 // all true.
-func (r *Renderer) specialized(lib id, fs string, cl gpu.Class, continuous bool) (fn id, errObj id) {
-	if cl == gpu.ClassGeneral {
+func (r *Renderer) specialized(lib id, fs string, cl uint32, continuous bool) (fn id, errObj id) {
+	if cl&(1<<gpu.ClassGeneral) != 0 {
 		fn = send(lib, "newFunctionWithName:", nsString(fs))
 		if fn == 0 || send(send(fn, "functionConstantsDictionary"), "count") == 0 {
 			return fn, 0
@@ -688,10 +690,12 @@ func (r *Renderer) specialized(lib id, fs string, cl gpu.Class, continuous bool)
 	values := send(send(class("MTLFunctionConstantValues"), "alloc"), "init")
 	defer release(&values)
 	const dataTypeBool = 53
-	for i, on := range classConstants[cl] {
+	for i := range 8 {
 		v := byte(0)
-		if on || cl == gpu.ClassGeneral || i == 1 && continuous {
-			v = 1
+		for c, on := range classConstants {
+			if on[i] && cl&(1<<c) != 0 || i == 1 && continuous {
+				v = 1
+			}
 		}
 		send(values, "setConstantValue:type:atIndex:", uintptr(unsafe.Pointer(&v)), dataTypeBool, uintptr(i))
 	}
@@ -700,8 +704,8 @@ func (r *Renderer) specialized(lib id, fs string, cl gpu.Class, continuous bool)
 }
 
 // newClassPipeline is newPipeline with the fragment function specialized for
-// the class cl.
-func (r *Renderer) newClassPipeline(lib id, fs string, format uint, mode blendMode, cl gpu.Class, continuous bool) (id, error) {
+// the classes cl.
+func (r *Renderer) newClassPipeline(lib id, fs string, format uint, mode blendMode, cl uint32, continuous bool) (id, error) {
 	vsFn := send(lib, "newFunctionWithName:", nsString("vs"))
 	defer release(&vsFn)
 	fsFn, fnErr := r.specialized(lib, fs, cl, continuous)
@@ -1104,18 +1108,18 @@ func (r *Renderer) drawInto(cb id, s *scene.Scene, target id, d *drawState) erro
 		if b.Count == 0 || sc.Empty() {
 			continue
 		}
-		var want id
+		mode := blendOver
 		switch {
-		case b.Effect != nil:
-			if want = r.effectPipeline(b.Effect); want == 0 {
-				continue
-			}
 		case b.Hole:
-			want = r.pipeFor(r.cur, b.Class, b.Continuous, blendHole)
+			mode = blendHole
 		case b.Opaque:
-			want = r.pipeFor(r.cur, b.Class, b.Continuous, blendNone)
-		default:
-			want = r.pipeFor(r.cur, b.Class, b.Continuous, blendOver)
+			mode = blendNone
+		}
+		var want id
+		if b.Effect == nil {
+			want = r.pipeFor(r.cur, b.Classes(), b.Continuous, mode)
+		} else if want = r.effectPipeline(b.Effect); want == 0 {
+			continue
 		}
 		if b.Backdrop != 0 {
 			// The effect shows what is drawn so far.

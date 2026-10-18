@@ -34,12 +34,19 @@ func BenchmarkRenderEmpty(b *testing.B) {
 
 var msgDouble func(obj id, sel uintptr) float64
 
-func benchRender(b *testing.B, s *scene.Scene) {
+func benchRender(b *testing.B, s *scene.Scene) { benchRenderWith(b, s, nil) }
+
+// benchRenderWith is benchRender with the renderer set up by setup, if not
+// nil, and the batches of the frame reported.
+func benchRenderWith(b *testing.B, s *scene.Scene, setup func(*Renderer)) {
 	r, err := newRenderer()
 	if err != nil {
 		b.Skip("no Metal:", err)
 	}
 	defer r.Release()
+	if setup != nil {
+		setup(r)
+	}
 	if msgDouble == nil {
 		purego.RegisterFunc(&msgDouble, msgSend)
 	}
@@ -74,6 +81,9 @@ func benchRender(b *testing.B, s *scene.Scene) {
 		}
 	}
 	b.ReportMetric(gpu*1000/float64(b.N), "GPU-ms")
+	if setup != nil {
+		b.ReportMetric(float64(len(r.b.Batches)), "batches")
+	}
 }
 
 // BenchmarkRenderBoxes draws 600 rounded boxes casting shadows at

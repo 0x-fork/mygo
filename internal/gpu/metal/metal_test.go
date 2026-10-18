@@ -505,8 +505,9 @@ func identityCases() []gputest.CullCase {
 }
 
 // TestClassesDrawTheSamePixels draws every scene with a fragment function
-// specialized for each batch (gpu.Class) and with the general one, in BGRA8
-// and float16 targets, and requires the same bytes.
+// specialized for each batch (gpu.Class), small batches joined (with one of
+// their classes, gpu.Batch.Joined) and apart (gpu.Builder.NoJoin), and with
+// the general one, in BGRA8 and float16 targets, and requires the same bytes.
 func TestClassesDrawTheSamePixels(t *testing.T) {
 	r, err := newRenderer()
 	if err != nil {
@@ -514,29 +515,40 @@ func TestClassesDrawTheSamePixels(t *testing.T) {
 	}
 	defer r.Release()
 	var seen [gpu.NumClasses]int
+	joined := map[uint32]int{}
 	for _, wide := range []bool{false, true} {
 		if wide && !r.SetWide(true) {
 			t.Log("no wide target:", r.wideErr)
 			continue
 		}
-		for _, c := range shaderIdentityCases() {
-			r.b.NoClasses = false
-			special := renderRaw(t, r, c.Scene, wide)
-			var classes [gpu.NumClasses]int
-			for _, bt := range r.b.Batches {
-				classes[bt.Class]++
-			}
+		// And scenes whose small batches of classes interleave.
+		cases := append(shaderIdentityCases(), gputest.CullCase{Name: "boxes", Scene: gputest.BoxesScene(640, 400, 120, false)},
+			gputest.CullCase{Name: "translated boxes", Scene: gputest.BoxesScene(640, 400, 120, true)},
+			gputest.CullCase{Name: "rows", Scene: gputest.RowsScene(640, 400, 30)})
+		for _, c := range cases {
 			r.b.NoClasses = true
-			c.Scene.EachCanvas(func(c *scene.Image) { c.Changed() })
 			general := renderRaw(t, r, c.Scene, wide)
-			for k, n := range classes {
-				seen[k] += n
-			}
-			if d := differing(special, general); d != 0 {
-				t.Errorf("%s wide=%v: %d bytes differ between specialized and general shaders (classes %v)", c.Name, wide, d, classes)
+			for _, apart := range []bool{false, true} {
+				r.b.NoClasses, r.b.NoJoin = false, apart
+				c.Scene.EachCanvas(func(c *scene.Image) { c.Changed() })
+				special := renderRaw(t, r, c.Scene, wide)
+				var classes [gpu.NumClasses]int
+				for _, bt := range r.b.Batches {
+					classes[bt.Class]++
+					if bt.Joined != 0 {
+						joined[bt.Joined]++
+					}
+				}
+				for k, n := range classes {
+					seen[k] += n
+				}
+				if d := differing(special, general); d != 0 {
+					t.Errorf("%s wide=%v apart=%v: %d bytes differ between specialized and general shaders (classes %v)", c.Name, wide, apart, d, classes)
+				}
 			}
 		}
 	}
+	r.b.NoClasses, r.b.NoJoin = false, false
 	for k, n := range seen {
 		if n == 0 {
 			t.Errorf("no batch of class %d was drawn", k)
@@ -544,15 +556,24 @@ func TestClassesDrawTheSamePixels(t *testing.T) {
 		// The test proves nothing if a specialized pipeline did not build and
 		// the frames drew with the general one in its place.
 		cl := gpu.Class(k)
-		if cl != gpu.ClassGeneral && specializable(pixelFormatBGRA8Unorm, cl, blendOver) &&
-			!r.usedSpecialized(pipeKey{pixelFormatBGRA8Unorm, cl, false, blendOver}) && !r.usedSpecialized(pipeKey{pixelFormatBGRA8Unorm, cl, true, blendOver}) {
+		if cl != gpu.ClassGeneral && specializable(pixelFormatBGRA8Unorm, 1<<cl, blendOver) &&
+			!r.usedSpecialized(pipeKey{pixelFormatBGRA8Unorm, 1 << cl, false, blendOver}) && !r.usedSpecialized(pipeKey{pixelFormatBGRA8Unorm, 1 << cl, true, blendOver}) {
 			t.Errorf("class %d drew with no specialized pipeline", k)
 		}
 	}
+	// Shadows joined with fills (boxes), and fills with glyphs (rows).
+	for _, set := range []uint32{1<<gpu.ClassShadow | 1<<gpu.ClassPlain, 1<<gpu.ClassPlain | 1<<gpu.ClassGlyph} {
+		if joined[set] == 0 {
+			t.Errorf("no batch joined the classes %b", set)
+		}
+		if !r.usedSpecialized(pipeKey{pixelFormatBGRA8Unorm, set, false, blendOver}) && !r.usedSpecialized(pipeKey{pixelFormatBGRA8Unorm, set, true, blendOver}) {
+			t.Errorf("the classes %b drew with no specialized pipeline", set)
+		}
+	}
+	t.Logf("joined classes: %v", joined)
 	if built, failed := r.pipelineCounts(); failed != 0 || built == 0 {
 		t.Errorf("%d specialized pipelines built, %d failed", built, failed)
 	}
-	r.b.NoClasses = false
 }
 
 // TestSplitsDrawTheSamePixels draws every identity case with the shadow and
@@ -664,7 +685,7 @@ func TestFramesNeverWaitForACompile(t *testing.T) {
 		t.Fatal("the first frame did not draw with a general fallback")
 	}
 	f := r.cur
-	if p := r.pipeFor(f, gpu.ClassGlyph, true, blendOver); p != f.pipeline {
+	if p := r.pipeFor(f, 1<<gpu.ClassGlyph, true, blendOver); p != f.pipeline {
 		t.Error("a pipeline that is not made yet is not the general one")
 	}
 	// The frame finished while compilation was held. Let the worker make
@@ -673,7 +694,7 @@ func TestFramesNeverWaitForACompile(t *testing.T) {
 	plain := f.pipeline
 	for i := 0; i < 200 && plain == f.pipeline; i++ {
 		time.Sleep(50 * time.Millisecond)
-		plain = r.pipeFor(f, gpu.ClassPlain, false, blendOver)
+		plain = r.pipeFor(f, 1<<gpu.ClassPlain, false, blendOver)
 		if plain == 0 {
 			t.Fatal("no pipeline")
 		}
@@ -695,7 +716,7 @@ func TestFramesNeverWaitForACompile(t *testing.T) {
 	}
 	defer r2.Release()
 	renderRaw(t, r2, s, false)
-	if p := r2.pipeFor(r2.cur, gpu.ClassPlain, false, blendOver); p == r2.cur.pipeline {
+	if p := r2.pipeFor(r2.cur, 1<<gpu.ClassPlain, false, blendOver); p == r2.cur.pipeline {
 		t.Error("a second renderer did not find the pipeline made by the first")
 	}
 }

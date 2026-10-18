@@ -3251,7 +3251,11 @@ either.
     Opaque fill cores use an unblended pipeline in BGRA8; float16 keeps
     blending to preserve its interpolation rounding. Fragment functions are
     specialized by batch class and continuous corners, with general shaders
-    as an identical fallback. A worker compiles and warms these pipelines,
+    as an identical fallback. Runs of small batches of different classes
+    (each covering at most 128×128 pixels, as a box's shadow then its
+    fill) join into one batch whose function holds just their classes'
+    paths (`Batch.Joined`): a draw call costs the CPU more than those
+    pixels cost the joined function. A worker compiles and warms these pipelines,
     cached per device, outside the frame path. Renderer release stops and
     joins that worker before releasing its shader library. Float16 shadows
     stay general, and fills with fractional opacity avoid the plain class,
