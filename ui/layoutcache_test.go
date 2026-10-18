@@ -297,8 +297,8 @@ func (m *lcModel) build(c *context, tester int) {
 }
 
 // sameBoxes reports where the elements of two frames differ in their
-// boxes or in their text's layouts. Copies of elements leaving with an
-// exit transition, which go in no particular order, are left out.
+// boxes or in their text's layouts, copies of elements leaving with an
+// exit transition included.
 func sameBoxes(a, b *node, path string) string {
 	switch {
 	case a.id != b.id || a.kind != b.kind:
@@ -310,18 +310,12 @@ func sameBoxes(a, b *node, path string) string {
 	case (a.tl == nil) != (b.tl == nil) || a.tl != nil && (a.tl.Params != b.tl.Params || a.tl.Width != b.tl.Width || a.tl.Height != b.tl.Height):
 		return path + ": text laid out otherwise"
 	}
-	staying := func(e *node) *node {
-		for e != nil && e.leaving != 0 {
-			e = e.next
-		}
-		return e
-	}
-	ca, cb := staying(a.first), staying(b.first)
+	ca, cb := a.first, b.first
 	for i := 0; ca != nil && cb != nil; i++ {
 		if d := sameBoxes(ca, cb, path+"/"+strconv.Itoa(i)); d != "" {
 			return d
 		}
-		ca, cb = staying(ca.next), staying(cb.next)
+		ca, cb = ca.next, cb.next
 	}
 	if ca != nil || cb != nil {
 		return path + ": not the same children"

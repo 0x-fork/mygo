@@ -210,6 +210,8 @@ type engine struct {
 	exitsBuilt   bool
 	laidW, laidH float32
 	byID         map[uint64]*node
+	// going are animateExits' copies going, in order.
+	going []exit
 	// insp is the inspector (inspector.go); dupKeys are the duplicate keys
 	// reported, and warnings what the inspector lists.
 	insp inspector
