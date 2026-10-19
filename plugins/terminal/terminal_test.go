@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -552,6 +553,41 @@ func TestCopyOnSelect(t *testing.T) {
 			t.Errorf("CopyOnSelect %v: Select All copied %q, want %q", on, got, want)
 		}
 		term.Close()
+	}
+}
+
+// OnCopy tells of each copy, and what made it.
+func TestOnCopy(t *testing.T) {
+	loadLib(t)
+	type copy struct {
+		text string
+		by   CopySource
+	}
+	var got []copy
+	conn := newPipe()
+	term, err := New(Options{Conn: conn, CopyOnSelect: CopyOnSelectClipboard, OnCopy: func(text string, by CopySource) {
+		got = append(got, copy{text, by})
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	term.Feed([]byte("hello world"))
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	x0, y0 := cellCenter(term, 0, 0)
+	x1, y1 := cellCenter(term, 4, 0)
+	tt.Press(x0-2, y0)
+	tt.Move(x1+2, y1)
+	tt.Release(x1+2, y1)
+	copyMods := ui.Ctrl | ui.Shift
+	if runtime.GOOS == "darwin" {
+		copyMods = ui.Super
+	}
+	tt.Key(copyMods, ui.KeyC)
+	tt.Command("selectAll")
+	want := []copy{{"hello", CopySelect}, {"hello", CopyUser}, {"hello world", CopySelect}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("OnCopy saw %v, want %v", got, want)
 	}
 }
 

@@ -192,6 +192,7 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 	t.mu.Unlock()
 	for _, s := range copied {
 		c.WriteClipboard(s)
+		v.copied(s, CopyProgram)
 	}
 	if term != nil {
 		v.reads = append(v.reads, reads...)
@@ -407,6 +408,7 @@ func (v *view) menu(m *ui.Menu) {
 	tx := l10n.In(v.lang)
 	if v.menuItem(m, tx.Copy(), ActionCopy).Disabled(!selected || text == "").Chosen() {
 		v.services.WriteClipboard(text)
+		v.copied(text, CopyUser)
 	}
 	if v.menuItem(m, tx.Paste(), ActionPaste).Chosen() {
 		v.paste()
@@ -467,6 +469,7 @@ func (v *view) input(ev ui.InputEvent) bool {
 			// up while another program has it.
 			v.copying = ""
 			v.services.WriteClipboard(text)
+			v.copied(text, CopySelect)
 		}
 		if a := v.rightClick; a != RightClickContextMenu {
 			// Outside pointerEvent's lock, which copying and pasting take.
@@ -763,10 +766,19 @@ func (v *view) copy(clear bool) bool {
 		return false
 	}
 	v.services.WriteClipboard(text)
+	v.copied(text, CopyUser)
 	if clear {
 		v.services.Invalidate()
 	}
 	return true
+}
+
+// copied tells Options.OnCopy of text the terminal wrote to the
+// clipboard.
+func (v *view) copied(text string, by CopySource) {
+	if on := v.t.opts.OnCopy; on != nil {
+		on(text, by)
+	}
 }
 
 // paste pastes the clipboard and reports whether it held anything. It
@@ -832,6 +844,7 @@ func (v *view) selectAll() {
 		// Outside the lock, which the clipboard may hold up while
 		// another program has it.
 		v.services.WriteClipboard(text)
+		v.copied(text, CopySelect)
 	}
 	v.services.Invalidate()
 }

@@ -228,6 +228,19 @@ term, err := terminal.New(terminal.Options{
   	})
   },
   ```
+- `OnCopy` runs on the main thread after the terminal writes text to the
+  clipboard, with what made the copy: `CopyUser` (the copy keys, the
+  context menu, a secondary click that copies), `CopySelect`
+  (`CopyOnSelect`) or `CopyProgram` (OSC 52). An app may say so, as
+  Ghostty's `app-notifications = clipboard-copy` does with a toast:
+
+  ```go
+  OnCopy: func(text string, by terminal.CopySource) {
+  	if by != terminal.CopyProgram {
+  		showToast("Copied to clipboard")
+  	}
+  },
+  ```
 - `OnTitle`, `OnExit`, `OnBell` and `OnNotify` run on a goroutine of the
   terminal when the program sets the title, ends, rings the bell or asks
   for a desktop notification. `Done` is closed once the program exited,

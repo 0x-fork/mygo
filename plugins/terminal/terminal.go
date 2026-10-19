@@ -177,6 +177,12 @@ type Options struct {
 	// of them wins. A request the hook leaves unanswered stays pending,
 	// as does a read of a terminal no view shows.
 	OnClipboardRequest func(req ClipboardRequest)
+	// OnCopy runs on the main thread after the terminal writes text to the
+	// clipboard: the user's copy (ActionCopy's keys, the context menu, a
+	// secondary click), a selection Options.CopyOnSelect copied, or a
+	// program's (OSC 52), as by tells. An app may say so, as Ghostty's
+	// app-notifications = clipboard-copy does with a toast.
+	OnCopy func(text string, by CopySource)
 
 	// OpenLink takes what a Command+click (Control+click elsewhere)
 	// opens: a hyperlink (OSC 8), a URL printed as text, or, only with
@@ -223,6 +229,21 @@ type Options struct {
 	// zooming off.
 	OnZoom func(z Zoom) bool
 }
+
+// CopySource is what copied text to the clipboard (Options.OnCopy).
+type CopySource int
+
+const (
+	// CopyUser is the user's copy: ActionCopy's keys, the context menu's
+	// Copy, or a secondary click that copies (RightClickCopy,
+	// RightClickCopyOrPaste).
+	CopyUser CopySource = iota
+	// CopySelect is a selection Options.CopyOnSelect copied as it ended,
+	// or as Select All made it.
+	CopySelect
+	// CopyProgram is a program's write to the clipboard (OSC 52).
+	CopyProgram
+)
 
 // ClipboardAccess is what programs get when they read the clipboard
 // (Options.ClipboardRead).
