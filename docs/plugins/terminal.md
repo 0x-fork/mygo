@@ -76,6 +76,10 @@ The terminal does what terminal apps do:
   cells, a double click words and a triple click lines, and dragging past
   the top or the bottom scrolls. Option (Alt elsewhere) drags a rectangle.
   While a program takes the mouse, as editors do, Shift selects.
+- **The pointer** is Ghostty's: the I-beam over a shell, the arrow while a
+  program takes the mouse (the I-beam again while Shift is held, as Shift
+  selects then), and the shape a program asks for with OSC 22 (`pointer`,
+  `crosshair`, `col-resize`…) until it takes or leaves the mouse again.
 - **Copy and paste** are Command+C and Command+V on macOS, which the Edit
   menu's roles also send, and Control+Shift+C and Control+Shift+V
   elsewhere, with Control+Insert and Shift+Insert, and on Windows

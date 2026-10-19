@@ -37,7 +37,7 @@ func View(c *ui.Context, t *Terminal) ui.Element {
 	// A terminal's grid is left to right in a right-to-left interface too.
 	e := ui.Box(c).Direction(ui.LeftToRight).Focusable().FocusRing(false).Clip().Label("Terminal")
 	v.build(c, e)
-	cursor := ui.CursorText
+	cursor := v.pointerAt
 	if v.hoverLink {
 		cursor = ui.CursorPointer
 	}
@@ -47,6 +47,80 @@ func View(c *ui.Context, t *Terminal) ui.Element {
 	e.Draw(v.paint)
 	e.ContextMenu(v.menu)
 	return e
+}
+
+// pointerShape is the pointer over the grid, as Ghostty shows it: the
+// shape the program asked for (OSC 22), the I-beam until it asks; the
+// arrow once it takes the mouse, and the I-beam again once it leaves it,
+// until it asks for another; and the I-beam while Shift is held over a
+// program that takes the mouse, as Shift selects then.
+func (v *view) pointerShape(term *vt.Terminal, mods ui.Modifiers) ui.Cursor {
+	asked := term.MouseShape()
+	if tracking := term.MouseTracking(); tracking != v.tracking {
+		v.tracking, v.modeOSC, v.modeShape = tracking, asked, shapeText
+		if tracking {
+			v.modeShape = shapeDefault
+		}
+	}
+	if v.tracking && mods&ui.Shift != 0 {
+		return ui.CursorText
+	}
+	shape := asked
+	if asked == v.modeOSC {
+		shape = v.modeShape
+	}
+	return cursorOf(shape)
+}
+
+// Ghostty's pointer shapes (GhosttyMouseShape), as OSC 22 names them.
+const (
+	shapeDefault = 0
+	shapeText    = 8
+)
+
+// cursorOf returns the pointer for a Ghostty pointer shape: the nearest
+// one the platform has, or the arrow.
+func cursorOf(shape int) ui.Cursor {
+	shapes := [...]ui.Cursor{
+		ui.CursorDefault,      // default
+		ui.CursorContextMenu,  // context-menu
+		ui.CursorDefault,      // help
+		ui.CursorPointer,      // pointer
+		ui.CursorDefault,      // progress
+		ui.CursorDefault,      // wait
+		ui.CursorCrosshair,    // cell
+		ui.CursorCrosshair,    // crosshair
+		ui.CursorText,         // text
+		ui.CursorVerticalText, // vertical-text
+		ui.CursorAlias,        // alias
+		ui.CursorCopy,         // copy
+		ui.CursorMove,         // move
+		ui.CursorNotAllowed,   // no-drop
+		ui.CursorNotAllowed,   // not-allowed
+		ui.CursorGrab,         // grab
+		ui.CursorGrabbing,     // grabbing
+		ui.CursorMove,         // all-scroll
+		ui.CursorResizeColumn, // col-resize
+		ui.CursorResizeRow,    // row-resize
+		ui.CursorResizeN,      // n-resize
+		ui.CursorResizeE,      // e-resize
+		ui.CursorResizeS,      // s-resize
+		ui.CursorResizeW,      // w-resize
+		ui.CursorResizeNESW,   // ne-resize
+		ui.CursorResizeNWSE,   // nw-resize
+		ui.CursorResizeNWSE,   // se-resize
+		ui.CursorResizeNESW,   // sw-resize
+		ui.CursorResizeEW,     // ew-resize
+		ui.CursorResizeNS,     // ns-resize
+		ui.CursorResizeNESW,   // nesw-resize
+		ui.CursorResizeNWSE,   // nwse-resize
+		ui.CursorDefault,      // zoom-in
+		ui.CursorDefault,      // zoom-out
+	}
+	if shape < 0 || shape >= len(shapes) {
+		return ui.CursorDefault
+	}
+	return shapes[shape]
 }
 
 // viewOf returns the terminal's view state, made on the first frame
@@ -114,6 +188,14 @@ type view struct {
 	// linkPress: the primary button pressed one, and the press is the
 	// link's until the release.
 	hoverLink, linkPress bool
+	// pointerAt is the pointer over the grid (pointerShape); tracking whether
+	// the program took the mouse as of the last frame, and modeShape the
+	// shape that taking or leaving it showed, while the program's shape
+	// (OSC 22) is still modeOSC, the one it had then.
+	pointerAt ui.Cursor
+	tracking  bool
+	modeShape int
+	modeOSC   int
 	// opening is the link a click asked to open, opened once t.mu is
 	// released; openingPath tells it is a file path, which the system
 	// does not open.
@@ -176,6 +258,7 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 		// go of, with the pointer still.
 		link, _ := v.linkUnder(c.Modifiers(), v.pointer[0], v.pointer[1])
 		v.hoverLink = link != ""
+		v.pointerAt = v.pointerShape(t.term, c.Modifiers())
 		// Input methods compose where the cursor is now, which the last
 		// frame may not show yet.
 		v.caretCell = [2]int{v.cursor.X, v.cursor.Y}

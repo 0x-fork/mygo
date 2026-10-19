@@ -1879,3 +1879,37 @@ func TestPadding(t *testing.T) {
 		term.Close()
 	}
 }
+
+// The pointer is Ghostty's: the I-beam, the arrow while a program takes
+// the mouse (the I-beam with Shift, which selects then), and the shape a
+// program asks for with OSC 22 until the mouse mode changes again.
+func TestPointerShape(t *testing.T) {
+	loadLib(t)
+	term, err := New(Options{Conn: newPipe()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	term.Feed([]byte("hello"))
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	tt.Move(cellCenter(term, 1, 0))
+	step := func(feed string, mods ui.Modifiers, want ui.Cursor, why string) {
+		t.Helper()
+		term.Feed([]byte(feed))
+		tt.HoldModifiers(mods)
+		tt.Frame()
+		if c := tt.Cursor(); c != want {
+			t.Errorf("%s: the pointer is %v, want %v", why, c, want)
+		}
+	}
+	step("", 0, ui.CursorText, "a shell")
+	step("\x1b[?1000h\x1b[?1006h", 0, ui.CursorDefault, "a program taking the mouse")
+	step("", ui.Shift, ui.CursorText, "Shift over a program taking the mouse")
+	step("", 0, ui.CursorDefault, "Shift let go of")
+	step("\x1b]22;pointer\x07", 0, ui.CursorPointer, "OSC 22 pointer")
+	step("\x1b]22;col-resize\x07", 0, ui.CursorResizeColumn, "OSC 22 col-resize")
+	step("\x1b[?1000l\x1b[?1006l", 0, ui.CursorText, "the mouse given back")
+	step("\x1b]22;crosshair\x07", 0, ui.CursorCrosshair, "OSC 22 without the mouse")
+	step("\x1b]22;\x07", 0, ui.CursorText, "OSC 22 reset, to the I-beam")
+}
