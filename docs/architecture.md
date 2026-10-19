@@ -3263,7 +3263,14 @@ either.
     DirectComposition shown on it, with WARP when no hardware device
     works. At most one frame waits ahead of the screen, not DXGI's three,
     so frames that follow each other, as when scrolling or animating,
-    show their input two frames sooner. A frame of a new size is
+    show their input two frames sooner, and `Present` does not block for
+    it: the swap chain's frame latency object (`latency.go`) tells room
+    for a frame, and a frame drawn before there is presents once there is,
+    as a goroutine waiting on the object has the main thread present it
+    (`SetPost`); frames paced by the display (`WM_PAINT`, but a resize's
+    and `FrameNow`'s) are not built meanwhile (`Renderer.Ready`). Every
+    present takes one of the object's signals, so its count stays the
+    frames the screen can take. A frame of a new size is
     presented at once (sync interval 0), not after the frame queued
     before it, and waits until DWM shows it (`DwmFlush`), so a live
     resize shows no stretched frames: the window takes its next size
@@ -4029,13 +4036,13 @@ What was measured and left as it is:
   states from run to run, with no gain that held, and with two drawables
   frames waited for them.
 
-On Windows, `SetMaximumFrameLatency(1)` keeps one frame ahead of the
-screen: a frame drawn while one waits blocks in `Present` until the
-refresh shows it, and the next frame, drawn when input asks for one after
-`Present` returns, reads input from that refresh, as a frame waiting for
-a swap chain's frame latency object before it draws would. Linux's frames
-follow GTK's frame clock. Neither is measured: GitHub's runners and the
-containers have no display that refreshes.
+On Windows, one frame waits ahead of the screen, which a swap chain's
+frame latency object tells room for (Direct3D 11 above): the frame drawn
+while one waits presents once the screen took that one, and the next,
+built when input asks for one after, reads input from that refresh, as
+it did when `Present` blocked. Linux's frames follow GTK's frame clock.
+Neither is measured: GitHub's runners and the containers have no display
+that refreshes.
 
 ### Binary size
 

@@ -120,7 +120,10 @@ type surface struct {
 	w                 *window
 	hwnd              uintptr
 
-	paintDC  uintptr
+	paintDC uintptr
+	// now tells that a frame draws at once: one a resize draws, or one
+	// FrameNow draws for a frame left to draw (platform.PacedSurface).
+	now      bool
 	tracking bool
 	buttons  int
 	clicks   platform.ClickCounter
@@ -226,6 +229,22 @@ func (s *surface) Size() (float64, float64, float64) {
 }
 
 func (s *surface) RequestFrame() { procInvalidateRectW.Call(s.hwnd, 0, 0) }
+
+// FrameNow draws a frame at once, for one the content left to draw until
+// the swap chain had room for it.
+func (s *surface) FrameNow() {
+	if !s.w.closed {
+		s.drawNow()
+	}
+}
+
+// drawNow draws a frame at once, in WM_PAINT.
+func (s *surface) drawNow() {
+	now := s.now
+	s.now = true
+	procRedrawWindow.Call(s.hwnd, 0, 0, rdwInvalidate|rdwUpdateNow)
+	s.now = now
+}
 
 // RefreshRate returns the refresh rate of the monitor showing the window,
 // in its current display mode.
@@ -449,7 +468,9 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		var ps paintStruct
 		dc, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		s.paintDC = dc
-		s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame})
+		// Frames that follow each other as the content asks for them may
+		// wait until the swap chain has room for one.
+		s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame, Paced: !s.now})
 		s.paintDC = 0
 		procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		return 0, true
@@ -467,7 +488,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		s.send(platform.SurfaceEvent{Kind: platform.SurfaceResize})
 		// Draw at once, so the content follows the window while it is
 		// resized.
-		procRedrawWindow.Call(hwnd, 0, 0, rdwInvalidate|rdwUpdateNow)
+		s.drawNow()
 		return 0, true
 	case wmMouseMove:
 		if !s.tracking {
