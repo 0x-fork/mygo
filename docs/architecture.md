@@ -3102,7 +3102,11 @@ either.
   `Painter` are masks in the coverage atlas, rasterized by `internal/vec`,
   cached by their shape relative to the pixel grid in quarters of a pixel,
   to which their points move first: a path looks the same whichever path
-  of its key drew its mask first.
+  of its key drew its mask first. A path too large for one mask, over
+  4095 pixels a side, draws as tiles of it (`pathTiles`), each a mask of
+  the whole path clipped to the tile: only the tiles that show and that
+  its edges reach, and, inside a fill, tiles covered whole, which share
+  one mask.
   Opaque `Painter.StrokePolyline` on a GPU is the exception: each segment
   is a rotated fill with round ends, drawn as other fills are, without a
   mask; translucent ones, and the CPU renderer, take the mask's way, so
