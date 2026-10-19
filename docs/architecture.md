@@ -3183,7 +3183,11 @@ either.
   square corners, in batches whose pipeline lacks the curves' code. Away
   from the boxes the shader computes the same value either way: a fill's
   pixel area, and a blurred shadow whose samples miss the curved rows or
-  whose blurred sides round to 0 and 1 (9 sigma from the curve).
+  whose blurred sides round to 0 and 1 (9 sigma from the curve). Each
+  piece is a draw call of its own (its scissor rectangle), so a shape is
+  cut only where the twin's pixels, within the shape's quad, save more than
+  the pieces' calls cost (`pieceCost`): small shapes, near their corners
+  everywhere, stay whole and join their neighbors' batches.
   Metal opts into three further builder capabilities: marking fills whose
   clip coverage is one, splitting opaque cores from blended edges, and
   batching by fragment class. Other renderers keep the original instance
