@@ -261,7 +261,7 @@ func (w *window) placeInitially() {
 	}
 	dpi := monitorDPI(mon)
 	width, height := toPx(o.Width, dpi), toPx(o.Height, dpi)
-	if o.UseContentSize && !w.captionless() {
+	if o.UseContentSize {
 		width, height = w.outerSize(width, height, dpi)
 	}
 	x, y := toPx(o.X, dpi), toPx(o.Y, dpi)
@@ -280,11 +280,31 @@ func (w *window) outerSize(width, height int32, dpi int) (int32, int32) {
 	if !w.autoHideMenu && !w.noRedirect && (w.hmenu != 0 || w.b.appMenu != nil && w.hasAppMenu()) {
 		menu = 1
 	}
-	style, ex := windowLong(w.hwnd, gwlStyle), windowLong(w.hwnd, gwlExStyle)
-	if has(procAdjustWindowRectExForDpi) {
-		procAdjustWindowRectExForDpi.Call(uintptr(unsafe.Pointer(&r)), style, menu, ex, uintptr(dpi))
-	}
+	w.addFrame(&r, menu, dpi)
 	return r.Right - r.Left, r.Bottom - r.Top
+}
+
+// addFrame grows r, a page area in pixels, to the window around it. A window
+// without a caption has no title bar or menu bar, and keeps what
+// frameCalcSize leaves it: the borders of a resizable one, and the pixel at
+// the top of a hidden title bar on Windows 11.
+func (w *window) addFrame(r *rect, menu uintptr, dpi int) {
+	style, ex := windowLong(w.hwnd, gwlStyle), windowLong(w.hwnd, gwlExStyle)
+	captionless := w.captionless()
+	if captionless && style&wsThickFrame == 0 || !has(procAdjustWindowRectExForDpi) {
+		return
+	}
+	top := r.Top
+	if captionless {
+		menu = 0
+	}
+	procAdjustWindowRectExForDpi.Call(uintptr(unsafe.Pointer(r)), style, menu, ex, uintptr(dpi))
+	if captionless {
+		r.Top = top
+		if w.hiddenTitleBar && windows11() {
+			r.Top--
+		}
+	}
 }
 
 func monitorAt(x, y int) uintptr {
@@ -632,13 +652,11 @@ func (w *window) Bounds() platform.Rect {
 func (w *window) SetContentBounds(r platform.Rect) {
 	dpi := dpiOf(w.hwnd)
 	outer := rect{toPx(r.X, dpi), toPx(r.Y, dpi), toPx(r.X+r.Width, dpi), toPx(r.Y+r.Height, dpi)}
-	if !w.captionless() && has(procAdjustWindowRectExForDpi) {
-		menu := uintptr(0)
-		if w.menuShown() {
-			menu = 1
-		}
-		procAdjustWindowRectExForDpi.Call(uintptr(unsafe.Pointer(&outer)), windowLong(w.hwnd, gwlStyle), menu, windowLong(w.hwnd, gwlExStyle), uintptr(dpi))
+	menu := uintptr(0)
+	if w.menuShown() {
+		menu = 1
 	}
+	w.addFrame(&outer, menu, dpi)
 	procSetWindowPos.Call(w.hwnd, 0, uintptr(outer.Left), uintptr(outer.Top), uintptr(outer.Right-outer.Left), uintptr(outer.Bottom-outer.Top), swpNoZOrder|swpNoActivate)
 }
 
