@@ -21,4 +21,7 @@ same viewBoxes and fractions of their size, their keyframes, staggers and
 timing functions, and their poses for reduced motion. Compared with
 loading-dev rendered by a browser at the same points of their cycles,
 they differ only where the browser snaps borders to pixels (Atom's
-rings) and in antialiasing.
+rings), in antialiasing, and on macOS in the corners of rounded squares
+(Blocks, Gather, Morph, Swirl, Flip), which the renderers draw
+continuous, as macOS does, so that they need no mask rasterized every
+frame.

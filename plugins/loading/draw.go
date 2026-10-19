@@ -181,6 +181,25 @@ func (m affine) unit() float32 {
 	return float32(math.Sqrt(math.Abs(float64(m.a*m.d - m.b*m.c))))
 }
 
+// transform returns m as a ui.Transform, false if it collapses what it
+// maps: a scaling, a skew along x, a rotation, then a translation.
+func (m affine) transform() (ui.Transform, bool) {
+	sx := float32(math.Hypot(float64(m.a), float64(m.b)))
+	det := m.a*m.d - m.b*m.c
+	if sx == 0 || det == 0 {
+		return ui.Transform{}, false
+	}
+	sy := det / sx
+	t := ui.Scaling(sx, sy)
+	if k := (m.a*m.c + m.b*m.d) / sx; k != 0 {
+		t = t.Then(ui.Skewing(float32(deg(math.Atan(float64(k/sy)))), 0))
+	}
+	if m.b != 0 || m.a < 0 {
+		t = t.Then(ui.Rotation(float32(deg(math.Atan2(float64(m.b), float64(m.a))))))
+	}
+	return t.Then(ui.Translation(m.e, m.f)), true
+}
+
 // shape is a path drawn through a transform, in the coordinates of a
 // viewBox or of the indicator's own.
 type shape struct {
@@ -246,46 +265,84 @@ func (s *shape) ring(cx, cy, out, in float32) *shape {
 	return s
 }
 
-// rect adds a rectangle with corners of radius r, as CSS's border-radius
-// draws them, at most half its shorter side; counterclockwise if ccw, as
-// a hole in one.
-func (s *shape) rect(x, y, w, h, r float32, ccw bool) *shape {
-	r = max(0, min(r, w/2, h/2))
-	switch {
-	case r == 0 && ccw:
-		return s.move(x, y).line(x, y+h).line(x+w, y+h).line(x+w, y).close()
-	case r == 0:
-		return s.move(x, y).line(x+w, y).line(x+w, y+h).line(x, y+h).close()
-	case ccw:
-		s.arc(x+r, y+r, r, 3*math.Pi/2, math.Pi, true)
-		s.arc(x+r, y+h-r, r, math.Pi, math.Pi/2, false)
-		s.arc(x+w-r, y+h-r, r, math.Pi/2, 0, false)
-		s.arc(x+w-r, y+r, r, 0, -math.Pi/2, false)
-		return s.close()
-	}
-	s.arc(x+w-r, y+r, r, -math.Pi/2, 0, true)
-	s.arc(x+w-r, y+h-r, r, 0, math.Pi/2, false)
-	s.arc(x+r, y+h-r, r, math.Pi/2, math.Pi, false)
-	s.arc(x+r, y+r, r, math.Pi, 3*math.Pi/2, false)
-	return s.close()
-}
-
 // stroke draws an arc of the circle of radius r around (cx, cy) in the
 // shape's coordinates, w wide, from angle a0 to a1 (as arc's), ended as
-// Options.Cap says, at opacity a.
+// Options.Cap says, at opacity a. m maps without turning: the arc is
+// drawn from angle 0 and turned to a0 by the renderer, so that an arc of
+// the same length is the same mask from frame to frame.
 func (d *drawing) stroke(m affine, cx, cy, r, w float32, a0, a1 float64, a float64) {
 	if a1 <= a0 {
 		return
 	}
-	s := d.begin(m)
-	if d.o.Cap == FlatCap {
-		s.arc(cx, cy, r+w/2, a0, a1, true)
-		s.arc(cx, cy, r-w/2, a1, a0, false).close()
-		d.fill(a)
+	d.turned(m, cx, cy, a0, func(m affine) {
+		s := d.begin(m)
+		if d.o.Cap == FlatCap {
+			s.arc(cx, cy, r+w/2, 0, a1-a0, true)
+			s.arc(cx, cy, r-w/2, a1-a0, 0, false).close()
+			d.fill(a)
+			return
+		}
+		s.arc(cx, cy, r, 0, a1-a0, true)
+		d.p.StrokePath(&s.Path, w*m.unit(), d.alpha(a))
+	})
+}
+
+// turned draws what fn draws through m turned by angle radians clockwise
+// around (cx, cy) in m's coordinates. The renderer turns it: what fn
+// draws at rest is the same path from frame to frame, whose mask it
+// rasterizes once, where drawing it turned would rasterize another every
+// frame. fn draws through the m it is given, which rasterizes the mask
+// twice as fine, for the renderer to sample it turned as sharp.
+func (d *drawing) turned(m affine, cx, cy float32, angle float64, fn func(m affine)) {
+	px, py := m.apply(cx, cy)
+	d.p.Transform(ui.Scaling(0.5, 0.5).Then(ui.Rotation(float32(deg(angle)))), px, py, func() {
+		fn(identity.scale(2, 2, px, py).then(m))
+	})
+}
+
+// rounded draws the rectangle (x, y, w, h) with corners of radius r in
+// m's coordinates, filled, or its border bw wide if bw > 0, at opacity
+// a. The renderers draw it themselves, through any transform, as an
+// element's background: no path to rasterize into a mask, as moving
+// paths need every frame. Its corners are the platform's: circles and
+// pills are round, smaller corners continuous on macOS.
+func (d *drawing) rounded(m affine, x, y, w, h, r, bw float32, a float64) {
+	if t, ok := m.move(x, y).transform(); ok {
+		d.roundedIn(t, w, h, r, bw, a)
+	}
+}
+
+// roundedIn is rounded through t, which maps the rectangle w×h at the
+// origin to the indicator.
+func (d *drawing) roundedIn(t ui.Transform, w, h, r, bw float32, a float64) {
+	if w <= 0 || h <= 0 || a <= 0 {
 		return
 	}
-	s.arc(cx, cy, r, a0, a1, true)
-	d.p.StrokePath(&s.Path, w*m.unit(), d.alpha(a))
+	// Fill and Stroke put a rectangle and its border on whole pixels:
+	// drawn zoom times as large and scaled back, they keep their sizes to
+	// a zoom-th of a pixel, as they move and grow.
+	const zoom = 8
+	box := ui.Rect{W: w * zoom, H: h * zoom}
+	c := d.alpha(a)
+	d.p.Transform(ui.Scaling(1.0/zoom, 1.0/zoom).Then(t), 0, 0, func() {
+		if bw > 0 {
+			d.p.Stroke(box, c, r*zoom, bw*zoom)
+		} else {
+			d.p.Fill(box, c, r*zoom)
+		}
+	})
+}
+
+// dot draws the circle of radius r around (cx, cy) in m's coordinates at
+// opacity a.
+func (d *drawing) dot(m affine, cx, cy, r float32, a float64) {
+	d.rounded(m, cx-r, cy-r, 2*r, 2*r, r, 0, a)
+}
+
+// hoop draws the ring between radii out and in around (cx, cy) in m's
+// coordinates at opacity a, as a circle's border.
+func (d *drawing) hoop(m affine, cx, cy, out, in float32, a float64) {
+	d.rounded(m, cx-out, cy-out, 2*out, 2*out, out, max(0, out-in), a)
 }
 
 // dashes calls fn with each dash of a pattern of dashes dash long and
@@ -308,9 +365,10 @@ func dashes(length, dash, gap, offset float64, fn func(from, to float64)) {
 // capsule draws the line from (x0, y0) to (x1, y1) in m's coordinates, w
 // wide, with round ends, at opacity a.
 func (d *drawing) capsule(m affine, x0, y0, x1, y1, w float32, a float64) {
-	s := d.begin(m)
-	s.move(x0, y0).line(x1, y1)
-	d.p.StrokePath(&s.Path, w*m.unit(), d.alpha(a))
+	dx, dy := float64(x1-x0), float64(y1-y0)
+	m = m.rotate(deg(math.Atan2(dy, dx)), x0, y0)
+	l := float32(math.Hypot(dx, dy))
+	d.rounded(m, x0-w/2, y0-w/2, l+w, w, w/2, 0, a)
 }
 
 // polar returns the point at radius r and angle a (radians clockwise

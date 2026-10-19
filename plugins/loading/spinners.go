@@ -41,8 +41,7 @@ func Arc(c *ui.Context, o ...Options) ui.Element { return show(c, &arc, o) }
 var atom = spec{cycle: time.Second, aspect: 1, draw: func(d *drawing) {
 	cx, cy := d.center()
 	r := d.s / 2
-	d.begin(identity).ring(cx, cy, r, r-0.055*d.s)
-	d.fill(1)
+	d.hoop(identity, cx, cy, r, r-0.055*d.s, 1)
 	// Each orbit, tilted a third of a half turn more than the one before,
 	// is a ring turning in 3D around its diameter, seen from the front: an
 	// ellipse growing and shrinking across it.
@@ -55,8 +54,7 @@ var atom = spec{cycle: time.Second, aspect: 1, draw: func(d *drawing) {
 		if math.Abs(float64(k)) < 1e-4 {
 			continue
 		}
-		d.begin(identity.rotate(float64(i)*60, cx, cy).scale(k, 1, cx, cy)).ring(cx, cy, r, r-0.045*d.s)
-		d.fill(1)
+		d.hoop(identity.rotate(float64(i)*60, cx, cy).scale(k, 1, cx, cy), cx, cy, r, r-0.045*d.s, 1)
 	}
 }}
 
@@ -83,8 +81,7 @@ var blocks = spec{cycle: 1300 * time.Millisecond, aspect: 1, draw: func(d *drawi
 			}
 			x, y := d.x+float32(col)*(cell+gap), d.y+float32(row)*(cell+gap)
 			sk := float32(k)
-			d.begin(identity.scale(sk, sk, x+cell/2, y+cell/2)).rect(x, y, cell, cell, 0.0625*d.s, false)
-			d.fill(1)
+			d.rounded(identity.scale(sk, sk, x+cell/2, y+cell/2), x, y, cell, cell, 0.0625*d.s, 0, 1)
 		}
 	}
 }}
@@ -108,8 +105,7 @@ var bouncingDots = spec{cycle: 500 * time.Millisecond, aspect: 1.15, draw: func(
 			y = 0.28 - easeInOut(p)
 		}
 		cx := d.x + dot/2 + float32(i)*0.45*d.s
-		d.begin(identity).circle(cx, d.y+d.s/2+float32(y)*dot, dot/2, false)
-		d.fill(1)
+		d.dot(identity, cx, d.y+d.s/2+float32(y)*dot, dot/2, 1)
 	}
 }}
 
@@ -139,8 +135,7 @@ var eightDots = [8][2]float32{
 
 var circularDots = spec{cycle: 800 * time.Millisecond, aspect: 1, draw: func(d *drawing) {
 	for i, at := range eightDots {
-		d.begin(d.view(16)).circle(at[0], at[1], 1.5, false)
-		d.fill(d.fade(i, 8, 0.2, 0.6))
+		d.dot(d.view(16), at[0], at[1], 1.5, d.fade(i, 8, 0.2, 0.6))
 	}
 }}
 
@@ -154,8 +149,7 @@ var classic = spec{cycle: 1200 * time.Millisecond, aspect: 1, draw: func(d *draw
 	w, h := 0.24*d.s, 0.08*d.s
 	for i := range 12 {
 		m := identity.rotate(float64(i)*30, cx, cy).move(1.46*w, 0)
-		d.begin(m).rect(cx-w/2, cy-h/2, w, h, min(6, h/2), false)
-		d.fill(d.fade(i, 12, 0.15, 0.5))
+		d.rounded(m, cx-w/2, cy-h/2, w, h, min(6, h/2), 0, d.fade(i, 12, 0.15, 0.5))
 	}
 }}
 
@@ -173,9 +167,13 @@ func ClassicV2(c *ui.Context, o ...Options) ui.Element { return show(c, &classic
 
 var clock = spec{cycle: 1200 * time.Millisecond, aspect: 1, draw: func(d *drawing) {
 	v := d.view(16)
-	d.begin(v).circle(8, 8, 8, false)
-	d.fill(0.1)
-	s := d.begin(v.rotate(deg(d.spin(false, 0)), 8, 8))
+	d.dot(v, 8, 8, 8, 0.1)
+	d.turned(v, 8, 8, d.spin(false, 0), d.hand)
+}}
+
+// hand draws Clock's hand through v, in its viewBox of 16, pointing up.
+func (d *drawing) hand(v affine) {
+	s := d.begin(v)
 	s.move(11.1937, 2.92061)
 	s.cube(10.5206, 2.49739, 9.77304, 2.21397, 8.9954, 2.08314)
 	s.cube(8.45076, 1.99151, 8, 2.44772, 8, 3)
@@ -188,7 +186,7 @@ var clock = spec{cycle: 1200 * time.Millisecond, aspect: 1, draw: func(d *drawin
 	s.cube(12.9177, 4.38152, 12.1503, 3.5221, 11.1937, 2.92061)
 	s.close()
 	d.fill(1)
-}}
+}
 
 // Clock creates a clock hand sweeping around a faint face.
 func Clock(c *ui.Context, o ...Options) ui.Element { return show(c, &clock, o) }
@@ -203,8 +201,7 @@ var comet = spec{cycle: 700 * time.Millisecond, aspect: 1, draw: func(d *drawing
 	d.p.FillPathConicGradient(&s.Path, ui.ConicGradient{Angle: float32(a), Stops: []ui.GradientStop{
 		{Color: d.alpha(0), At: 0}, {Color: d.color, At: 1},
 	}})
-	d.begin(identity.rotate(a, cx, cy)).circle(cx, d.y+w/2, w/2, false)
-	d.fill(1)
+	d.dot(identity.rotate(a, cx, cy), cx, d.y+w/2, w/2, 1)
 }}
 
 // Comet creates a full ring fading into its tail.
@@ -247,8 +244,7 @@ var eclipse = spec{cycle: 1200 * time.Millisecond, aspect: 1, draw: func(d *draw
 			a = frames(p, easeInOut, key{0, 0.75}, key{0.25, 1}, key{0.5, 0.75}, key{0.75, 0.5}, key{1, 0.75})
 			k = frames(p, easeInOut, key{0, 1}, key{0.25, 1.3}, key{0.5, 1}, key{0.75, 0.7}, key{1, 1})
 		}
-		d.begin(identity).circle(cx+float32(x)*dot, cy, dot/2*float32(k), false)
-		d.fill(a)
+		d.dot(identity, cx+float32(x)*dot, cy, dot/2*float32(k), a)
 	}
 }}
 
@@ -267,42 +263,9 @@ var flip = spec{cycle: 1200 * time.Millisecond, aspect: 1, draw: func(d *drawing
 	// The square turned in 3D, around its horizontal axis and then its
 	// vertical one (CSS's rotateX(ax) rotateY(ay)), seen in perspective
 	// from three times the indicator's size.
-	sx, cxa := math.Sincos(rad(ax))
-	sy, cya := math.Sincos(rad(ay))
-	dist := 3 * float64(d.s)
-	s := d.begin(identity)
-	first := true
-	point := func(x, y float64) {
-		x1, z1 := x*cya, -x*sy
-		y2, z2 := y*cxa-z1*sx, y*sx+z1*cxa
-		f := dist / (dist - z2)
-		px, py := cx+float32(x1*f), cy+float32(y2*f)
-		if first {
-			s.move(px, py)
-			first = false
-		} else {
-			s.line(px, py)
-		}
-	}
-	in := float64(half - r)
-	for corner := range 4 {
-		ox, oy := in, -in
-		switch corner {
-		case 1:
-			ox, oy = in, in
-		case 2:
-			ox, oy = -in, in
-		case 3:
-			ox, oy = -in, -in
-		}
-		for j := range 9 {
-			a := rad(float64(corner*90-90) + float64(j)*90/8)
-			sa, ca := math.Sincos(a)
-			point(ox+float64(r)*ca, oy+float64(r)*sa)
-		}
-	}
-	s.close()
-	d.fill(1)
+	t := ui.Translation(-half, -half).Then(ui.RotationY(float32(ay))).Then(ui.RotationX(float32(ax))).
+		Then(ui.Perspective(3 * d.s)).Then(ui.Translation(cx, cy))
+	d.roundedIn(t, 2*half, 2*half, r, 0, 1)
 }}
 
 // Flip creates a square flipping over one axis, then the other.
@@ -324,8 +287,7 @@ var gather = spec{cycle: 1600 * time.Millisecond, aspect: 1, draw: func(d *drawi
 		col, row := float32(i%2), float32(i/2)
 		x := d.x + col*(b+gap) + (1-2*col)*in
 		y := d.y + row*(b+gap) + (1-2*row)*in
-		d.begin(m).rect(x, y, b, b, 0.14*d.s, false)
-		d.fill(1)
+		d.rounded(m, x, y, b, b, 0.14*d.s, 0, 1)
 	}
 }}
 
@@ -353,8 +315,7 @@ var leap = spec{cycle: 1800 * time.Millisecond, aspect: 1, draw: func(d *drawing
 			a = frames(p, easeInOut, key{0, 0}, key{0.3333, 180}, key{0.6666, 180}, key{1, 180})
 		}
 		px, py := polar(mx+float32(x), my, gap, rad(a+180))
-		d.begin(identity).circle(px, py, dot/2, false)
-		d.fill(1)
+		d.dot(identity, px, py, dot/2, 1)
 	}
 }}
 
@@ -368,8 +329,7 @@ var linearDots = spec{cycle: 900 * time.Millisecond, aspect: 0.9375, draw: func(
 		if !d.still {
 			a = frames(d.at(i, 3), linearEase, key{0, 1}, key{0.6667, 0.5}, key{1, 1})
 		}
-		d.begin(identity).circle(d.x+dot/2+float32(i)*2*dot, d.y+d.s/2, dot/2, false)
-		d.fill(a)
+		d.dot(identity, d.x+dot/2+float32(i)*2*dot, d.y+d.s/2, dot/2, a)
 	}
 }}
 
@@ -383,11 +343,10 @@ var segments = [8][2]float32{{12, 6}, {10, 10}, {6, 12}, {2, 10}, {0, 6}, {2, 2}
 var loadingMark = spec{cycle: time.Second, aspect: 1, draw: func(d *drawing) {
 	v := d.view(15)
 	for i, at := range segments {
-		s := d.begin(v)
+		a := d.fade(i, 8, 0.2, 0.6)
 		for _, b := range [4][2]float32{{0, 0}, {2, 0}, {0, 2}, {2, 2}} {
-			s.rect(at[0]+b[0], at[1]+b[1], 1, 1, 0, false)
+			d.rounded(v, at[0]+b[0], at[1]+b[1], 1, 1, 0, 0, a)
 		}
-		d.fill(d.fade(i, 8, 0.2, 0.6))
 	}
 }}
 
@@ -404,8 +363,7 @@ var morph = spec{cycle: 1200 * time.Millisecond, aspect: 1, draw: func(d *drawin
 		r = frames(p, easeInOut, key{0, r}, key{0.5, float64(side) / 2}, key{1, r})
 		a = frames(p, easeInOut, key{0, 0}, key{0.5, 45}, key{1, 90})
 	}
-	d.begin(identity.rotate(a, cx, cy)).rect(cx-side/2, cy-side/2, side, side, float32(r), false)
-	d.fill(1)
+	d.rounded(identity.rotate(a, cx, cy), cx-side/2, cy-side/2, side, side, float32(r), 0, 1)
 }}
 
 // Morph creates a square rounding into a circle and back as it turns.
@@ -413,19 +371,19 @@ func Morph(c *ui.Context, o ...Options) ui.Element { return show(c, &morph, o) }
 
 var orbit = spec{cycle: 750 * time.Millisecond, aspect: 1, draw: func(d *drawing) {
 	cx, cy := d.center()
-	d.begin(identity).circle(cx, cy, 0.125*d.s, false)
-	d.fill(1)
+	d.dot(identity, cx, cy, 0.125*d.s, 1)
 	// Half a ring, from transparent at its start to opaque at its end.
 	r, w := 0.42*d.s, 0.0625*d.s
-	a := d.spin(false, 0)
-	a0, a1 := a+math.Pi/2, a+3*math.Pi/2
-	s := d.begin(identity).arc(cx, cy, r, a0, a1, true).arc(cx, cy, r-w, a1, a0, false).close()
-	// Empty subpaths at the corners of the whole ring's box, which the
-	// gradient turns around the middle of.
-	s.move(cx-r, cy-r).line(cx-r, cy-r).close().move(cx+r, cy+r).line(cx+r, cy+r).close()
-	d.p.FillPathConicGradient(&s.Path, ui.ConicGradient{Angle: float32(180 + deg(a)), Stops: []ui.GradientStop{
-		{Color: d.alpha(0), At: 0}, {Color: d.color, At: 0.5}, {Color: d.color, At: 1},
-	}})
+	d.turned(identity, cx, cy, d.spin(false, 0), func(m affine) {
+		a0, a1 := math.Pi/2, 3*math.Pi/2
+		s := d.begin(m).arc(cx, cy, r, a0, a1, true).arc(cx, cy, r-w, a1, a0, false).close()
+		// Empty subpaths at the corners of the whole ring's box, which the
+		// gradient turns around the middle of.
+		s.move(cx-r, cy-r).line(cx-r, cy-r).close().move(cx+r, cy+r).line(cx+r, cy+r).close()
+		d.p.FillPathConicGradient(&s.Path, ui.ConicGradient{Angle: 180, Stops: []ui.GradientStop{
+			{Color: d.alpha(0), At: 0}, {Color: d.color, At: 0.5}, {Color: d.color, At: 1},
+		}})
+	})
 }}
 
 // Orbit creates a fading half ring turning around a dot.
@@ -438,10 +396,8 @@ var pulse = spec{cycle: 1200 * time.Millisecond, aspect: 1, draw: func(d *drawin
 		e := easeOut(d.at(0, 0))
 		k, a = 0.25+0.75*e, 0.4*(1-e)
 	}
-	d.begin(v).circle(8, 8, 8*float32(k), false)
-	d.fill(a)
-	d.begin(v).circle(8, 8, 2, false)
-	d.fill(1)
+	d.dot(v, 8, 8, 8*float32(k), a)
+	d.dot(v, 8, 8, 2, 1)
 }}
 
 // Pulse creates a ring rippling outward from a dot.
@@ -449,13 +405,10 @@ func Pulse(c *ui.Context, o ...Options) ui.Element { return show(c, &pulse, o) }
 
 var radar = spec{cycle: 1500 * time.Millisecond, aspect: 1, draw: func(d *drawing) {
 	v := d.view(16)
-	d.begin(v).circle(8, 8, 8, false)
-	d.fill(0.2)
-	d.begin(v).ring(8, 8, 6, 5)
-	d.fill(0.2)
-	d.beam(v.rotate(deg(d.spin(false, 0)), 8, 8))
-	d.begin(v).circle(8, 8, 2, false)
-	d.fill(1)
+	d.dot(v, 8, 8, 8, 0.2)
+	d.hoop(v, 8, 8, 6, 5, 0.2)
+	d.turned(v, 8, 8, d.spin(false, 0), d.beam)
+	d.dot(v, 8, 8, 2, 1)
 }}
 
 // beam draws Radar's beam through m, in its viewBox of 16: a sector of
@@ -499,8 +452,7 @@ func Radar(c *ui.Context, o ...Options) ui.Element { return show(c, &radar, o) }
 
 var ring = spec{cycle: 800 * time.Millisecond, aspect: 1, draw: func(d *drawing) {
 	v := d.view(24)
-	d.begin(v).ring(12, 12, 11.25, 8.75)
-	d.fill(0.2)
+	d.hoop(v, 12, 12, 11.25, 8.75, 0.2)
 	a := d.spin(false, 0)
 	d.stroke(v, 12, 12, 10, 2.5, a, a+16.0/10, 1)
 }}
@@ -524,8 +476,7 @@ var ripple = spec{cycle: 1200 * time.Millisecond, aspect: 1, draw: func(d *drawi
 			continue
 		}
 		r := d.s / 2 * float32(k)
-		d.begin(identity).ring(cx, cy, r, r-0.08*d.s*float32(k))
-		d.fill(a)
+		d.hoop(identity, cx, cy, r, r-0.08*d.s*float32(k), a)
 	}
 }}
 
@@ -548,8 +499,7 @@ var slide = spec{cycle: 2400 * time.Millisecond, aspect: 1, draw: func(d *drawin
 			y = frames(p, easeInOut, key{0, 0}, key{0.0833, far}, key{0.25, far}, key{0.3333, far}, key{0.5, far},
 				key{0.5833, 0}, key{0.75, 0}, key{0.8333, 0}, key{1, 0})
 		}
-		d.begin(identity).circle(d.x+0.06*d.s+dot/2+float32(x), d.y+0.06*d.s+dot/2+float32(y), dot/2, false)
-		d.fill(1)
+		d.dot(identity, d.x+0.06*d.s+dot/2+float32(x), d.y+0.06*d.s+dot/2+float32(y), dot/2, 1)
 	}
 }}
 
@@ -587,8 +537,7 @@ var swirl = spec{cycle: 1200 * time.Millisecond, aspect: 1, draw: func(d *drawin
 			continue
 		}
 		x, y := d.x+pad+float32(i%3)*(cell+gap), d.y+pad+float32(i/3)*(cell+gap)
-		d.begin(identity).rect(x, y, cell, cell, 0.0625*d.s, false)
-		d.fill(d.fade(step, 8, 0.2, 0.6))
+		d.rounded(identity, x, y, cell, cell, 0.0625*d.s, 0, d.fade(step, 8, 0.2, 0.6))
 	}
 }}
 
@@ -606,10 +555,8 @@ var tracePerimeter = 4*(traceSide-2*traceRadius) + 2*math.Pi*traceRadius
 
 var trace = spec{cycle: 1200 * time.Millisecond, aspect: 1, draw: func(d *drawing) {
 	v := d.view(20)
-	const out, in = traceWidth / 2, traceWidth / 2
-	d.begin(v).rect(traceAt-out, traceAt-out, traceSide+2*out, traceSide+2*out, traceRadius+out, false).
-		rect(traceAt+in, traceAt+in, traceSide-2*in, traceSide-2*in, traceRadius-in, true)
-	d.fill(0.2)
+	const out = traceWidth / 2
+	d.rounded(v, traceAt-out, traceAt-out, traceSide+2*out, traceSide+2*out, traceRadius+out, traceWidth, 0.2)
 	at := 0.0
 	if !d.still {
 		at = d.turn(d.at(0, 0), false) * tracePerimeter
@@ -695,8 +642,7 @@ var wave = spec{cycle: 900 * time.Millisecond, aspect: 1, draw: func(d *drawing)
 		if d.o.Origin == WaveBottom {
 			y = d.y + d.s - bh
 		}
-		d.begin(identity).rect(d.x+float32(i)*(d.s-w)/4, y, w, bh, w/2, false)
-		d.fill(1)
+		d.rounded(identity, d.x+float32(i)*(d.s-w)/4, y, w, bh, w/2, 0, 1)
 	}
 }}
 
