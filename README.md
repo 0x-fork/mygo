@@ -15,6 +15,7 @@ Sponsored by:
   </a>
 </p>
 
+---
 
 Each MyGo window shows one of two kinds of interface, and one app, or one
 window, can mix them:
