@@ -114,8 +114,9 @@ framework safely. Read it before changing anything under `internal/`.
 │                       websocket, sqlite, watch; and Go only: updater, the
 │                       update window, a web page or native UI (updater/native),
 │                       terminal, a view of native UI running programs with
-│                       libghostty-vt, glass, and game, what games need
-│                       beyond what apps do (game/gamepad)
+│                       libghostty-vt, glass, game, what games need
+│                       beyond what apps do (game/gamepad), and loading,
+│                       loading.dev's indicators for native UI
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester;
 │                       ui/chart: charts without a look, on ui's public API;
 │                       ui/editor: the code editor and the diff viewer;
@@ -133,7 +134,8 @@ framework safely. Read it before changing anything under `internal/`.
 │                       UI), timeline (motion on one playhead); webview (web
 │                       views in native UI); launcher (a Spotlight-like panel,
 │                       native UI); wind (a texture of glyphs lit by a
-│                       wind, two shaders of ui/shader)
+│                       wind, two shaders of ui/shader); loading (the
+│                       loading plugin's indicators)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
@@ -1177,6 +1179,25 @@ build` like mygo-runtime and released with the same version.
   Both effects' shaders are compiled ahead of time on macOS
   (`shaders_darwin.go`) and on Windows (`shaders_windows.go`), with
   `internal/gen`.
+- **loading** is loading.dev's 29 indicators (`loading-dev`, React and
+  CSS) for native UI, on ui's public API only. Each is a box of
+  `RoleProgress` whose draw function asks for the next frame
+  (`AnimationFrame`) and computes its pose from how many cycles it has
+  run: since it first showed (its start in `ui.Local`, as a CSS animation
+  starts with its element), or held while `Paused`. Parts are staggered as
+  loading-dev's negative `animation-delay`s, keyframes eased stretch by
+  stretch with CSS's `cubic-bezier` (`frames`, `bezier`), and shapes built
+  as `ui.Path`s in the SVG's viewBox through an affine transform (`affine`,
+  `shape`), arcs as cubic Béziers, which an affine transform keeps exact:
+  Atom's rings turning in 3D are ellipses, Flip's square is projected in
+  perspective point by point. Round caps are `StrokePath`'s; flat ones
+  fill the stroke's outline. Gradients are conic ones (Comet, Orbit), and
+  Radar's radial fade is sectors of growing radii over each other, each as
+  opaque as makes its band the gradient's opacity, so that no two edges
+  meet inside the beam. With `ReduceMotion` an indicator draws
+  loading-dev's pose for reduced motion and asks for no frames. The
+  indicators were checked against loading-dev rendered by a browser at the
+  same points of their cycles, with every option.
 
 ## Typed client generation (`internal/tsgen`)
 
