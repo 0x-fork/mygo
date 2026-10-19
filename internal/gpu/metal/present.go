@@ -213,7 +213,7 @@ func (r *Renderer) stash(s *scene.Scene, damage []image.Rectangle, known bool) e
 	r.pending = pendingFrame{cb: send(cb, "retain"), whole: len(s.Effects) > 0}
 	r.pending.size.Width, r.pending.size.Height, r.pending.size.Clear = s.Width, s.Height, s.Clear
 	r.diff.Remember(s)
-	r.keys, r.lastKeys = r.lastKeys, r.keys
+	r.pipelines.Remember()
 	return nil
 }
 
