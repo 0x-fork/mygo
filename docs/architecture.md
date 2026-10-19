@@ -3268,7 +3268,17 @@ either.
     the window changes size the swap chain has three buffers a quarter
     larger than the window, and shows the window's size of them
     (`SetSourceSize`), until a frame a second after the last change,
-    which a timer asks for, gives it two of the window's size again;
+    which a timer asks for, gives it two of the window's size again.
+    The swap chain flips in sequence (`FLIP_SEQUENTIAL`), so that a frame
+    draws only what changed since the last, as Metal's (below): DXGI keeps
+    what each buffer holds, and as a frame is presented with the area it
+    drew as its dirty rectangle (`Present1`), copies into it what the last
+    frame changed outside that area, so there is no buffer age to track.
+    The frame clears the area (`ID3D11DeviceContext1::ClearView`, which
+    Direct3D 11.1 has, WARP too) and draws the batches scissored to it; a
+    frame that changed nothing is not presented. With WARP, on a runner
+    without a GPU, a caret blinking in a window of 1280×760 pixels took a
+    tenth of the CPU's time it took drawn whole;
   - `internal/gpu/metal` with a shader in Metal Shading Language
     compiled into a Metal library ahead of time (on macOS, with
     Xcode's `metal` tools), which
@@ -3474,8 +3484,8 @@ either.
   With a GPU renderer, every frame draws on the GPU, small changes too, so
   a gesture never switches renderers mid-way: on the CPU, a frame
   redrawing glass or a blur that content scrolls under takes 30 to 70 ms
-  on a large window, where Metal takes 2 to 3. Metal and OpenGL draw only
-  what changed (above); Direct3D 11 draws every frame whole.
+  on a large window, where Metal takes 2 to 3. Every GPU renderer draws
+  only what changed (above).
 
   Two seconds after the last frame (`frameIdle`), the host frees the frame
   drawn in memory, as large as the window, which the next frame draws whole,
@@ -4213,7 +4223,7 @@ which npm allows only for packages that exist: the first release uses an
 | native UI surface | layer-backed NSView, frames from `CADisplayLink` (a timer at the display's rate before macOS 14), input methods through NSTextInputClient | GtkGLArea (GtkDrawingArea without a GPU), GtkIMMulticontext | `MyGoSurface` child window, IMM32 |
 | native UI data drags | NSDraggingSession, NSPasteboardItemDataProvider, NSDraggingDestination | GTK drag contexts, MIME selections, text/uri-list | OLE IDataObject, IDropSource, IDropTarget, Shell drag images |
 | native UI accessibility | `NSAccessibilityElement` subclasses | ATK objects (GObject types registered through purego), bridged to AT-SPI by GTK | UI Automation fragments (COM objects; assembly thunks for the methods taking doubles) |
-| native UI rendering | Metal, into a CAMetalLayer presenting as soon as drawn, or with the Core Animation transaction for frames that resize it or show web views | OpenGL 3.3 or ES 3.0 in the GtkGLArea's render signal; on the CPU, painted with cairo, where OpenGL runs on the CPU | Direct3D 11 (WARP without a GPU), flip-model swap chain |
+| native UI rendering | Metal, into a CAMetalLayer presenting as soon as drawn, or with the Core Animation transaction for frames that resize it or show web views | OpenGL 3.3 or ES 3.0 in the GtkGLArea's render signal; on the CPU, painted with cairo, where OpenGL runs on the CPU | Direct3D 11 (WARP without a GPU), flip-model swap chain presenting dirty rectangles |
 | web views in native UI | WKWebView in a clip view under the surface; `hitTest:` lets the pointer through | WebKitWebView in a `GtkLayout` under the area in a `GtkOverlay`; an input shape lets the pointer through | WebView2 composition controller in a DirectComposition target under the frames'; the surface sends it the mouse |
 | audio output | Audio Queue on the default output | PulseAudio simple API (PipeWire too), else ALSA `default` | WASAPI shared mode, reopened when the default output changes |
 | gamepads | GameController.framework, extended gamepad profile | evdev, the kernel's gamepad layout, Xbox's X and Y swapped back | XInput, four slots, Guide by `XInputGetStateEx` |
