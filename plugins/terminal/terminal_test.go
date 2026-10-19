@@ -264,6 +264,33 @@ func TestSnapshot(t *testing.T) {
 	if !paste {
 		t.Error("bracketed paste was not restored")
 	}
+	// The blank rows at the end of the screen come too: the cursor on one
+	// under the last line, as while a program prints lines, keeps the line
+	// above from what is written next, and a screen cleared shows blank,
+	// what it showed in the scrollback.
+	for _, last := range []string{"", "\x1b[H\x1b[2J"} {
+		d := newTerm()
+		for i := range 10 {
+			d.Feed([]byte("row " + itoa(i) + "\r\n"))
+		}
+		d.Feed([]byte(last))
+		e := newTerm()
+		e.Feed(d.Snapshot())
+		d.Feed([]byte("next"))
+		e.Feed([]byte("next"))
+		if d.Text() != e.Text() {
+			t.Errorf("after %q, restored text\n%q, want\n%q", last, e.Text(), d.Text())
+		}
+		d.mu.Lock()
+		want := d.term.Scrollbar()
+		d.mu.Unlock()
+		e.mu.Lock()
+		got := e.term.Scrollbar()
+		e.mu.Unlock()
+		if got != want {
+			t.Errorf("after %q, restored scrollbar %+v, want %+v", last, got, want)
+		}
+	}
 	// A full-screen program's screen, at a new size.
 	a.Feed([]byte("\x1b[?1049h\x1b[H\x1b[2Jfull screen\x1b[3;5Hhere"))
 	a.Resize(30, 5)

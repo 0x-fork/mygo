@@ -3,7 +3,9 @@ package vt
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"unsafe"
@@ -541,7 +543,34 @@ func (t *Terminal) VT() []byte {
 	if p != 0 {
 		call(fnFree, 0, p, n)
 	}
-	return b
+	return t.padRows(b)
+}
+
+// padRows adds the blank rows at the end of the screen, which the
+// formatter leaves out, to the rows of a VT snapshot. Without them, the
+// rows written scroll fewer into the scrollback of the terminal they are
+// replayed in: what was scrollback shows on the screen, as after clear,
+// and the cursor, on a blank row under the last one written, lands on
+// that row, whose text what is written next overwrites. The rows end
+// where the snapshot places the cursor, one "\r\n" after the other.
+func (t *Terminal) padRows(b []byte) []byte {
+	_, rows := t.Size()
+	total := int(t.Scrollbar().Total)
+	if total <= rows || t.AltScreen() {
+		// No scrollback, or a full-screen program's screen, which has
+		// none: the cursor's position alone places it.
+		return b
+	}
+	x, y := t.Cursor()
+	end := bytes.LastIndex(b, fmt.Appendf(nil, "\x1b[%d;%dH", y+1, x+1))
+	if end < 0 {
+		return b
+	}
+	pad := total - (bytes.Count(b[:end], []byte("\r\n")) + 1)
+	if pad <= 0 {
+		return b
+	}
+	return slices.Concat(b[:end], bytes.Repeat([]byte("\r\n"), pad), b[end:])
 }
 
 // Compress compresses some of the scrollback, as when the terminal is
