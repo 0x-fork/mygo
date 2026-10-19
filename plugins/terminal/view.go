@@ -84,6 +84,7 @@ type view struct {
 	scale                  float32
 	cellW, cellH, baseline int
 	ox, oy                 int
+	alt                    bool // the alternate screen shows, as of the last paint
 	cols, rows             int
 
 	colors    vt.Colors

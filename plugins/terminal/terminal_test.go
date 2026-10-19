@@ -1791,3 +1791,55 @@ func TestClipboardReadKitty(t *testing.T) {
 		term.Close()
 	}
 }
+
+func TestPadding(t *testing.T) {
+	loadLib(t)
+	th := LightTheme()
+	red, green, blue := th.Palette[1], th.Palette[2], th.Palette[4]
+	near := func(name string, got, want ui.Color) {
+		t.Helper()
+		d := func(a, b uint8) int { return max(int(a)-int(b), int(b)-int(a)) }
+		if d(got.R, want.R) > 2 || d(got.G, want.G) > 2 || d(got.B, want.B) > 2 {
+			t.Errorf("%s is %v, want %v", name, got, want)
+		}
+	}
+	for _, mode := range []PaddingColor{PaddingBackground, PaddingExtend, PaddingExtendAlways} {
+		term, err := New(Options{Conn: newPipe(), Theme: th, NoBlink: true, Padding: Padding{X: 20, Y: 12}, PaddingColor: mode})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+		// At the view's size: row 0 red across, as a full-width bar; row
+		// 1 green in its first two cells only, as a shell's highlight.
+		term.Feed([]byte("\x1b[41m\x1b[2K\x1b[0m\x1b[2;1H\x1b[42mab\x1b[0m\x1b[5;1H"))
+		tt.Frame()
+		at := func(x, y float32) ui.Color {
+			s := term.v.scale
+			c := tt.Image().RGBAAt(int(x*s), int(y*s))
+			return ui.RGB(c.R, c.G, c.B)
+		}
+		if want := int(20 * term.v.scale); term.v.ox != want {
+			t.Errorf("padding across %d pixels, want %d", term.v.ox, want)
+		}
+		_, y0 := cellCenter(term, 0, 0)
+		_, y1 := cellCenter(term, 0, 1)
+		switch mode {
+		case PaddingBackground:
+			near("the padding beside a red row", at(5, y0), th.Background)
+		case PaddingExtend:
+			near("the padding beside a red row", at(5, y0), red)
+			near("the padding past a red row's end", at(397, y0), red)
+			near("the padding above a red row", at(200, 3), red)
+			near("the padding beside a row half green", at(5, y1), th.Background)
+			// A full-screen program's colors extend from every row.
+			term.Feed([]byte("\x1b[?1049h\x1b[44m\x1b[2J\x1b[0m\x1b[3;1H\x1b[42mab\x1b[0m"))
+			tt.Frame()
+			_, y2 := cellCenter(term, 0, 2)
+			near("the padding beside a full-screen program's green", at(5, y2), green)
+			near("the padding below a full-screen program", at(200, 197), blue)
+		case PaddingExtendAlways:
+			near("the padding beside a row half green", at(5, y1), green)
+		}
+		term.Close()
+	}
+}

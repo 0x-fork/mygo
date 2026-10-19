@@ -44,6 +44,29 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// Padding is the room around a terminal's grid, in DIPs (Options.Padding).
+type Padding struct{ X, Y float32 }
+
+// PaddingColor is what the padding around a terminal's grid shows
+// (Options.PaddingColor), as Ghostty's window-padding-color.
+type PaddingColor int
+
+const (
+	// PaddingBackground shows the terminal's background, or nothing when
+	// it is Transparent.
+	PaddingBackground PaddingColor = iota
+	// PaddingExtend extends the backgrounds of the cells nearest to the
+	// padding into it: a row's beside it, the top and the bottom rows'
+	// above and below the grid, as Ghostty's extend. While a full-screen
+	// program shows (the alternate screen) it extends every row's; on the
+	// main screen only those of rows whose every cell has a background of
+	// its own, so that a shell's highlights stay in their cells.
+	PaddingExtend
+	// PaddingExtendAlways extends the backgrounds of every row's cells
+	// nearest to the padding, as Ghostty's extend-always.
+	PaddingExtendAlways
+)
+
 // Options configure a terminal.
 type Options struct {
 	// Command is the program the terminal runs and its arguments. Empty
@@ -117,6 +140,16 @@ type Options struct {
 	// Give the theme the background the view shows on, which the text
 	// under a block cursor takes.
 	Transparent bool
+	// Padding is the room around the grid, in DIPs, across (X) and down
+	// (Y), as Ghostty's window-padding-x and window-padding-y: 6 across
+	// and 4 down when zero; a negative value leaves none.
+	Padding Padding
+	// PaddingColor is what the padding shows, as Ghostty's
+	// window-padding-color: the background (PaddingBackground, the zero
+	// value), or the backgrounds of the cells nearest to it
+	// (PaddingExtend, PaddingExtendAlways), so that a full-screen
+	// program's colors reach the edges of the view.
+	PaddingColor PaddingColor
 
 	// OnTitle, OnExit, OnBell and OnNotify run on a goroutine of the
 	// terminal when a program sets the title, when the program (or Conn)

@@ -155,6 +155,24 @@ term, err := terminal.New(terminal.Options{
   `background-opacity`, so that what is under the view shows through: the
   window's material, or an element's translucent background. Cells with a
   background color of their own still draw it.
+- `Padding` is the room around the grid, in DIPs across (`X`) and down
+  (`Y`), as Ghostty's `window-padding-x` and `window-padding-y`: 6 across
+  and 4 down by default, none when negative. `PaddingColor` is what it
+  shows, as Ghostty's `window-padding-color`: the background by default,
+  or with `terminal.PaddingExtend` the backgrounds of the cells nearest to
+  it, so that a full-screen program's colors reach the edges of the view
+  rather than stopping at the grid's. It extends every row's while a
+  full-screen program shows, and on the main screen only those of rows
+  whose every cell has a background of its own, so that a prompt's
+  highlights stay in their cells; `terminal.PaddingExtendAlways` extends
+  every row's.
+
+  ```go
+  term, err := terminal.New(terminal.Options{
+  	Padding:      terminal.Padding{X: 14, Y: 8},
+  	PaddingColor: terminal.PaddingExtend,
+  })
+  ```
 - `OptionAsAlt` makes Option on macOS the Alt key of programs (Meta),
   instead of the key typing accented letters.
 - `CopyOnSelect: terminal.CopyOnSelectClipboard` copies the selection to
