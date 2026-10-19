@@ -1,8 +1,12 @@
 package ui
 
 import (
+	"image"
 	"image/color"
 	"testing"
+
+	"github.com/egoist/mygo/internal/raster"
+	"github.com/egoist/mygo/internal/scene"
 )
 
 // TestPathsLargerThanAMaskDraw fills and strokes paths 2480 DIPs wide at
@@ -69,10 +73,22 @@ func TestTiledPathsMatchOneMask(t *testing.T) {
 			p.StrokePathConicGradient(&frame, 1.5, ConicGradient{Stops: []GradientStop{{blue, 0}, {red, 1}}})
 		})
 	}
-	whole := coreRender(view, 380, 220, 2)
+	// render draws the view at 2x with the coverage of masks as they are
+	// rasterized: on Windows, renderers correct it for paths as for text,
+	// as Direct2D does, which can make a level of difference two.
+	render := func() *image.RGBA {
+		tt := coreNewTester(view, 380, 220)
+		tt.SetScale(2)
+		s := tt.h.last
+		s.Text = scene.TextParams{}
+		var r raster.Renderer
+		r.Render(s)
+		return &image.RGBA{Pix: r.Image.RGBA(), Stride: 4 * r.Image.W, Rect: image.Rect(0, 0, r.Image.W, r.Image.H)}
+	}
+	whole := render()
 	defer func(most, tile int) { pathMaskMax, pathTile = most, tile }(pathMaskMax, pathTile)
 	pathMaskMax, pathTile = 0, 17
-	tiled := coreRender(view, 380, 220, 2)
+	tiled := render()
 	worst := 0
 	for i := range whole.Pix {
 		d := int(whole.Pix[i]) - int(tiled.Pix[i])
