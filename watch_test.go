@@ -567,6 +567,25 @@ func TestFileWatchDiff(t *testing.T) {
 	}
 }
 
+// A file system such as ext4 gives a freed inode to the next file
+// created: a directory replaced by a symlink with its inode is a removal
+// and a creation, not a write.
+func TestFileWatchDiffReusedInode(t *testing.T) {
+	id := fileWatchID{volume: 1, index: 2}
+	dir, link := id, id
+	dir.typ, link.typ = fs.ModeDir, fs.ModeSymlink
+	before := map[string]fileWatchEntry{"a": {id: dir, mode: fs.ModeDir | 0700}, "a/f": {id: fileWatchID{volume: 1, index: 3}}}
+	after := map[string]fileWatchEntry{"a": {id: link, mode: fs.ModeSymlink | 0777}}
+	want := []FileEvent{
+		{Op: FileRemove, Path: "a", IsDir: true},
+		{Op: FileCreate, Path: "a"},
+		{Op: FileRemove, Path: "a/f"},
+	}
+	if events := fileWatchTestDiff(before, after, nil); !slices.Equal(events, want) {
+		t.Fatalf("events = %+v, want %+v", events, want)
+	}
+}
+
 // fileWatchTestInfos returns the stats of files in dir, as the scan keeps
 // them: a, b, c, a hard link of a when the file system has them, and a
 // directory d; then a, after a was renamed to a2, by another way.
@@ -947,7 +966,7 @@ func TestFileWatchFileGone(t *testing.T) {
 	if !slices.Equal(r.events, []FileEvent{{Op: FileRemove, Path: "."}}) || !r.gone.ok {
 		t.Fatalf("renamed: %+v", r)
 	}
-	if found := findRenamed(filepath.Dir(w.Root()), r.gone.id); found != filepath.Join(filepath.Dir(w.Root()), "renamed.txt") {
+	if found := findRenamed(filepath.Dir(w.Root()), []fileWatchGone{r.gone}); found != filepath.Join(filepath.Dir(w.Root()), "renamed.txt") {
 		t.Fatalf("found %q", found)
 	}
 }

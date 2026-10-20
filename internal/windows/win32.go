@@ -118,6 +118,7 @@ var (
 	procGetWindowLongPtrW             = user32.NewProc("GetWindowLongPtrW")
 	procSetWindowLongPtrW             = user32.NewProc("SetWindowLongPtrW")
 	procSetForegroundWindow           = user32.NewProc("SetForegroundWindow")
+	procAllowSetForegroundWindow      = user32.NewProc("AllowSetForegroundWindow")
 	procGetForegroundWindow           = user32.NewProc("GetForegroundWindow")
 	procNotifyWinEvent                = user32.NewProc("NotifyWinEvent")
 	procSetFocus                      = user32.NewProc("SetFocus")
@@ -130,6 +131,7 @@ var (
 	procEnumDisplaySettingsW          = user32.NewProc("EnumDisplaySettingsW")
 	procEnumDisplayMonitors           = user32.NewProc("EnumDisplayMonitors")
 	procGetCursorPos                  = user32.NewProc("GetCursorPos")
+	procWindowFromPoint               = user32.NewProc("WindowFromPoint")
 	procLoadCursorW                   = user32.NewProc("LoadCursorW")
 	procLoadIconW                     = user32.NewProc("LoadIconW")
 	procCreateIconFromResourceEx      = user32.NewProc("CreateIconFromResourceEx")
@@ -203,7 +205,6 @@ var (
 
 	// shell32
 	procShellExecuteW               = shell32.NewProc("ShellExecuteW")
-	procSHFileOperationW            = shell32.NewProc("SHFileOperationW")
 	procShellNotifyIconW            = shell32.NewProc("Shell_NotifyIconW")
 	procShellNotifyIconGetRect      = shell32.NewProc("Shell_NotifyIconGetRect")
 	procSHCreateItemFromParsingName = shell32.NewProc("SHCreateItemFromParsingName")
