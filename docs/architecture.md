@@ -32,8 +32,10 @@ framework safely. Read it before changing anything under `internal/`.
   an app whose windows all show it needs no webview at all, and runs in
   browsers too, compiled to WebAssembly, on canvases drawn with WebGL 2
   (see [Browsers](#browsers-internalweb)). On unsupported
-  platforms the `internal/unsupported` backend makes `App.Run` fail with a
-  clear error while everything still compiles.
+  platforms, 32-bit Windows and Linux among them, the `internal/unsupported`
+  backend makes `App.Run` fail with a clear error while everything still
+  compiles, so every file of a backend, and of the text engine it pairs
+  with, names the backend's architectures in its build constraint.
 - **Bun is dev tooling only.** It builds and tests the TypeScript bridge, and
   installs and runs the web template's tools (Vite, TypeScript, the
   mygo-cli package); projects of native UI need none. Nothing Bun-related
