@@ -198,7 +198,13 @@ func probeGL() (renderer, failure string) {
 	makeCurrent(ctx)
 	defer clearCurrent()
 	const glRenderer = 0x1F01
-	return goStr(getString(glRenderer)), ""
+	// GDK realizes contexts it cannot make current on some machines
+	// without a GPU: OpenGL then tells nothing, and libepoxy aborts the
+	// first call of most of its functions.
+	if renderer = goStr(getString(glRenderer)); renderer == "" {
+		return "", "OpenGL has no current context"
+	}
+	return renderer, ""
 }
 
 // failed describes a GError of GDK's OpenGL.
