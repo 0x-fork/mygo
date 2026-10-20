@@ -57,21 +57,21 @@ func TestHeadlessAppearanceChanges(t *testing.T) {
 	defer term.Close()
 	// Applications that did not subscribe must receive no unsolicited
 	// input. Once subscribed, each preference change produces one report.
-	term.SetAppearance(DarkTheme())
+	term.UseTheme(DarkTheme())
 	if got := p.take(term); got != "" {
 		t.Fatalf("unsubscribed application received %q", got)
 	}
 	term.Feed([]byte("\x1b[?2031h"))
 	p.take(term)
-	term.SetAppearance(LightTheme())
+	term.UseTheme(LightTheme())
 	if got, want := p.take(term), "\x1b[?997;2n"; got != want {
 		t.Fatalf("light change = %q, want %q", got, want)
 	}
-	term.SetAppearance(LightTheme())
+	term.UseTheme(LightTheme())
 	if got := p.take(term); got != "" {
 		t.Fatalf("unchanged preference sent %q", got)
 	}
-	term.SetAppearance(DarkTheme())
+	term.UseTheme(DarkTheme())
 	if got, want := p.take(term), "\x1b[?997;1n"; got != want {
 		t.Fatalf("dark change = %q, want %q", got, want)
 	}
@@ -80,7 +80,7 @@ func TestHeadlessAppearanceChanges(t *testing.T) {
 		t.Fatalf("query after change = %q, want %q", got, want)
 	}
 	term.Feed([]byte("\x1b[?2031l"))
-	term.SetAppearance(LightTheme())
+	term.UseTheme(LightTheme())
 	if got := p.take(term); got != "" {
 		t.Fatalf("unsubscribed application received %q", got)
 	}
