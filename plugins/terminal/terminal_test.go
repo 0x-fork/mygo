@@ -612,7 +612,7 @@ func TestMenus(t *testing.T) {
 	// The context menu.
 	x, y := cellCenter(term, 1, 0)
 	tt.RightClickAt(x, y)
-	if got := strings.Join(tt.Menu(), ","); !strings.Contains(got, "Copy") || !strings.Contains(got, "Clear Scrollback") {
+	if got := strings.Join(tt.Menu(), ","); !strings.Contains(got, "Copy") || !strings.HasSuffix(got, ",-,Clear") {
 		t.Errorf("context menu = %q", got)
 	}
 	tt.SetClipboard("again")
@@ -625,7 +625,7 @@ func TestMenus(t *testing.T) {
 	// In the window's language.
 	tt.SetLocale("zh-Hant")
 	tt.RightClickAt(x, y)
-	if got := strings.Join(tt.Menu(), ","); !strings.Contains(got, "複製") || !strings.Contains(got, "清除捲動緩衝區") {
+	if got := strings.Join(tt.Menu(), ","); !strings.Contains(got, "複製") || !strings.HasSuffix(got, ",-,清除") {
 		t.Errorf("context menu in Traditional Chinese = %q", got)
 	}
 }
@@ -992,14 +992,14 @@ func TestOnClear(t *testing.T) {
 	}
 	x, y := cellCenter(term, 1, 0)
 	tt.RightClickAt(x, y)
-	if err := tt.ChooseMenuItem("Clear Scrollback"); err != nil {
+	if err := tt.ChooseMenuItem("Clear"); err != nil {
 		t.Fatal(err)
 	}
-	if len(asked) != 2 || asked[1] != ClearScrollback {
-		t.Fatalf("Clear Scrollback asked %v", asked)
+	if len(asked) != 2 || asked[1] != ClearScreen {
+		t.Fatalf("the menu's Clear asked %v", asked)
 	}
 	if term.Text() != full {
-		t.Error("a Clear Scrollback taken cleared")
+		t.Error("the menu's Clear taken cleared")
 	}
 	take = false
 	tt.Key(ui.Alt, ui.KeyK)
@@ -1007,12 +1007,28 @@ func TestOnClear(t *testing.T) {
 	if got := strings.TrimSpace(term.Text()); got != "$ ls" {
 		t.Errorf("a clear left to the terminal left %q", got)
 	}
+	// The menu's Clear clears as the keys do.
+	term.Feed([]byte("\r\n" + b.String()))
+	tt.Frame()
+	tt.RightClickAt(x, y)
+	if err := tt.ChooseMenuItem("Clear"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if got := strings.TrimSpace(term.Text()); got != "$ ls" {
+		t.Errorf("the menu's Clear left to the terminal left %q", got)
+	}
 	term.Feed([]byte("\x1b[?1049h"))
 	tt.Frame()
 	tt.Key(ui.Alt, ui.KeyK)
-	if len(asked) != 3 {
-		t.Errorf("the alternate screen asked %v", asked[3:])
+	if len(asked) != 4 {
+		t.Errorf("the alternate screen asked %v", asked[4:])
 	}
+	tt.RightClickAt(x, y)
+	if err := tt.ChooseMenuItem("Clear"); err == nil {
+		t.Error("the menu's Clear is enabled on the alternate screen")
+	}
+	tt.CloseMenu()
 	if got := conn.take(term); got == "" {
 		t.Error("a performable clear took the key on the alternate screen")
 	}
@@ -1304,12 +1320,20 @@ func TestCommandClickLinkWithoutOpenLink(t *testing.T) {
 	if h := term.v.hover; h != (linkSpan{0, 0, 4}) {
 		t.Errorf("hovered %+v, want the hyperlink's cells 0..4", h)
 	}
+	x0, y0 := cellCenter(term, 0, 0)
+	x4, _ := cellCenter(term, 4, 0)
+	if link, path, at := term.HoveredLink(); link != "vscode://file/a.go" || path || !at.Contains(x0, y0) || at.Contains(x4, y0) {
+		t.Errorf("HoveredLink is %q, %v, %+v, want the hyperlink over cells 0..4", link, path, at)
+	}
 	tt.HoldModifiers(0)
 	if c := tt.Cursor(); c != ui.CursorText {
 		t.Errorf("the cursor is %v once Command is let go of", c)
 	}
 	if h := term.v.hover; h.on() {
 		t.Errorf("hovered %+v once Command is let go of", h)
+	}
+	if link, _, _ := term.HoveredLink(); link != "" {
+		t.Errorf("HoveredLink is %q once Command is let go of", link)
 	}
 	term.Feed([]byte("\x1b[?1002h\x1b[?1006h"))
 	tt.Frame()
@@ -2149,5 +2173,261 @@ func TestResizeByConn(t *testing.T) {
 	case s := <-conn.sizes:
 		t.Errorf("Conn told %v again: by the view twice, or by Resize", s)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// pixelPipe is a pipe told the size with the size of a cell in pixels.
+type pixelPipe struct {
+	*pipe
+	sizes chan [4]int
+}
+
+func (p pixelPipe) ResizePixels(cols, rows, cellWidth, cellHeight int) error {
+	p.sizes <- [4]int{cols, rows, cellWidth, cellHeight}
+	return nil
+}
+
+// A terminal standing for another, as a server's for a window, takes the
+// size of the window's cells, which programs get from size queries and
+// count pointer reports in pixels (mode 1016) in; the window's terminal
+// tells its Conn that size.
+func TestResizePixels(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	server, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	server.ResizePixels(40, 6, 18, 36)
+	server.Feed([]byte("\x1b[16t\x1b[14t"))
+	if got, want := conn.take(server), "\x1b[6;36;18t\x1b[4;216;720t"; got != want {
+		t.Errorf("size queries answered %q, want %q", got, want)
+	}
+	server.ResizePixels(30, 5, 0, 0)
+	server.Feed([]byte("\x1b[16t"))
+	if got, want := conn.take(server), "\x1b[6;36;18t"; got != want {
+		t.Errorf("a zero cell size answered %q, want %q", got, want)
+	}
+
+	client := pixelPipe{newPipe(), make(chan [4]int, 8)}
+	term, err := New(Options{Conn: client, ResizeByConn: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	select {
+	case s := <-client.sizes:
+		term.mu.Lock()
+		want := [4]int{term.asked.cols, term.asked.rows, term.size.cellW, term.size.cellH}
+		term.mu.Unlock()
+		if s != want {
+			t.Errorf("Conn told %v, not the view's %v", s, want)
+		}
+	case <-time.After(10 * time.Second): // a hang guard
+		t.Fatal("Conn not told the size")
+	}
+}
+
+// themePipe is a pipe told the view's theme.
+type themePipe struct {
+	*pipe
+	themes chan *Theme
+}
+
+func (p themePipe) UseTheme(theme *Theme) error {
+	p.themes <- theme
+	return nil
+}
+
+// A terminal standing for another, as a server's for a window, answers
+// programs' questions about the colors with the window's, which its view
+// tells its Conn: Copilot CLI, asking the background, drew its input box
+// dark on a light one.
+func TestUseTheme(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	server, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	light := &Theme{Foreground: ui.Hex("#202020"), Background: ui.Hex("#fafafa"), Cursor: ui.Hex("#ff0000")}
+	light.Palette[1] = ui.Hex("#cd3131")
+	server.UseTheme(light)
+	server.Feed([]byte("\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b]12;?\x1b\\\x1b]4;1;?\x1b\\\x1b[?996n"))
+	want := "\x1b]10;rgb:2020/2020/2020\x1b\\\x1b]11;rgb:fafa/fafa/fafa\x1b\\\x1b]12;rgb:ffff/0000/0000\x1b\\\x1b]4;1;rgb:cdcd/3131/3131\x1b\\\x1b[?997;2n"
+	if got := conn.take(server); got != want {
+		t.Errorf("color queries answered %q, want %q", got, want)
+	}
+
+	client := themePipe{newPipe(), make(chan *Theme, 8)}
+	term, err := New(Options{Conn: client, Theme: light})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	tt.Frame()
+	select {
+	case th := <-client.themes:
+		if th != light {
+			t.Errorf("Conn told %+v, not the view's theme", th)
+		}
+	case <-time.After(10 * time.Second): // a hang guard
+		t.Fatal("Conn not told the theme")
+	}
+	tt.Frame()
+	select {
+	case th := <-client.themes:
+		t.Errorf("Conn told the same theme again: %+v", th)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// A full-screen program's rows with cells of the default background keep
+// their colors in their cells, as in Ghostty: Copilot CLI's tabs on its
+// top row grew up into the padding, and the row of its input box, which
+// starts with a border on the default background, stuck out past the box.
+func TestPaddingPartialRows(t *testing.T) {
+	loadLib(t)
+	th := LightTheme()
+	term, err := New(Options{Conn: newPipe(), Theme: th, NoBlink: true, Padding: Padding{X: 20, Y: 12}, PaddingColor: PaddingExtend})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	tt.Frame()
+	pad := strings.Repeat(" ", term.v.cols)
+	term.Feed([]byte("\x1b[?1049h\x1b[H \x1b[44m Current \x1b[0m \x1b[47m Gists \x1b[0m\x1b[3;1H┃\x1b[47m" + pad[1:] + "\x1b[0m"))
+	tt.Frame()
+	at := func(x, y float32) ui.Color {
+		s := term.v.scale
+		c := tt.Image().RGBAAt(int(x*s), int(y*s))
+		return ui.RGB(c.R, c.G, c.B)
+	}
+	x, _ := cellCenter(term, 3, 0)
+	_, y2 := cellCenter(term, 0, 2)
+	for _, c := range []struct {
+		name string
+		x, y float32
+	}{
+		{"above a tab", x, 3},
+		{"past the end of a box's row", 397, y2},
+	} {
+		if got := at(c.x, c.y); got != th.Background {
+			t.Errorf("the padding %s is %v, want the background %v", c.name, got, th.Background)
+		}
+	}
+}
+
+// A program that asked (mode 2031) is told when the colors go from light
+// to dark or back, as Ghostty tells it: a server's terminal as its window
+// tells it the theme, and a terminal a view shows as the window's
+// appearance changes. Claude Code and Copilot CLI ask, to recolor.
+func TestColorSchemeChanges(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	server, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	server.UseTheme(LightTheme())
+	server.UseTheme(DarkTheme())
+	if got := conn.take(server); got != "" {
+		t.Errorf("told %q without asking", got)
+	}
+	server.Feed([]byte("\x1b[?2031h"))
+	server.UseTheme(LightTheme())
+	server.UseTheme(LightTheme())
+	if got, want := conn.take(server), "\x1b[?997;2n"; got != want {
+		t.Errorf("going light told %q, want %q", got, want)
+	}
+
+	conn = newPipe()
+	term, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	term.Feed([]byte("\x1b[?2031h"))
+	tt.Frame()
+	tt.SetDark(true)
+	tt.Frame()
+	if got, want := conn.take(term), "\x1b[?997;1n"; got != want {
+		t.Errorf("a dark window told %q, want %q", got, want)
+	}
+}
+
+// A transparent terminal draws a background a program set (OSC 11), as
+// Ghostty shows it, and none again once the program resets it.
+func TestTransparentProgramBackground(t *testing.T) {
+	loadLib(t)
+	term, err := New(Options{Conn: newPipe(), Theme: LightTheme(), Transparent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Fill().Background(ui.RGB(0, 0, 255)).Children(func() { View(c, term).Fill() })
+	}, 400, 200)
+	at := func() ui.Color {
+		c := tt.Image().RGBAAt(int(300*term.v.scale), int(150*term.v.scale))
+		return ui.RGB(c.R, c.G, c.B)
+	}
+	red, blue := ui.RGB(255, 0, 0), ui.RGB(0, 0, 255)
+	for _, c := range []struct {
+		label, out string
+		want       ui.Color
+	}{
+		{"at the start", "", blue},
+		{"set", "\x1b]11;#ff0000\x07", red},
+		{"reset", "\x1b]111\x07", blue},
+	} {
+		term.Feed([]byte(c.out))
+		tt.Frame()
+		if got := at(); got != c.want {
+			t.Errorf("%s: the background is %v, want %v", c.label, got, c.want)
+		}
+	}
+}
+
+// Files dropped on a terminal paste their paths, escaped for a shell and
+// between spaces, as Ghostty does: bracketed for a program that asks, so
+// that an agent takes them as files it attaches.
+func TestDropFiles(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	term, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	tt.Frame()
+	paths := []string{"/Users/me/My Shots/shot (1).png", "/tmp/a&b.txt"}
+	want := []string{`/Users/me/My\ Shots/shot\ \(1\).png /tmp/a\&b.txt`, `/tmp/a\&b.txt`}
+	if runtime.GOOS == "windows" {
+		paths = []string{`C:\Users\me\My Shots\shot (1).png`, `C:\tmp\ab.txt`}
+		want = []string{`"C:\Users\me\My Shots\shot (1).png" C:\tmp\ab.txt`, `C:\tmp\ab.txt`}
+	}
+	if !tt.DropFiles(100, 100, paths...) {
+		t.Fatal("the terminal did not take the files")
+	}
+	tt.Frame()
+	if got := conn.take(term); got != want[0] {
+		t.Errorf("dropping pasted %q, want %q", got, want[0])
+	}
+	term.Feed([]byte("\x1b[?2004h"))
+	tt.Frame()
+	tt.DropFiles(100, 100, paths[1])
+	tt.Frame()
+	if got, want := conn.take(term), "\x1b[200~"+want[1]+"\x1b[201~"; got != want {
+		t.Errorf("dropping in bracketed paste pasted %q, want %q", got, want)
 	}
 }

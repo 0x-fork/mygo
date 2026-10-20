@@ -149,6 +149,8 @@ const (
 	dataMouseTracking  = 11
 	dataTitle          = 12
 	dataPwd            = 13
+	dataColorFg        = 18 // then the background, the cursor and the palette
+	dataColorFgDefault = 22 // the same, defaults alone
 	dataViewportActive = 32
 	dataMode           = 37
 	dataMouseShape     = 41
@@ -184,10 +186,9 @@ func NewTerminal(cols, rows int, effects Effects) (*Terminal, error) {
 	t.setValue(optDeviceAttributes, cbDeviceAttributes)
 	t.setValue(optDesktopNotification, cbDesktopNotification)
 	t.setValue(optProgressReport, cbProgressReport)
-	// Images of the Kitty graphics protocol are not drawn: refuse them,
-	// so that programs fall back to something else.
-	var limit uint64
-	t.set(optKittyImageLimit, unsafe.Pointer(&limit))
+	// Images of the Kitty graphics protocol are refused until SetImageLimit
+	// takes them, so that programs fall back to something else.
+	t.SetImageLimit(0)
 	return t, nil
 }
 
@@ -336,6 +337,8 @@ const (
 	ModePasteEvents Mode = 5522
 	ModeSyncOutput  Mode = 2026
 	ModeGraphemes   Mode = 2027
+	// ModeColorScheme has the terminal tell the program when its colors
+	// go from light to dark or back (CSI ? 997 ; 1 n for dark, 2 light).
 	ModeColorScheme Mode = 2031
 )
 
@@ -369,6 +372,29 @@ func (t *Terminal) MouseShape() int {
 	var v int32
 	t.get(dataMouseShape, unsafe.Pointer(&v))
 	return int(v)
+}
+
+// TermColors are a terminal's colors; a color neither a program set nor a
+// default gave is not Has.
+type TermColors struct {
+	Foreground, Background, Cursor          RGB
+	HasForeground, HasBackground, HasCursor bool
+	Palette                                 [256]RGB
+}
+
+// Colors returns the colors programs see: those they set (OSC 4, 10, 11,
+// 12) over the defaults, or with defaults the defaults alone.
+func (t *Terminal) Colors(defaults bool) TermColors {
+	base := dataColorFg
+	if defaults {
+		base = dataColorFgDefault
+	}
+	var c TermColors
+	c.HasForeground = t.get(base, unsafe.Pointer(&c.Foreground)) == nil
+	c.HasBackground = t.get(base+1, unsafe.Pointer(&c.Background)) == nil
+	c.HasCursor = t.get(base+2, unsafe.Pointer(&c.Cursor)) == nil
+	t.get(base+3, unsafe.Pointer(&c.Palette))
+	return c
 }
 
 // AltScreen reports whether the alternate screen shows, as in full-screen

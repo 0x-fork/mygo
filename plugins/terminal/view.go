@@ -146,7 +146,8 @@ type view struct {
 	// lang is the window's language, for the menu's items.
 	lang string
 
-	theme *Theme
+	theme   *Theme
+	applied *Theme // the theme the emulator has
 
 	// The grid, in device pixels: the cells, the baseline in a cell, and
 	// the origin of the grid relative to the element; scale is device
@@ -156,7 +157,6 @@ type view struct {
 	scale                  float32
 	cellW, cellH, baseline int
 	ox, oy                 int
-	alt                    bool // the alternate screen shows, as of the last paint
 	cols, rows             int
 
 	colors    vt.Colors
@@ -165,6 +165,10 @@ type view struct {
 	scrollbar vt.Scrollbar
 	lines     []rowCache
 	shaped    lru
+	// images are the placements of images that show, and bitmaps their
+	// images' (readImages).
+	images  []shownImage
+	bitmaps map[uint32]*cachedImage
 
 	keys    *vt.KeyEncoder
 	mouse   *vt.MouseEncoder
@@ -184,9 +188,12 @@ type view struct {
 	selecting, reporting bool
 	pointer              [2]float32
 	// hover is the link Command is held over, which a click opens and
-	// which shows underlined; linkPress: the primary button pressed one,
-	// and the press is the link's until the release.
+	// which shows underlined, hoverLink what it opens and hoverPath
+	// whether that is a file path (HoveredLink); linkPress: the primary
+	// button pressed one, and the press is the link's until the release.
 	hover     linkSpan
+	hoverLink string
+	hoverPath bool
 	linkPress bool
 	// pointerAt is the pointer over the grid (pointerShape); tracking whether
 	// the program took the mouse as of the last frame, and modeShape the
@@ -238,6 +245,9 @@ type pendingKey struct {
 // build updates the view as a frame builds.
 func (v *view) build(c *ui.Context, e ui.Element) {
 	t := v.t
+	if files := e.DroppedFiles(); len(files) > 0 {
+		t.dropFiles(files)
+	}
 	v.lang = c.Locale()
 	dark := c.Theme().Dark
 	focused := e.Focused()
@@ -253,15 +263,21 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 		v.release()
 		v.reads, v.clipPrompt, v.clipOpen = nil, nil, false
 	} else {
-		t.applyAppearance(theme)
+		if v.applied != theme {
+			theme.apply(t.term)
+			v.applied = theme
+			t.themeConn(theme)
+		}
+		t.schemeChanged(t.curTheme, theme)
+		t.curTheme = theme
 		if focused != v.focused && t.term.Mode(vt.ModeFocusEvent) {
 			t.in.push(vt.EncodeFocus(focused))
 		}
 		// The hand over a link follows Command as it is pressed and let
 		// go of, with the pointer still.
-		v.hover = linkSpan{}
+		v.hover, v.hoverLink, v.hoverPath = linkSpan{}, "", false
 		if e.Hovered() {
-			_, _, v.hover = v.linkUnder(c.Modifiers(), v.pointer[0], v.pointer[1])
+			v.hoverLink, v.hoverPath, v.hover = v.linkUnder(c.Modifiers(), v.pointer[0], v.pointer[1])
 		}
 		v.pointerAt = v.pointerShape(t.term, c.Modifiers())
 		// Input methods compose where the cursor is now, which the last
@@ -500,9 +516,10 @@ func (v *view) caret() ui.Rect {
 func (v *view) menu(m *ui.Menu) {
 	t := v.t
 	t.mu.Lock()
-	text, selected := "", false
+	text, selected, alt := "", false, false
 	if t.term != nil {
 		text, selected = t.term.SelectionText()
+		alt = t.term.AltScreen()
 	}
 	t.mu.Unlock()
 	tx := l10n.In(v.lang)
@@ -517,10 +534,10 @@ func (v *view) menu(m *ui.Menu) {
 		v.selectAll()
 	}
 	m.Separator()
-	if m.Item(tx.ClearScrollback()).Chosen() {
-		if on := t.opts.OnClear; on == nil || !on(ClearScrollback) {
-			t.ClearScrollback()
-		}
+	// Clear clears as ⌘K does, as Ghostty's: clearing the scrollback
+	// alone would change nothing on the screen.
+	if v.menuItem(m, tx.ClearTerminal(), ActionClearScreen).Disabled(alt).Chosen() {
+		v.clearScreen()
 	}
 }
 
@@ -978,7 +995,7 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 	// program that takes the mouse sees it.
 	link, path, hover := v.linkUnder(ev.Mods, ev.X, ev.Y)
 	if hover != v.hover {
-		v.hover = hover
+		v.hover, v.hoverLink, v.hoverPath = hover, link, path
 		v.services.Invalidate()
 	}
 	if link != "" && ev.Kind == ui.InputPointerDown && ev.Button == 0 {
@@ -1058,6 +1075,29 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 type linkSpan struct{ row, x0, x1 int }
 
 func (s linkSpan) on() bool { return s.x1 > s.x0 }
+
+// HoveredLink returns the link Command (Control elsewhere) is held over
+// in the view, which a click opens and which shows underlined, as
+// Options.OpenLink takes it; whether it is a file path; and the rectangle
+// of its cells in DIPs, relative to the view. It returns "" over no link,
+// or while no view shows the terminal. An app shows a preview of a link
+// with it, over the view: read it in the view function, after View.
+func (t *Terminal) HoveredLink() (link string, path bool, at ui.Rect) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	v := t.v
+	if v == nil || !v.hover.on() || v.scale == 0 {
+		return "", false, ui.Rect{}
+	}
+	cw, ch := float32(v.cellW)/v.scale, float32(v.cellH)/v.scale
+	h := v.hover
+	return v.hoverLink, v.hoverPath, ui.Rect{
+		X: float32(v.ox)/v.scale + float32(h.x0)*cw,
+		Y: float32(v.oy)/v.scale + float32(h.row)*ch,
+		W: float32(h.x1-h.x0) * cw,
+		H: ch,
+	}
+}
 
 // linkUnder is the link a click with mods at (x, y) opens, whether it is
 // a file path, and its cells: none without Command, or while the primary

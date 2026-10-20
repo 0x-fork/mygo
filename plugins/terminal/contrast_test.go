@@ -31,3 +31,38 @@ func TestContrasted(t *testing.T) {
 		t.Errorf("gray on gray at 21 = %v, want black", got)
 	}
 }
+
+// Shapes keep their colors under the minimum contrast, as in Ghostty, and
+// text takes it: Copilot CLI's input box, a light gray edged with half
+// blocks of that gray, showed dark bars on a white background.
+func TestMinimumContrastShapes(t *testing.T) {
+	loadLib(t)
+	light := &Theme{Foreground: ui.RGB(0x20, 0x20, 0x20), Background: ui.RGB(255, 255, 255)}
+	term, err := New(Options{Conn: newPipe(), Theme: light, MinimumContrast: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	gray := ui.RGB(232, 233, 235)
+	term.Feed([]byte("\x1b[38;2;232;233;235m▄▀█\U0001fb82A"))
+	tt.Frame()
+	term.mu.Lock()
+	line := term.v.lines[0]
+	term.mu.Unlock()
+	for _, b := range line.boxes {
+		if b.c != gray {
+			t.Errorf("%q drawn in %v, want %v", b.r, b.c, gray)
+		}
+	}
+	if len(line.boxes) != 4 {
+		t.Errorf("drew %d shapes, want 4", len(line.boxes))
+	}
+	var text []ui.Color
+	for _, r := range line.runs {
+		text = append(text, r.c)
+	}
+	if len(text) == 0 || text[len(text)-1] == gray {
+		t.Errorf("text in %v: not contrasted from %v", text, gray)
+	}
+}

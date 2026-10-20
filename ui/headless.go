@@ -633,6 +633,15 @@ func (t *Tester) Scroll(x, y, dx, dy float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: float64(x), Y: float64(y), DX: float64(dx), DY: float64(dy), Precise: true})
 }
 
+// DropFiles drops files dragged from another app at (x, y), as from
+// Finder, and reports whether an element took them (DroppedFiles).
+func (t *Tester) DropFiles(x, y float32, paths ...string) bool {
+	t.send(platform.SurfaceEvent{Kind: platform.FileDragOver, X: float64(x), Y: float64(y)})
+	taken := t.rt.event(platform.SurfaceEvent{Kind: platform.FileDrop, X: float64(x), Y: float64(y), Files: paths})
+	t.settle()
+	return taken
+}
+
 // Wheel scrolls by dx, dy DIPs with the pointer at (x, y), as a notch of
 // a mouse wheel does: a scroll container glides there over a moment,
 // which advancing the clock (Advance) shows.
