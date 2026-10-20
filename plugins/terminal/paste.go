@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"errors"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -211,6 +212,15 @@ func (t *Terminal) clipboardRead(req vt.ClipboardRead) (vt.ClipboardReply, vt.Cl
 		// from answering twice.
 		return vt.ClipboardReply{}, vt.ClipboardRefused
 	}
+	if t.opts.ClipboardRead == ClipboardForward {
+		// Silent, as a read another terminal answers: an OSC 52 read goes
+		// on with a Mirror's next frame.
+		if len(req.Mimes) == 1 && req.Mimes[0] == "text/plain" && !req.List {
+			t.clipForward = append(t.clipForward, req.Primary)
+			t.redraw()
+		}
+		return vt.ClipboardReply{}, vt.ClipboardRefused
+	}
 	if t.opts.ClipboardRead == ClipboardDeny {
 		// A policy denial is the answer — the library writes an empty
 		// OSC 52 reply, or EPERM for OSC 5522 — so it goes through the
@@ -266,4 +276,49 @@ func (t *Terminal) readsClipboard() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.term != nil && t.term.Mode(vt.ModePasteEvents)
+}
+
+// dropFiles pastes the paths of files dropped on the terminal, as Ghostty
+// does: each escaped for a shell, spaces between them, so that a shell
+// takes them as arguments and an agent as files it attaches. A program
+// that reads the clipboard itself (mode 5522) is offered them as a file
+// list too, when the paths make one.
+func (t *Terminal) dropFiles(paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	escaped := make([]string, len(paths))
+	for i, p := range paths {
+		escaped[i] = shellEscape(p)
+	}
+	text := transfer.Bytes(transfer.Text, []byte(strings.Join(escaped, " ")))
+	d, err := transfer.FileData(paths...)
+	if err != nil {
+		t.PasteData(transfer.New(transfer.NewItem(text)))
+		return
+	}
+	items := d.Items()
+	first, _ := items[0].Read(transfer.FileList)
+	items[0] = transfer.NewItem(transfer.Bytes(transfer.FileList, first), transfer.Bytes(transfer.URIList, first), text)
+	t.PasteData(transfer.New(items...))
+}
+
+// shellEscape escapes a path for a shell: a backslash before each
+// character a shell would read otherwise, as Ghostty escapes them; on
+// Windows, quotes around a path that needs them.
+func shellEscape(path string) string {
+	if runtime.GOOS == "windows" {
+		if strings.ContainsAny(path, " \t&()[]{}^=;!'+,`~") {
+			return `"` + path + `"`
+		}
+		return path
+	}
+	var b strings.Builder
+	for _, r := range path {
+		if strings.ContainsRune("\\ ()[]{}<>\"'`!#$&;|*?\t", r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
