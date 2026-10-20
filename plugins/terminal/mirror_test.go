@@ -1,7 +1,6 @@
 package terminal
 
 import (
-	"bytes"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -10,8 +9,6 @@ import (
 
 	"github.com/egoist/mygo/plugins/terminal/internal/vt"
 )
-
-var debugFrame = os.Getenv("MIRROR_DEBUG")
 
 // mirrored is a terminal and another showing its Mirror's frames.
 type mirrored struct {
@@ -65,21 +62,14 @@ func (x *mirrored) frame(label string) {
 	if due {
 		return // a synchronized update holds it back: the next frame shows
 	}
-	if debugFrame != "" && strings.Contains(label, debugFrame) {
-		x.src.mu.Lock()
-		for y := x.src.term.ScrollbackRows(); y < x.src.term.ScrollbackRows()+3; y++ {
-			fmt.Printf("src row %d wrap=%v end=%d vt=%q\n", y, x.src.term.RowWrapped(y), x.src.term.RowEnd(y), x.src.term.RowVT(y))
-		}
-		x.src.mu.Unlock()
-		fmt.Printf("FRAME %q\n", f)
-	}
 	x.dst.Feed(f)
 	x.frames++
 	x.same(label)
 }
 
 // same checks that the other terminal shows what the source does: every
-// row of its screen and scrollback, its wraps, cursor and modes.
+// cell of its screen and scrollback, as the cell's text, style, colors,
+// width and link, every row's wrap, the cursor and the modes.
 func (x *mirrored) same(label string) {
 	x.t.Helper()
 	a, b := x.src, x.dst
@@ -99,28 +89,22 @@ func (x *mirrored) same(label string) {
 	if cb, rb := tb.Size(); ca != cb || ra != rb {
 		fail("size %dx%d, mirrored %dx%d", ca, ra, cb, rb)
 	}
-	sa, sb := ta.ScrollbackRows(), tb.ScrollbackRows()
-	if ta.AltScreen() {
-		sa, sb = 0, 0
-	} else if sa != sb {
-		fail("scrollback %d rows, mirrored %d", sa, sb)
+	if !ta.AltScreen() && ta.ScrollbackRows() != tb.ScrollbackRows() {
+		fail("scrollback %d rows, mirrored %d", ta.ScrollbackRows(), tb.ScrollbackRows())
 	}
-	for y := 0; y < sa+ra; y++ {
-		va, vb := ta.RowVT(y), tb.RowVT(y)
-		if ta.RowWrapped(y) {
-			// A row that wraps ends where the next starts: the other
-			// terminal, wrapping it by printing, fills its empty cells with
-			// blanks, which look the same.
-			va, vb = trimBlanks(va), trimBlanks(vb)
-		}
-		if !bytes.Equal(va, vb) {
-			fail("row %d (screen row %d) is %q, mirrored %q", y, y-sa, va, vb)
+	rowsA, rowsB := cellRows(ta), cellRows(tb)
+	if len(rowsA) != len(rowsB) {
+		fail("%d rows, mirrored %d", len(rowsA), len(rowsB))
+	}
+	for y := range rowsA {
+		if rowsA[y].cells != rowsB[y].cells {
+			fail("row %d (screen row %d) is\n  %s\nmirrored\n  %s", y, y-(len(rowsA)-ra), rowsA[y].cells, rowsB[y].cells)
 		}
 		// The screen's last row wraps into nothing: the other terminal
 		// cannot wrap its own without scrolling, and nothing follows to
 		// join, until the screen scrolls and the mirror writes it again.
-		if wa, wb := ta.RowWrapped(y), tb.RowWrapped(y); wa != wb && y != sa+ra-1 {
-			fail("row %d wraps %v, mirrored %v", y, wa, wb)
+		if rowsA[y].wrap != rowsB[y].wrap && y != len(rowsA)-1 {
+			fail("row %d wraps %v, mirrored %v", y, rowsA[y].wrap, rowsB[y].wrap)
 		}
 	}
 	xa, ya := ta.Cursor()
@@ -135,6 +119,99 @@ func (x *mirrored) same(label string) {
 	if ta.KittyKeyboardFlags() != tb.KittyKeyboardFlags() {
 		fail("kitty keyboard flags %d, mirrored %d", ta.KittyKeyboardFlags(), tb.KittyKeyboardFlags())
 	}
+}
+
+// cellRow is a row as its cells show: their text, styles, colors, widths
+// and links, written out, and whether it wraps.
+type cellRow struct {
+	cells string
+	wrap  bool
+}
+
+// cellRows reads every row of the scrollback and the screen, cell by cell,
+// independently of what the mirror encodes: an empty cell and a plain
+// space show the same, and so do a wide character's spacer at a row's end
+// and a blank.
+func cellRows(term *vt.Terminal) []cellRow {
+	rs, err := vt.NewRenderState()
+	if err != nil {
+		panic(err)
+	}
+	defer rs.Free()
+	_, rows := term.Size()
+	total := rows
+	if !term.AltScreen() {
+		total += term.ScrollbackRows()
+	}
+	var out []cellRow
+	for y := 0; y < total; {
+		term.ScrollToRow(y)
+		rs.Update(term)
+		off := int(term.Scrollbar().Offset)
+		rs.Rows()
+		for i := 0; rs.NextRow(); i++ {
+			if off+i != len(out) || len(out) >= total {
+				continue
+			}
+			cells := rs.RowCells()
+			var b strings.Builder
+			for x, c := range cells {
+				text := string(c.Codepoint)
+				if c.Grapheme {
+					text = string(rs.CellGraphemes(x, nil))
+				}
+				if c.Codepoint == 0 || c.Wide == vt.SpacerHead {
+					text = " "
+				}
+				if c.Wide == vt.SpacerTail {
+					text = ""
+				}
+				st := ""
+				if c.Style != 0 {
+					st = rs.CellStyle(x).SGR()
+				}
+				if c.HasBackground && c.Codepoint == 0 {
+					// A cell a program filled without text shows as a
+					// blank in its background.
+					if c.Palette {
+						st = vt.Style{BG: vt.Color{Kind: 1, Index: c.Background.R}}.SGR()
+					} else {
+						st = vt.Style{BG: vt.Color{Kind: 2, RGB: c.Background}}.SGR()
+					}
+				}
+				link := ""
+				if c.Hyperlink {
+					if ref, ok := term.CellAt(x, i); ok {
+						link = term.Hyperlink(ref)
+					}
+				}
+				wide := c.Wide
+				if wide == vt.SpacerHead {
+					wide = vt.Narrow
+				}
+				if text == " " && st == "\x1b[0m" {
+					st = ""
+				}
+				fmt.Fprintf(&b, "[%s|%q|%d|%s]", text, st, wide, link)
+			}
+			out = append(out, cellRow{cells: strings.TrimRight(trimBlankCells(b.String()), ""), wrap: rs.RowWrapped()})
+		}
+		next := off + rows
+		if next <= y {
+			break
+		}
+		y = next
+	}
+	term.ScrollToBottom()
+	return out
+}
+
+// trimBlankCells drops the blank cells at a row's end, which show nothing.
+func trimBlankCells(s string) string {
+	for strings.HasSuffix(s, `[ |""|0|]`) {
+		s = strings.TrimSuffix(s, `[ |""|0|]`)
+	}
+	return s
 }
 
 func lines(from, to int, prefix string) string {
@@ -159,6 +236,18 @@ func TestMirrorScrolling(t *testing.T) {
 	x.feed("a wrapped line scrolling off", lines(0, 8, "after "))
 	x.feed("a wide character at the edge", strings.Repeat("x", 19)+"世"+"\r\n")
 	x.feed("a prompt without a newline", "$ ")
+}
+
+// Empty cells after a styled run stay empty: Claude Code's mascot, whose
+// eyes are a black background, showed a black square where the cells
+// after it took the background (libghostty's formatter wrote them as
+// spaces in the run's style).
+func TestMirrorGaps(t *testing.T) {
+	loadLib(t)
+	x := newMirrored(t, 40, 5, Options{})
+	x.feed("the mascot", "\x1b[38;2;215;119;87m \u2590\x1b[48;2;0;0;0m\u259b\u2588\u2588\u2588\u259b\u2588\x1b[12G\x1b[39m\x1b[49m\x1b[1mClaude\x1b[19GCode\x1b[22m\r\r\n")
+	x.feed("a background, then text further on", "\x1b[44mblue\x1b[0m\x1b[20Gplain\r\n")
+	x.feed("an erase in a background", "\x1b[41m\x1b[K\x1b[0m\x1b[10Gafter\r\n")
 }
 
 func TestMirrorEdits(t *testing.T) {
@@ -261,11 +350,30 @@ func TestMirrorRandom(t *testing.T) {
 	}
 }
 
-// trimBlanks drops the blanks at the end of a row's VT sequences, before
-// its last style reset.
-func trimBlanks(b []byte) []byte {
-	b = bytes.TrimSuffix(b, []byte("\x1b[0m"))
-	return bytes.TrimRight(b, " ")
+// Two windows mirror one terminal: each of them shows it all, though their
+// reads take turns at the terminal.
+func TestMirrorTwoWindows(t *testing.T) {
+	loadLib(t)
+	x := newMirrored(t, 30, 6, Options{})
+	other, err := New(Options{Conn: newPipe()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	other.Resize(30, 6)
+	m2, err := x.src.NewMirror()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m2.Close()
+	second := &mirrored{t: t, src: x.src, dst: other, m: m2}
+	second.frame("start")
+	raw, _ := os.ReadFile("testdata/claude-code.vt")
+	steps := []string{lines(0, 4, "a"), "\x1b[2;1Hedit\x1b[K", lines(0, 12, "b"), "\x1b[44mbg\x1b[0m\x1b[20Gx", string(raw)}
+	for i, out := range steps {
+		x.feed(fmt.Sprintf("step %d, the first window", i), out)
+		second.frame(fmt.Sprintf("step %d, the second window", i))
+	}
 }
 
 // History is what shows, down to the cursor, with the cursor under it: a

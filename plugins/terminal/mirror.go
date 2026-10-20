@@ -3,6 +3,7 @@ package terminal
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
@@ -29,9 +30,14 @@ import (
 //
 // Programs' writes to the clipboard (OSC 52) go on to the other terminal,
 // and so do their reads with ClipboardForward, for it to answer.
+//
+// Frames read the terminal as its view does, which takes the terminal's
+// record of what changed since it last read it: a terminal a view shows
+// too would not repaint all that changed. A Mirror is for a terminal no
+// view shows, as a server's; many Mirrors of one terminal are fine.
 type Mirror struct {
-	t  *Terminal
-	rs *vt.RenderState
+	t      *Terminal
+	closed bool
 	// started tells that a frame went; cols and rows are the size it
 	// drew, alt that it showed the alternate screen.
 	started    bool
@@ -52,21 +58,17 @@ type Mirror struct {
 // NewMirror returns a Mirror of the terminal, whose first frame starts the
 // other terminal over. Close frees it.
 func (t *Terminal) NewMirror() (*Mirror, error) {
-	rs, err := vt.NewRenderState()
-	if err != nil {
-		return nil, err
+	if !vt.Loaded() {
+		return nil, errors.New("terminal: libghostty-vt is not loaded")
 	}
-	return &Mirror{t: t, rs: rs}, nil
+	return &Mirror{t: t}, nil
 }
 
 // Close frees the mirror.
 func (m *Mirror) Close() {
 	m.t.mu.Lock()
 	defer m.t.mu.Unlock()
-	if m.rs != nil {
-		m.rs.Free()
-		m.rs = nil
-	}
+	m.closed = true
 }
 
 // Reset has the next frame start the other terminal over, as when another
@@ -84,7 +86,7 @@ func (m *Mirror) Frame() (frame []byte, due bool) {
 	t := m.t
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.term == nil || m.rs == nil {
+	if t.term == nil || m.closed {
 		return nil, false
 	}
 	if t.term.Mode(vt.ModeSyncOutput) && t.held && time.Since(t.heldSince) < time.Second {
@@ -104,26 +106,33 @@ func (m *Mirror) frame(out *bytes.Buffer) {
 	if !term.AtBottom() {
 		term.ScrollToBottom()
 	}
-	m.rs.Update(term)
-	ids := make([]vt.RowID, 0, rows)
-	dirty := make([]bool, 0, rows)
-	m.rs.Rows()
-	for m.rs.NextRow() {
-		ids = append(ids, m.rs.RowID())
-		dirty = append(dirty, m.rs.RowDirty())
+	// A render state of its own, each time, copies the terminal whole: one
+	// kept would copy the rows the terminal marked changed, and the marks
+	// go to whatever render state reads them first, another Mirror's.
+	rs, err := vt.NewRenderState()
+	if err != nil {
+		return
 	}
-	m.rs.Clean()
+	defer rs.Free()
+	rs.Update(term)
+	ids := make([]vt.RowID, 0, rows)
+	screen := make([]line, 0, rows)
+	rs.Rows()
+	for y := 0; rs.NextRow(); y++ {
+		ids = append(ids, rs.RowID())
+		screen = append(screen, readLine(term, rs, y))
+	}
 	top := scrollback // the screen's first row, from the top of the scrollback
 	if alt {
 		top = 0
 	}
 	switch {
 	case !m.started || cols != m.cols || rows != m.rows:
-		m.restart(out, cols, rows, alt, top)
+		m.restart(out, screen, alt, top)
 	case alt != m.alt && !alt && scrollback != m.scrollback:
 		// Rows went to the main screen's scrollback before its program
 		// took the alternate screen, which hid them: start over.
-		m.restart(out, cols, rows, alt, top)
+		m.restart(out, screen, alt, top)
 	case alt != m.alt:
 		if alt {
 			out.WriteString("\x1b[?1049h")
@@ -132,7 +141,7 @@ func (m *Mirror) frame(out *bytes.Buffer) {
 			out.WriteString("\x1b[?1049l")
 			m.sent, m.main = m.main, nil
 		}
-		m.redraw(out, top, func(int) bool { return true })
+		m.redraw(out, screen)
 	default:
 		scrolled := 0
 		if !alt {
@@ -140,26 +149,26 @@ func (m *Mirror) frame(out *bytes.Buffer) {
 		}
 		switch {
 		case scrolled < 0: // lost track: start over
-			m.restart(out, cols, rows, alt, top)
+			m.restart(out, screen, alt, top)
 		case scrolled > 0:
 			// Rows went to the scrollback: they pass through the other
 			// screen's top in order, the screen's rows after them.
 			if scrollback < m.scrollback {
 				out.WriteString("\x1b[3J")
 			}
-			m.write(out, top-scrolled, top+rows)
+			m.write(out, append(m.lines(top-scrolled, top), screen...))
 		default:
 			if scrollback < m.scrollback {
 				out.WriteString("\x1b[3J") // the scrollback was cleared
 			}
-			m.redraw(out, top, func(y int) bool { return y < len(dirty) && dirty[y] })
+			m.redraw(out, screen)
 		}
 	}
 	m.started, m.cols, m.rows, m.alt, m.ids = true, cols, rows, alt, ids
 	if !alt {
 		m.scrollback = scrollback
 	}
-	m.state(out)
+	m.state(out, rs.Cursor())
 }
 
 // scrolled returns how many rows scrolled off the screen since the last
@@ -191,69 +200,109 @@ func (m *Mirror) scrolled(ids []vt.RowID, scrollback int) int {
 
 // restart starts the other terminal over: its scrollback and screen, then
 // this one's, row by row.
-func (m *Mirror) restart(out *bytes.Buffer, cols, rows int, alt bool, top int) {
+func (m *Mirror) restart(out *bytes.Buffer, screen []line, alt bool, top int) {
 	out.WriteString("\x1b[?1049l\x1b[0m\x1b[H\x1b[2J\x1b[3J")
 	m.modes, m.cursor = "", ""
-	m.sent = make([][]byte, rows)
+	m.sent = make([][]byte, len(screen))
 	m.main = nil
 	if alt {
 		// The main screen of a full-screen program's terminal is not to be
 		// read: the other one's shows from when the program ends.
 		out.WriteString("\x1b[?1049h")
-		m.redraw(out, 0, func(int) bool { return true })
+		m.redraw(out, screen)
 		return
 	}
-	m.write(out, 0, top+rows)
+	m.write(out, append(m.lines(0, top), screen...))
 }
 
-// write draws rows from up to to, counted from the top of the scrollback,
-// one after the other from the other screen's top, so that those before
-// the screen's go to its scrollback, as they went to this one's.
-func (m *Mirror) write(out *bytes.Buffer, from, to int) {
-	term := m.t.term
-	cols, rows := term.Size()
-	screen := to - rows
-	out.WriteString("\x1b[H")
-	for y := from; y < to; y++ {
-		last := y == to-1
-		b := m.row(out, y, last, y > from && term.RowWrapped(y-1), cols)
-		if y >= screen {
-			m.sent[y-screen] = b
+// lines reads the rows of the scrollback from up to to, counted from its
+// top.
+func (m *Mirror) lines(from, to int) []line { return readLines(m.t.term, from, to) }
+
+// readLines reads rows from up to to, counted from the top of the
+// scrollback, a screen's worth at a time, through the viewport, which it
+// leaves at the bottom; each with a render state of its own (see frame).
+func readLines(term *vt.Terminal, from, to int) []line {
+	out := make([]line, 0, max(0, to-from))
+	if to <= from {
+		return out
+	}
+	_, rows := term.Size()
+	for y := from; y < to; {
+		term.ScrollToRow(y)
+		rs, err := vt.NewRenderState()
+		if err != nil {
+			break
 		}
-		if !last && !term.RowWrapped(y) {
+		rs.Update(term)
+		off := int(term.Scrollbar().Offset)
+		rs.Rows()
+		for i := 0; rs.NextRow(); i++ {
+			if r := off + i; r == from+len(out) && r < to {
+				out = append(out, readLine(term, rs, i))
+			}
+		}
+		rs.Free()
+		next := off + rows
+		if next <= y {
+			break
+		}
+		y = next
+	}
+	term.ScrollToBottom()
+	for len(out) < to-from {
+		out = append(out, line{}) // not to be read: drawn empty
+	}
+	return out
+}
+
+// write draws lines one after the other from the other screen's top, so
+// that those before the screen's, its last rows, go to its scrollback, as
+// they went to this one's.
+func (m *Mirror) write(out *bytes.Buffer, lines []line) {
+	rows := len(m.sent)
+	screen := len(lines) - rows
+	out.WriteString("\x1b[H")
+	for i, l := range lines {
+		last := i == len(lines)-1
+		var next *line
+		if !last {
+			next = &lines[i+1]
+		}
+		k := m.row(out, l, next, i > 0 && lines[i-1].wrap)
+		if i >= screen {
+			m.sent[i-screen] = k
+		}
+		if !last && !l.wrap {
 			out.WriteString("\r\n")
 		}
 	}
 }
 
-// redraw draws again the rows of the screen, from top, that changed, and
-// those of the soft-wrapped lines they are in, from their lines' first rows.
-func (m *Mirror) redraw(out *bytes.Buffer, top int, changed func(y int) bool) {
-	term := m.t.term
-	cols, rows := term.Size()
+// redraw draws again the rows of the screen that changed, and those of the
+// soft-wrapped lines they are in, from their lines' first rows.
+func (m *Mirror) redraw(out *bytes.Buffer, screen []line) {
+	rows := len(screen)
 	if len(m.sent) != rows {
 		m.sent = make([][]byte, rows)
 	}
-	encoded := make([][]byte, rows)
-	for y := range rows {
-		if changed(y) || m.sent[y] == nil {
-			encoded[y] = rowKey(term, top+y)
-		}
-	}
 	for y := 0; y < rows; y++ {
-		if encoded[y] == nil || bytes.Equal(encoded[y], m.sent[y]) {
+		if m.sent[y] != nil && bytes.Equal(screen[y].key(), m.sent[y]) {
 			continue
 		}
 		// From the first row of its line, which a soft wrap continues.
 		s := y
-		for s > 0 && term.RowWrapped(top+s-1) {
+		for s > 0 && screen[s-1].wrap {
 			s--
 		}
 		fmt.Fprintf(out, "\x1b[%dH", s+1)
 		for first := s; s < rows; s++ {
-			last := s == rows-1 || !term.RowWrapped(top+s)
-			m.sent[s] = m.row(out, top+s, last, s > first, cols)
-			if last {
+			var next *line
+			if s+1 < rows && screen[s].wrap {
+				next = &screen[s+1]
+			}
+			m.sent[s] = m.row(out, screen[s], next, s > first)
+			if next == nil {
 				break
 			}
 		}
@@ -261,53 +310,146 @@ func (m *Mirror) redraw(out *bytes.Buffer, top int, changed func(y int) bool) {
 	}
 }
 
-// row draws row y, counted from the top of the scrollback, from the
-// cursor's column 0: in full, clearing what was after it, or, soft wrapped
-// into the next, out to its last column for the other terminal to wrap it
-// too. A row is cleared before it is drawn, but for one a soft wrap
-// continues, cont,
-// starts with the cursor still at the end of the row before, waiting to
-// wrap, which a clear would clear instead; with nothing on it, a blank
-// wraps there first, and the clear after takes it. It returns what identifies how it drew it.
-func (m *Mirror) row(out *bytes.Buffer, y int, last, cont bool, cols int) []byte {
-	term := m.t.term
-	key := rowKey(term, y)
+// row draws a line from the cursor's column 0: in full, clearing what was
+// after it, or, soft wrapped into next, out to its last column for the
+// other terminal to wrap it too. A row is cleared before it is drawn, but
+// for one a soft wrap continues, cont, which starts with the cursor still
+// at the end of the row before, waiting to wrap, which a clear would clear
+// instead; with nothing on it, a blank wraps there first, and the clear
+// after takes it. It returns what identifies how it drew it.
+func (m *Mirror) row(out *bytes.Buffer, l line, next *line, cont bool) []byte {
+	cols := m.t.size.cols
+	if c, _ := m.t.term.Size(); c > 0 {
+		cols = c
+	}
 	out.WriteString("\x1b[0m")
 	switch {
 	case !cont:
 		// Cleared whole, which also undoes a wrap it had.
 		out.WriteString("\x1b[2K")
-	case len(key) == 1:
+	case len(l.vt) == 0:
 		// The blank wraps the row before into this one, then goes.
 		out.WriteString(" \r")
 	}
-	out.Write(key[1:])
+	out.Write(l.vt)
 	out.WriteString("\x1b[0m")
-	if key[0] == 1 && !last {
+	if l.wrap && next != nil {
 		// Out to the last column, which the next character wraps from;
 		// short of it when a wide character did not fit there, for the
 		// other terminal to wrap it too.
-		end, to := term.RowEnd(y), cols
-		if term.RowSpacerHead(y) && term.RowStartsWide(y+1) {
+		to := cols
+		if l.spacerHead && next.startsWide {
 			to--
 		}
-		if end < to {
-			out.Write(bytes.Repeat([]byte{' '}, to-end))
+		if l.end < to {
+			out.Write(bytes.Repeat([]byte{' '}, to-l.end))
 		}
-	} else if term.RowEnd(y) < cols {
+	} else if l.end < cols {
 		out.WriteString("\x1b[K")
 	}
-	return key
+	return l.key()
 }
 
-// rowKey returns row y as VT sequences, after a byte telling whether it
-// soft-wraps: what tells whether the other terminal shows it as it is.
-func rowKey(term *vt.Terminal, y int) []byte {
-	wrap := byte(0)
-	if term.RowWrapped(y) {
-		wrap = 1
+// line is a row of a terminal as a Mirror draws it.
+type line struct {
+	// vt is its cells, from the first to the last that holds something,
+	// as VT sequences, each cell in its own style: an empty cell in none.
+	vt []byte
+	// end is how many columns hold something: text, the second half of a
+	// wide character, a style or a background.
+	end int
+	// wrap tells that it soft-wraps into the next row; spacerHead that a
+	// wide character that did not fit at its end went on to the next row;
+	// startsWide that it starts with a wide character.
+	wrap, spacerHead, startsWide bool
+}
+
+// key identifies how the line shows.
+func (l line) key() []byte {
+	w := byte(0)
+	if l.wrap {
+		w = 1
 	}
-	return append([]byte{wrap}, term.RowVT(y)...)
+	return append([]byte{w}, l.vt...)
+}
+
+// readLine reads the row the render state's row iterator is on, row y of
+// the viewport.
+func readLine(term *vt.Terminal, rs *vt.RenderState, y int) line {
+	cells := rs.RowCells()
+	l := line{wrap: rs.RowWrapped()}
+	for x, c := range cells {
+		if c.Codepoint != 0 || c.Grapheme || c.HasBackground || c.Style != 0 || c.Wide == vt.SpacerTail {
+			l.end = x + 1
+		}
+	}
+	if n := len(cells); n > 0 {
+		l.spacerHead = cells[n-1].Wide == vt.SpacerHead
+		l.startsWide = cells[0].Wide == vt.WideChar
+	}
+	var b bytes.Buffer
+	sgr, link := "\x1b[0m", ""
+	styles := map[uint16]string{}
+	var buf []rune
+	for x := 0; x < l.end; x++ {
+		c := cells[x]
+		if c.Wide == vt.SpacerTail || c.Wide == vt.SpacerHead {
+			continue
+		}
+		want := "\x1b[0m"
+		switch {
+		case c.HasBackground && c.Codepoint == 0 && !c.Grapheme:
+			// A cell without text that a program filled.
+			bg := vt.Color{Kind: 2, RGB: c.Background}
+			if c.Palette {
+				bg = vt.Color{Kind: 1, Index: c.Background.R}
+			}
+			want = vt.Style{BG: bg}.SGR()
+		case c.Style != 0:
+			s, ok := styles[c.Style]
+			if !ok {
+				s = rs.CellStyle(x).SGR()
+				styles[c.Style] = s
+			}
+			want = s
+		}
+		if want != sgr {
+			b.WriteString(want)
+			sgr = want
+		}
+		uri := ""
+		if c.Hyperlink {
+			if ref, ok := term.CellAt(x, y); ok {
+				uri = term.Hyperlink(ref)
+			}
+		}
+		if uri != link {
+			fmt.Fprintf(&b, "\x1b]8;;%s\x1b\\", uri)
+			link = uri
+		}
+		buf = buf[:0]
+		if c.Grapheme {
+			buf = rs.CellGraphemes(x, buf)
+		}
+		switch {
+		case len(buf) > 0:
+			for _, r := range buf {
+				b.WriteRune(r)
+			}
+		case c.Codepoint != 0:
+			b.WriteRune(c.Codepoint)
+		default:
+			b.WriteByte(' ')
+		}
+	}
+	if link != "" {
+		b.WriteString("\x1b]8;;\x1b\\")
+	}
+	if sgr != "\x1b[0m" {
+		b.WriteString("\x1b[0m")
+	}
+	l.vt = b.Bytes()
+	return l
 }
 
 // mirroredModes are the modes the other terminal takes: those that change
@@ -321,7 +463,7 @@ var mirroredModes = []vt.Mode{
 
 // state sets the cursor, the modes and the title, where they changed, and
 // passes on programs' uses of the clipboard.
-func (m *Mirror) state(out *bytes.Buffer) {
+func (m *Mirror) state(out *bytes.Buffer, c vt.Cursor) {
 	t := m.t
 	term := t.term
 	var modes bytes.Buffer
@@ -360,7 +502,6 @@ func (m *Mirror) state(out *bytes.Buffer) {
 		fmt.Fprintf(out, "\x1b]52;%s;?\x1b\\", sel)
 	}
 	t.clipForward = nil
-	c := m.rs.Cursor()
 	x, y := term.Cursor()
 	var cur bytes.Buffer
 	shape := map[vt.CursorStyle]int{vt.CursorBlock: 2, vt.CursorUnderline: 4, vt.CursorBar: 6}[c.Style]
@@ -403,24 +544,26 @@ func (t *Terminal) History() []byte {
 	if term == nil || term.AltScreen() {
 		return nil
 	}
+	cols, rows := term.Size()
+	sb := term.ScrollbackRows()
+	lines := readLines(term, 0, sb+rows)
 	_, y := term.Cursor()
-	end := term.ScrollbackRows() + y // the last row, from the top of the scrollback
-	for end >= 0 && term.RowEnd(end) == 0 {
+	end := min(sb+y, len(lines)-1) // the last line, down to the cursor's
+	for end >= 0 && lines[end].end == 0 {
 		end--
 	}
 	var out bytes.Buffer
-	for y := 0; y <= end; y++ {
-		key := rowKey(term, y)
-		out.Write(key[1:])
+	for i, l := range lines[:end+1] {
+		out.Write(l.vt)
 		out.WriteString("\x1b[0m")
-		if key[0] == 1 && y < end {
+		if l.wrap && i < end {
 			// Soft wrapped: on to the last column, for the next row to wrap.
-			cols, _ := term.Size()
-			if e, to := term.RowEnd(y), cols; e < to {
-				if term.RowSpacerHead(y) && term.RowStartsWide(y+1) {
-					to--
-				}
-				out.Write(bytes.Repeat([]byte{' '}, max(0, to-e)))
+			to := cols
+			if l.spacerHead && lines[i+1].startsWide {
+				to--
+			}
+			if l.end < to {
+				out.Write(bytes.Repeat([]byte{' '}, to-l.end))
 			}
 			continue
 		}
