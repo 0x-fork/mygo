@@ -106,6 +106,24 @@ falling back to `index.html` like the frontend. Handling the `mygo` scheme
 replaces the frontend with your handler. Pages of custom schemes are the
 app's own: they may call Go methods.
 
+Audio and video are the exception: WebKitGTK's media player does not play
+from a custom scheme, so on Linux a `<video>` or `<audio>` of one fails with
+`MEDIA_ERR_SRC_NOT_SUPPORTED` (`error.code` 4), whatever the handler
+answers. Serve media from a loopback HTTP server instead, the same on every
+platform, and give the page its URL:
+
+```go
+ln, err := net.Listen("tcp", "127.0.0.1:0") // a free port
+if err != nil {
+	log.Fatal(err)
+}
+go http.Serve(ln, mygo.FileServer(os.DirFS(videos)))
+mediaURL := "http://" + ln.Addr().String() + "/" // <video src="{mediaURL}clip.mp4">
+```
+
+Every program of the machine can reach such a server: serve it only what
+they may read, or put a secret of the app's in its paths.
+
 Each scheme is its own origin, so a page fetching another scheme makes a
 cross-origin request: the frontend reading `api://localhost/`, or, during
 `mygo dev`, the dev server reading `thumbs://localhost/`. Responses to the
