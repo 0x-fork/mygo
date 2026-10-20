@@ -23,7 +23,8 @@ import (
 //
 // Frames draw rows where they are, and rows that scroll off pass through
 // the other terminal's screen in order, so that its scrollback is this
-// one's. Soft wraps stay soft. The first frame, and a frame after the
+// one's: rows this one's limit lets go of stay there, under its own
+// limit. Soft wraps stay soft. The first frame, and a frame after the
 // screen took another size, start the other terminal over. A frame does
 // not come while a program holds a synchronized update (mode 2026), for up
 // to a second, as the view's frames do not: Frame then reports that one
@@ -157,8 +158,12 @@ func (m *Mirror) frame(out *bytes.Buffer) {
 			m.restart(out, screen, alt, top)
 		case scrolled > 0:
 			// Rows went to the scrollback: they pass through the other
-			// screen's top in order, the screen's rows after them.
-			if scrollback < m.scrollback {
+			// screen's top in order, the screen's rows after them. A
+			// scrollback that holds fewer rows was cleared when none of
+			// those before them are left: one at its limit lets go of its
+			// oldest rows instead, which the other terminal keeps, its own
+			// limit taking them.
+			if scrollback < m.scrollback && scrollback <= scrolled {
 				out.WriteString("\x1b[3J")
 			}
 			m.write(out, append(m.lines(top-scrolled, top), screen...))
@@ -198,8 +203,49 @@ func (m *Mirror) scrolled(ids []vt.RowID, scrollback int) int {
 		return grew
 	case k >= 0:
 		return k
-	case grew > 0:
+	}
+	// More than a screen scrolled: as many rows as are below the last
+	// frame's first row, now in the scrollback. The scrollback's growth
+	// tells it too, but for one at its limit, which lets go of rows as it
+	// takes others.
+	if n := scrolledPast(m.t.term, m.ids[0], scrollback); n > 0 {
+		return n
+	}
+	if grew > 0 {
 		return grew
+	}
+	return -1
+}
+
+// scrolledPast returns how many rows of the scrollback, which holds
+// scrollback rows, are below the row id, from the bottom up, a screen's
+// worth at a time, or -1 when it holds no such row. It leaves the viewport
+// at the bottom.
+func scrolledPast(term *vt.Terminal, id vt.RowID, scrollback int) int {
+	_, rows := term.Size()
+	defer term.ScrollToBottom()
+	for y := scrollback; y > 0; {
+		y = max(y-rows, 0)
+		term.ScrollToRow(y)
+		// A render state of its own, as readLines reads.
+		rs, err := vt.NewRenderState()
+		if err != nil {
+			return -1
+		}
+		rs.Update(term)
+		off := int(term.Scrollbar().Offset)
+		found := -1
+		rs.Rows()
+		for i := 0; rs.NextRow(); i++ {
+			if r := off + i; r < scrollback && found < 0 && rs.RowID() == id {
+				found = scrollback - r
+			}
+		}
+		rs.Free()
+		if found >= 0 {
+			return found
+		}
+		y = min(y, off)
 	}
 	return -1
 }

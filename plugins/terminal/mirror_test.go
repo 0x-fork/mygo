@@ -18,6 +18,9 @@ type mirrored struct {
 	dst    *Terminal
 	m      *Mirror
 	frames int
+	// pruned lets the other terminal keep rows the source's scrollback,
+	// at its limit, let go of: its rows end with the source's.
+	pruned bool
 }
 
 func newMirrored(t *testing.T, cols, rows int, o Options) *mirrored {
@@ -90,10 +93,13 @@ func (x *mirrored) same(label string) {
 	if cb, rb := tb.Size(); ca != cb || ra != rb {
 		fail("size %dx%d, mirrored %dx%d", ca, ra, cb, rb)
 	}
-	if !ta.AltScreen() && ta.ScrollbackRows() != tb.ScrollbackRows() {
-		fail("scrollback %d rows, mirrored %d", ta.ScrollbackRows(), tb.ScrollbackRows())
+	if sa, sb := ta.ScrollbackRows(), tb.ScrollbackRows(); !ta.AltScreen() && sa != sb && !(x.pruned && sb > sa) {
+		fail("scrollback %d rows, mirrored %d", sa, sb)
 	}
 	rowsA, rowsB := cellRows(ta), cellRows(tb)
+	if x.pruned && len(rowsB) > len(rowsA) {
+		rowsB = rowsB[len(rowsB)-len(rowsA):]
+	}
 	if len(rowsA) != len(rowsB) {
 		fail("%d rows, mirrored %d", len(rowsA), len(rowsB))
 	}
@@ -375,6 +381,53 @@ func TestMirrorScrollbackLimit(t *testing.T) {
 	for i := range 40 {
 		x.feed(fmt.Sprintf("burst %d", i), lines(i*100, i*100+60, "x"))
 	}
+}
+
+// A scrollback at its limit lets go of its oldest rows as it takes new
+// ones: the other terminal keeps its own, without starting over, whether
+// a frame scrolls a row or more than a screen.
+func TestMirrorScrollbackPruned(t *testing.T) {
+	loadLib(t)
+	x := newMirrored(t, 40, 5, Options{Scrollback: 64 << 10})
+	x.pruned = true
+	drops, n := 0, 0
+	prev := 0
+	for i := range 400 {
+		count := 1
+		if i%2 == 1 {
+			count = 23 // more than a screen
+		}
+		x.src.Feed([]byte(lines(n, n+count, "line abcdefghijklmnopqrstuvwxyz ")))
+		n += count
+		f, due := x.m.Frame()
+		if due {
+			t.Fatal("no frame")
+		}
+		if strings.Contains(string(f), "\x1b[3J") {
+			t.Fatalf("frame %d clears the other terminal's scrollback: %q", i, f[:min(len(f), 80)])
+		}
+		x.dst.Feed(f)
+		x.frames++
+		x.src.mu.Lock()
+		sb := x.src.term.ScrollbackRows()
+		x.src.mu.Unlock()
+		if sb < prev {
+			drops++
+		}
+		if sb < prev || i%25 == 0 {
+			// Reading every row of both terminals takes long: at the
+			// frames that let go of rows, and now and then.
+			x.same(fmt.Sprintf("frame %d", i))
+		}
+		prev = sb
+	}
+	if drops < 2 {
+		t.Fatalf("the scrollback let go of rows %d times, want at least 2", drops)
+	}
+	// A clear still clears the other terminal's scrollback.
+	x.pruned = false
+	x.feed("clear", "\x1b[3J")
+	x.feed("after the clear", lines(0, 12, "after "))
 }
 
 // Claude Code's output under a screen of history, fed in uneven pieces, as
