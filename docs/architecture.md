@@ -114,8 +114,9 @@ framework safely. Read it before changing anything under `internal/`.
 │                       websocket, sqlite, watch; and Go only: updater, the
 │                       update window, a web page or native UI (updater/native),
 │                       terminal, a view of native UI running programs with
-│                       libghostty-vt, glass, and game, what games need
-│                       beyond what apps do (game/gamepad)
+│                       libghostty-vt, glass, game, what games need
+│                       beyond what apps do (game/gamepad), and loading,
+│                       loading.dev's indicators for native UI
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester;
 │                       ui/chart: charts without a look, on ui's public API;
 │                       ui/editor: the code editor and the diff viewer;
@@ -133,7 +134,8 @@ framework safely. Read it before changing anything under `internal/`.
 │                       UI), timeline (motion on one playhead); webview (web
 │                       views in native UI); launcher (a Spotlight-like panel,
 │                       native UI); wind (a texture of glyphs lit by a
-│                       wind, two shaders of ui/shader)
+│                       wind, two shaders of ui/shader); loading (the
+│                       loading plugin's indicators)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
@@ -400,6 +402,72 @@ purego gives three primitives, used everywhere:
   becomes the display's startup notification id while the callback runs,
   so the window it shows or focuses may take the focus.
 
+#### Why not GTK 4
+
+The backend uses GTK 3 because a GTK 4 backend would do less, run on
+fewer systems and give apps nothing they lack on GTK 3, at the cost of
+rewriting most of `internal/linux`.
+
+**It would do less.** Some of what MyGo's API promises has no GTK 4
+counterpart, not even a renamed one:
+
+- **Window placement.** GTK 4 has no `gtk_window_move`,
+  `gtk_window_get_position`, `gtk_window_set_position` or
+  `gdk_window_get_frame_extents`, on X11 too: an app cannot put a window
+  anywhere or ask where it is. `Bounds`, `SetBounds`, `Center` and the
+  frame handling above rest on them, and flyouts are anchored to a
+  rectangle with `gdk_window_move_to_rect`, of a `GdkWindow` GTK 4 has no
+  more.
+- **Window hints.** `gtk_window_set_keep_above`,
+  `gtk_window_set_skip_taskbar_hint` and `gtk_window_set_type_hint` are
+  gone: no always on top, no windows kept out of the taskbar, no utility
+  or popup menu windows for flyouts and panels.
+- **Tray icons.** AppIndicator, which draws them, takes a `GtkMenu`,
+  which GTK 4 removed with `GtkMenuBar`, and has no GTK 4 version: the
+  backend would serve StatusNotifierItem and dbusmenu over D-Bus itself.
+
+Only X11 could get placement and hints back, through Xlib and EWMH beside
+GTK (`XMoveWindow`, `_NET_WM_STATE_ABOVE`, `_NET_WM_STATE_SKIP_TASKBAR`),
+and GTK 4.18 deprecated its X11 backend, to be removed in GTK 5: a
+GTK 4 backend would rest those features on what GTK is dropping. Wayland is no
+reason to move either: no GTK version places windows there.
+
+**It would run on fewer systems.** GTK 4 replaced ATK, which native UI's
+accessible tree implements (`surface_access.go`) and GTK 3 bridges to
+AT-SPI, with `GtkAccessible`, and only GTK 4.14 lets an app expose text it
+draws itself (`GtkAccessibleText`), which screen readers need to read
+native UI's text fields and editors. Ubuntu 22.04 ships GTK 4.6 and
+Debian 12 GTK 4.8, both still supported, where GTK 3 gives native UI the
+same accessibility as everywhere else. GTK 4 also means WebKitGTK 6.0,
+which replaces 4.1 and 4.0 rather than adding to them, so apps could no
+longer fall back to the WebKitGTK 4.0 of older distributions.
+
+**It would give apps nothing.** A MyGo window shows a web page or native
+UI, which MyGo draws itself; GTK's own widgets show only in title bar
+buttons, menus and dialogs. WebKitGTK 6.0 is the same WebKit as 4.1,
+built from the same releases, so pages render and behave the same.
+
+**And it would cost the rewrite.** Beyond the above, GTK 4 replaced the
+`button-press-event`, `motion-notify-event`, `key-press-event` and
+`configure-event` signals with event controllers and made `GdkEvent`
+opaque, where the backend reads its fields at fixed offsets (`field[T]`);
+removed `gtk_widget_event`, which hands Tab to the web view, and
+`GtkLayout`, which holds the web views over native UI; turned
+`GtkClipboard` and `gtk_drag_*` into `GdkClipboard` and
+`GtkDragSource`/`GtkDropTarget`; made menus `GMenuModel`s in popovers; and
+removed `gtk_dialog_run` and `gtk_native_dialog_run`, which run the main
+loop until a message or file dialog is answered so that the call that
+opened it returns the answer. The window manager quirks the bounds
+handling above works around would have to be found again on GTK 4, across
+the same X11 window managers and Wayland compositors.
+
+GTK 3 is still maintained, installed on every desktop MyGo targets, and
+what WebKitGTK 4.1, AppIndicator and gtk-layer-shell are built against.
+The trade turns once WebKitGTK stops releasing 4.1, GTK 3 leaves the
+distributions apps ship to, or those that are still supported all have
+GTK 4.14: then a GTK 4 backend loses nothing GTK 3 still gives, and the
+features GTK 4 lacks become X11-only code beside it.
+
 ### Windows (`internal/windows`)
 
 - Win32 is called through `syscall` (`LazyDLL` procs; system DLLs are loaded
@@ -486,6 +554,31 @@ purego gives three primitives, used everywhere:
   webview's window is created later, so the controls go back to the top of
   the z-order when it appears. A window without a caption has no room for
   its menu bar: Alt and F10 open a popup holding the bar's own submenus.
+- **Menus** are Win32's (`menu.go`). Popup menus follow the appearance
+  through uxtheme's preferred app mode (ordinal 135); the menu bar follows
+  nothing, so the window draws it, and covers the light line below it when
+  dark, from the UAH messages menus send their window (`darkmenu.go`).
+  Windows 11 still draws Win32 menus as Windows 10 did, so there MyGo draws
+  the items in the style of its own menus (WinUI's `MenuFlyout`, File
+  Explorer's), in either appearance (`menudraw.go`): popup items are
+  owner-drawn (`MFT_OWNERDRAW`, measured and drawn in `WM_MEASUREITEM` and
+  `WM_DRAWITEM` of the window the menu shows for, or of the application
+  window for trays), each into a bitmap with its highlight's rounded
+  corners antialiased, then copied, and excluded from the DC after, which
+  keeps Windows from drawing the submenus' arrows over the chevrons;
+  `WM_INITMENUPOPUP` gives the menu the background of the items. The items
+  keep their strings, which mnemonics, screen readers and the tests read.
+  A menu with owner-drawn items loses Windows 11's frame, its window square
+  under its class's drop shadow (`CS_DROPSHADOW`) along two sides: while
+  menus show (`WM_ENTERMENULOOP` to `WM_EXITMENULOOP`, and around
+  `TrackPopupMenuEx`, which creates its window before), a `WH_CALLWNDPROC`
+  hook of the main thread rounds the windows of class `#32768` in their
+  `WM_CREATE` (`DWMWCP_ROUNDSMALL`, outlined in the colors of Windows'
+  menus) and takes the shadow off the class, for DWM's around the window.
+  The bar grows from `WM_UAHMEASUREMENUITEM` and its items get inset
+  backplates with rounded corners. A contrast theme keeps the system's
+  colors: the bar is Windows' again, the popup items take the system's.
+  Windows 10 keeps its menus.
 - **Vibrancy** sets `DWMWA_SYSTEMBACKDROP_TYPE` (Windows 11 22H2) and
   extends the frame over the client area, behind a transparent webview or
   native UI.
@@ -1111,6 +1204,25 @@ build` like mygo-runtime and released with the same version.
   Both effects' shaders are compiled ahead of time on macOS
   (`shaders_darwin.go`) and on Windows (`shaders_windows.go`), with
   `internal/gen`.
+- **loading** is loading.dev's 29 indicators (`loading-dev`, React and
+  CSS) for native UI, on ui's public API only. Each is a box of
+  `RoleProgress` whose draw function asks for the next frame
+  (`AnimationFrame`) and computes its pose from how many cycles it has
+  run: since it first showed (its start in `ui.Local`, as a CSS animation
+  starts with its element), or held while `Paused`. Parts are staggered as
+  loading-dev's negative `animation-delay`s, keyframes eased stretch by
+  stretch with CSS's `cubic-bezier` (`frames`, `bezier`), and shapes built
+  as `ui.Path`s in the SVG's viewBox through an affine transform (`affine`,
+  `shape`), arcs as cubic Béziers, which an affine transform keeps exact:
+  Atom's rings turning in 3D are ellipses, Flip's square is projected in
+  perspective point by point. Round caps are `StrokePath`'s; flat ones
+  fill the stroke's outline. Gradients are conic ones (Comet, Orbit), and
+  Radar's radial fade is sectors of growing radii over each other, each as
+  opaque as makes its band the gradient's opacity, so that no two edges
+  meet inside the beam. With `ReduceMotion` an indicator draws
+  loading-dev's pose for reduced motion and asks for no frames. The
+  indicators were checked against loading-dev rendered by a browser at the
+  same points of their cycles, with every option.
 
 ## Typed client generation (`internal/tsgen`)
 

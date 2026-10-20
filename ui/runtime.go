@@ -45,6 +45,9 @@ type host interface {
 	cancelDataDrag()
 	setDropFormats([]transfer.Format)
 	titleBarDoubleClicked()
+	// setMaximizeButton tells where the view shows the window's maximize
+	// button (MaximizeButton), the zero Rect for nowhere.
+	setMaximizeButton(r Rect)
 	// escape tells the window an Escape nothing handled.
 	escape()
 	isDark() bool
@@ -174,6 +177,9 @@ type engine struct {
 	webPlaces []webPlace
 	webOut    []placedWebView
 	webShown  bool
+	// maxButton is where the frame shows the window's maximize button
+	// (MaximizeButton), and maxSent what the host got of it.
+	maxButton, maxSent Rect
 	// The focus groups of the frame, the group of each element of the
 	// focus order in one, and the element of each that had the focus
 	// last.
@@ -580,6 +586,10 @@ func (rt *engine) runFrame() {
 	rt.insp.lap(2)
 	rt.host.present(&rt.scene)
 	rt.placeWebViews()
+	if rt.maxButton != rt.maxSent {
+		rt.maxSent = rt.maxButton
+		rt.host.setMaximizeButton(rt.maxButton)
+	}
 	rt.stats.lap(phasePresent)
 	rt.prune()
 	rt.syncDropFormats()
@@ -935,6 +945,7 @@ func (rt *engine) commit(root *node, w, h float32) {
 	rt.posed = rt.posed[:0]
 	clear(rt.webPlaces)
 	rt.webPlaces = rt.webPlaces[:0]
+	rt.maxButton = Rect{}
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
 	rt.modal, rt.modalLayer, rt.commitScope, rt.commitPage = 0, 0, focusScope{}, 0
 	if rt.groups == nil {
@@ -1029,6 +1040,9 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	}
 	if e.webView != nil {
 		rt.noteWebView(e, clip, invisible)
+	}
+	if e.maximizeButton && !invisible && rt.maxButton == (Rect{}) && v.W > 0 && v.H > 0 {
+		rt.maxButton = v
 	}
 	switch {
 	case e.flags&flagPassThrough != 0 || invisible:
