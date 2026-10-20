@@ -156,7 +156,7 @@ func fixPDFTextMaps(data []byte, ideographs func(string, []rune) map[rune]rune) 
 			return nil, err
 		}
 		offsets[n] = len(data) + update.Len()
-		if offsets[n] > 9999999999 {
+		if int64(offsets[n]) > 9999999999 { // the 10 digits of an xref entry
 			return nil, errPDF
 		}
 		fmt.Fprintf(&update, "%d %d obj\n%s /Length %d /Filter /FlateDecode >>\nstream\n", n, m.gen, m.dict.dictionaryWithout("Length", "Filter", "DecodeParms"), stream.Len())
