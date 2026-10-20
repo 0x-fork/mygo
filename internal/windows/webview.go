@@ -215,6 +215,15 @@ func (w *window) setUp(controller uintptr) {
 	comCall(s, setPutAreDefaultScriptDialogsEnabled, 1)
 	comCall(s, setPutIsStatusBarEnabled, 0)
 	comCall(s, setPutAreDevToolsEnabled, boolArg(o.DevTools))
+	// The browser's own keys (F5 and Ctrl+R reload, Ctrl+P prints, Ctrl+F
+	// finds, Ctrl+Plus zooms) come with the inspector: WKWebView and
+	// WebKitGTK have none, and a reload is not a navigation OnWillNavigate
+	// is asked about. AcceleratorKeyPressed still sees every key, so the
+	// menu items' keys, as the View menu's Reload and Zoom In, still work.
+	if s3 := queryInterface(s, &iidICoreWebView2Settings3); s3 != 0 {
+		comCall(s3, set3PutAreBrowserAcceleratorKeysEnabled, boolArg(o.DevTools))
+		release(s3)
+	}
 	comCall(s, setPutAreDefaultContextMenusEnabled, 1)
 	comCall(s, setPutIsZoomControlEnabled, 1)
 	if o.UserAgent != "" || o.UserAgentSuffix != "" {

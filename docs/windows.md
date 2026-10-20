@@ -480,7 +480,7 @@ mygo.NewWindow(mygo.WindowOptions{
 |---|---|
 | `PreloadScript` | JavaScript run before every page's own scripts |
 | `TrustedOrigins` | other origins whose pages may call Go, see [who may call](bindings.md#who-may-call) |
-| `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled`; for a window of native UI, its [inspector](ui/inspector.md) |
+| `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled`, which also turns WebView2's own keys, as F5 reloading, on or off (Windows); for a window of native UI, its [inspector](ui/inspector.md) |
 | `ZoomFactor`, `UserAgent` | the page's zoom (1 is 100%) and user agent |
 | `SafariTabFocus` | leaves Tab to text fields and elements with a tabindex, as Safari does unless the system's keyboard navigation is on; by default Tab reaches links, buttons, checkboxes and selects too (macOS) |
 | `UserAgentSuffix` | appended to the user agent instead of replacing it, which `UserAgent` does, such as `"MyApp/1.2"`; it appends to `UserAgent` too, and `SetUserAgent` keeps it, and leading and trailing spaces are trimmed |

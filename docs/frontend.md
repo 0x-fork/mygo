@@ -380,3 +380,10 @@ Development builds have the web inspector: right-click a page and choose
 Inspect Element (Inspect on Windows), or call `win.Page().OpenDevTools()`.
 Production builds do not, unless built with `mygo build -debug` or a window's
 page sets `DevTools: mygo.DevToolsEnabled` in `WindowOptions.Page`.
+
+On Windows, WebView2's own keys come with the inspector: F5 and Ctrl+R reload
+the page (a reload [`OnWillNavigate`](windows.md#pages) is not asked about),
+Ctrl+P prints, Ctrl+F finds and Ctrl+Plus zooms only where the inspector is
+on. Without it, as in production builds, a page has none of them, as on macOS
+and Linux, and only the app's menu items take these keys, such as the View
+menu's (`RoleViewMenu`).
