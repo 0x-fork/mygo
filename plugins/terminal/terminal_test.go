@@ -2206,3 +2206,96 @@ func TestResizePixels(t *testing.T) {
 		t.Fatal("Conn not told the size")
 	}
 }
+
+// themePipe is a pipe told the view's theme.
+type themePipe struct {
+	*pipe
+	themes chan *Theme
+}
+
+func (p themePipe) UseTheme(theme *Theme) error {
+	p.themes <- theme
+	return nil
+}
+
+// A terminal standing for another, as a server's for a window, answers
+// programs' questions about the colors with the window's, which its view
+// tells its Conn: Copilot CLI, asking the background, drew its input box
+// dark on a light one.
+func TestUseTheme(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	server, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	light := &Theme{Foreground: ui.Hex("#202020"), Background: ui.Hex("#fafafa"), Cursor: ui.Hex("#ff0000")}
+	light.Palette[1] = ui.Hex("#cd3131")
+	server.UseTheme(light)
+	server.Feed([]byte("\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b]12;?\x1b\\\x1b]4;1;?\x1b\\\x1b[?996n"))
+	want := "\x1b]10;rgb:2020/2020/2020\x1b\\\x1b]11;rgb:fafa/fafa/fafa\x1b\\\x1b]12;rgb:ffff/0000/0000\x1b\\\x1b]4;1;rgb:cdcd/3131/3131\x1b\\\x1b[?997;2n"
+	if got := conn.take(server); got != want {
+		t.Errorf("color queries answered %q, want %q", got, want)
+	}
+
+	client := themePipe{newPipe(), make(chan *Theme, 8)}
+	term, err := New(Options{Conn: client, Theme: light})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	tt.Frame()
+	select {
+	case th := <-client.themes:
+		if th != light {
+			t.Errorf("Conn told %+v, not the view's theme", th)
+		}
+	case <-time.After(10 * time.Second): // a hang guard
+		t.Fatal("Conn not told the theme")
+	}
+	tt.Frame()
+	select {
+	case th := <-client.themes:
+		t.Errorf("Conn told the same theme again: %+v", th)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// A full-screen program's rows with cells of the default background keep
+// their colors in their cells, as in Ghostty: Copilot CLI's tabs on its
+// top row grew up into the padding, and the row of its input box, which
+// starts with a border on the default background, stuck out past the box.
+func TestPaddingPartialRows(t *testing.T) {
+	loadLib(t)
+	th := LightTheme()
+	term, err := New(Options{Conn: newPipe(), Theme: th, NoBlink: true, Padding: Padding{X: 20, Y: 12}, PaddingColor: PaddingExtend})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	tt.Frame()
+	pad := strings.Repeat(" ", term.v.cols)
+	term.Feed([]byte("\x1b[?1049h\x1b[H \x1b[44m Current \x1b[0m \x1b[47m Gists \x1b[0m\x1b[3;1H┃\x1b[47m" + pad[1:] + "\x1b[0m"))
+	tt.Frame()
+	at := func(x, y float32) ui.Color {
+		s := term.v.scale
+		c := tt.Image().RGBAAt(int(x*s), int(y*s))
+		return ui.RGB(c.R, c.G, c.B)
+	}
+	x, _ := cellCenter(term, 3, 0)
+	_, y2 := cellCenter(term, 0, 2)
+	for _, c := range []struct {
+		name string
+		x, y float32
+	}{
+		{"above a tab", x, 3},
+		{"past the end of a box's row", 397, y2},
+	} {
+		if got := at(c.x, c.y); got != th.Background {
+			t.Errorf("the padding %s is %v, want the background %v", c.name, got, th.Background)
+		}
+	}
+}

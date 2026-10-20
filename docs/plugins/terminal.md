@@ -170,11 +170,10 @@ term, err := terminal.New(terminal.Options{
   shows, as Ghostty's `window-padding-color`: the background by default,
   or with `terminal.PaddingExtend` the backgrounds of the cells nearest to
   it, so that a full-screen program's colors reach the edges of the view
-  rather than stopping at the grid's. It extends every row's while a
-  full-screen program shows, and on the main screen only those of rows
-  whose every cell has a background of its own, so that a prompt's
-  highlights stay in their cells; `terminal.PaddingExtendAlways` extends
-  every row's. Either way, a lone character in inverse video, as a program
+  rather than stopping at the grid's. As Ghostty's `extend`, it extends
+  only rows whose every cell has a background of its own, so that a
+  prompt's highlights, or a program's tabs and boxes, keep to their cells;
+  `terminal.PaddingExtendAlways` extends every row's. Either way, a lone character in inverse video, as a program
   draws its own cursor, keeps its background in its cell.
 
   ```go

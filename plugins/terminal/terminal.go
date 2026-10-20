@@ -58,10 +58,10 @@ const (
 	PaddingBackground PaddingColor = iota
 	// PaddingExtend extends the backgrounds of the cells nearest to the
 	// padding into it: a row's beside it, the top and the bottom rows'
-	// above and below the grid, as Ghostty's extend. While a full-screen
-	// program shows (the alternate screen) it extends every row's; on the
-	// main screen only those of rows whose every cell has a background of
-	// its own, so that a shell's highlights stay in their cells. A lone
+	// above and below the grid, as Ghostty's extend: those of rows whose
+	// every cell has a background of its own, as a full-screen program
+	// painting its own background has, so that a shell's highlights, a
+	// program's tabs or the box it draws keep to their cells. A lone
 	// character in inverse video, as a program draws its own cursor,
 	// keeps its background in its cell.
 	PaddingExtend
@@ -93,6 +93,9 @@ type Options struct {
 	// is told it with the size of a cell in pixels instead, which the
 	// other end needs to answer a program's size queries and to read
 	// pointer reports in pixels (mode 1016) as this terminal sends them.
+	// A Conn with UseTheme(theme *Theme) error is told the colors the view
+	// shows, for the other end to answer a program's questions about them
+	// (Terminal.UseTheme).
 	Conn io.ReadWriteCloser
 	// ResizeByConn leaves the size of the screen to whoever reads Conn:
 	// the view tells Conn the size it fits, with its Resize, and the
@@ -484,10 +487,12 @@ type Terminal struct {
 
 	srcOnce sync.Once
 	srcErr  error
-	// connMu guards the size Conn is told, from a goroutine at a time.
-	connMu   sync.Mutex
-	connSize gridSize
-	connBusy bool
+	// connMu guards the size and the theme Conn is told, from a goroutine
+	// at a time, and those it was told.
+	connMu               sync.Mutex
+	connSize, connSent   gridSize
+	connTheme, themeSent *Theme
+	connBusy             bool
 
 	// rmu guards what frames draw from: the render state, which a
 	// program's synchronized update (mode 2026) holds.
@@ -887,6 +892,20 @@ func (t *Terminal) SetMinimumContrast(ratio float32) {
 	t.redraw()
 }
 
+// UseTheme gives a terminal no view shows the colors of one that does, as
+// a server's for the window showing its session: programs asking the
+// colors (OSC 4, 10, 11, 12), or whether they are dark (CSI ? 996 n), get
+// them. A view's own theme takes over in a terminal it shows.
+func (t *Terminal) UseTheme(theme *Theme) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if theme == nil || t.term == nil {
+		return
+	}
+	theme.apply(t.term)
+	t.curTheme = theme
+}
+
 // SetTheme changes the colors, as Options.Theme and DarkTheme.
 func (t *Terminal) SetTheme(theme, dark *Theme) {
 	t.mu.Lock()
@@ -1067,23 +1086,52 @@ func sizedConn(c any) bool {
 // latest size only once it told the one before.
 func (t *Terminal) resizeConn(c any, s gridSize) {
 	t.connMu.Lock()
-	defer t.connMu.Unlock()
 	t.connSize = s
+	t.connMu.Unlock()
+	t.tellConn(c)
+}
+
+// themeConn tells Conn the view's theme as resizeConn the size, when
+// Conn has UseTheme.
+func (t *Terminal) themeConn(theme *Theme) {
+	if _, ok := t.src.(interface{ UseTheme(*Theme) error }); !ok {
+		return
+	}
+	t.connMu.Lock()
+	t.connTheme = theme
+	t.connMu.Unlock()
+	t.tellConn(t.src)
+}
+
+// tellConn tells Conn the latest size and theme it was not told, from a
+// goroutine.
+func (t *Terminal) tellConn(c any) {
+	t.connMu.Lock()
+	defer t.connMu.Unlock()
 	if t.connBusy {
 		return
 	}
 	t.connBusy = true
 	go func() {
-		sent := gridSize{}
 		for {
 			t.connMu.Lock()
-			s := t.connSize
-			if s == sent {
+			s, theme := t.connSize, t.connTheme
+			resize, rethemed := s != t.connSent, theme != t.themeSent
+			if !resize && !rethemed {
 				t.connBusy = false
 				t.connMu.Unlock()
 				return
 			}
+			t.connSent, t.themeSent = s, theme
 			t.connMu.Unlock()
+			if rethemed {
+				if c, ok := c.(interface{ UseTheme(*Theme) error }); ok {
+					c.UseTheme(theme)
+				}
+			}
+			if !resize {
+				continue
+			}
 			switch c := c.(type) {
 			case interface {
 				ResizePixels(cols, rows, cellWidth, cellHeight int) error
@@ -1092,7 +1140,6 @@ func (t *Terminal) resizeConn(c any, s gridSize) {
 			case interface{ Resize(cols, rows int) error }:
 				c.Resize(s.cols, s.rows)
 			}
-			sent = s
 		}
 	}()
 }
