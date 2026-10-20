@@ -263,6 +263,34 @@ func TestScrollback(t *testing.T) {
 	}
 }
 
+// The keyboard's modes a Mirror passes on: modifyOtherKeys follows CSI > 4
+// alone, not the pointer shape (OSC 22), and the Kitty keyboard flags
+// their own sequences.
+func TestKeyboardModes(t *testing.T) {
+	loadLib(t)
+	term, _ := NewTerminal(20, 3, Effects{})
+	defer term.Free()
+	if term.ModifyOtherKeys() {
+		t.Error("modifyOtherKeys on in a new terminal")
+	}
+	term.Write([]byte("\x1b]22;pointer\x1b\\"))
+	if term.MouseShape() != 3 || term.ModifyOtherKeys() {
+		t.Errorf("after OSC 22: shape %d, modifyOtherKeys %v", term.MouseShape(), term.ModifyOtherKeys())
+	}
+	term.Write([]byte("text\x1b[>4;2m"))
+	if !term.ModifyOtherKeys() {
+		t.Error("modifyOtherKeys off after CSI > 4 ; 2 m")
+	}
+	term.Write([]byte("\x1b[>4;1m"))
+	if term.ModifyOtherKeys() {
+		t.Error("modifyOtherKeys on after CSI > 4 ; 1 m")
+	}
+	term.Write([]byte("\x1b[>5u"))
+	if f := term.KittyKeyboardFlags(); f != 5 {
+		t.Errorf("kitty keyboard flags %d, want 5", f)
+	}
+}
+
 // A search finds text in the scrollback and on the screen, ignoring the
 // case of ASCII letters; selecting goes from the newest match to older
 // ones, scrolling to them, and the viewport's matches are where it shows.

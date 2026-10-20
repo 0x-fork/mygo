@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -18,6 +19,9 @@ type mirrored struct {
 	dst    *Terminal
 	m      *Mirror
 	frames int
+	// pruned lets the other terminal keep rows the source's scrollback,
+	// at its limit, let go of: its rows end with the source's.
+	pruned bool
 }
 
 func newMirrored(t *testing.T, cols, rows int, o Options) *mirrored {
@@ -90,10 +94,13 @@ func (x *mirrored) same(label string) {
 	if cb, rb := tb.Size(); ca != cb || ra != rb {
 		fail("size %dx%d, mirrored %dx%d", ca, ra, cb, rb)
 	}
-	if !ta.AltScreen() && ta.ScrollbackRows() != tb.ScrollbackRows() {
-		fail("scrollback %d rows, mirrored %d", ta.ScrollbackRows(), tb.ScrollbackRows())
+	if sa, sb := ta.ScrollbackRows(), tb.ScrollbackRows(); !ta.AltScreen() && sa != sb && !(x.pruned && sb > sa) {
+		fail("scrollback %d rows, mirrored %d", sa, sb)
 	}
 	rowsA, rowsB := cellRows(ta), cellRows(tb)
+	if x.pruned && len(rowsB) > len(rowsA) {
+		rowsB = rowsB[len(rowsB)-len(rowsA):]
+	}
 	if len(rowsA) != len(rowsB) {
 		fail("%d rows, mirrored %d", len(rowsA), len(rowsB))
 	}
@@ -119,6 +126,12 @@ func (x *mirrored) same(label string) {
 	}
 	if ta.KittyKeyboardFlags() != tb.KittyKeyboardFlags() {
 		fail("kitty keyboard flags %d, mirrored %d", ta.KittyKeyboardFlags(), tb.KittyKeyboardFlags())
+	}
+	if ta.ModifyOtherKeys() != tb.ModifyOtherKeys() {
+		fail("modifyOtherKeys %v, mirrored %v", ta.ModifyOtherKeys(), tb.ModifyOtherKeys())
+	}
+	if ta.MouseShape() != tb.MouseShape() {
+		fail("pointer shape %d, mirrored %d", ta.MouseShape(), tb.MouseShape())
 	}
 }
 
@@ -242,6 +255,17 @@ func TestMirrorScrolling(t *testing.T) {
 // The terminal showing the frames keeps the cursor its options make
 // while programs leave the cursor alone, and takes one a program asks
 // for, until the program resets it.
+// The keyboard's modes go to the other terminal as the program sets them,
+// and a pointer shape (OSC 22) does not turn modifyOtherKeys on there.
+func TestMirrorKeyboardModes(t *testing.T) {
+	loadLib(t)
+	x := newMirrored(t, 20, 6, Options{})
+	x.feed("a pointer shape", "\x1b]22;pointer\x1b\\")
+	x.feed("modifyOtherKeys", "\x1b[>4;2m")
+	x.feed("kitty keyboard flags", "\x1b[>1u")
+	x.feed("modifyOtherKeys off", "\x1b[>4;1m\x1b[<u")
+}
+
 func TestMirrorCursorStyle(t *testing.T) {
 	loadLib(t)
 	src, err := New(Options{Conn: newPipe()})
@@ -315,6 +339,25 @@ func TestMirrorAltScreen(t *testing.T) {
 	x.feed("after", "$ ls\r\n")
 }
 
+// A terminal that takes a Mirror's frames from while a full-screen program
+// shows gets the main screen and its scrollback once the program ends.
+func TestMirrorResetInAltScreen(t *testing.T) {
+	loadLib(t)
+	x := newMirrored(t, 20, 5, Options{})
+	x.feed("history", lines(0, 50, "x"))
+	x.feed("a full-screen program", "\x1b[?1049hfull screen")
+	x.m.Reset()
+	other, err := New(Options{Conn: newPipe()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	other.Resize(20, 5)
+	x.dst = other
+	x.frame("another terminal")
+	x.feed("the program ends", "\x1b[?1049l")
+}
+
 func TestMirrorResize(t *testing.T) {
 	loadLib(t)
 	x := newMirrored(t, 20, 6, Options{})
@@ -358,6 +401,53 @@ func TestMirrorScrollbackLimit(t *testing.T) {
 	for i := range 40 {
 		x.feed(fmt.Sprintf("burst %d", i), lines(i*100, i*100+60, "x"))
 	}
+}
+
+// A scrollback at its limit lets go of its oldest rows as it takes new
+// ones: the other terminal keeps its own, without starting over, whether
+// a frame scrolls a row or more than a screen.
+func TestMirrorScrollbackPruned(t *testing.T) {
+	loadLib(t)
+	x := newMirrored(t, 40, 5, Options{Scrollback: 64 << 10})
+	x.pruned = true
+	drops, n := 0, 0
+	prev := 0
+	for i := range 400 {
+		count := 1
+		if i%2 == 1 {
+			count = 23 // more than a screen
+		}
+		x.src.Feed([]byte(lines(n, n+count, "line abcdefghijklmnopqrstuvwxyz ")))
+		n += count
+		f, due := x.m.Frame()
+		if due {
+			t.Fatal("no frame")
+		}
+		if strings.Contains(string(f), "\x1b[3J") {
+			t.Fatalf("frame %d clears the other terminal's scrollback: %q", i, f[:min(len(f), 80)])
+		}
+		x.dst.Feed(f)
+		x.frames++
+		x.src.mu.Lock()
+		sb := x.src.term.ScrollbackRows()
+		x.src.mu.Unlock()
+		if sb < prev {
+			drops++
+		}
+		if sb < prev || i%25 == 0 {
+			// Reading every row of both terminals takes long: at the
+			// frames that let go of rows, and now and then.
+			x.same(fmt.Sprintf("frame %d", i))
+		}
+		prev = sb
+	}
+	if drops < 2 {
+		t.Fatalf("the scrollback let go of rows %d times, want at least 2", drops)
+	}
+	// A clear still clears the other terminal's scrollback.
+	x.pruned = false
+	x.feed("clear", "\x1b[3J")
+	x.feed("after the clear", lines(0, 12, "after "))
 }
 
 // Claude Code's output under a screen of history, fed in uneven pieces, as
@@ -437,6 +527,51 @@ func TestMirrorTwoWindows(t *testing.T) {
 	for i, out := range steps {
 		x.feed(fmt.Sprintf("step %d, the first window", i), out)
 		second.frame(fmt.Sprintf("step %d, the second window", i))
+	}
+}
+
+// Programs' writes to the clipboard go to every Mirror's frames, their
+// reads with ClipboardForward to one, and what no frame takes stays
+// bounded.
+func TestMirrorClipboard(t *testing.T) {
+	loadLib(t)
+	src, err := New(Options{Conn: newPipe(), ClipboardRead: ClipboardForward})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	src.Resize(20, 4)
+	m1, _ := src.NewMirror()
+	defer m1.Close()
+	m2, _ := src.NewMirror()
+	m1.Frame()
+	m2.Frame()
+	write := func(s string) string { return "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(s)) + "\x1b\\" }
+	src.Feed([]byte(write("copied") + "\x1b]52;c;?\x1b\\"))
+	f1, _ := m1.Frame()
+	f2, _ := m2.Frame()
+	for i, f := range []string{string(f1), string(f2)} {
+		if strings.Count(f, write("copied")) != 1 {
+			t.Errorf("frame of mirror %d has the write %d times: %q", i+1, strings.Count(f, write("copied")), f)
+		}
+	}
+	if n := strings.Count(string(f1)+string(f2), "\x1b]52;c;?\x1b\\"); n != 1 {
+		t.Errorf("the read went %d times, want once", n)
+	}
+	// A closed Mirror takes nothing, and what no frame takes is bounded.
+	m2.Close()
+	for i := range 100 {
+		src.Feed([]byte(write(fmt.Sprint(i)) + "\x1b]52;c;?\x1b\\"))
+	}
+	src.mu.Lock()
+	queued, forward, mirrors := len(src.clipOut), len(src.clipForward), len(src.mirrors)
+	src.mu.Unlock()
+	if queued > maxQueued || forward > maxQueued || mirrors != 1 {
+		t.Errorf("%d writes and %d reads queued, %d mirrors", queued, forward, mirrors)
+	}
+	f1, _ = m1.Frame()
+	if f := string(f1); strings.Count(f, "\x1b]52;c;") != 2*maxQueued || !strings.Contains(f, write("99")) {
+		t.Errorf("the frame passes on %d uses of the clipboard, want the last %d writes and reads", strings.Count(f, "\x1b]52;c;"), maxQueued)
 	}
 }
 

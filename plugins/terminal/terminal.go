@@ -117,7 +117,9 @@ type Options struct {
 	// Theme sets the colors, and DarkTheme those in dark windows when set,
 	// as Ghostty's theme = light:…,dark:… does (GhosttyTheme returns
 	// Ghostty's themes). Without either, the terminal follows the window's
-	// light or dark appearance, with LightTheme and DarkTheme.
+	// light or dark appearance, with LightTheme and DarkTheme. Until a
+	// view shows the terminal, or UseTheme gives it other colors, programs
+	// asking its colors get Theme's.
 	Theme, DarkTheme *Theme
 	// Cursor is the shape of the cursor, which programs may change, and
 	// NoBlink keeps it from blinking unless a program asks it to.
@@ -462,6 +464,10 @@ type Terminal struct {
 	opts Options
 	in   inputQueue
 
+	// quoting is how dropped files' paths are quoted, for the program's
+	// shell.
+	quoting quoting
+
 	// mu guards the emulator, which the reader changes and frames read.
 	mu      sync.Mutex
 	term    *vt.Terminal
@@ -471,8 +477,12 @@ type Terminal struct {
 	closed  bool
 	clipOut []string // what programs copied, for the view to write
 	// clipForward are reads of the clipboard for a Mirror to pass on, with
-	// ClipboardForward: whether each is of the primary selection.
+	// ClipboardForward: whether each is of the primary selection. The
+	// first Mirror to frame takes them, as one terminal answers a read.
 	clipForward []bool
+	// mirrors are the terminal's Mirrors, each of which passes on what
+	// programs copy.
+	mirrors []*Mirror
 	// clipReads are reads of the clipboard waiting for the main thread to
 	// answer them: a frame takes them, reads the clipboard and writes the
 	// reply (see view.answerReads).
@@ -564,7 +574,10 @@ func New(opts Options) (*Terminal, error) {
 			if primary || t.opts.NoClipboardWrite {
 				return false
 			}
-			t.clipOut = append(t.clipOut, text)
+			t.clipOut = queue(t.clipOut, text)
+			for _, m := range t.mirrors {
+				m.clipOut = queue(m.clipOut, text)
+			}
 			t.redraw()
 			return true
 		},
@@ -601,8 +614,12 @@ func New(opts Options) (*Terminal, error) {
 		t.term.Free()
 		return nil, err
 	}
+	// Programs asking the colors before a view shows the terminal, or in
+	// one no view shows, get the theme asked for.
+	t.UseTheme(opts.Theme)
 	if opts.Conn != nil {
 		t.src = opts.Conn
+		t.quoting = quotingFor(runtime.GOOS, "")
 		t.run()
 		return t, nil
 	}
@@ -612,6 +629,7 @@ func New(opts Options) (*Terminal, error) {
 		t.term.Free()
 		return nil, err
 	}
+	t.quoting = quotingFor(runtime.GOOS, path)
 	dir := opts.Dir
 	if dir == "" {
 		dir, _ = os.UserHomeDir()

@@ -186,22 +186,35 @@ func (t *Terminal) viewportMatches(spans []matchSpan, buf []vt.Selection, cols, 
 	// The matches as of the terminal now.
 	f.s.Feed()
 	buf = f.s.ViewportMatches(buf)
-	var sel [4]int
-	selOK := false
-	if m, ok := f.s.SelectedMatch(); ok {
+	// The cells of a match in the viewport: one that wraps in from above
+	// it starts at its top left, and one that wraps on below it ends at
+	// its bottom right.
+	cells := func(m *vt.Selection) (c [4]int, shows bool) {
 		a, b := m.Ends()
 		x0, y0, ok0 := t.term.ViewportPoint(a)
 		x1, y1, ok1 := t.term.ViewportPoint(b)
-		sel, selOK = [4]int{x0, y0, x1, y1}, ok0 && ok1
+		switch {
+		case !ok0 && !ok1:
+			return c, false
+		case !ok0:
+			x0, y0 = 0, 0
+		case !ok1:
+			x1, y1 = cols-1, rows-1
+		}
+		return [4]int{x0, y0, x1, y1}, y0 < rows
+	}
+	var sel [4]int
+	selOK := false
+	if m, ok := f.s.SelectedMatch(); ok {
+		sel, selOK = cells(&m)
 	}
 	for i := range buf {
-		a, b := buf[i].Ends()
-		x0, y0, ok0 := t.term.ViewportPoint(a)
-		x1, y1, ok1 := t.term.ViewportPoint(b)
-		if !ok0 || !ok1 || y0 >= rows {
+		c, shows := cells(&buf[i])
+		if !shows {
 			continue
 		}
-		selected := selOK && sel == [4]int{x0, y0, x1, y1}
+		x0, y0, x1, y1 := c[0], c[1], c[2], c[3]
+		selected := selOK && sel == c
 		// A match that wraps takes the rows it goes through.
 		for y := y0; y <= min(y1, rows-1); y++ {
 			s := matchSpan{y, 0, cols - 1, selected}
