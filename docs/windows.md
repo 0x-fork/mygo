@@ -549,6 +549,14 @@ png, err := win.CapturePage() // what the window shows, as a PNG
 apply. The zero `PDFOptions` prints Letter pages in portrait with margins of
 0.4 inch and no backgrounds, like a browser's print dialog.
 
+The PDF's text copies and searches as the page's. On macOS, the PDFs that
+WebKit prints name radicals for many Chinese characters, such as ⼈
+(U+2F08) for 人, which the system's fonts draw with the same glyph.
+`PrintToPDF` asks the installed fonts which characters their glyphs are
+and appends corrected text maps to the PDF, which leaves its pages as they
+were. Text in a font that is not installed, such as a web font, keeps the
+radicals.
+
 ### Downloads
 
 A page downloads a file when it follows a link with the `download`
