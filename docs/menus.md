@@ -242,6 +242,26 @@ while the menu is open. To show a menu only on right-click while keeping
 primary clicks available, set the menu in `OnRightClick`, call
 `PopUpMenu`, then clear it with `SetMenu(nil)` when the call returns.
 
+A tray icon does not keep the app running: the app quits when its last
+window closes ([Quitting](app.md#quitting)). To close a window to the
+tray, hide it instead, which keeps the window and the app. A quit, as the
+tray menu's `RoleQuit`, starts before the windows close, so `OnClose` can
+tell the closes it makes from the user's:
+
+```go
+var quitting bool // OnBeforeQuit and OnClose run on the main thread
+mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting = true })
+
+win.OnClose(func(e *mygo.CloseEvent) {
+	if !quitting {
+		e.PreventDefault()
+		win.Hide()
+	}
+})
+// The icon's click, without a menu, or an item of its menu, brings it back.
+tray.OnClick(win.Show)
+```
+
 On Linux tray icons use AppIndicator, which needs
 `libayatana-appindicator3`: they show a menu and report no clicks, and
 `NewTray` returns an error without the library.
