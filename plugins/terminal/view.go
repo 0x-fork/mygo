@@ -516,9 +516,10 @@ func (v *view) caret() ui.Rect {
 func (v *view) menu(m *ui.Menu) {
 	t := v.t
 	t.mu.Lock()
-	text, selected := "", false
+	text, selected, alt := "", false, false
 	if t.term != nil {
 		text, selected = t.term.SelectionText()
+		alt = t.term.AltScreen()
 	}
 	t.mu.Unlock()
 	tx := l10n.In(v.lang)
@@ -533,10 +534,10 @@ func (v *view) menu(m *ui.Menu) {
 		v.selectAll()
 	}
 	m.Separator()
-	if m.Item(tx.ClearScrollback()).Chosen() {
-		if on := t.opts.OnClear; on == nil || !on(ClearScrollback) {
-			t.ClearScrollback()
-		}
+	// Clear clears as ⌘K does, as Ghostty's: clearing the scrollback
+	// alone would change nothing on the screen.
+	if v.menuItem(m, tx.ClearTerminal(), ActionClearScreen).Disabled(alt).Chosen() {
+		v.clearScreen()
 	}
 }
 

@@ -612,7 +612,7 @@ func TestMenus(t *testing.T) {
 	// The context menu.
 	x, y := cellCenter(term, 1, 0)
 	tt.RightClickAt(x, y)
-	if got := strings.Join(tt.Menu(), ","); !strings.Contains(got, "Copy") || !strings.Contains(got, "Clear Scrollback") {
+	if got := strings.Join(tt.Menu(), ","); !strings.Contains(got, "Copy") || !strings.HasSuffix(got, ",-,Clear") {
 		t.Errorf("context menu = %q", got)
 	}
 	tt.SetClipboard("again")
@@ -625,7 +625,7 @@ func TestMenus(t *testing.T) {
 	// In the window's language.
 	tt.SetLocale("zh-Hant")
 	tt.RightClickAt(x, y)
-	if got := strings.Join(tt.Menu(), ","); !strings.Contains(got, "複製") || !strings.Contains(got, "清除捲動緩衝區") {
+	if got := strings.Join(tt.Menu(), ","); !strings.Contains(got, "複製") || !strings.HasSuffix(got, ",-,清除") {
 		t.Errorf("context menu in Traditional Chinese = %q", got)
 	}
 }
@@ -992,14 +992,14 @@ func TestOnClear(t *testing.T) {
 	}
 	x, y := cellCenter(term, 1, 0)
 	tt.RightClickAt(x, y)
-	if err := tt.ChooseMenuItem("Clear Scrollback"); err != nil {
+	if err := tt.ChooseMenuItem("Clear"); err != nil {
 		t.Fatal(err)
 	}
-	if len(asked) != 2 || asked[1] != ClearScrollback {
-		t.Fatalf("Clear Scrollback asked %v", asked)
+	if len(asked) != 2 || asked[1] != ClearScreen {
+		t.Fatalf("the menu's Clear asked %v", asked)
 	}
 	if term.Text() != full {
-		t.Error("a Clear Scrollback taken cleared")
+		t.Error("the menu's Clear taken cleared")
 	}
 	take = false
 	tt.Key(ui.Alt, ui.KeyK)
@@ -1007,12 +1007,28 @@ func TestOnClear(t *testing.T) {
 	if got := strings.TrimSpace(term.Text()); got != "$ ls" {
 		t.Errorf("a clear left to the terminal left %q", got)
 	}
+	// The menu's Clear clears as the keys do.
+	term.Feed([]byte("\r\n" + b.String()))
+	tt.Frame()
+	tt.RightClickAt(x, y)
+	if err := tt.ChooseMenuItem("Clear"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if got := strings.TrimSpace(term.Text()); got != "$ ls" {
+		t.Errorf("the menu's Clear left to the terminal left %q", got)
+	}
 	term.Feed([]byte("\x1b[?1049h"))
 	tt.Frame()
 	tt.Key(ui.Alt, ui.KeyK)
-	if len(asked) != 3 {
-		t.Errorf("the alternate screen asked %v", asked[3:])
+	if len(asked) != 4 {
+		t.Errorf("the alternate screen asked %v", asked[4:])
 	}
+	tt.RightClickAt(x, y)
+	if err := tt.ChooseMenuItem("Clear"); err == nil {
+		t.Error("the menu's Clear is enabled on the alternate screen")
+	}
+	tt.CloseMenu()
 	if got := conn.take(term); got == "" {
 		t.Error("a performable clear took the key on the alternate screen")
 	}

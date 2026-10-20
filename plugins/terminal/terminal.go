@@ -270,12 +270,12 @@ type Options struct {
 	// zooming off.
 	OnZoom func(z Zoom) bool
 	// OnClear sees the user's clear on the main thread, before the
-	// terminal clears: ClearScreen for ActionClearScreen's keys,
-	// ClearScrollback for the context menu's Clear Scrollback. It reports
+	// terminal clears: ClearScreen for ActionClearScreen's keys and the
+	// context menu's Clear. It reports
 	// whether it took the clear; a clear taken clears nothing here. A
 	// terminal that shows a server's (see Mirror) takes it, for the
-	// server's terminal to clear (Terminal.ClearScreen,
-	// Terminal.ClearScrollback), which the next frame shows: cleared here
+	// server's terminal to clear (Terminal.ClearScreen), which the next
+	// frame shows: cleared here
 	// alone, the server's frames, drawn from a screen still full, would
 	// bring rows back wrong. It is not asked on a full-screen program's
 	// screen, which ActionClearScreen leaves alone.
@@ -287,10 +287,14 @@ type Clear int
 
 const (
 	// ClearScreen clears the scrollback and the screen above the cursor's
-	// line (ActionClearScreen, Terminal.ClearScreen).
+	// line (ActionClearScreen and the context menu's Clear,
+	// Terminal.ClearScreen).
 	ClearScreen Clear = iota
-	// ClearScrollback clears the scrollback (the context menu's Clear
-	// Scrollback, Terminal.ClearScrollback).
+	// ClearScrollback clears the scrollback (Terminal.ClearScrollback).
+	//
+	// Deprecated: the context menu's Clear, which asked it as Clear
+	// Scrollback, clears as ActionClearScreen does: OnClear is asked
+	// ClearScreen.
 	ClearScrollback
 )
 
@@ -357,7 +361,7 @@ type RightClickAction int
 
 const (
 	// RightClickContextMenu shows the context menu: Copy, Paste, Select
-	// All and Clear Scrollback.
+	// All and Clear.
 	RightClickContextMenu RightClickAction = iota
 	// RightClickPaste lets go of the selection and pastes.
 	RightClickPaste
@@ -1035,8 +1039,7 @@ func (t *Terminal) ClearScreen() bool {
 	return true
 }
 
-// ClearScrollback clears the scrollback, as the context menu's Clear
-// Scrollback does.
+// ClearScrollback clears the scrollback, leaving the screen as it is.
 func (t *Terminal) ClearScrollback() { t.write([]byte("\x1b[3J")) }
 
 // Close closes the terminal: the program is hung up (SIGHUP), or Conn

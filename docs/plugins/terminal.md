@@ -251,8 +251,8 @@ term, err := terminal.New(terminal.Options{
   },
   ```
 - `OnClear` sees the user's clear on the main thread, before the terminal
-  clears: `ClearScreen` for `ActionClearScreen`'s keys, `ClearScrollback`
-  for the context menu's Clear Scrollback. It reports whether it took the
+  clears: `ClearScreen`, for `ActionClearScreen`'s keys and the context
+  menu's Clear. It reports whether it took the
   clear, which then clears nothing here. A window showing a server's
   terminal takes it, for the server's terminal to clear (see
   [A server's terminal, shown elsewhere](#a-servers-terminal-shown-elsewhere)).
@@ -365,8 +365,9 @@ on to the program, as if unbound: Control+C interrupts when nothing is
 selected. A performable copy also lets go of the selection, so that the
 key's next press interrupts. `ActionClearScreen` clears the scrollback and
 the screen above the cursor's line, which moves to the top with the
-shell's prompt, as Kitty's `clear_terminal to_cursor`; `Terminal.ClearScreen` does the same from code, and
-`Terminal.ClearScrollback` what the context menu's Clear Scrollback does.
+shell's prompt, as Kitty's `clear_terminal to_cursor`, and the context
+menu's Clear does it too; `Terminal.ClearScreen` does the same from code,
+and `Terminal.ClearScrollback` clears the scrollback alone.
 `ActionIgnore` takes the key and does nothing.
 
 A key goes first to the app's shortcuts, then to `OnKey`, then to the
@@ -602,12 +603,7 @@ OnClear: func(c terminal.Clear) bool {
 	return true
 },
 // The server, asked:
-switch c {
-case terminal.ClearScreen:
-	term.ClearScreen()
-case terminal.ClearScrollback:
-	term.ClearScrollback()
-}
+term.ClearScreen()
 ```
 
 Programs' writes to the clipboard (OSC 52) go on with the frames, for the
