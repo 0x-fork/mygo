@@ -86,12 +86,14 @@ func (b *Backend) buildMenu(m *platform.Menu, bar bool, owner int, accels map[ac
 		column = column || it.Visible && (it.Type == platform.MenuItemCheckbox || it.Type == platform.MenuItemRadio || it.Checked)
 	}
 	pos := 0
+	var looks []*menuLook
 	look := func(l *menuLook) *menuLook {
 		defer func() { pos++ }()
 		if !drawn {
 			return nil
 		}
 		l.owner, l.column = owner, column
+		looks = append(looks, l)
 		var ftype uint32
 		switch {
 		case l.separator:
@@ -139,6 +141,9 @@ func (b *Backend) buildMenu(m *platform.Menu, bar bool, owner int, accels map[ac
 		if e.radio && e.look == nil {
 			setItemInfo(h, cmd, label, it.Enabled, it.Checked, true, false)
 		}
+	}
+	if len(looks) > 0 {
+		looks[0].first, looks[len(looks)-1].last = true, true
 	}
 	return h
 }
@@ -240,7 +245,7 @@ func (w *window) popupMenuBar(key uintptr) {
 		}
 		procAppendMenuW.Call(popup, flags, item, uintptr(unsafe.Pointer(&buf[0])))
 		if fluentMenus() {
-			l := &menuLook{owner: owner, label: string(utf16Decode(buf)), submenu: flags&mfPopup != 0}
+			l := &menuLook{owner: owner, label: string(utf16Decode(buf)), submenu: flags&mfPopup != 0, first: i == 0, last: i == count-1}
 			ownerDraw(popup, i, 0, w.b.menus.addLook(l))
 		}
 	}

@@ -83,6 +83,22 @@ type menuLook struct {
 	// column is whether the menu has a column for the marks of checkable
 	// items, which all its items leave room for.
 	column bool
+	// first and last are whether the item is the menu's first or last,
+	// which has the menu's padding above or below it.
+	first, last bool
+}
+
+// padding returns the room above and below the item: the menu's padding,
+// as much as its highlights' inset from its sides, above its first item
+// and below its last.
+func (l *menuLook) padding(dpi int) (top, bottom int32) {
+	if l.first {
+		top = toPx(menuInset, dpi)
+	}
+	if l.last {
+		bottom = toPx(menuInset, dpi)
+	}
+	return top, bottom
 }
 
 // addLook registers the look of an item and returns its key, the item's
@@ -332,8 +348,9 @@ func textWidth(dc, font uintptr, text string) int32 {
 
 func (b *Backend) measureItem(hwnd uintptr, l *menuLook, mis *measureItemStruct) {
 	dpi := dpiOf(hwnd)
+	top, bottom := l.padding(dpi)
 	if l.separator {
-		mis.ItemWidth, mis.ItemHeight = 0, uint32(toPx(menuSeparatorHeight, dpi))
+		mis.ItemWidth, mis.ItemHeight = 0, uint32(toPx(menuSeparatorHeight, dpi)+top+bottom)
 		return
 	}
 	f := b.menuFace(dpi)
@@ -352,7 +369,7 @@ func (b *Backend) measureItem(hwnd uintptr, l *menuLook, mis *measureItemStruct)
 	// Windows adds the width of its checks to that of every item.
 	check, _, _ := procGetSystemMetricsForDpi.Call(smCxMenuCheck, uintptr(dpi))
 	w = max(w-int32(check)+1, 0)
-	mis.ItemWidth, mis.ItemHeight = uint32(w), uint32(toPx(menuItemHeight, dpi))
+	mis.ItemWidth, mis.ItemHeight = uint32(w), uint32(toPx(menuItemHeight, dpi)+top+bottom)
 }
 
 func (b *Backend) drawItem(hwnd uintptr, l *menuLook, d *drawItemStruct) {
@@ -362,11 +379,13 @@ func (b *Backend) drawItem(hwnd uintptr, l *menuLook, d *drawItemStruct) {
 	state := d.ItemState
 	selected := state&odsSelected != 0 && !l.separator
 	inset := toPx(menuInset, dpi)
+	top, bottom := l.padding(dpi)
 	var plate *rect
 	if selected {
-		plate = &rect{inset, 0, r.Right - r.Left - inset, r.Bottom - r.Top}
+		plate = &rect{inset, top, r.Right - r.Left - inset, r.Bottom - r.Top - bottom}
 	}
 	paintItem(d.DC, r, p.back, plate, p.plate, float64(toPx(menuRadius, dpi)), func(dc uintptr, r rect) {
+		r.Top, r.Bottom = r.Top+top, r.Bottom-bottom
 		if l.separator {
 			thick := max(toPx(1, dpi), 1)
 			y := (r.Bottom - r.Top - thick) / 2
