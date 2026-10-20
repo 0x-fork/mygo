@@ -245,6 +245,13 @@ term, err := terminal.New(terminal.Options{
   	}
   },
   ```
+- `OnClear` sees the user's clear on the main thread, before the terminal
+  clears: `ClearScreen` for `ActionClearScreen`'s keys, `ClearScrollback`
+  for the context menu's Clear Scrollback. It reports whether it took the
+  clear, which then clears nothing here. A window showing a server's
+  terminal takes it, for the server's terminal to clear (see
+  [A server's terminal, shown elsewhere](#a-servers-terminal-shown-elsewhere)).
+  It is not asked on a full-screen program's screen.
 - `OnTitle`, `OnExit`, `OnBell` and `OnNotify` run on a goroutine of the
   terminal when the program sets the title, ends, rings the bell or asks
   for a desktop notification. `Done` is closed once the program exited,
@@ -353,8 +360,9 @@ on to the program, as if unbound: Control+C interrupts when nothing is
 selected. A performable copy also lets go of the selection, so that the
 key's next press interrupts. `ActionClearScreen` clears the scrollback and
 the screen above the cursor's line, which moves to the top with the
-shell's prompt, as Kitty's `clear_terminal to_cursor`; `ActionIgnore`
-takes the key and does nothing.
+shell's prompt, as Kitty's `clear_terminal to_cursor`; `Terminal.ClearScreen` does the same from code, and
+`Terminal.ClearScrollback` what the context menu's Clear Scrollback does.
+`ActionIgnore` takes the key and does nothing.
 
 A key goes first to the app's shortcuts, then to `OnKey`, then to the
 keybinds, then to the program. The context menu shows the keys bound to
@@ -521,6 +529,26 @@ new size.
 term, err := terminal.New(terminal.Options{Conn: stream, ResizeByConn: true})
 // Where the server's stream says it resized to cols×rows:
 term.Resize(cols, rows)
+```
+
+The user's clears are the server's to make: cleared in the window alone,
+the server's next frames, drawn from a screen still full, would bring rows
+back in the wrong places. The window's `OnClear` takes them and asks the
+server, whose terminal clears; the next frame shows it.
+
+```go
+// The window:
+OnClear: func(c terminal.Clear) bool {
+	stream.Clear(c) // however the app asks its server
+	return true
+},
+// The server, asked:
+switch c {
+case terminal.ClearScreen:
+	term.ClearScreen()
+case terminal.ClearScrollback:
+	term.ClearScrollback()
+}
 ```
 
 Programs' writes to the clipboard (OSC 52) go on with the frames, for the

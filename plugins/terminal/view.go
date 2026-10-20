@@ -4,7 +4,6 @@ import (
 	"math"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -501,7 +500,9 @@ func (v *view) menu(m *ui.Menu) {
 	}
 	m.Separator()
 	if m.Item(tx.ClearScrollback()).Chosen() {
-		t.Feed([]byte("\x1b[3J"))
+		if on := t.opts.OnClear; on == nil || !on(ClearScrollback) {
+			t.ClearScrollback()
+		}
 	}
 }
 
@@ -689,11 +690,11 @@ func (v *view) scrollBack(a Action) bool {
 	return true
 }
 
-// clearScreen clears the scrollback and the screen above the cursor's
-// line, which moves to the top, as Kitty's clear_terminal to_cursor: the
-// prompt the shell shows stays. A full-screen program's screen, which this
-// would break, is left alone, as in Ghostty; it reports whether it
-// cleared.
+// clearScreen clears as ActionClearScreen does (Terminal.ClearScreen), or
+// has Options.OnClear clear, letting go of the selection and scrolling to
+// the bottom; it reports whether it cleared. A full-screen program's
+// screen, which this would break, is left alone, as in Ghostty, and
+// OnClear is not asked.
 func (v *view) clearScreen() bool {
 	t := v.t
 	t.mu.Lock()
@@ -703,16 +704,12 @@ func (v *view) clearScreen() bool {
 	}
 	t.term.SetSelection(nil)
 	t.term.ScrollToBottom()
-	x, y := t.term.Cursor()
 	t.mu.Unlock()
-	seq := "\x1b[3J"
-	if y > 0 {
-		// Delete the rows above the cursor's from the top, then put the
-		// cursor back on its line, now the first.
-		seq += "\x1b[H\x1b[" + strconv.Itoa(y) + "M\x1b[1;" + strconv.Itoa(x+1) + "H"
+	if on := t.opts.OnClear; on != nil && on(ClearScreen) {
+		v.services.Invalidate()
+		return true
 	}
-	t.Feed([]byte(seq))
-	return true
+	return t.ClearScreen()
 }
 
 func (v *view) keyUp(ev ui.InputEvent) bool {

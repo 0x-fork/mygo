@@ -846,6 +846,74 @@ func TestKeybindActions(t *testing.T) {
 	}
 }
 
+// TestOnClear: a clear OnClear takes clears nothing here, for a server's
+// terminal to clear (TestMirrorClearScreen); one it leaves clears as
+// before; and a full-screen program's screen neither asks nor clears.
+func TestOnClear(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	var asked []Clear
+	take := true
+	term, err := New(Options{Conn: conn, Keybinds: []Keybind{
+		{Mods: ui.Alt, Key: ui.KeyK, Action: ActionClearScreen, Performable: true},
+	}, OnClear: func(c Clear) bool {
+		asked = append(asked, c)
+		return take
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	var b strings.Builder
+	for i := range 100 {
+		b.WriteString("line " + itoa(i) + "\r\n")
+	}
+	b.WriteString("$ ls")
+	term.Feed([]byte(b.String()))
+	tt.Frame()
+	full := term.Text()
+	tt.Key(ui.Alt, ui.KeyK)
+	if len(asked) != 1 || asked[0] != ClearScreen {
+		t.Fatalf("the clear keys asked %v", asked)
+	}
+	if got := conn.take(term); got != "" {
+		t.Errorf("a clear taken sent %q", got)
+	}
+	if term.Text() != full {
+		t.Error("a clear taken cleared")
+	}
+	x, y := cellCenter(term, 1, 0)
+	tt.RightClickAt(x, y)
+	if err := tt.ChooseMenuItem("Clear Scrollback"); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 2 || asked[1] != ClearScrollback {
+		t.Fatalf("Clear Scrollback asked %v", asked)
+	}
+	if term.Text() != full {
+		t.Error("a Clear Scrollback taken cleared")
+	}
+	take = false
+	tt.Key(ui.Alt, ui.KeyK)
+	tt.Frame()
+	if got := strings.TrimSpace(term.Text()); got != "$ ls" {
+		t.Errorf("a clear left to the terminal left %q", got)
+	}
+	term.Feed([]byte("\x1b[?1049h"))
+	tt.Frame()
+	tt.Key(ui.Alt, ui.KeyK)
+	if len(asked) != 3 {
+		t.Errorf("the alternate screen asked %v", asked[3:])
+	}
+	if got := conn.take(term); got == "" {
+		t.Error("a performable clear took the key on the alternate screen")
+	}
+	if term.ClearScreen() {
+		t.Error("ClearScreen cleared the alternate screen")
+	}
+}
+
 func TestAppearance(t *testing.T) {
 	loadLib(t)
 	term, err := New(Options{Conn: newPipe()})

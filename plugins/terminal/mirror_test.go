@@ -288,6 +288,32 @@ func TestMirrorResize(t *testing.T) {
 	x.feed("after shrinking", lines(0, 3, "s"))
 }
 
+// The server's terminal clears as a window's ⌘K asks (Options.OnClear):
+// the window shows the prompt at the top, and goes on showing what the
+// shell draws there, through resizes.
+func TestMirrorClearScreen(t *testing.T) {
+	loadLib(t)
+	x := newMirrored(t, 20, 6, Options{})
+	x.feed("history", lines(0, 12, "line ")+"~/dev\r\n$ ")
+	if !x.src.ClearScreen() {
+		t.Fatal("ClearScreen did not clear")
+	}
+	x.frame("cleared")
+	if got := strings.TrimSpace(x.dst.Text()); got != "$" {
+		t.Fatalf("the window shows %q after the clear", got)
+	}
+	x.feed("typing", "ls")
+	x.feed("the line repainted", "\r\x1b[K$ ls -la")
+	x.resize(30, 8)
+	x.resize(12, 5)
+	if got := strings.TrimSpace(x.dst.Text()); got != "$ ls -la" {
+		t.Errorf("the window shows %q after resizes", got)
+	}
+	x.feed("output after", "\r\n"+lines(0, 9, "out "))
+	x.src.ClearScrollback()
+	x.frame("scrollback cleared")
+}
+
 func TestMirrorScrollbackLimit(t *testing.T) {
 	loadLib(t)
 	x := newMirrored(t, 20, 5, Options{Scrollback: 1})
