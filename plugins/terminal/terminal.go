@@ -206,6 +206,11 @@ type Options struct {
 	// program's (OSC 52), as by tells. An app may say so, as Ghostty's
 	// app-notifications = clipboard-copy does with a toast.
 	OnCopy func(text string, by CopySource)
+	// OnSearch runs on the main thread as the status of the search
+	// changes (Terminal.Search): as matches are found and selected, and
+	// once the search ends, with a zero status. A find bar shows its
+	// "1 of 3" this way.
+	OnSearch func(s SearchStatus)
 
 	// OpenLink takes what a Command+click (Control+click elsewhere)
 	// opens: a hyperlink (OSC 8), a URL printed as text, or, only with
@@ -491,6 +496,9 @@ type Terminal struct {
 	done     chan struct{}
 	doneOnce sync.Once
 	code     atomic.Int64
+
+	// find is the search, while one goes (Search).
+	find search
 
 	// curTheme is the view's theme, for the program's questions; t.mu
 	// guards it. v is the view's state, on the main thread.
@@ -1009,6 +1017,7 @@ func (t *Terminal) Close() error {
 	// free it under the locks.
 	t.mu.Lock()
 	t.rmu.Lock()
+	t.endSearch()
 	t.term.Free()
 	t.term = nil
 	t.rs.Free()

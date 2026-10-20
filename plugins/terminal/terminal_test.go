@@ -232,6 +232,113 @@ func TestScrollback(t *testing.T) {
 	}
 }
 
+// A search finds the matches in the scrollback and on the screen, selects
+// the newest, highlights those that show, and goes to the older ones,
+// scrolling; OnSearch follows it, and ending it clears the highlights.
+func TestSearch(t *testing.T) {
+	loadLib(t)
+	var got []SearchStatus
+	term, err := New(Options{Conn: newPipe(), OnSearch: func(s SearchStatus) { got = append(got, s) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	var b strings.Builder
+	for i := range 100 {
+		if i%10 == 5 {
+			b.WriteString("a NEEDLE " + itoa(i) + "\r\n")
+		} else {
+			b.WriteString("line " + itoa(i) + "\r\n")
+		}
+	}
+	b.WriteString("needle at the prompt")
+	term.Feed([]byte(b.String()))
+	tt.Frame()
+	term.Search("needle")
+	for range 100 {
+		if s := term.SearchStatus(); !s.Searching && s.Selected > 0 {
+			break
+		}
+		tt.Frame()
+	}
+	tt.Frame()
+	want := SearchStatus{Text: "needle", Total: 11, Selected: 1}
+	if s := term.SearchStatus(); s != want {
+		t.Fatalf("status = %+v, want %+v", s, want)
+	}
+	if len(got) == 0 || got[len(got)-1] != want {
+		t.Errorf("OnSearch was told %+v", got)
+	}
+	selected := func() (matchSpan, bool) {
+		for _, m := range term.v.matches {
+			if m.selected {
+				return m, true
+			}
+		}
+		return matchSpan{}, false
+	}
+	if m, ok := selected(); !ok || m.x0 != 0 || m.x1 != 5 {
+		t.Errorf("selected match shows at %+v, %v", m, ok)
+	}
+	// The selected match's color shows.
+	img := tt.Image()
+	peach := false
+	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y && !peach; y++ {
+		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+			if r, g, bl, _ := img.At(x, y).RGBA(); r>>8 == 0xf2 && g>>8 == 0xa5 && bl>>8 == 0x7e {
+				peach = true
+				break
+			}
+		}
+	}
+	if !peach {
+		t.Error("the selected match is not highlighted")
+	}
+	save(t, tt, "search")
+	// Going to older matches scrolls up into the scrollback, wrapping
+	// around past the oldest.
+	term.mu.Lock()
+	bottom := term.term.Scrollbar().Offset
+	term.mu.Unlock()
+	for range 3 {
+		term.SearchNext()
+	}
+	tt.Frame()
+	term.mu.Lock()
+	offset := term.term.Scrollbar().Offset
+	term.mu.Unlock()
+	if s := term.SearchStatus(); s.Selected != 4 || offset >= bottom {
+		t.Errorf("after 3 next: %+v, offset %d of %d", s, offset, bottom)
+	}
+	_, rows := term.Size()
+	if m, ok := selected(); !ok || m.y != rows/2 {
+		t.Errorf("the selected match shows at %+v (%v), not in the middle of %d rows", m, ok, rows)
+	}
+	term.SearchPrevious()
+	tt.Frame()
+	if s := term.SearchStatus(); s.Selected != 3 {
+		t.Errorf("after previous: %+v", s)
+	}
+	for range 8 {
+		term.SearchNext()
+	}
+	tt.Frame()
+	if s := term.SearchStatus(); s.Selected != 11 {
+		t.Errorf("at the oldest: %+v", s)
+	}
+	term.SearchNext()
+	tt.Frame()
+	if s := term.SearchStatus(); s.Selected != 1 {
+		t.Errorf("after wrapping around: %+v", s)
+	}
+	term.EndSearch()
+	tt.Frame()
+	if len(term.v.matches) != 0 || got[len(got)-1] != (SearchStatus{}) {
+		t.Errorf("after ending: %d matches, told %+v", len(term.v.matches), got[len(got)-1])
+	}
+}
+
 // A snapshot of a terminal no view shows restores what it shows in
 // another, as a server keeping sessions sends it to a window attaching.
 func TestSnapshot(t *testing.T) {

@@ -136,6 +136,8 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	v.scrollbar = t.term.Scrollbar()
 	v.alt = t.term.AltScreen()
 	contrast := t.opts.MinimumContrast
+	tc, tr := t.term.Size()
+	v.matches, v.matchBuf = t.viewportMatches(v.matches, v.matchBuf, tc, tr)
 	t.mu.Unlock()
 	rs := t.rs
 	if !held {
@@ -487,14 +489,49 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 			p.Fill(ui.Rect{X: ox + float32(line.selA)*cw, Y: ry, W: float32(line.selB-line.selA+1) * cw, H: ch}, selection, 0)
 		}
 	}
+	match, matchText, selMatch, selMatchText := v.searchColors()
+	for _, m := range v.matches {
+		if m.y < len(v.lines) {
+			c := match
+			if m.selected {
+				c = selMatch
+			}
+			p.Fill(ui.Rect{X: ox + float32(m.x0)*cw, Y: oy + float32(m.y)*ch, W: float32(m.x1-m.x0+1) * cw, H: ch}, c, 0)
+		}
+	}
 	cur, curColor, curText, block := v.cursorRect(ox, oy, cw, ch)
 	if block {
 		p.Fill(cur, curColor, 0)
 	}
+	var spans []matchSpan
 	for y := range v.lines {
 		line := &v.lines[y]
 		ry := oy + float32(y)*ch
 		text := func(over ui.Color) { v.drawText(p, line, ox, ry, cw, ch, base, over) }
+		spans = spans[:0]
+		for _, m := range v.matches {
+			if m.y == y {
+				spans = append(spans, m)
+			}
+		}
+		if len(spans) > 0 {
+			// The text of matches takes their text's color in their cells,
+			// the rest its own.
+			slices.SortFunc(spans, func(a, b matchSpan) int { return a.x0 - b.x0 })
+			left := r.X
+			for _, m := range spans {
+				a, b := ox+float32(m.x0)*cw, ox+float32(m.x1+1)*cw
+				c := matchText
+				if m.selected {
+					c = selMatchText
+				}
+				p.Clip(ui.Rect{X: left, Y: r.Y, W: a - left, H: r.H}, 0, func() { text(ui.Color{}) })
+				p.Clip(ui.Rect{X: a, Y: r.Y, W: b - a, H: r.H}, 0, func() { text(c) })
+				left = b
+			}
+			p.Clip(ui.Rect{X: left, Y: r.Y, W: r.X + r.W - left, H: r.H}, 0, func() { text(ui.Color{}) })
+			continue
+		}
 		if !line.sel || v.theme.SelectionText.A == 0 {
 			text(ui.Color{})
 			continue
@@ -539,6 +576,19 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 		v.drawPreedit(p, ox, oy, cw, ch, base)
 	}
 	v.drawScrollbar(p, r)
+}
+
+// searchColors returns the colors of the search's matches and their text,
+// then the selected match's: the theme's, else Ghostty's.
+func (v *view) searchColors() (match, matchText, sel, selText ui.Color) {
+	th := v.theme
+	or := func(c ui.Color, def string) ui.Color {
+		if c.A == 0 {
+			return ui.Hex(def)
+		}
+		return c
+	}
+	return or(th.Search, "#ffe082"), or(th.SearchText, "#000000"), or(th.SearchSelected, "#f2a57e"), or(th.SearchSelectedText, "#000000")
 }
 
 // extendPadding paints the padding around the grid with the backgrounds

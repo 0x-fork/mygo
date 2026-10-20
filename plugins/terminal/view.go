@@ -217,6 +217,13 @@ type view struct {
 	reads      []*clipboardRequest
 	clipPrompt *clipboardRequest
 	clipOpen   bool
+
+	// searched is the search's status OnSearch was last told; matches are
+	// the cells of the matches the viewport shows, as of the last paint,
+	// found in matchBuf.
+	searched SearchStatus
+	matches  []matchSpan
+	matchBuf []vt.Selection
 }
 
 type pendingKey struct {
@@ -275,7 +282,19 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 	reads := t.clipReads
 	t.clipReads = nil
 	term := t.term
+	searching := term != nil && t.find.drive(term)
+	searched := t.find.status
 	t.mu.Unlock()
+	if searched != v.searched {
+		v.searched = searched
+		if t.opts.OnSearch != nil {
+			t.opts.OnSearch(searched)
+		}
+	}
+	if searching {
+		// The rest of the scrollback, in the frames to come.
+		c.After(time.Millisecond)
+	}
 	for _, s := range copied {
 		c.WriteClipboard(s)
 		v.copied(s, CopyProgram)

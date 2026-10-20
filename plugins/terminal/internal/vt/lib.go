@@ -47,6 +47,8 @@ var (
 
 	fnGridRefHyperlinkURI, fnGridRefGraphemes, fnGridRefCell, fnRowData, fnTypeJSON, fnFormatterFormatAlloc, fnFormatterFree uintptr
 
+	fnSearchNew, fnSearchFree, fnSearchSet, fnSearchGet, fnSearchFeed, fnSearchTick, fnPointFromGridRef uintptr
+
 	// Bound with registerFunc below: they take structs or floats.
 	fnTerminalScrollViewport, fnTerminalGridRef, fnMouseEventSetPosition, fnSelectionFormatAlloc, fnFormatterTerminalNew uintptr
 )
@@ -140,6 +142,13 @@ var symbols = []struct {
 	{"ghostty_formatter_terminal_new", &fnFormatterTerminalNew},
 	{"ghostty_formatter_format_alloc", &fnFormatterFormatAlloc},
 	{"ghostty_formatter_free", &fnFormatterFree},
+	{"ghostty_search_new", &fnSearchNew},
+	{"ghostty_search_free", &fnSearchFree},
+	{"ghostty_search_set", &fnSearchSet},
+	{"ghostty_search_get", &fnSearchGet},
+	{"ghostty_search_feed", &fnSearchFeed},
+	{"ghostty_search_tick", &fnSearchTick},
+	{"ghostty_terminal_point_from_grid_ref", &fnPointFromGridRef},
 }
 
 // Load loads the library at path. Only the first call loads one: later
@@ -310,6 +319,11 @@ var enums = []struct {
 	{"GhosttyPointTag", "VIEWPORT", 1},
 	{"GhosttyClipboardWriteResult", "UNSUPPORTED", 2},
 	{"GhosttySelectionGestureEventType", "DRAG", gestureDrag},
+	{"GhosttySearchStatus", "COMPLETE", int64(SearchComplete)},
+	{"GhosttySearchOption", "SELECT_PREV", searchOptSelectPrev},
+	{"GhosttySearchData", "VIEWPORT_MATCHES", searchDataViewportMatches},
+	{"GhosttySearchScroll", "NONE", searchScrollNone},
+	{"GhosttyPointTag", "SCREEN", pointScreen},
 }
 
 type fieldInfo struct {

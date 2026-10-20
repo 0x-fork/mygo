@@ -458,6 +458,37 @@ selection-foreground = #1e1e2e
 
 `SetTheme(theme, dark)` changes the themes of a running terminal.
 
+## Search
+
+`Search` searches the screen and the scrollback for text, as Ghostty's find
+does, with libghostty-vt's search: the matches are highlighted as they are
+found, a frame's share of the scrollback at a time, and follow the output
+that comes; the newest is selected, and shown. Matching is exact but for the
+case of ASCII letters. `SearchNext` selects the next match toward older
+output, up into the scrollback, and `SearchPrevious` toward newer output,
+both wrapping around and, unless the match shows, scrolling it to the
+middle of the view, clear of a find bar over an edge; `EndSearch`
+(or `Search("")`) ends the search. The terminal draws no find bar: the app
+draws one, and binds Ghostty's keys to these methods, Cmd+F, Cmd+G,
+Cmd+Shift+G and Escape on macOS. `OnSearch` tells it, on the main thread,
+how the search goes, for its "1 of 3":
+
+```go
+term, err := terminal.New(terminal.Options{
+	OnSearch: func(s terminal.SearchStatus) {
+		// s.Selected of s.Total matches of s.Text; s.Searching while more
+		// of the scrollback is to go through.
+		bar.status = fmt.Sprintf("%d of %d", s.Selected, s.Total)
+	},
+})
+```
+
+The theme's `Search` and `SearchText` color the matches and their text, and
+`SearchSelected` and `SearchSelectedText` the selected one, as Ghostty's
+`search-background`, `search-foreground`, `search-selected-background` and
+`search-selected-foreground`, which a theme file sets too: Ghostty's light
+amber and light orange under black text when zero.
+
 ## Methods
 
 The terminal's methods are safe from any goroutine:

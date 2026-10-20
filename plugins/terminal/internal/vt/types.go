@@ -260,6 +260,7 @@ func layouts() map[string]layout {
 		gr  GridRef
 		pt  point
 		sel Selection
+		sbu selectionBuffer
 		sfo selectionFormatOptions
 		mes mouseEncoderSize
 		cw  clipboardWrite
@@ -301,6 +302,7 @@ func layouts() map[string]layout {
 		"GhosttyPoint":                   {unsafe.Sizeof(pt), map[string]uintptr{"tag": 0, "value": unsafe.Offsetof(pt.x)}},
 		"GhosttyPointCoordinate":         {8, map[string]uintptr{"x": unsafe.Offsetof(pt.x) - unsafe.Offsetof(pt.x), "y": unsafe.Offsetof(pt.y) - unsafe.Offsetof(pt.x)}},
 		"GhosttySelection":               {unsafe.Sizeof(sel), map[string]uintptr{"start": unsafe.Offsetof(sel.start), "end": unsafe.Offsetof(sel.end), "rectangle": unsafe.Offsetof(sel.rectangle)}},
+		"GhosttySelectionBuffer":         {unsafe.Sizeof(sbu), map[string]uintptr{"ptr": 0, "cap": unsafe.Offsetof(sbu.cap), "len": unsafe.Offsetof(sbu.len)}},
 		"GhosttyTerminalSelectionFormatOptions": {unsafe.Sizeof(sfo), map[string]uintptr{
 			"emit": unsafe.Offsetof(sfo.emit), "unwrap": unsafe.Offsetof(sfo.unwrap), "trim": unsafe.Offsetof(sfo.trim), "selection": unsafe.Offsetof(sfo.selection),
 		}},
