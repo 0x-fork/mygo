@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"errors"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -275,4 +276,47 @@ func (t *Terminal) readsClipboard() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.term != nil && t.term.Mode(vt.ModePasteEvents)
+}
+
+// dropFiles pastes the paths of files dropped on the terminal, as Ghostty
+// does: each escaped for a shell, spaces between them, so that a shell
+// takes them as arguments and an agent as files it attaches. A program
+// that reads the clipboard itself (mode 5522) is offered them as a file
+// list too.
+func (t *Terminal) dropFiles(paths []string) {
+	d, err := transfer.FileData(paths...)
+	if err != nil || len(paths) == 0 {
+		return
+	}
+	escaped := make([]string, len(paths))
+	for i, p := range paths {
+		escaped[i] = shellEscape(p)
+	}
+	items := d.Items()
+	first, _ := items[0].Read(transfer.FileList)
+	items[0] = transfer.NewItem(
+		transfer.Bytes(transfer.FileList, first), transfer.Bytes(transfer.URIList, first),
+		transfer.Bytes(transfer.Text, []byte(strings.Join(escaped, " "))),
+	)
+	t.PasteData(transfer.New(items...))
+}
+
+// shellEscape escapes a path for a shell: a backslash before each
+// character a shell would read otherwise, as Ghostty escapes them; on
+// Windows, quotes around a path that needs them.
+func shellEscape(path string) string {
+	if runtime.GOOS == "windows" {
+		if strings.ContainsAny(path, " \t&()[]{}^=;!'+,`~") {
+			return `"` + path + `"`
+		}
+		return path
+	}
+	var b strings.Builder
+	for _, r := range path {
+		if strings.ContainsRune("\\ ()[]{}<>\"'`!#$&;|*?\t", r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

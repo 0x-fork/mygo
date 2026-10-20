@@ -245,6 +245,9 @@ type pendingKey struct {
 // build updates the view as a frame builds.
 func (v *view) build(c *ui.Context, e ui.Element) {
 	t := v.t
+	if files := e.DroppedFiles(); len(files) > 0 {
+		t.dropFiles(files)
+	}
 	v.lang = c.Locale()
 	dark := c.Theme().Dark
 	focused := e.Focused()
