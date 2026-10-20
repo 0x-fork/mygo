@@ -88,7 +88,11 @@ type Options struct {
 	// Conn connects the terminal to something other than a program, such
 	// as a remote shell: what the terminal reads from it shows, and what
 	// is typed is written to it. Command, Dir and Env are then ignored. A
-	// Conn with a method Resize(cols, rows int) error is told the size.
+	// Conn with a method Resize(cols, rows int) error is told the size;
+	// one with ResizePixels(cols, rows, cellWidth, cellHeight int) error
+	// is told it with the size of a cell in pixels instead, which the
+	// other end needs to answer a program's size queries and to read
+	// pointer reports in pixels (mode 1016) as this terminal sends them.
 	Conn io.ReadWriteCloser
 	// ResizeByConn leaves the size of the screen to whoever reads Conn:
 	// the view tells Conn the size it fits, with its Resize, and the
@@ -918,6 +922,20 @@ func (t *Terminal) Resize(cols, rows int) {
 	t.resize(gridSize{max(cols, 1), max(rows, 1), t.size.cellW, t.size.cellH})
 }
 
+// ResizePixels is Resize with the size of a cell in pixels, for a terminal
+// no view shows that stands for one that does, as a server's for the
+// window showing its session: programs asking the size in pixels get it,
+// and it is what pointer reports in pixels (mode 1016) count in. A zero
+// cell size keeps the one before.
+func (t *Terminal) ResizePixels(cols, rows, cellWidth, cellHeight int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if cellWidth <= 0 || cellHeight <= 0 {
+		cellWidth, cellHeight = t.size.cellW, t.size.cellH
+	}
+	t.resize(gridSize{max(cols, 1), max(rows, 1), cellWidth, cellHeight})
+}
+
 // Snapshot returns what the terminal shows as escape sequences: its
 // scrollback and screen with their styles, the cursor and the modes
 // programs set. Fed to a new terminal of the same size, it shows the same,
@@ -1034,9 +1052,20 @@ func (t *Terminal) closeSrc() error {
 	return t.srcErr
 }
 
+// sizedConn reports whether Conn is told the size (Options.Conn).
+func sizedConn(c any) bool {
+	switch c.(type) {
+	case interface{ Resize(cols, rows int) error }, interface {
+		ResizePixels(cols, rows, cellWidth, cellHeight int) error
+	}:
+		return true
+	}
+	return false
+}
+
 // resizeConn tells Conn the size of the screen, from a goroutine, the
 // latest size only once it told the one before.
-func (t *Terminal) resizeConn(c interface{ Resize(cols, rows int) error }, s gridSize) {
+func (t *Terminal) resizeConn(c any, s gridSize) {
 	t.connMu.Lock()
 	defer t.connMu.Unlock()
 	t.connSize = s
@@ -1055,7 +1084,14 @@ func (t *Terminal) resizeConn(c interface{ Resize(cols, rows int) error }, s gri
 				return
 			}
 			t.connMu.Unlock()
-			c.Resize(s.cols, s.rows)
+			switch c := c.(type) {
+			case interface {
+				ResizePixels(cols, rows, cellWidth, cellHeight int) error
+			}:
+				c.ResizePixels(s.cols, s.rows, s.cellW, s.cellH)
+			case interface{ Resize(cols, rows int) error }:
+				c.Resize(s.cols, s.rows)
+			}
 			sent = s
 		}
 	}()
@@ -1079,8 +1115,8 @@ func (t *Terminal) resize(s gridSize) {
 	switch src := t.src.(type) {
 	case *pty.PTY:
 		src.Resize(s.cols, s.rows, s.cols*s.cellW, s.rows*s.cellH)
-	case interface{ Resize(cols, rows int) error }:
-		if !t.opts.ResizeByConn { // the size came from the Conn's reader
+	default:
+		if !t.opts.ResizeByConn && sizedConn(src) { // else the size came from the Conn's reader
 			t.resizeConn(src, s)
 		}
 	}
@@ -1090,8 +1126,7 @@ func (t *Terminal) resize(s gridSize) {
 // Options.ResizeByConn asks Conn for it, the screen keeping its size and
 // taking the cells' new metrics only; t.mu is held.
 func (t *Terminal) viewResize(s gridSize) {
-	c, ok := t.src.(interface{ Resize(cols, rows int) error })
-	if !t.opts.ResizeByConn || !ok {
+	if !t.opts.ResizeByConn || !sizedConn(t.src) {
 		t.resize(s)
 		return
 	}
@@ -1102,9 +1137,11 @@ func (t *Terminal) viewResize(s gridSize) {
 		t.size.cellW, t.size.cellH = s.cellW, s.cellH
 		t.term.Resize(t.size.cols, t.size.rows, s.cellW, s.cellH)
 	}
-	if s.cols != t.asked.cols || s.rows != t.asked.rows {
+	// New metrics are asked for too: the other end needs the cells' size
+	// in pixels.
+	if s != t.asked {
 		t.asked = s
-		t.resizeConn(c, s)
+		t.resizeConn(t.src, s)
 	}
 }
 

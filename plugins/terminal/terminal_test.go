@@ -2151,3 +2151,58 @@ func TestResizeByConn(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+// pixelPipe is a pipe told the size with the size of a cell in pixels.
+type pixelPipe struct {
+	*pipe
+	sizes chan [4]int
+}
+
+func (p pixelPipe) ResizePixels(cols, rows, cellWidth, cellHeight int) error {
+	p.sizes <- [4]int{cols, rows, cellWidth, cellHeight}
+	return nil
+}
+
+// A terminal standing for another, as a server's for a window, takes the
+// size of the window's cells, which programs get from size queries and
+// count pointer reports in pixels (mode 1016) in; the window's terminal
+// tells its Conn that size.
+func TestResizePixels(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	server, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	server.ResizePixels(40, 6, 18, 36)
+	server.Feed([]byte("\x1b[16t\x1b[14t"))
+	if got, want := conn.take(server), "\x1b[6;36;18t\x1b[4;216;720t"; got != want {
+		t.Errorf("size queries answered %q, want %q", got, want)
+	}
+	server.ResizePixels(30, 5, 0, 0)
+	server.Feed([]byte("\x1b[16t"))
+	if got, want := conn.take(server), "\x1b[6;36;18t"; got != want {
+		t.Errorf("a zero cell size answered %q, want %q", got, want)
+	}
+
+	client := pixelPipe{newPipe(), make(chan [4]int, 8)}
+	term, err := New(Options{Conn: client, ResizeByConn: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	select {
+	case s := <-client.sizes:
+		term.mu.Lock()
+		want := [4]int{term.asked.cols, term.asked.rows, term.size.cellW, term.size.cellH}
+		term.mu.Unlock()
+		if s != want {
+			t.Errorf("Conn told %v, not the view's %v", s, want)
+		}
+	case <-time.After(10 * time.Second): // a hang guard
+		t.Fatal("Conn not told the size")
+	}
+}

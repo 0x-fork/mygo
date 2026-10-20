@@ -453,7 +453,10 @@ func readLine(term *vt.Terminal, rs *vt.RenderState, y int) line {
 }
 
 // mirroredModes are the modes the other terminal takes: those that change
-// what it sends, as the keys and the mouse, and how it draws.
+// what it sends, as the keys and the mouse, and how it draws. Those off
+// go first: the mouse's events and format are one setting each, which
+// setting one of their modes picks and resetting any sets back to none or
+// X10's, as Ghostty does.
 var mirroredModes = []vt.Mode{
 	vt.ModeCursorKeys, 66, // DECCKM, DECNKM (the keypad's)
 	vt.ModeFocusEvent, vt.ModeAltScroll, vt.ModeBracketedPaste, vt.ModeGraphemes,
@@ -467,12 +470,17 @@ func (m *Mirror) state(out *bytes.Buffer, c vt.Cursor) {
 	t := m.t
 	term := t.term
 	var modes bytes.Buffer
-	for _, md := range mirroredModes {
-		v := byte('l')
-		if term.Mode(md) {
-			v = 'h'
+	for _, on := range []bool{false, true} {
+		for _, md := range mirroredModes {
+			if term.Mode(md) != on {
+				continue
+			}
+			v := byte('l')
+			if on {
+				v = 'h'
+			}
+			fmt.Fprintf(&modes, "\x1b[?%d%c", md, v)
 		}
-		fmt.Fprintf(&modes, "\x1b[?%d%c", md, v)
 	}
 	mok := 1
 	if term.ModifyOtherKeys() {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/plugins/terminal/internal/vt"
+	"github.com/egoist/mygo/ui"
 )
 
 // mirrored is a terminal and another showing its Mirror's frames.
@@ -477,5 +478,51 @@ func TestHistory(t *testing.T) {
 	alt.Feed([]byte("\x1b[?1049hfull screen"))
 	if h := alt.History(); len(h) != 0 {
 		t.Errorf("history of a full-screen program: %q", h)
+	}
+}
+
+// The other terminal reports the mouse as the program asked the source
+// to: setting a mouse mode picks the events or the format, and resetting
+// one goes back to none or X10's whatever is set, so that the modes off
+// come before those on.
+func TestMirrorMouse(t *testing.T) {
+	loadLib(t)
+	for _, c := range []struct{ modes, press, drag string }{
+		{"\x1b[?1002h\x1b[?1006h", "\x1b[<0;3;4M", "\x1b[<32;6;4M"},
+		{"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h", "\x1b[<35;3;4M\x1b[<0;3;4M", "\x1b[<32;6;4M"},
+		{"\x1b[?1000h", "\x1b[M #$", ""},
+	} {
+		src, err := New(Options{Conn: newPipe()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn := newPipe()
+		dst, err := New(Options{Conn: conn})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := src.NewMirror()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tt := ui.NewTester(func(c *ui.Context) { View(c, dst).Fill().AutoFocus() }, 400, 200)
+		src.Feed([]byte(c.modes))
+		f, _ := m.Frame()
+		dst.Feed(f)
+		tt.Frame()
+		x, y := cellCenter(dst, 2, 3)
+		tt.Press(x, y)
+		if got := conn.take(dst); got != c.press {
+			t.Errorf("%q: press sent %q, want %q", c.modes, got, c.press)
+		}
+		x2, y2 := cellCenter(dst, 5, 3)
+		tt.Move(x2, y2)
+		if got := conn.take(dst); got != c.drag {
+			t.Errorf("%q: drag sent %q, want %q", c.modes, got, c.drag)
+		}
+		tt.Release(x2, y2)
+		m.Close()
+		src.Close()
+		dst.Close()
 	}
 }
