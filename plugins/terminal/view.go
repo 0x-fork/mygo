@@ -146,8 +146,7 @@ type view struct {
 	// lang is the window's language, for the menu's items.
 	lang string
 
-	theme   *Theme
-	applied *Theme // the theme the emulator has
+	theme *Theme
 
 	// The grid, in device pixels: the cells, the baseline in a cell, and
 	// the origin of the grid relative to the element; scale is device
@@ -254,11 +253,7 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 		v.release()
 		v.reads, v.clipPrompt, v.clipOpen = nil, nil, false
 	} else {
-		if v.applied != theme {
-			theme.apply(t.term)
-			v.applied = theme
-		}
-		t.curTheme = theme
+		t.applyAppearance(theme)
 		if focused != v.focused && t.term.Mode(vt.ModeFocusEvent) {
 			t.in.push(vt.EncodeFocus(focused))
 		}

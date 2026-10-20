@@ -336,6 +336,7 @@ const (
 	ModePasteEvents Mode = 5522
 	ModeSyncOutput  Mode = 2026
 	ModeGraphemes   Mode = 2027
+	ModeColorScheme Mode = 2031
 )
 
 // Mode reports whether a mode is set.

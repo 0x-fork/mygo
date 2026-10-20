@@ -576,6 +576,7 @@ func New(opts Options) (*Terminal, error) {
 		t.term.Free()
 		return nil, err
 	}
+	t.SetAppearance(opts.Theme)
 	if opts.Conn != nil {
 		t.src = opts.Conn
 		t.run()
@@ -889,6 +890,38 @@ func (t *Terminal) SetTheme(theme, dark *Theme) {
 	t.opts.Theme, t.opts.DarkTheme = theme, dark
 	t.mu.Unlock()
 	t.redraw()
+}
+
+// SetAppearance sets the colors of a terminal no view shows, as a server's
+// whose screen clients mirror, which programs' questions get; nil is the
+// default dark theme. A view shows Theme or DarkTheme (SetTheme) instead.
+func (t *Terminal) SetAppearance(theme *Theme) {
+	if theme == nil {
+		theme = defaultTheme(true)
+	}
+	t.mu.Lock()
+	if t.term != nil {
+		t.applyAppearance(theme)
+	}
+	t.mu.Unlock()
+}
+
+// applyAppearance makes theme the colors, telling programs that asked
+// for it (mode 2031) when it turns dark or light; t.mu is held.
+func (t *Terminal) applyAppearance(theme *Theme) {
+	old := t.curTheme
+	if old == theme {
+		return
+	}
+	theme.apply(t.term)
+	t.curTheme = theme
+	if old != nil && old.dark() != theme.dark() && t.term.Mode(vt.ModeColorScheme) {
+		mode := 2
+		if theme.dark() {
+			mode = 1
+		}
+		t.in.push(fmt.Appendf(nil, "\x1b[?997;%dn", mode))
+	}
 }
 
 // Size returns the size of the screen in cells.
