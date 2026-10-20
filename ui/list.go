@@ -935,7 +935,12 @@ func (f *listFrame) toggle(i int) {
 // extend chooses the rows from the pivot to row i, as Shift does: on
 // macOS in place of those it last chose, elsewhere in place of all others
 // unless keep.
-func (f *listFrame) extend(i int, keep bool) {
+func (f *listFrame) extend(i int, keep bool) { f.extendBy(i, keep, runtime.GOOS == "darwin") }
+
+// extendBy is extend, choosing the rows from the pivot to row i in place
+// of those it last chose with span, else in place of all others unless
+// keep.
+func (f *listFrame) extendBy(i int, keep, span bool) {
 	s, sel := f.s, f.s.Selection
 	p := s.pivot
 	if p < 0 || p >= f.n || f.isHeader(p) {
@@ -945,7 +950,7 @@ func (f *listFrame) extend(i int, keep bool) {
 	lo, hi := min(p, i), max(p, i)
 	changed := false
 	switch {
-	case runtime.GOOS == "darwin":
+	case span:
 		last := max(0, min(p+s.span, f.n-1))
 		for j := min(p, last); j <= max(p, last); j++ {
 			if (j < lo || j > hi) && !f.isHeader(j) {
