@@ -504,12 +504,18 @@ func (m *Mirror) state(out *bytes.Buffer, c vt.Cursor) {
 	t.clipForward = nil
 	x, y := term.Cursor()
 	var cur bytes.Buffer
-	shape := map[vt.CursorStyle]int{vt.CursorBlock: 2, vt.CursorUnderline: 4, vt.CursorBar: 6}[c.Style]
-	if shape == 0 {
-		shape = 2
-	}
-	if c.Blinking {
-		shape--
+	// A cursor as this terminal's options make it, which programs left
+	// alone or reset, is the default of the other terminal too (DECSCUSR
+	// 0), which takes its own options': a client's Cursor shows.
+	shape := 0
+	if c.Style != vtCursor(t.opts.Cursor) || c.Blinking == t.opts.NoBlink {
+		shape = map[vt.CursorStyle]int{vt.CursorBlock: 2, vt.CursorUnderline: 4, vt.CursorBar: 6}[c.Style]
+		if shape == 0 {
+			shape = 2
+		}
+		if c.Blinking {
+			shape--
+		}
 	}
 	visible := "l"
 	if c.Visible {

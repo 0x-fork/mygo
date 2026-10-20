@@ -519,7 +519,9 @@ stay soft. Each cell is drawn in its own style, so an empty cell stays empty
 after a colored one. A frame reads the terminal as a view does, taking its
 record of what changed: mirror a terminal no view shows, as a server's, with
 as many Mirrors as it has windows. A frame does not come while a program holds a synchronized update
-(mode 2026), up to a second: `Frame` then reports that one is due.
+(mode 2026), up to a second: `Frame` then reports that one is due. The
+window's cursor takes its own `Cursor` and `NoBlink` while the program
+leaves the cursor's shape alone, and the program's when it sets one.
 
 The window's terminal sets `ResizeByConn`: its view only asks `Conn` for the
 size it fits, and the screen keeps its size until the window calls `Resize`,

@@ -238,6 +238,43 @@ func TestMirrorScrolling(t *testing.T) {
 	x.feed("a prompt without a newline", "$ ")
 }
 
+// The terminal showing the frames keeps the cursor its options make
+// while programs leave the cursor alone, and takes one a program asks
+// for, until the program resets it.
+func TestMirrorCursorStyle(t *testing.T) {
+	loadLib(t)
+	src, err := New(Options{Conn: newPipe()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst, err := New(Options{Conn: newPipe(), Cursor: CursorBar, NoBlink: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := src.NewMirror()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Close(); src.Close(); dst.Close() })
+	step := func(label, out string, style vt.CursorStyle, blink bool) {
+		t.Helper()
+		src.Feed([]byte(out))
+		f, _ := m.Frame()
+		dst.Feed(f)
+		dst.mu.Lock()
+		dst.rs.Update(dst.term)
+		c := dst.rs.Cursor()
+		dst.mu.Unlock()
+		if c.Style != style || c.Blinking != blink {
+			t.Errorf("%s: the cursor is style %d, blinking %v; want %d, %v", label, c.Style, c.Blinking, style, blink)
+		}
+	}
+	step("at the start", "$ ", vt.CursorBar, false)
+	step("a program's underline", "\x1b[3 q", vt.CursorUnderline, true)
+	step("a program's block", "\x1b[2 q", vt.CursorBlock, false)
+	step("reset", "\x1b[0 q", vt.CursorBar, false)
+}
+
 // Empty cells after a styled run stay empty: Claude Code's mascot, whose
 // eyes are a black background, showed a black square where the cells
 // after it took the background (libghostty's formatter wrote them as
