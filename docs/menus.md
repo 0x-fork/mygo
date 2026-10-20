@@ -56,7 +56,8 @@ shortcut, which `Label` and `Accelerator` override:
   Their keys go to the content first, as in a browser: in a page on
   Windows, WebView2 cuts, copies and pastes with the page's own events and
   every format of the clipboard, while choosing Paste from the menu types
-  the clipboard's text, as pages may not read the clipboard;
+  the clipboard's text, as pages may not read the clipboard (as does an
+  edit role given a key the page has no use for, as Copy on Ctrl+Shift+C);
 - formatting: `RoleBold`, `RoleItalic`, `RoleUnderline`,
   `RoleStrikethrough`, `RoleAlignLeft`, `RoleAlignCenter` and
   `RoleAlignRight`, which format the selection of a [rich text

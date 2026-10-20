@@ -20,6 +20,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/egoist/mygo/internal/accelerator"
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -576,10 +577,26 @@ func (w *window) pageAccelerator(key accelKey) (uint16, bool) {
 	if !ok {
 		return 0, false
 	}
-	if e := w.b.menus.entries[cmd]; e != nil && pageEditRoles[e.role] {
+	if e := w.b.menus.entries[cmd]; e != nil && pageEditRoles[e.role] && pageEditKey(key) {
 		return 0, false
 	}
 	return cmd, true
+}
+
+// pageEditKey reports a key WebView2 edits a page with itself, as Edge
+// does. An edit role's item on another key, as Copy on Ctrl+Shift+C in a
+// terminal, still runs from it: the page would do nothing with the key.
+func pageEditKey(key accelKey) bool {
+	const ctrl, shift = accelerator.Ctrl, accelerator.Shift
+	switch key.mods {
+	case ctrl:
+		return key.vk == 'Z' || key.vk == 'Y' || key.vk == 'X' || key.vk == 'C' || key.vk == 'V' || key.vk == 'A'
+	case ctrl | shift:
+		return key.vk == 'Z' || key.vk == 'V'
+	case 0:
+		return key.vk == 0x2E // VK_DELETE
+	}
+	return false
 }
 
 func (w *window) LoadURL(raw string) {
