@@ -1193,9 +1193,16 @@ func TestCommandClickLinkWithoutOpenLink(t *testing.T) {
 	if c := tt.Cursor(); c != ui.CursorPointer {
 		t.Errorf("the cursor is %v over a link with Command", c)
 	}
+	// The link under it shows underlined, all its cells.
+	if h := term.v.hover; h != (linkSpan{0, 0, 4}) {
+		t.Errorf("hovered %+v, want the hyperlink's cells 0..4", h)
+	}
 	tt.HoldModifiers(0)
 	if c := tt.Cursor(); c != ui.CursorText {
 		t.Errorf("the cursor is %v once Command is let go of", c)
+	}
+	if h := term.v.hover; h.on() {
+		t.Errorf("hovered %+v once Command is let go of", h)
 	}
 	term.Feed([]byte("\x1b[?1002h\x1b[?1006h"))
 	tt.Frame()

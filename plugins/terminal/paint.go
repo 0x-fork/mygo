@@ -457,6 +457,9 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 		p.Clip(ui.Rect{X: a, Y: r.Y, W: b - a, H: r.H}, 0, func() { text(v.theme.SelectionText) })
 		p.Clip(ui.Rect{X: b, Y: r.Y, W: r.X + r.W - b, H: r.H}, 0, func() { text(ui.Color{}) })
 	}
+	if h := v.hover; h.on() && h.row < len(v.lines) {
+		v.drawDeco(p, deco{h.x0, h.x1, vt.UnderlineSingle, v.linkColor(&v.lines[h.row], h)}, ox, oy+float32(h.row)*ch, cw, ch, base)
+	}
 	if cur.W > 0 && !block {
 		if v.focused || v.cursor.Style != vt.CursorBlock {
 			p.Fill(cur, curColor, 0)
@@ -562,6 +565,19 @@ func (v *view) drawText(p *ui.Painter, line *rowCache, ox, ry, cw, ch, base floa
 		d.c = pick(d.c)
 		v.drawDeco(p, d, ox, ry, cw, ch, base)
 	}
+}
+
+// linkColor is the color of the hovered link's underline: its text's, or
+// the foreground's.
+func (v *view) linkColor(line *rowCache, h linkSpan) ui.Color {
+	for _, run := range line.runs {
+		for _, col := range run.cols {
+			if int(col) >= h.x0 && int(col) < h.x1 {
+				return run.c
+			}
+		}
+	}
+	return color(v.colors.Foreground)
 }
 
 // cursorRect returns the cursor's rectangle and colors, and whether it is
