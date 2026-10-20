@@ -271,6 +271,31 @@ func (w *window) placeInitially() {
 		y = work.Top + (work.Bottom-work.Top-height)/2
 	}
 	procSetWindowPos.Call(w.hwnd, 0, uintptr(x), uintptr(y), uintptr(width), uintptr(height), swpNoZOrder|swpNoActivate)
+	if o.UseContentSize && !w.captionless() {
+		w.fitContent(width, height, toPx(o.Width, dpi), toPx(o.Height, dpi), false, 0, 0)
+	}
+}
+
+// fitContent grows the window, outerW by outerH, whose content was to be
+// wantW by wantH pixels, by what its content lacks, and with at moves the
+// content to (atX, atY) on the screen: AdjustWindowRectEx counts a menu
+// bar of one line as the system draws it, and MyGo draws Windows 11's
+// taller (measureMenuBarItem), as a bar too wide for its window wraps.
+func (w *window) fitContent(outerW, outerH, wantW, wantH int32, at bool, atX, atY int32) {
+	var c, wr rect
+	procGetClientRect.Call(w.hwnd, uintptr(unsafe.Pointer(&c)))
+	procGetWindowRect.Call(w.hwnd, uintptr(unsafe.Pointer(&wr)))
+	var origin point
+	procClientToScreen.Call(w.hwnd, uintptr(unsafe.Pointer(&origin)))
+	dw, dh := wantW-c.Right, wantH-c.Bottom
+	dx, dy := int32(0), int32(0)
+	if at {
+		dx, dy = atX-origin.X, atY-origin.Y
+	}
+	if dw == 0 && dh == 0 && dx == 0 && dy == 0 {
+		return
+	}
+	procSetWindowPos.Call(w.hwnd, 0, uintptr(wr.Left+dx), uintptr(wr.Top+dy), uintptr(outerW+dw), uintptr(outerH+dh), swpNoZOrder|swpNoActivate)
 }
 
 // outerSize returns the window size for a content size, in pixels.
@@ -643,6 +668,10 @@ func (w *window) SetContentBounds(r platform.Rect) {
 		procAdjustWindowRectExForDpi.Call(uintptr(unsafe.Pointer(&outer)), windowLong(w.hwnd, gwlStyle), menu, windowLong(w.hwnd, gwlExStyle), uintptr(dpi))
 	}
 	procSetWindowPos.Call(w.hwnd, 0, uintptr(outer.Left), uintptr(outer.Top), uintptr(outer.Right-outer.Left), uintptr(outer.Bottom-outer.Top), swpNoZOrder|swpNoActivate)
+	if !w.captionless() {
+		x, y := toPx(r.X, dpi), toPx(r.Y, dpi)
+		w.fitContent(outer.Right-outer.Left, outer.Bottom-outer.Top, toPx(r.X+r.Width, dpi)-x, toPx(r.Y+r.Height, dpi)-y, true, x, y)
+	}
 }
 
 func (w *window) ContentBounds() platform.Rect {
