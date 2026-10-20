@@ -7,14 +7,52 @@ import "slices"
 type ScrollState struct {
 	Handle
 
-	// X and Y are how far the content is scrolled left and up, in DIPs.
-	// Set them to scroll: the container keeps them within its content, so
-	// that 0 shows the start and math.MaxFloat32 the end.
+	// X and Y are how far the content is scrolled left and up, in DIPs:
+	// right to left (Direction), X is how far it is scrolled right, from
+	// its start at the right. Set them to scroll: the container keeps them
+	// within its content, so that 0 shows the start and math.MaxFloat32
+	// the end.
 	X, Y float32
 	// MaxX and MaxY are as far as X and Y go, as the frame laid the content
 	// out: Y is MaxY at the end. The container sets them.
 	MaxX, MaxY float32
+
+	glide *scrollGlide
 }
+
+// scrollGlide is a ScrollTo on its way: to x and y, as a says.
+type scrollGlide struct {
+	x, y   channel
+	to     [2]float32
+	a      Animation
+	moved  bool // the target changed since the container last took it
+	frame  uint64
+	placed bool
+}
+
+// ScrollTo scrolls the container smoothly to x and y as a says, from where
+// it shows its content, as SwiftUI's scrollTo in withAnimation:
+// math.MaxFloat32 is the end. Called again on the way, it turns smoothly
+// toward the new place; the user scrolling stops it. While the desktop
+// asks for less motion, or the frame disables animations, it scrolls at
+// once.
+//
+//	if ui.Button(c, "Back to top").Clicked() {
+//		app.feed.ScrollTo(0, 0, ui.Smooth)
+//	}
+func (s *ScrollState) ScrollTo(x, y float32, a Animation) {
+	finiteMotion("scroll", float64(x), float64(y))
+	if a.Duration < 0 || a.Delay < 0 {
+		panic("ui: animation durations must not be negative")
+	}
+	if s.glide == nil {
+		s.glide = &scrollGlide{}
+	}
+	s.glide.to, s.glide.a, s.glide.moved = [2]float32{x, y}, a, true
+}
+
+// Scrolling reports whether a ScrollTo is on its way.
+func (s *ScrollState) Scrolling() bool { return s.glide != nil }
 
 // TrackScroll keeps the scrolling of a scroll container (Scroll,
 // ScrollHorizontal, ScrollBoth, List) in *s: the container shows its
@@ -60,10 +98,14 @@ func (e *node) ScrollIntoView() *node {
 func (e *node) adoptScroll() bool {
 	st, t := e.st, e.track
 	st.track = t
+	if t != nil && t.glide != nil {
+		e.glide(t)
+	}
 	if t == nil || t.X == float32(st.scrollX) && t.Y == float32(st.scrollY) {
 		return false
 	}
 	st.beginMove(e.c.rt.frame)
+	st.wheel = nil // the app takes over from the wheel
 	if t.X != float32(st.scrollX) {
 		st.scrollX = float64(t.X)
 	}
@@ -71,6 +113,37 @@ func (e *node) adoptScroll() bool {
 		st.scrollY = float64(t.Y)
 	}
 	return true
+}
+
+// glide moves the offset of a ScrollTo on its way to the frame's time.
+func (e *node) glide(t *ScrollState) {
+	g, st, rt, now := t.glide, e.st, e.c.rt, e.c.now
+	if !g.placed || g.frame+1 < rt.frame {
+		// Starting, or the container was not shown: from where it shows.
+		g.x = channel{value: st.scrollX, target: st.scrollX, at: now}
+		g.y = channel{value: st.scrollY, target: st.scrollY, at: now}
+		g.placed, g.moved = true, true
+	}
+	g.frame = rt.frame
+	if g.moved {
+		g.moved = false
+		to := [2]float64{max(0, min(float64(g.to[0]), float64(t.MaxX))), max(0, min(float64(g.to[1]), float64(t.MaxY)))}
+		if rt.preferences().ReduceMotion || rt.instant() {
+			g.x = channel{value: to[0], target: to[0], at: now}
+			g.y = channel{value: to[1], target: to[1], at: now}
+		} else {
+			headFor(&g.x, to[0], g.a, now)
+			headFor(&g.y, to[1], g.a, now)
+		}
+	}
+	g.x.advance(now)
+	g.y.advance(now)
+	t.X, t.Y = float32(g.x.value), float32(g.y.value)
+	if g.x.moving || g.x.pending || g.y.moving || g.y.pending {
+		rt.animating = true
+	} else {
+		t.glide = nil
+	}
 }
 
 // maxScroll returns as far as the element scrolls its content, on the axes
@@ -83,6 +156,27 @@ func (e *node) maxScroll() (x, y float64) {
 		y = max(0, e.contentH-float64(e.h))
 	}
 	return x, y
+}
+
+// scrollLeft returns how far the scroll container moves its content to
+// the left: its horizontal offset, which, right to left, counts from the
+// right, as Flutter's do (CSS's go negative instead).
+func (e *node) scrollLeft() float64 {
+	if e.flags&flagScrollX != 0 && e.rtl() {
+		mx, _ := e.maxScroll()
+		return mx - e.st.scrollX
+	}
+	return e.st.scrollX
+}
+
+// followShift returns how far what follows the scroll container sideways
+// (ScrollWith) moves to the left: right to left, both are laid out from
+// the right, which the offset counts from.
+func (e *node) followShift() float64 {
+	if e.rtl() {
+		return -e.st.scrollX
+	}
+	return e.st.scrollX
 }
 
 // scrollTo moves the content of a scroll container, and the ScrollState
@@ -155,7 +249,16 @@ func reveal(e *node) {
 			// Where the box is in the content: a List placed its rows
 			// from scrollBase.
 			cx, cy := float64(x), float64(y)+p.scrollBase
-			sx := max(0, min(nearest(st.scrollX, cx, w, p.border[3], p.w-p.border[1]), mx))
+			rtl := p.flags&flagScrollX != 0 && p.rtl()
+			left := st.scrollX
+			if rtl {
+				left = mx - left
+			}
+			sx := max(0, min(nearest(left, cx, w, p.border[3], p.w-p.border[1]), mx))
+			if rtl {
+				// Right to left, offsets count from the right.
+				sx = mx - sx
+			}
 			sy := max(0, min(nearest(st.scrollY, cy, h, p.border[0], p.h-p.border[2]), my))
 			if sx != st.scrollX || sy != st.scrollY {
 				st.beginMove(frame)
@@ -169,7 +272,7 @@ func reveal(e *node) {
 					st.scrollTo(sx, sy)
 				}
 			}
-			x = float32(cx - st.scrollX)
+			x = float32(cx - p.scrollLeft())
 			y = float32(cy - st.scrollY)
 		}
 		x += p.x

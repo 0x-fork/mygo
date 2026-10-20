@@ -3,8 +3,10 @@ package ui
 import (
 	"log"
 	"os"
+	"slices"
 	"time"
 
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/raster"
 	"github.com/egoist/mygo/internal/scene"
@@ -36,6 +38,40 @@ func RegisterFont(data []byte, family string) error {
 	return text.Shared().RegisterFont(data, family)
 }
 
+// A FontFamily is a font family text can use, as FontFamilies lists it.
+type FontFamily struct {
+	// Name is the family as Font and Theme take it.
+	Name string
+	// Monospaced is whether its regular font gives every character the
+	// same advance, as a terminal's or a code editor's font setting
+	// offers.
+	Monospaced bool
+	// Registered is whether the app registered it with RegisterFont, under
+	// Name: the name it gave, or the font's own when it gave none.
+	Registered bool
+}
+
+// FontFamilies lists the font families text can use, as a font setting
+// offers them: the app's registered ones first, then the system's, each
+// once, sorted without regard to case. A font registered under a name the
+// app gave is listed under that name alone. Browsers do not tell what
+// fonts they have: there the list holds the registered families alone,
+// and a family is Monospaced once its font has loaded.
+//
+// The first call asks the system for its families, which takes a while
+// with many fonts installed (tens of milliseconds on a Mac with hundreds),
+// without holding up the windows' text; later calls reuse that list, until
+// RegisterFont, so fonts installed while the app runs show after a
+// restart. It is safe from any goroutine.
+func FontFamilies() []FontFamily {
+	families := text.Shared().FontFamilies()
+	out := make([]FontFamily, len(families))
+	for i, f := range families {
+		out[i] = FontFamily(f)
+	}
+	return out
+}
+
 // AttachContent connects the content to a window; package mygo calls it.
 func (v *Content) AttachContent(conn *surface.Conn) {
 	h := &windowHost{conn: conn}
@@ -49,6 +85,10 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 	}
 	conn.TitleBarChanged = rt.requestFrame
 	conn.Changed = rt.changed
+	conn.LocaleChanged = func() {
+		h.textLanguage()
+		rt.changed()
+	}
 	conn.Capture = h.capture
 	conn.Detach = h.detach
 	rt.insp.enabled = conn.DevTools
@@ -58,6 +98,7 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 		}
 	}
 	h.uiFont()
+	h.textLanguage()
 	// Load the fonts while the window shows up.
 	go text.Shared().Preload()
 	conn.Surface.RequestFrame()
@@ -86,6 +127,9 @@ type windowHost struct {
 	lastFrame time.Time
 	// framing tells that the surface asked for the frame being drawn.
 	framing bool
+	// told is what accelerated last told the frame being painted, asked
+	// that it did.
+	told, asked bool
 	// path is how the last frame was drawn, for MYGO_FRAME_STATS.
 	path string
 	// wide tells that the GPU renderer draws the colors of scenes outside
@@ -96,13 +140,48 @@ type windowHost struct {
 	idleTimer *time.Timer
 	idleAt    time.Time
 	idleArmed bool
-	detached  bool
+	// afterT and repaintT are the timers of After and Painter.After.
+	afterT, repaintT *time.Timer
+	detached         bool
 	// shown tells that a frame was presented, which makes the window
 	// ready to show.
 	shown bool
+	// placed is where the surface shows the window's web views, views
+	// the web views.
+	placed []platform.WebViewPlacement
+	views  []NativeWebView
+	// waiting tells that a frame paced by the display waits for the GPU
+	// renderer waitingOn to have where to draw it (displayWaiter); wake
+	// and displayReady draw it then, at the time the display asked for it
+	// (waitedAt).
+	waiting      bool
+	waitingOn    gpuRenderer
+	waitedAt     time.Time
+	wake         func()
+	displayReady func()
 }
 
-func (h *windowHost) framePath() string { return h.path }
+// displayWaiter is a GPU renderer that waits for the display off the main
+// thread: a frame following the last one draws once the display can take
+// it (Direct3D's), or once the last, built while the display could not,
+// was drawn (Metal's).
+type displayWaiter interface {
+	// Ready reports whether a frame can draw at once; otherwise wake runs,
+	// on any goroutine, once it can.
+	Ready(wake func()) bool
+}
+
+func (h *windowHost) framePath() string {
+	if h.path == "drawn on the GPU" && h.gpu != nil {
+		// The stats logger calls this only while MYGO_FRAME_STATS is enabled.
+		if f, ok := h.gpu.(interface{ FrameInfo() string }); ok {
+			return h.path + ": " + f.FrameInfo()
+		}
+	}
+	return h.path
+}
+
+func (h *windowHost) rightToLeft() bool { return h.conn.RightToLeft != nil && h.conn.RightToLeft() }
 
 // newGPU makes the GPU renderer of a surface; tests replace it.
 var newGPU = newGPURenderer
@@ -110,11 +189,70 @@ var newGPU = newGPURenderer
 // event handles an event of the surface, noting when it asks for a frame:
 // only then may renderers draw (OpenGL's context is current only then).
 func (h *windowHost) event(ev platform.SurfaceEvent) bool {
+	if ev.Kind == platform.SurfaceRenew {
+		// The next frame makes the renderer again, for the surface's new
+		// native objects.
+		if h.gpu != nil {
+			h.gpu.Release()
+			h.gpu = nil
+		}
+		h.gpuTried, h.retryAt = false, time.Time{}
+		h.conn.Surface.RequestFrame()
+		return false
+	}
+	if ev.Kind == platform.WebViewTabOut {
+		if i := slices.IndexFunc(h.placed, func(p platform.WebViewPlacement) bool { return p.WebView == ev.WebView }); i >= 0 {
+			h.rt.webViewTabOut(h.views[i], ev.Mods&platform.ModShift != 0)
+		}
+		return false
+	}
+	if ev.Kind == platform.SurfaceResize {
+		if r, ok := h.gpu.(invalidator); ok {
+			r.Invalidate()
+		}
+	}
 	if ev.Kind == platform.SurfaceFrame {
+		if ev.Paced && h.waitDisplay(time.Now()) {
+			return true
+		}
+		h.waiting, h.waitingOn = false, nil
 		h.framing = true
 		defer func() { h.framing = false }()
 	}
 	return h.rt.event(ev)
+}
+
+// waitDisplay reports whether a frame paced by the display, asked for at,
+// waits for the GPU renderer to be able to draw it: rather than wait on
+// the main thread, as for a drawable the display holds most of a refresh,
+// the frame draws once it can, built with the input that came meanwhile,
+// at the time it was asked for, so that what moves keeps its pace.
+func (h *windowHost) waitDisplay(at time.Time) bool {
+	w, ok := h.gpu.(displayWaiter)
+	p, paced := h.conn.Surface.(platform.PacedSurface)
+	if !ok || !paced || h.conn.Post == nil {
+		return false
+	}
+	if h.waiting && h.waitingOn == h.gpu {
+		// Refreshes passing meanwhile ask for the same frame.
+		return true
+	}
+	if h.wake == nil {
+		h.displayReady = func() {
+			if !h.waiting || h.detached {
+				return
+			}
+			h.waiting, h.waitingOn = false, nil
+			h.rt.frameAt = h.waitedAt
+			p.FrameNow()
+		}
+		h.wake = func() { h.conn.Post(h.displayReady) }
+	}
+	if w.Ready(h.wake) {
+		return false
+	}
+	h.waiting, h.waitingOn, h.waitedAt = true, h.gpu, at
+	return true
 }
 
 // gpuRenderer draws scenes into a surface on the GPU.
@@ -122,6 +260,12 @@ type gpuRenderer interface {
 	Render(s *scene.Scene) error
 	Release()
 }
+
+// invalidator is a GPU renderer drawing only what changed into a target
+// that keeps what was drawn but as the surface resizes, even to the same
+// size, as a GtkGLArea makes its buffers anew as GTK allocates it:
+// Invalidate has the next frame draw whole.
+type invalidator interface{ Invalidate() }
 
 // wideRenderer is a GPU renderer that can draw the colors of scenes outside
 // the sRGB gamut (Metal's).
@@ -149,7 +293,13 @@ const frameIdle = 2 * time.Second
 
 func (h *windowHost) refreshRate() float32 { return float32(h.conn.Surface.RefreshRate()) }
 
+// occluded reports whether nothing of the window shows: never before its
+// first frame reached the surface, which a window made hidden waits for
+// to become ready to show (OnReadyToShow), though it shows nothing yet.
 func (h *windowHost) occluded() bool {
+	if !h.shown {
+		return false
+	}
 	s, ok := h.conn.Surface.(platform.OccludableSurface)
 	return ok && s.Occluded()
 }
@@ -164,6 +314,7 @@ func (h *windowHost) size() (float32, float32, float32) {
 
 func (h *windowHost) present(s *scene.Scene) {
 	h.last, h.path = s, ""
+	defer h.recheck()
 	if s.Width <= 0 || s.Height <= 0 {
 		return
 	}
@@ -338,6 +489,31 @@ func (h *windowHost) makeGPU() {
 	}
 	h.gpu, h.gpuSince = r, time.Now()
 	h.wide = false // the renderer draws sRGB until told otherwise
+	if p, ok := r.(interface{ SetPost(func(func())) }); ok && h.conn.Post != nil {
+		// Frames waiting for the display draw through the main thread.
+		p.SetPost(h.conn.Post)
+	}
+}
+
+// accelerated reports whether the frame draws on a GPU (Painter.Accelerated).
+// The first frame makes its GPU renderer as it paints rather than as it
+// presents, to tell.
+func (h *windowHost) accelerated() bool {
+	if h.framing && !h.gpuTried {
+		h.makeGPU()
+	}
+	h.told, h.asked = h.gpu != nil && !software(h.gpu), true
+	return h.told
+}
+
+// recheck paints the window again when the frame presented draws on a GPU
+// and accelerated told its painters otherwise, or the other way round: the
+// GPU went away or came back as it presented.
+func (h *windowHost) recheck() {
+	if h.asked && h.told != (h.gpu != nil && !software(h.gpu)) && h.conn.Invalidate != nil {
+		h.invalidate()
+	}
+	h.asked = false
 }
 
 // software reports whether a renderer draws on the CPU, as Direct3D's WARP.
@@ -355,9 +531,11 @@ func (h *windowHost) retryLater() {
 	h.retryAt = time.Now().Add(h.backoff)
 }
 
-// capture renders the last frame in memory.
+// capture renders the last frame in memory: built now where none was yet,
+// or where one waits for the window to show (holdFrame), so that a window
+// out of sight shows what it shows now.
 func (h *windowHost) capture() (int, int, []byte) {
-	if h.last == nil {
+	if h.last == nil || h.rt.held {
 		h.rt.runFrame()
 	}
 	s := h.last
@@ -384,6 +562,34 @@ func (h *windowHost) detach() {
 }
 
 func (h *windowHost) requestFrame() { h.conn.Surface.RequestFrame() }
+
+func (h *windowHost) afterTimer(at time.Time) {
+	switch {
+	case at.IsZero():
+		if h.afterT != nil {
+			h.afterT.Stop()
+		}
+	case h.afterT != nil:
+		h.afterT.Reset(max(time.Until(at), time.Millisecond))
+	default:
+		h.afterT = time.AfterFunc(max(time.Until(at), time.Millisecond), h.invalidate)
+	}
+}
+
+func (h *windowHost) repaintTimer(at time.Time) {
+	if at.IsZero() {
+		if h.repaintT != nil {
+			h.repaintT.Stop()
+		}
+		return
+	}
+	d := max(time.Until(at), time.Millisecond)
+	if h.repaintT == nil {
+		h.repaintT = time.AfterFunc(d, func() { h.post(h.rt.repaintNow) })
+	} else {
+		h.repaintT.Reset(d)
+	}
+}
 
 func (h *windowHost) startDataDrag(data transfer.Data, local any, options transfer.DragOptions, x, y float32) error {
 	return h.conn.StartDataDrag(data, local, options, float64(x), float64(y))
@@ -427,9 +633,33 @@ func (h *windowHost) readClipboard() string {
 	return h.conn.Clipboard.ReadText()
 }
 
+func (h *windowHost) clipboardFormats() []transfer.Format {
+	if h.conn.Clipboard == nil {
+		return nil
+	}
+	return h.conn.Clipboard.Formats()
+}
+
 func (h *windowHost) writeClipboard(s string) {
 	if h.conn.Clipboard != nil {
 		h.conn.Clipboard.WriteText(s)
+	}
+}
+
+func (h *windowHost) readClipboardData(formats []transfer.Format) transfer.Data {
+	if h.conn.Clipboard == nil {
+		return transfer.Data{}
+	}
+	d, err := h.conn.Clipboard.ReadData(formats)
+	if err != nil && len(d.Items()) == 0 {
+		return transfer.Data{}
+	}
+	return d
+}
+
+func (h *windowHost) writeClipboardData(d transfer.Data) {
+	if h.conn.Clipboard != nil {
+		h.conn.Clipboard.WriteData(d, nil)
 	}
 }
 
@@ -445,6 +675,18 @@ func (h *windowHost) titleBarDoubleClicked() {
 	}
 }
 
+func (h *windowHost) setMaximizeButton(r Rect) {
+	if h.conn.SetMaximizeButton != nil {
+		h.conn.SetMaximizeButton(rectF(r))
+	}
+}
+
+func (h *windowHost) escape() {
+	if h.conn.Escape != nil {
+		h.conn.Escape()
+	}
+}
+
 func (h *windowHost) isDark() bool { return h.conn.IsDark != nil && h.conn.IsDark() }
 
 func (h *windowHost) preferences() platform.Preferences {
@@ -452,6 +694,26 @@ func (h *windowHost) preferences() platform.Preferences {
 		return platform.Preferences{}
 	}
 	return h.conn.Preferences()
+}
+
+func (h *windowHost) locale() string {
+	if h.conn.Locale == nil {
+		return ""
+	}
+	return h.conn.Locale()
+}
+
+func (h *windowHost) region() i18n.Region {
+	if h.conn.Region == nil {
+		return i18n.Region{}
+	}
+	return h.conn.Region()
+}
+
+// textLanguage makes the language the app shows that of the text the
+// text engine lays out without one, as Painter.Shape does.
+func (h *windowHost) textLanguage() {
+	text.Shared().SetLanguage(h.locale())
 }
 
 func (h *windowHost) titleBar() TitleBar {
@@ -472,6 +734,40 @@ func (h *windowHost) invalidate() { h.conn.Invalidate() }
 func (h *windowHost) openURL(u string, done func(error)) {
 	if h.conn.OpenURL != nil {
 		h.conn.OpenURL(u, done)
+	}
+}
+
+// placeWebViews gives the surface where the frame shows the window's web
+// views, unless it is where the last frame showed them.
+func (h *windowHost) placeWebViews(views []placedWebView) {
+	list := make([]platform.WebViewPlacement, 0, len(views))
+	natives := make([]NativeWebView, 0, len(views))
+	for _, v := range views {
+		if n := v.v.SurfaceWebView(h.conn); n != nil {
+			list = append(list, platform.WebViewPlacement{WebView: n, Frame: v.frame, Clip: v.clip, Covers: v.covers})
+			natives = append(natives, v.v)
+		}
+	}
+	if slices.EqualFunc(list, h.placed, func(a, b platform.WebViewPlacement) bool {
+		return a.WebView == b.WebView && a.Frame == b.Frame && a.Clip == b.Clip && slices.Equal(a.Covers, b.Covers)
+	}) {
+		return
+	}
+	h.placed, h.views = list, natives
+	if h.conn.PlaceWebViews != nil {
+		h.conn.PlaceWebViews(list)
+	} else {
+		h.conn.Surface.PlaceWebViews(list)
+	}
+}
+
+func (h *windowHost) platformWebView(v NativeWebView) platform.WebView {
+	return v.SurfaceWebView(h.conn)
+}
+
+func (h *windowHost) tabIntoWebView(v NativeWebView, back bool) {
+	if n := v.SurfaceWebView(h.conn); n != nil {
+		n.TabInto(back)
 	}
 }
 

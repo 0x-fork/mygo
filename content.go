@@ -8,6 +8,7 @@ import (
 	"math"
 	"slices"
 
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/surface"
 	"github.com/egoist/mygo/transfer"
@@ -46,8 +47,17 @@ func (w *Window) attachContent() {
 				w.native.TitleBarDoubleClicked()
 			}
 		},
+		SetMaximizeButton: func(r platform.RectF) {
+			if w.native != nil {
+				w.native.SetMaximizeButton(r)
+			}
+		},
+		Escape:        w.escape,
 		IsDark:        func() bool { return backend().Theme().IsDark() },
 		Preferences:   func() platform.Preferences { return backend().Theme().Preferences() },
+		Locale:        func() string { return App.Locale() },
+		RightToLeft:   appRightToLeft,
+		Region:        func() i18n.Region { return App.Region() },
 		UIFont:        func() string { return backend().Theme().UIFont() },
 		FontRendering: func() platform.FontRendering { return backend().Theme().FontRendering() },
 		TitleBar: func() platform.TitleBar {
@@ -80,6 +90,7 @@ func (w *Window) attachContent() {
 				}
 			})
 		},
+		PlaceWebViews: w.placeWebViews,
 		PopupMenu: func(m *platform.Menu, x, y float64, chosen func(int)) {
 			pos := &platform.Point{X: int(math.Round(x)), Y: int(math.Round(y))}
 			menu := NewMenu(contentMenu(m, chosen))
@@ -87,7 +98,7 @@ func (w *Window) attachContent() {
 			// event that asked for it, which the surface is handling.
 			postMain(func() {
 				if w.native != nil {
-					menu.popup(w, pos)
+					menu.popup(w, pos, m.RightToLeft)
 				}
 			})
 		},
@@ -282,6 +293,17 @@ func (w *Window) detachContent() {
 
 // contentThemeChanged tells the Contents of the windows that the system
 // appearance changed. Main thread only.
+// contentLocaleChanged tells the windows of native UI that the language
+// the app shows or the regional formats changed, which they draw anew.
+// Main thread only.
+func contentLocaleChanged() {
+	for _, w := range Windows() {
+		if c := w.conn; c != nil && c.LocaleChanged != nil {
+			c.LocaleChanged()
+		}
+	}
+}
+
 func contentThemeChanged() {
 	for _, w := range Windows() {
 		if c := w.conn; c != nil && c.ThemeChanged != nil {

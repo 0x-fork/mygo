@@ -70,17 +70,24 @@ func (e *node) prepareSelectable() {
 	}
 	ed := e.st.editor
 	if ed == nil {
-		ed = newEditor()
+		ed = newEditor(e.c.rt.now)
 		ed.readOnly, ed.multiline = true, true
 		e.st.editor = ed
 	}
 	if ed.source != e.text || len(ed.buf.paras) == 0 {
-		if scope != 0 && e.c.rt.selection.scope == scope && e.c.rt.textSelectionIncludes(e.id) {
+		// Text only added at the end, as a reply being written, keeps
+		// the selection and its offsets.
+		grew := len(ed.buf.paras) > 0 && strings.HasPrefix(e.text, ed.source)
+		if !grew && scope != 0 && e.c.rt.selection.scope == scope && e.c.rt.textSelectionIncludes(e.id) {
 			e.c.rt.selection = textSelection{}
 		}
+		caret, anchor := ed.caret, ed.anchor
 		ed.source = e.text
 		ed.setText(e.text)
 		ed.caret, ed.anchor = 0, 0
+		if grew {
+			ed.caret, ed.anchor = caret, anchor
+		}
 	}
 	if e.c.rt.focused == e.id || len(ed.queue) > 0 {
 		ed.process(e.c, e)
@@ -139,7 +146,7 @@ func (rt *engine) textSelectionIncludes(id uint64) bool {
 }
 
 func (rt *engine) textSelectionVisible(s *state) bool {
-	if !rt.windowFocused || s.flags&flagDisabled != 0 {
+	if !rt.windowFocus() || s.flags&flagDisabled != 0 {
 		return false
 	}
 	if s.textScope == 0 {
@@ -202,7 +209,7 @@ func (rt *engine) textSelectionAt(scope uint64, x, y float32) textPoint {
 			continue
 		}
 		for _, line := range s.editor.layout.Lines {
-			r := intersect(Rect{s.x + s.editor.originX + line.X, s.y + s.editor.originY + line.Y, line.Width, line.Height}, Rect{s.vx, s.vy, s.vw, s.vh})
+			r := intersect(transformRect(s.world, Rect{s.x + s.editor.originX + line.X, s.y + s.editor.originY + line.Y, line.Width, line.Height}), Rect{s.vx, s.vy, s.vw, s.vh})
 			if r.W <= 0 || r.H <= 0 {
 				continue
 			}
@@ -220,10 +227,11 @@ func (rt *engine) textSelectionAt(scope uint64, x, y float32) textPoint {
 
 func textHit(s *state, x, y float32) textPoint {
 	ed := s.editor
-	at := ed.hit(x-s.x, y-s.y)
-	if y < s.y+ed.originY {
+	lx, ly := s.local(x, y)
+	at := ed.hit(lx, ly)
+	if ly < ed.originY {
 		at = 0
-	} else if y >= s.y+ed.originY+ed.layout.Height {
+	} else if ly >= ed.originY+ed.layout.Height {
 		at = ed.buf.n
 	}
 	return textPoint{s.id, at}
@@ -242,7 +250,8 @@ func (rt *engine) scrollTextSelection() {
 			continue
 		}
 		var dy float32
-		switch top, bottom := rt.pointerY-s.vy, s.vy+s.vh-rt.pointerY; {
+		_, y := s.local(rt.pointerX, rt.pointerY)
+		switch top, bottom := y, s.h-y; {
 		case top < edge:
 			dy = -min(edge-top, edge) / 2
 		case bottom < edge:
@@ -356,6 +365,10 @@ func (rt *engine) textSelectionCommand(s *state, name string) bool {
 		if !selected || rt.selection.scope != s.textScope {
 			break
 		}
+		if sc := rt.states[s.textScope]; sc != nil && sc.copyData != nil {
+			rt.host.writeClipboardData(sc.copyData(rt.selectedTexts(s.textScope)))
+			break
+		}
 		var out strings.Builder
 		first, last := rt.textPointIndex(a), rt.textPointIndex(b)
 		wrote := false
@@ -380,6 +393,32 @@ func (rt *engine) textSelectionCommand(s *state, name string) bool {
 		rt.host.writeClipboard(out.String())
 	}
 	return true // other editing commands cannot change selectable text
+}
+
+// selectedTexts returns the parts of paragraphs the selection of
+// container scope holds.
+func (rt *engine) selectedTexts(scope uint64) []SelectedText {
+	a, b, selected := rt.textSelectionBounds()
+	if !selected || rt.selection.scope != scope {
+		return nil
+	}
+	var parts []SelectedText
+	first, last := rt.textPointIndex(a), rt.textPointIndex(b)
+	for i := first; i <= last; i++ {
+		p := rt.texts[i]
+		if p.textScope != scope || p.editor == nil {
+			continue
+		}
+		from, to := 0, p.editor.buf.n
+		if i == first {
+			from = min(a.at, to)
+		}
+		if i == last {
+			to = min(b.at, to)
+		}
+		parts = append(parts, SelectedText{ID: p.id, Text: p.editor.source, Start: from, End: to})
+	}
+	return parts
 }
 
 func (rt *engine) neighboringText(p textPoint, direction int) *state {

@@ -1,3 +1,5 @@
+//go:build !js
+
 package mygo
 
 import (
@@ -74,6 +76,19 @@ func WriteTypeScript(path string) error {
 		return err
 	}
 	return os.WriteFile(path, src, 0o644)
+}
+
+// writeClient writes the TypeScript client to path for App.Run under
+// MYGO_GENERATE, through what Bind, BindAs and NewEvent link: nothing for
+// an app that binds nothing.
+func writeClient(path string) error {
+	ipc.RLock()
+	write := ipc.writeClient
+	ipc.RUnlock()
+	if write == nil {
+		return nil
+	}
+	return write(path)
 }
 
 // bindsAnything reports whether the app bound a service of its own with

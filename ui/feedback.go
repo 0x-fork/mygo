@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"runtime"
 )
 
@@ -40,7 +39,7 @@ func coreCheckboxGroup(c *context, label string, fn func()) *node {
 		saved := c.checks
 		group = &checkGroup{}
 		c.checks = group
-		boxes := coreColumn(c).Gap(t.Space(2)).Padding(0, 0, 0, t.Space(6)).Role(RoleGroup).Label(label)
+		boxes := coreColumn(c).Gap(t.Space(2)).PaddingStart(t.Space(6)).Role(RoleGroup).Label(label)
 		boxes.Children(fn)
 		c.checks = saved
 		on := 0
@@ -116,10 +115,16 @@ func coreBreadcrumbs(c *context, items []string, chosen *int) *node {
 	e.Children(func() {
 		for i, item := range items {
 			if i > 0 {
-				coreBox(c).Size(t.Space(3), t.Space(3)).Shrink(0).Role(RoleNone).Draw(func(p *Painter, r Rect) {
+				sep := coreBox(c).Size(t.Space(3), t.Space(3)).Shrink(0).Role(RoleNone)
+				rtl := sep.rtl()
+				sep.Draw(func(p *Painter, r Rect) {
 					cx, cy, d := r.X+r.W/2, r.Y+r.H/2, r.W/6
+					if rtl {
+						// Pointing left, along the path.
+						d = -d
+					}
 					var path Path
-					path.MoveTo(cx-d, cy-2*d).LineTo(cx+d, cy).LineTo(cx-d, cy+2*d)
+					path.MoveTo(cx-d, cy-2*abs32(d)).LineTo(cx+d, cy).LineTo(cx-d, cy+2*abs32(d))
 					p.StrokePath(&path, 1.2, t.TextMuted)
 				})
 			}
@@ -149,13 +154,20 @@ func coreBreadcrumbs(c *context, items []string, chosen *int) *node {
 	return e
 }
 
+// AlertDismissed is what AlertDialog returns in the frame Escape closes the
+// alert, choosing no button.
+const AlertDismissed = -2
+
 // AlertDialog shows an alert over the window while *open is true, as
 // AppKit's: title, message, and buttons, the last of which is the default,
-// in the accent color, with the focus, which Enter clicks. Escape clicks a
-// button labeled Cancel, if any; a click outside the alert does nothing.
-// It returns the index of the button clicked, in the frame it is, which
-// closes the alert, and -1 otherwise. Assistive technology sees an alert
-// named by title and described by message.
+// in the accent color, with the focus, which Enter clicks. Escape closes the
+// alert choosing no button, as canceling does, whatever the buttons say; a
+// click outside the alert does nothing. It returns the index of the button
+// clicked, in the frame it is, which closes the alert, AlertDismissed in
+// the frame Escape closes it, and -1 otherwise. An alert that must be
+// answered stays open by setting *open back to true on AlertDismissed.
+// Assistive technology sees an alert named by title and described by
+// message.
 //
 //	switch ui.AlertDialog(c, &app.asking, "Delete “Notes”?", "You can't undo this.", "Cancel", "Delete") {
 //	case 1:
@@ -166,18 +178,10 @@ func coreAlertDialog(c *context, open *bool, title, message string, buttons ...s
 		return -1
 	}
 	t := c.theme
-	chosen := -1
+	chosen, dismissed := -1, false
 	coreOverlay(c, func() {
 		back := coreBox(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(RGBA(0, 0, 0, 0.4)).Modal()
-		cancel := -1
-		for i, b := range buttons {
-			if b == "Cancel" {
-				cancel = i
-			}
-		}
-		if back.OverlayShortcut(0, KeyEscape) && cancel >= 0 {
-			chosen = cancel
-		}
+		dismissed = back.OverlayShortcut(0, KeyEscape)
 		back.Children(func() {
 			panel := coreColumn(c).Width(t.Space(75)).MaxWidth(c.w - t.Space(10)).Padding(t.Space(5)).Gap(t.Space(3)).Radius(t.Space(2.5)).Background(t.Background).Role(RoleAlertDialog)
 			panel.Label(title)
@@ -204,7 +208,10 @@ func coreAlertDialog(c *context, open *bool, title, message string, buttons ...s
 			})
 		})
 	})
-	if chosen >= 0 {
+	if dismissed && chosen < 0 {
+		chosen = AlertDismissed
+	}
+	if chosen != -1 {
 		*open = false
 		c.rt.consumed = true
 	}
@@ -231,7 +238,7 @@ func coreFindBar(c *context, open *bool, query *string, matches int, current *in
 	}
 	// Keyed, for its state to go as it closes, to open anew.
 	bar := coreRow(c).Key("find bar").Gap(t.Space(2)).Padding(t.Space(1.5), t.Space(3)).AlignItems(Center).Background(t.Surface).
-		BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Shrink(0).Role(RoleToolbar).Label("Find")
+		BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Shrink(0).Role(RoleToolbar).Label(c.texts().Find())
 	bar.widget = "FindBar"
 	// Its state goes as it closes: true in the frame it opens.
 	opening := coreLocal(bar, "opening", func() bool { return true })
@@ -256,11 +263,11 @@ func coreFindBar(c *context, open *bool, query *string, matches int, current *in
 	bar.Children(func() {
 		f, in := field(c, func() *node {
 			magnifier(c)
-			in := coreTextInputBase(c, query).Grow(1).MinWidth(t.Space(25)).Placeholder("Find")
+			in := coreTextInputBase(c, query).Grow(1).MinWidth(t.Space(25)).Placeholder(c.texts().Find())
 			in.search = true
 			return in
 		})
-		f.Label("Find").Grow(1).MaxWidth(t.Space(90))
+		f.Label(c.texts().Find()).Grow(1).MaxWidth(t.Space(90))
 		if *opening {
 			// Opening the bar focuses its field, with what was found before
 			// chosen, ready to type over.
@@ -282,18 +289,18 @@ func coreFindBar(c *context, open *bool, query *string, matches int, current *in
 			}
 
 		})
-		status := "No matches"
+		status := c.texts().NoMatches()
 		switch {
 		case *query == "":
 			status = ""
 		case matches > 0:
-			status = fmt.Sprintf("%d of %d", *current+1, matches)
+			status = c.texts().Matches(*current+1, matches)
 		}
 		coreText(c, status).TextColor(t.TextMuted).FontFeatures("tnum").MinWidth(t.Space(18)).Role(RoleStatus)
 		for _, b := range []struct {
 			label string
 			d     int
-		}{{"Previous", -1}, {"Next", 1}} {
+		}{{c.texts().Previous(), -1}, {c.texts().Next(), 1}} {
 			btn := coreButton(c, "").Padding(t.Space(1.5), t.Space(2)).Label(b.label).Disabled(matches == 0)
 			up := b.d < 0
 			btn.Children(func() {
@@ -314,7 +321,7 @@ func coreFindBar(c *context, open *bool, query *string, matches int, current *in
 				}
 			})
 		}
-		done := coreButton(c, "Done")
+		done := coreButton(c, c.texts().Done())
 		done.afterInput(func() {
 			if done.Clicked() {
 				*open = false

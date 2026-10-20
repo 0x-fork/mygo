@@ -1,4 +1,4 @@
-//go:build !darwin && !(linux && (amd64 || arm64)) && !(windows && (amd64 || arm64))
+//go:build !darwin && !(linux && (amd64 || arm64)) && !(windows && (amd64 || arm64)) && !js
 
 package e2e
 
@@ -16,13 +16,24 @@ func pressShortcut(string, bool) (bool, bool) { return false, false }
 
 func endSheet(*mygo.Window) (bool, bool) { return false, false }
 
+func recentDocumentRecorded(string) (recorded, supported bool) { return false, false }
+
 func click(*mygo.Window, float64, float64) bool { return false }
+
+func appClick(*mygo.Window, float64, float64) bool { return false }
+
+func heldAppClick(*mygo.Window, float64, float64) bool { return false }
 
 func drag(*mygo.Window, [][2]float64) bool { return false }
 
 func sideButton(*mygo.Window, bool) bool { return false }
 
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
+
+// Collection behaviors and deactivating the app are macOS's.
+func collectionBehavior(*mygo.Window) (uint, bool) { return 0, false }
+func deactivateApp() bool                          { return false }
+func appActive() (bool, bool)                      { return false, false }
 
 func dockDevTools(*mygo.Window) bool { return false }
 
@@ -68,6 +79,8 @@ func titleButtons(*mygo.Window) ([]string, bool) { return nil, false }
 func pressTitleButton(*mygo.Window, string) bool { return false }
 
 func topNonClient(*mygo.Window) (int32, int32, bool) { return 0, 0, false }
+
+func menuBarColors(*mygo.Window) (uint32, uint32, bool) { return 0, 0, false }
 
 func titleButtonColor(*mygo.Window, string) (uint8, uint8, uint8, bool) { return 0, 0, 0, false }
 
@@ -118,8 +131,22 @@ func choosePopupItem(string) bool                    { return false }
 // themselves here (GTK's filtering, IMM32's VK_PROCESSKEY), which a
 // composition the test makes up does not show.
 func pressKey(*mygo.Window, uint16, string) bool { return false }
+func pressTab(*mygo.Window, bool) bool           { return false }
+
+func dragFiles(*mygo.Window, float64, float64, []string) (bool, bool) { return false, false }
 
 // AppKit's older accessibility API is macOS's.
 func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 	return "", false, false, false
 }
+
+func pressEscape(*mygo.Window) bool { return false }
+
+func documentChrome(*mygo.Window) (string, string, bool, bool, bool) {
+	return "", "", false, false, false
+}
+func sheet(*mygo.Window) ([]string, []string, bool, bool) { return nil, nil, false, false }
+func endSheetButton(*mygo.Window, int) bool               { return false }
+
+// Panels' window styles are Windows'.
+func panelStyles(*mygo.Window) (bool, bool, bool, bool) { return false, false, false, false }

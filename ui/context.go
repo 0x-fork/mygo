@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"hash/maphash"
+	"reflect"
 	"time"
 
 	"github.com/egoist/mygo/internal/scene"
@@ -109,6 +110,7 @@ func (c *context) reset(now time.Time, w, h float32) {
 	c.rt.afterInputs = c.rt.afterInputs[:0]
 	clear(c.rt.inputs)
 	c.rt.inputs = c.rt.inputs[:0]
+	c.rt.building = 0
 	clear(c.rt.actions)
 	c.rt.actions = c.rt.actions[:0]
 	c.dirty = max(c.dirty, c.used)
@@ -116,6 +118,7 @@ func (c *context) reset(now time.Time, w, h float32) {
 	c.now = now
 	c.w, c.h = w, h
 	c.theme = c.rt.defaultTheme()
+	c.rt.lang = c.rt.host.locale()
 	c.tree = nil
 	clear(c.reveal)
 	c.reveal = c.reveal[:0]
@@ -134,6 +137,13 @@ func (c *context) reset(now time.Time, w, h float32) {
 	root.st = c.rt.stateFor(root.id)
 	root.bg = c.theme.Background
 	root.ts = textStyle{set: setColor | setSize | setFamily, color: c.theme.Text, size: c.theme.FontSize, family: c.theme.Font}
+	if c.rt.lang != "" {
+		// Text is in the language the app shows unless told otherwise.
+		root.ts.lang, root.ts.set = c.rt.lang, root.ts.set|setLang
+	}
+	if c.rt.direction() {
+		root.dir = dirRTL
+	}
 	c.root = root
 	c.parent = root
 	c.overlay = nil
@@ -145,8 +155,26 @@ func (c *context) reset(now time.Time, w, h float32) {
 // that a few rows entering and leaving a list do not allocate every frame.
 func (c *context) finish() {
 	c.chunks = trimArena(c.chunks, c.used, max(c.dirty, c.used))
-	c.spare = trimArena(c.spare, 0, c.spareDirty)
+	// While this frame built an exit transition, the spare chunks are the
+	// arena the next frame builds into: keep as many as this frame used,
+	// only cleared.
+	keep := 0
+	if c.rt.exitsBuilt {
+		keep = c.used
+	}
+	c.spare = clearArena(c.spare, c.spareDirty, keep)
 	c.dirty, c.spareDirty = c.used, 0
+}
+
+// clearArena drops what the first dirty elements reference, and keeps the
+// storage of keep elements and one chunk more.
+func clearArena(chunks [][]node, dirty, keep int) [][]node {
+	n := min(len(chunks), (keep+chunkSize-1)/chunkSize+1)
+	for ci := 0; ci < n && ci*chunkSize < dirty; ci++ {
+		clear(chunks[ci][:min(chunkSize, dirty-ci*chunkSize)])
+	}
+	clear(chunks[n:])
+	return chunks[:n]
 }
 
 func trimArena(chunks [][]node, used, dirty int) [][]node {
@@ -178,6 +206,7 @@ func (c *context) overlayRoot() *node {
 		o.id = overlayID
 		o.kind = kindBox
 		o.flags = flagAbsolute | flagPassThrough
+		o.dir = c.root.dir
 		o.inset = [4]length{px(0), px(0), px(0), px(0)}
 		o.depth = 1
 		o.st = c.rt.stateFor(o.id)
@@ -201,6 +230,7 @@ func (c *context) newElement(k kind) *node {
 	e.kind = k
 	p := c.parent
 	e.id = mix(p.id, uint64(p.nchild)+uint64(k)<<56)
+	e.dir = p.dir &^ dirSet
 	keyed := c.keySet
 	if c.keySet {
 		e.id = keyedID(p.id, c.nextKey)
@@ -228,6 +258,9 @@ func (c *context) rekey(e *node, k any) {
 	}
 	id := keyedID(parent, k)
 	rt := c.rt
+	if id != e.id {
+		rt.unlook(e.st)
+	}
 	st, built := rt.lookState(id)
 	if built && id != e.id {
 		// Another element of the pass has the key under the same parent.
@@ -248,16 +281,38 @@ func keyedID(parent uint64, k any) uint64 {
 	switch k := k.(type) {
 	case string:
 		h = maphash.String(keySeed, k)
+	// Integers of different types are different keys, as in a map.
 	case int:
 		h = uint64(k)*0x9E3779B97F4A7C15 + 1
 	case int64:
-		h = uint64(k)*0x9E3779B97F4A7C15 + 1
+		h = uint64(k)*0x9E3779B97F4A7C15 + 2
 	case uint64:
-		h = k*0x9E3779B97F4A7C15 + 1
+		h = k*0x9E3779B97F4A7C15 + 3
 	default:
-		h = maphash.String(keySeed, fmt.Sprintf("%T:%v", k, k))
+		h = keyHash(k)
 	}
 	return mix(parent, h^0xA5A5A5A5A5A5A5A5)
+}
+
+// keyHash hashes a key as Go compares it, as a map's key: a pointer by the
+// object it points to, whatever the object holds, a struct or an array by
+// its fields or elements, and keys of different types apart. A key Go
+// cannot compare, such as a slice, is hashed by its value printed, and so
+// is a key not equal to itself, as a NaN, which a map would hash anew
+// each time.
+func keyHash(k any) (h uint64) {
+	printed := func() uint64 { return maphash.String(keySeed, fmt.Sprintf("%T:%v", k, k)) }
+	defer func() {
+		if recover() != nil {
+			h = printed()
+		}
+	}()
+	if k != k { // panics for a key Go cannot compare
+		return printed()
+	}
+	// One instance of Comparable for both: another, for reflect.Type,
+	// would grow every native app by 16 KB.
+	return maphash.Comparable[any](keySeed, k) ^ maphash.Comparable[any](keySeed, reflect.TypeOf(k))*0x9E3779B97F4A7C15
 }
 
 // mix combines two hashes (the finalizer of splitmix64).
@@ -338,6 +393,19 @@ func (c *context) Invalidate() { c.rt.host.invalidate() }
 // drawing that moves while the layout stays asks with
 // Painter.AnimationFrame instead, whose frames do not build the view.
 func (c *context) AnimationFrame() { c.rt.animating = true }
+
+// DisableAnimations makes the values that animate in this frame
+// (AnimateTo, Animate, Spring), the element transitions and the pages of
+// routers go to their targets at once, as SwiftUI's disablesAnimations:
+// for a change that should not show as motion, as restoring a window's
+// state or jumping to a search result. Call it before building what
+// changes. Keyframes and timelines, which play on their own rather than
+// towards a target, go on as they were: Seek a Timeline to jump it.
+func (c *context) DisableAnimations() { c.rt.instantFrame = c.rt.frame }
+
+// instant reports whether this frame shows changes at once
+// (DisableAnimations).
+func (rt *engine) instant() bool { return rt.instantFrame == rt.frame && rt.frame != 0 }
 
 // After asks for another frame after d, for something that changes with
 // time, such as a clock.
@@ -421,12 +489,34 @@ func coreLocal[T any](e *node, key any, init func() T) *T {
 type state struct {
 	rt            *engine
 	pendingSubmit bool
+	pendingChange bool
 	noticeQueued  bool
 
-	id   uint64
-	seen uint64
-	pass int    // the pass of the frame that built it last
-	born uint64 // the frame that first built the element
+	// rowPressed marks a row of a list the pointer pressed, until the
+	// release; pressChose, that the press chose it, so that its click does
+	// not choose again.
+	rowPressed, pressChose bool
+
+	world scene.Affine
+	clips bool
+	// rtl tells that the element was laid out right to left: a scroll
+	// container's horizontal offset counts from the right, and its
+	// vertical scroll bar is on the left.
+	rtl       bool
+	clipRect  Rect
+	clipRadii [4]float32
+	id        uint64
+	seen      uint64
+	pass      int    // the pass of the frame that built it last
+	born      uint64 // the frame that first built the element
+	// lookedSeen and lookedPass are seen and pass before the last
+	// lookup (lookState), 0 for a state it created.
+	lookedSeen uint64
+	lookedPass int
+	// lay is what the element's last layout was (layoutcache.go), and
+	// text what it measured and laid out of its text (heldText).
+	lay  layoutRecord
+	text *heldText
 	// The element's box and its visible part in the last frame.
 	x, y, w, h     float32
 	vx, vy, vw, vh float32
@@ -435,6 +525,11 @@ type state struct {
 	cursor         Cursor
 	// tip marks an element with a tooltip (TooltipBase).
 	tip bool
+	// effectLayer is what the element and its children render into for
+	// its Effect, kept from frame to frame.
+	effectLayer *Canvas
+	// webView is the web view the element shows (WebView).
+	webView NativeWebView
 
 	clicks, rightClicks, doubleClicks int
 	// pressMods are the modifiers held as the pointer went down on the
@@ -451,7 +546,16 @@ type state struct {
 	pressX, pressY float32
 	dragX, dragY   float32
 	pressed        bool
-	pressPending   bool // the press began since the last build pass
+	// drag follows the press's moves; released tells that it ended since
+	// the last frame, going at releaseVX and releaseVY in the element's
+	// axes, releaseWX and releaseWY in the window's.
+	drag                 dragTrack
+	released             bool
+	releaseVX, releaseVY float32
+	releaseWX, releaseWY float32
+	pressPending         bool // the press began since the last build pass
+	// dragRec is what Draggable keeps of the element from frame to frame.
+	dragRec *dragRec
 
 	// scrollX and scrollY are float64, as the content a List scrolls
 	// may be taller than float32 counts to a fraction of a DIP.
@@ -463,6 +567,9 @@ type state struct {
 	// track is the ScrollState of the last frame's element, which events
 	// that scroll it update (scrollTo).
 	track *ScrollState
+	// wheel is the notches of a mouse wheel on their way through the
+	// content (wheelScroll).
+	wheel *wheelGlide
 	// startX and startY are the offset before frame moveFrame moved it.
 	moveFrame      uint64
 	startX, startY float64
@@ -510,6 +617,12 @@ type state struct {
 	valueBinding any
 	locals       map[any]any
 	anims        map[any]*anim
+	motions      map[any]*channel
+	colorMotions map[any]*colorMotion
+	crec         *contentRec
+	pose         *poseRec
+	sequences    map[any]*sequence
+	timelines    map[any]*timelineState
 	shortcuts    []shortcut
 	delivered    []shortcut
 
@@ -520,6 +633,10 @@ type state struct {
 	textAdapter *textInputAdapter
 	caret       Rect
 	takesText   bool
+	noIME       bool
+	// copyData is what a Selectable container's selection copies as
+	// (CopyData).
+	copyData func(parts []SelectedText) transfer.Data
 	// scope is the dialog the element was in, 0 for none, and anchor the
 	// element it was a popover of (AttachTo, PopoverBase).
 	scope, anchor uint64
@@ -550,7 +667,7 @@ func (rt *engine) lookState(id uint64) (s *state, built bool) {
 			s = rt.free[n-1]
 			rt.free[n-1] = nil
 			rt.free = rt.free[:n-1]
-			*s = state{id: id, born: rt.frame}
+			*s = state{id: id, born: rt.frame, text: s.text}
 		} else {
 			s = &state{id: id, born: rt.frame}
 		}
@@ -559,11 +676,31 @@ func (rt *engine) lookState(id uint64) (s *state, built bool) {
 		built = s.seen == rt.frame && s.pass == rt.pass
 	}
 	s.rt = rt
+	s.lookedSeen, s.lookedPass = s.seen, s.pass
 	s.seen, s.pass = rt.frame, rt.pass
 	// What the element drags and takes, as this pass asks.
 	s.dragValue, s.dragFn, s.accepts = nil, nil, nil
 	s.dataSource, s.dataTarget = nil, nil
 	return s, built
+}
+
+// unlook undoes the lookup of s by an element that Key gave another
+// identity: creation looked up its place among its siblings, which is not
+// its own. A state the lookup created goes at once, so that keyed elements
+// keep none behind them, nor allocate one every frame. One that was there
+// before, as that of a popover that just closed in the place, is left as
+// the lookup found it: pruning retires it, giving the focus back for an
+// overlay, unless another element of the pass built it.
+func (rt *engine) unlook(s *state) {
+	if s.lookedSeen != 0 {
+		s.seen, s.pass = s.lookedSeen, s.lookedPass
+		return
+	}
+	delete(rt.states, s.id)
+	*s = state{text: s.text.emptied()}
+	if len(rt.free) < maxFree {
+		rt.free = append(rt.free, s)
+	}
 }
 
 // textSystem is the shared text system.

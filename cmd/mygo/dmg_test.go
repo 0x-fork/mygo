@@ -90,8 +90,21 @@ func TestPackagingArgs(t *testing.T) {
 		t.Errorf("development builds need no timestamp: %q", got)
 	}
 	args := hdiutilCreateArgs("My App", "src", "rw.dmg")
-	if slices.Contains(args, "-size") {
+	if slices.Contains(args, "-size") || slices.Contains(args, "-quiet") {
 		t.Errorf("hdiutil create: %q", args)
+	}
+	if !hdiutilBusy(errors.New("hdiutil create -ov ...: exit status 1\nhdiutil: create failed - Resource busy")) {
+		t.Error(`"Resource busy" is retried`)
+	}
+	if hdiutilBusy(errors.New("hdiutil create -ov ...: exit status 1\nhdiutil: create failed - No space left on device")) {
+		t.Error("only busy resources are retried")
+	}
+	out := "/dev/disk14         \tGUID_partition_scheme          \t\n/dev/disk14s1       \tApple_HFS                      \t/tmp/x/mnt\n"
+	if disk, err := attachedDisk(out); err != nil || disk != "/dev/disk14" {
+		t.Errorf("attachedDisk = %q, %v; want the whole disk", disk, err)
+	}
+	if _, err := attachedDisk(""); err == nil {
+		t.Error("attachedDisk of no device")
 	}
 }
 
@@ -247,7 +260,7 @@ func dmgTestApp(t *testing.T) (*Config, string, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := writeBundle(c, dir, bin, icns, nil)
+	app, err := writeBundle(c, dir, bin, icns, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,10 +274,11 @@ func attachDMG(t *testing.T, dmg string) string {
 	if err := os.Mkdir(mnt, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("hdiutil", "attach", "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", mnt, dmg).CombinedOutput(); err != nil {
-		t.Fatalf("attach: %v\n%s", err, out)
+	disk, err := hdiutilAttach("-readonly", "-nobrowse", "-noautoopen", "-mountpoint", mnt, dmg)
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { exec.Command("hdiutil", "detach", "-force", mnt).Run() })
+	t.Cleanup(func() { exec.Command("hdiutil", "detach", "-force", disk).Run() })
 	return mnt
 }
 

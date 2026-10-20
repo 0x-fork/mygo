@@ -48,8 +48,12 @@ outside the Mac App Store, and macos.notarize to notarize the disk image.
 With updates in mygo.json and the key of mygo keygen in
 MYGO_UPDATER_PRIVATE_KEY, each platform also gets a signed update archive,
 delta updates from the last versions published (updates.deltas), and
-update-<platform>.json: publish them where updates point to.`)
-	platforms := flags.String("platform", runtime.GOOS+"/"+runtime.GOARCH, "comma separated GOOS/GOARCH targets, e.g. darwin/universal,linux/amd64,windows/amd64")
+update-<platform>.json: publish them where updates point to.
+
+The platform web (or js/wasm) builds an app of native UI for browsers into
+<out>/web: index.html, which loads the app, Go's wasm_exec.js and the app's
+WebAssembly, named by its content: a static site, to serve from anywhere.`)
+	platforms := flags.String("platform", runtime.GOOS+"/"+runtime.GOARCH, "comma separated GOOS/GOARCH targets, e.g. darwin/universal,linux/amd64,windows/amd64, or web for browsers")
 	debug := flags.Bool("debug", false, "keep development features such as the web inspector")
 	skipBuildCommand := flags.Bool("skip-build-command", false, "do not run buildCommand")
 	skipDMG := flags.Bool("skip-dmg", false, "do not create a disk image for macOS")
@@ -67,6 +71,10 @@ update-<platform>.json: publish them where updates point to.`)
 	if *out != "" {
 		c.Out = *out
 	}
+	// The catalogs name the languages the packages declare.
+	if _, err := c.languages(); err != nil {
+		return err
+	}
 	if *upload {
 		if err := checkUpload(c); err != nil {
 			return err
@@ -79,11 +87,24 @@ update-<platform>.json: publish them where updates point to.`)
 	if c.MacOS.Notarize != nil && !opts.skipNotarize && opts.sign == "-" {
 		return fmt.Errorf("notarization needs a Developer ID signing identity: set macos.signingIdentity or pass -sign")
 	}
+	if c.MacOS.ProvisioningProfile != "" && opts.sign == "-" && slices.ContainsFunc(splitList(*platforms), func(p string) bool { return strings.HasPrefix(p, "darwin/") }) {
+		// Before building anything, as codesign would.
+		return errProfileAdHoc
+	}
 
 	con.startBanner("build")
 	started := time.Now()
-	// The TypeScript client comes first: the frontend build type-checks and
-	// bundles it.
+	// The accessors of the catalogs come first, which the app calls, then
+	// the TypeScript client: the frontend build type-checks and bundles
+	// them.
+	if err := generateI18n(c); err != nil {
+		return err
+	}
+	if c.I18n != nil {
+		if dirs := compiledDirs(c); dirs != nil {
+			checkCatalogImported(c, dirs)
+		}
+	}
 	if err := writeClient(context.Background(), c, false); err != nil {
 		return err
 	}
@@ -114,6 +135,14 @@ update-<platform>.json: publish them where updates point to.`)
 
 	var built []string
 	for _, p := range splitList(*platforms) {
+		if isWebPlatform(p) {
+			paths, err := buildWeb(c, opts)
+			built = append(built, paths...)
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		goos, goarch, ok := strings.Cut(p, "/")
 		if !ok {
 			return fmt.Errorf("invalid platform %q, want GOOS/GOARCH", p)
@@ -233,11 +262,17 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		} else if err := compile(goarch, bin); err != nil {
 			return nil, err
 		}
-		icns, err := appIcon(c)
+		car, err := appCatalog(c)
 		if err != nil {
 			return nil, err
 		}
-		app, err := writeBundle(c, stage, bin, icns, res)
+		var icns []byte
+		if car != nil && car.icns != nil {
+			icns = car.icns // the .icon's own rendering for older macOS
+		} else if icns, err = appIcon(c); err != nil {
+			return nil, err
+		}
+		app, err := writeBundle(c, stage, bin, icns, car, res)
 		if err != nil {
 			return nil, err
 		}
@@ -522,17 +557,35 @@ func writeLinuxDesktop(c *Config, dir, name string) ([]string, error) {
 }
 
 // linuxDesktopEntry renders the desktop entry of the app, which runs exec
-// and shows icon.
+// and shows icon, with its name and comment in the languages its catalogs
+// have them in (mygo.appName, mygo.appDescription), which launchers show
+// for the system's locale.
 func linuxDesktopEntry(c *Config, exec, icon string) string {
 	categories := c.Linux.Categories
 	if len(categories) == 0 {
 		categories = []string{"Utility"}
 	}
+	langs, _ := c.languages()
+	// localized writes the key of each language whose value is its own,
+	// once a locale.
+	localized := func(b *strings.Builder, key, value string, of func(l appLanguage) string) {
+		seen := map[string]bool{}
+		for _, l := range langs {
+			v, locale := of(l), desktopTag(l.Tag)
+			if v == "" || v == value || seen[locale] {
+				continue
+			}
+			seen[locale] = true
+			b.WriteString(key + "[" + locale + "]=" + v + "\n")
+		}
+	}
 	var b strings.Builder
 	b.WriteString("[Desktop Entry]\nType=Application\nName=" + c.Name + "\n")
+	localized(&b, "Name", c.Name, func(l appLanguage) string { return l.Name })
 	if c.Linux.Comment != "" {
 		b.WriteString("Comment=" + c.Linux.Comment + "\n")
 	}
+	localized(&b, "Comment", c.Linux.Comment, func(l appLanguage) string { return l.Description })
 	var mime []string
 	for _, fa := range c.FileAssociations {
 		t, _ := c.mimeType(fa)

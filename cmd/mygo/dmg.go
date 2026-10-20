@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -70,7 +71,7 @@ func buildDMG(c *Config, app, dir, goarch string, opts buildOptions) (_ string, 
 		}
 	}
 	rw := filepath.Join(work, "rw.dmg")
-	if err := command("hdiutil", hdiutilCreateArgs(c.MacOS.DMGTitle, src, rw)...); err != nil {
+	if err := hdiutilRetrying(hdiutilCreateArgs(c.MacOS.DMGTitle, src, rw)...); err != nil {
 		return "", err
 	}
 
@@ -78,13 +79,14 @@ func buildDMG(c *Config, app, dir, goarch string, opts buildOptions) (_ string, 
 	if err := os.Mkdir(mnt, 0o755); err != nil {
 		return "", err
 	}
-	if err := command("hdiutil", "attach", "-quiet", "-readwrite", "-noverify", "-noautoopen", "-nobrowse", "-mountpoint", mnt, rw); err != nil {
+	disk, err := hdiutilAttach("-readwrite", "-noverify", "-noautoopen", "-nobrowse", "-mountpoint", mnt, rw)
+	if err != nil {
 		return "", err
 	}
 	attached := true
 	defer func() {
 		if attached {
-			_ = exec.Command("hdiutil", "detach", "-quiet", "-force", mnt).Run()
+			_ = exec.Command("hdiutil", "detach", "-force", disk).Run()
 		}
 	}()
 	if hasIcon {
@@ -95,7 +97,7 @@ func buildDMG(c *Config, app, dir, goarch string, opts buildOptions) (_ string, 
 	// Created by macOS while the image is mounted.
 	_ = os.RemoveAll(filepath.Join(mnt, ".fseventsd"))
 	_ = os.RemoveAll(filepath.Join(mnt, ".Trashes"))
-	if err := detach(mnt); err != nil {
+	if err := hdiutilRetrying("detach", disk); err != nil {
 		return "", err
 	}
 	attached = false
@@ -103,7 +105,7 @@ func buildDMG(c *Config, app, dir, goarch string, opts buildOptions) (_ string, 
 	// LZMA gives the smallest images; it needs macOS 10.15, below the
 	// minimum MyGo supports.
 	dmg := filepath.Join(dir, file)
-	if err := command("hdiutil", "convert", "-quiet", rw, "-format", "ULMO", "-ov", "-o", dmg); err != nil {
+	if err := command("hdiutil", "convert", rw, "-format", "ULMO", "-ov", "-o", dmg); err != nil {
 		return "", err
 	}
 	if opts.sign != "-" {
@@ -117,7 +119,8 @@ func buildDMG(c *Config, app, dir, goarch string, opts buildOptions) (_ string, 
 			return "", err
 		}
 		// The ticket covers the app too: staple it for updates, which
-		// install the bare app.
+		// install the bare app. The image's copy stays without it, which
+		// deltas allow for (stapledTicket in internal/update).
 		if err := command("xcrun", "stapler", "staple", app); err != nil {
 			return "", err
 		}
@@ -126,10 +129,11 @@ func buildDMG(c *Config, app, dir, goarch string, opts buildOptions) (_ string, 
 }
 
 // hdiutilCreateArgs creates a writable HFS+ image of src, as large as its
-// contents need.
+// contents need. hdiutil runs without -quiet, which would leave out of the
+// error why it failed.
 func hdiutilCreateArgs(volume, src, out string) []string {
 	return []string{
-		"create", "-quiet", "-ov",
+		"create", "-ov",
 		"-volname", volume,
 		"-srcfolder", src,
 		"-fs", "HFS+", "-fsargs", "-c c=64,a=16,e=16",
@@ -138,31 +142,73 @@ func hdiutilCreateArgs(volume, src, out string) []string {
 	}
 }
 
+// hdiutilAttach attaches a disk image and returns the device of its whole
+// disk, as /dev/disk4, which hdiutil prints first. Detaching that device,
+// as create-dmg does, works even after an earlier attempt unmounted the
+// volume but could not eject the disk, when its mount point is gone.
+func hdiutilAttach(args ...string) (string, error) {
+	cmd := exec.Command("hdiutil", append([]string{"attach"}, args...)...)
+	var errOut strings.Builder
+	cmd.Stderr = &errOut
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("hdiutil attach %s: %v\n%s", strings.Join(args, " "), err, strings.TrimSpace(errOut.String()))
+	}
+	disk, err := attachedDisk(string(out))
+	if err != nil {
+		return "", fmt.Errorf("hdiutil attach %s: %v\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return disk, nil
+}
+
+// attachedDisk returns the first device that "hdiutil attach" prints.
+func attachedDisk(out string) (string, error) {
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) > 0 && strings.HasPrefix(f[0], "/dev/disk") {
+			return f[0], nil
+		}
+	}
+	return "", errors.New("no device attached")
+}
+
+// hdiutilRetrying runs hdiutil, again while it fails with "Resource busy",
+// which hdiutil reports when a service such as Spotlight or an antivirus
+// holds an image, a file it reads or a volume it detaches: it waits 2, 4, 8
+// then 16 seconds before trying again, as create-dmg does. An error after
+// retries also says how the first attempt failed.
+func hdiutilRetrying(args ...string) error {
+	var first, err error
+	for i := range 5 {
+		if err = command("hdiutil", args...); err == nil {
+			return nil
+		}
+		if first == nil {
+			first = err
+		}
+		if !hdiutilBusy(err) {
+			break
+		}
+		if i < 4 {
+			time.Sleep(time.Duration(2<<i) * time.Second)
+		}
+	}
+	if err != first {
+		return fmt.Errorf("%w\nfirst attempt: %v", err, first)
+	}
+	return err
+}
+
+// hdiutilBusy reports whether hdiutil failed because a resource was busy.
+func hdiutilBusy(err error) bool {
+	return strings.Contains(err.Error(), "Resource busy")
+}
+
 // setFinderFlags sets the Finder flags of a file or folder, which are
 // stored at offset 8 of its com.apple.FinderInfo attribute.
 func setFinderFlags(path string, flags uint16) error {
 	var info [32]byte
 	info[8], info[9] = byte(flags>>8), byte(flags)
 	return command("/usr/bin/xattr", "-wx", "com.apple.FinderInfo", hex.EncodeToString(info[:]), path)
-}
-
-// detach unmounts a disk image, retrying while macOS services such as
-// Spotlight still hold the volume, which on busy machines like CI runners
-// can outlast a forced detach: after a few polite attempts it forces, for
-// up to half a minute in all.
-func detach(mnt string) error {
-	var err error
-	for i := range 10 {
-		args := []string{"detach", "-quiet", mnt}
-		if i >= 4 {
-			args = []string{"detach", "-quiet", "-force", mnt}
-		}
-		if err = command("hdiutil", args...); err == nil {
-			return nil
-		}
-		time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
-	}
-	return err
 }
 
 // notarize submits a disk image to Apple's notary service, waits for the

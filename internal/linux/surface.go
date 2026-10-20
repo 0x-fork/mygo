@@ -150,13 +150,23 @@ type surface struct {
 	input     platform.TextInputState
 	// lastKey is a copy of the last key press, which a context menu the
 	// key opens shows for.
-	lastKey      ptr
+	lastKey ptr
+	// pressing is the key press being handled, which the Tab moving the
+	// focus to a web view passes on to it (TabInto).
+	pressing     ptr
 	lastPointer  ptr
+	clicks       platform.ClickCounter
 	dragContext  ptr
 	dragRequest  *platform.DragRequest
 	dragError    error
 	dragCanceled bool
+	dragEscaped  bool
 	dataDrop     *gtkDataDrop
+	// layers is the overlay of the area over web, the layout of the web
+	// views under it, and placed where the content shows them
+	// (webview.go), once the window has some.
+	layers, web ptr
+	placed      []platform.WebViewPlacement
 }
 
 // GDK event masks of the drawing area.
@@ -215,10 +225,14 @@ func (s *surface) newArea(gl bool) {
 }
 
 // contentWidget returns the widget showing the window's content: the web
-// view or the surface.
+// view or the surface, in the overlay over its web views once it has
+// some.
 func (w *window) contentWidget() ptr {
-	if w.surface != nil {
-		return w.surface.area
+	if s := w.surface; s != nil {
+		if s.layers != 0 {
+			return s.layers
+		}
+		return s.area
 	}
 	return w.web
 }
@@ -406,12 +420,16 @@ func (s *surface) PresentPixels(pix []byte, stride, width, height int) {
 	if len(pix) < stride*height || width == 0 || height == 0 {
 		return
 	}
-	const formatARGB32, operatorSource = 0, 1 // premultiplied, native endian: BGRA
+	const formatARGB32, operatorSource, operatorOver = 0, 1, 2 // premultiplied, native endian: BGRA
 	img := cairoImageSurfaceForData(&pix[0], formatARGB32, int32(width), int32(height), int32(stride))
 	scale := float64(max(gtkWidgetGetScaleFactor(s.area), 1))
 	cairoSurfaceSetDeviceScale(img, scale, scale)
 	cairoSetSourceSurface(s.cr, img, 0, 0)
-	cairoSetOperator(s.cr, operatorSource)
+	op := int32(operatorSource)
+	if s.layers != 0 {
+		op = operatorOver // over the web views, which holes show
+	}
+	cairoSetOperator(s.cr, op)
 	cairoPaint(s.cr)
 	cairoSurfaceDestroy(img)
 }
@@ -448,15 +466,54 @@ func (s *surface) SetCursor(c platform.Cursor) {
 
 func (s *surface) SetTextInput(t platform.TextInputState) {
 	active, caret := t.Active, t.Caret
-	if s.textInput && (!active || s.input.Client != t.Client) {
+	if s.textInput && (!active || s.input.Client != t.Client || t.NoInputMethod) {
 		s.clientComposition.Reset()
 		gtkIMContextReset(s.im)
+	}
+	// Without input methods, the input context loses the focus, as a
+	// Wayland compositor's input method grabs the keys while it has it,
+	// and keys type the layout's characters (typed), as winit's do.
+	if was, raw := s.rawInput(), active && t.NoInputMethod; raw != was {
+		if raw {
+			gtkIMContextFocusOut(s.im)
+		} else if gtkWidgetHasFocus(s.area) {
+			gtkIMContextFocusIn(s.im)
+		}
 	}
 	s.input = t
 	s.textInput, s.caret = active, caret
 	if active {
 		r := gdkRectangle{X: int32(caret.X), Y: int32(caret.Y), Width: max(int32(caret.W), 1), Height: int32(caret.H + 0.5)}
 		gtkIMContextSetCursorLoc(s.im, &r)
+	}
+}
+
+// rawInput reports whether the focused element takes text with input
+// methods off (NoInputMethod).
+func (s *surface) rawInput() bool { return s.textInput && s.input.NoInputMethod }
+
+// typed sends the text a key press types with input methods off: the
+// character of its keyval, unless a modifier makes it a shortcut, as
+// GtkIMContextSimple has it.
+func (s *surface) typed(event ptr) {
+	if gdkMods(field[uint32](event, 24))&(platform.ModCtrl|platform.ModAlt|platform.ModSuper) != 0 {
+		return
+	}
+	r := rune(gdkKeyvalToUnicode(field[uint32](event, 28)))
+	if r < 0x20 || r == 0x7F {
+		return
+	}
+	s.commit(string(r))
+}
+
+// commit sends text typed or committed by an input method.
+func (s *surface) commit(text string) {
+	if c := s.input.Client; c != nil {
+		s.clientComposition.Replace(c, nil, text)
+		return
+	}
+	if text != "" {
+		s.send(platform.SurfaceEvent{Kind: platform.TextInput, Text: text})
 	}
 }
 
@@ -523,6 +580,15 @@ func keyvalKey(keyval uint32) platform.Key {
 	}
 	if r := gdkKeyvalToUnicode(keyval); r != 0 {
 		return platform.KeyForRune(rune(r))
+	}
+	return platform.KeyUnknown
+}
+
+// eventPhysicalKey reads GdkEventKey.hardware_keycode on the supported
+// 64-bit GTK ABI. X11 and Wayland expose the evdev code plus 8 here.
+func eventPhysicalKey(event ptr) platform.Key {
+	if code := field[uint16](event, 48); code >= 8 {
+		return platform.KeyForScancode(code - 8)
 	}
 	return platform.KeyUnknown
 }
@@ -669,7 +735,12 @@ func initSurfaceCallbacks() {
 			}
 			s.lastPointer = gdkEventCopy(event)
 		}
-		s.send(platform.SurfaceEvent{Kind: kind, X: field[float64](event, 24), Y: field[float64](event, 32), Button: button, Mods: mods})
+		x, y := field[float64](event, 24), field[float64](event, 32)
+		clicks := 0
+		if kind == platform.PointerDown {
+			clicks = s.clicks.Press(button, x, y, field[uint32](event, 20), doubleClick())
+		}
+		s.send(platform.SurfaceEvent{Kind: kind, X: x, Y: y, Button: button, Clicks: clicks, Mods: mods})
 		if kind == platform.PointerUp && button == 0 && s.dragRequest == nil && s.lastPointer != 0 {
 			gdkEventFree(s.lastPointer)
 			s.lastPointer = 0
@@ -721,7 +792,7 @@ func initSurfaceCallbacks() {
 		s.send(ev)
 		return true
 	})
-	// GdkEventKey: type 0, state 24, keyval 28.
+	// GdkEventKey: type 0, state 24, keyval 28, hardware_keycode 48.
 	cbSurfaceKey = purego.NewCallback(func(widget, event, data ptr) bool {
 		s := b().surfaceOf(data)
 		if s == nil {
@@ -737,7 +808,11 @@ func initSurfaceCallbacks() {
 			}
 			s.lastKey = gdkEventCopy(event)
 		}
-		if s.textInput && gtkIMContextFilterKeypress(s.im, event) {
+		if s.rawInput() {
+			if kind == platform.KeyPressed {
+				defer s.typed(event)
+			}
+		} else if s.textInput && gtkIMContextFilterKeypress(s.im, event) {
 			return true
 		}
 		// A modifier key on its own: the state is the one before the
@@ -753,15 +828,33 @@ func initSurfaceCallbacks() {
 			return false
 		}
 		k := keyvalKey(field[uint32](event, 28))
+		mods := gdkMods(field[uint32](event, 24))
+		physical := eventPhysicalKey(event)
+		// A key the layout types no US key for, as S on a Cyrillic layout,
+		// still reaches shortcuts by its position.
+		// A release is sent whatever the modifiers held now, so that a press
+		// sent as a chord is let go of even after Ctrl was.
 		if k == platform.KeyUnknown {
-			return false
+			switch {
+			case kind == platform.KeyReleased && physical != platform.KeyUnknown:
+				s.send(platform.SurfaceEvent{Kind: kind, PhysicalKey: physical, Mods: mods})
+				return false
+			case !platform.KeyByPosition(k, physical, mods):
+				return false
+			}
 		}
-		s.send(platform.SurfaceEvent{Kind: kind, Key: k, Mods: gdkMods(field[uint32](event, 24))})
+		if kind == platform.KeyPressed {
+			s.pressing = event
+			defer func() { s.pressing = 0 }()
+		}
+		s.send(platform.SurfaceEvent{Kind: kind, Key: k, PhysicalKey: physical, Mods: mods})
 		return true
 	})
 	cbSurfaceFocusIn = purego.NewCallback(func(widget, event, data ptr) bool {
 		if s := b().surfaceOf(data); s != nil {
-			gtkIMContextFocusIn(s.im)
+			if !s.rawInput() {
+				gtkIMContextFocusIn(s.im)
+			}
 			s.send(platform.SurfaceEvent{Kind: platform.SurfaceFocus})
 		}
 		return false
@@ -775,13 +868,7 @@ func initSurfaceCallbacks() {
 	})
 	cbIMCommit = purego.NewCallback(func(im, str, data ptr) {
 		if s := b().surfaceOf(data); s != nil {
-			if c := s.input.Client; c != nil {
-				s.clientComposition.Replace(c, nil, goStr(str))
-				return
-			}
-			if text := goStr(str); text != "" {
-				s.send(platform.SurfaceEvent{Kind: platform.TextInput, Text: text})
-			}
+			s.commit(goStr(str))
 		}
 	})
 	cbIMPreedit = purego.NewCallback(func(im, data ptr) {

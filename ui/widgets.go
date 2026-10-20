@@ -49,6 +49,7 @@ func coreDivider(c *context) *node {
 // keeps frames coming while it moves; key tells apart the animations of
 // the element. The value starts at the first target. When the desktop asks
 // for less motion (Preferences.ReduceMotion), it goes to target at once.
+// AnimateTo takes springs and delays too.
 func (e *node) Animate(key any, target float32, d time.Duration) float32 {
 	return e.AnimateWith(key, target, d, EaseOut)
 }
@@ -56,33 +57,7 @@ func (e *node) Animate(key any, target float32, d time.Duration) float32 {
 // AnimateWith returns a value that moves to target over d as Animate does,
 // along ease.
 func (e *node) AnimateWith(key any, target float32, d time.Duration, ease Easing) float32 {
-	st := e.st
-	if st.anims == nil {
-		st.anims = map[any]*anim{}
-	}
-	a := st.anims[key]
-	now := e.c.now
-	if a == nil {
-		st.anims[key] = &anim{from: target, to: target, value: target}
-		return target
-	}
-	if a.to != target && e.c.rt.preferences().ReduceMotion {
-		// Without the motion.
-		a.from, a.to, a.value = target, target, target
-	}
-	if a.to != target {
-		a.from, a.to, a.start, a.dur = a.value, target, now, d
-	}
-	if a.value != a.to {
-		t := float32(now.Sub(a.start)) / float32(max(a.dur, time.Millisecond))
-		if t >= 1 {
-			a.value = a.to
-		} else {
-			a.value = a.from + (a.to-a.from)*ease(max(t, 0))
-			e.c.AnimationFrame()
-		}
-	}
-	return a.value
+	return e.AnimateTo(key, target, Animation{Duration: max(d, time.Millisecond), Ease: ease})
 }
 
 // Loop returns the progress of an animation that starts over every
@@ -145,11 +120,8 @@ func Bounce(ease Easing) Easing {
 	}
 }
 
-type anim struct {
-	from, to, value float32
-	start           time.Time
-	dur             time.Duration
-}
+// anim is a Loop's: when it started.
+type anim struct{ start time.Time }
 
 func b2f(b bool) float32 {
 	if b {
@@ -311,10 +283,16 @@ func coreSwitch(c *context, on *bool) *node {
 	pos := sw.Animate("knob", b2f(*on), 140*time.Millisecond)
 	off := t.Border.Mix(t.Text, 0.15)
 	sw.Background(off.Mix(t.Accent, pos))
+	rtl := sw.rtl()
 	sw.Draw(func(p *Painter, r Rect) {
 		in := t.Space(0.5)
 		d := r.H - 2*in
-		knob := Rect{r.X + in + pos*(r.W-r.H), r.Y + in, d, d}
+		// On at the end: the left right to left, as UISwitch mirrors.
+		at := pos
+		if rtl {
+			at = 1 - pos
+		}
+		knob := Rect{r.X + in + at*(r.W-r.H), r.Y + in, d, d}
 		p.Shadow(knob, d/2, 0, 1, 3, 0, RGBA(0, 0, 0, 0.25))
 		p.Fill(knob, RGB(255, 255, 255), d/2)
 	})
@@ -347,6 +325,12 @@ func slider(c *context, value *float64, lo, hi, step float64) *node {
 		s.Height(t.Space(7))
 	}
 	frac := fraction(*value, lo, hi)
+	// Right to left, lo is at the right (sliderInput), and the track
+	// fills from there.
+	rtl := s.rtl()
+	if rtl {
+		frac = 1 - frac
+	}
 	held := s.Animate("held", b2f(s.st.pressed), 150*time.Millisecond)
 	s.Draw(func(p *Painter, r Rect) {
 		// As thick as Progress; above the ticks.
@@ -361,7 +345,11 @@ func slider(c *context, value *float64, lo, hi, step float64) *node {
 			p.Fill(k, RGBA(255, 255, 255, 0.1*held), k.H/2)
 		}
 		p.Fill(track, t.Border, h/2)
-		p.Fill(Rect{track.X, track.Y, x - track.X, h}, t.Accent, h/2)
+		if rtl {
+			p.Fill(Rect{x, track.Y, track.X + track.W - x, h}, t.Accent, h/2)
+		} else {
+			p.Fill(Rect{track.X, track.Y, x - track.X, h}, t.Accent, h/2)
+		}
 		paintKnob(p, t, k, held, s.FocusVisible())
 	})
 	return s
@@ -470,18 +458,20 @@ func paintKnob(p *Painter, t *Theme, k Rect, held float32, focus bool) {
 }
 
 // Progress creates a progress bar filled to value between 0 and 1; a
-// negative value shows activity of unknown length. Reverse fills it from
-// the right, for interfaces laid out from right to left.
+// negative value shows activity of unknown length. It fills from its
+// start: the right right to left (Direction). Reverse fills it from the
+// other side.
 func coreProgress(c *context, value float64) *node {
 	t := c.theme
 	rad := t.Space(0.75)
 	e := coreBox(c).Height(t.Space(1.5)).Radius(rad).Background(t.Border).Clip()
 	e.role, e.hasRange, e.accRange = RoleProgress, true, [3]float64{0, 1, value}
 	e.Draw(func(p *Painter, r Rect) {
+		fromRight := e.reverse != e.rtl()
 		if value >= 0 {
 			w := r.W * float32(math.Min(value, 1))
 			x := r.X
-			if e.reverse {
+			if fromRight {
 				x = r.X + r.W - w
 			}
 			p.Fill(Rect{x, r.Y, w, r.H}, t.Accent, rad)
@@ -493,7 +483,7 @@ func coreProgress(c *context, value float64) *node {
 		phase := float32(p.Now().UnixMilli()%1400) / 1400
 		w := r.W * 0.3
 		x := r.X - w + (r.W+w)*phase
-		if e.reverse {
+		if fromRight {
 			x = r.X + r.W - (r.W+w)*phase
 		}
 		p.Clip(r, rad, func() { p.Fill(Rect{x, r.Y, w, r.H}, t.Accent, rad) })
@@ -581,7 +571,11 @@ func coreOverlay(c *context, fn func()) {
 	o := c.overlayRoot()
 	c.parent = o
 	last := o.last
+	// What fn builds reads in the direction of where it was asked for.
+	dir := o.dir
+	o.dir = saved.dir &^ dirSet
 	fn()
+	o.dir = dir
 	c.parent = saved
 	first := o.first
 	if last != nil {
@@ -596,7 +590,8 @@ func coreOverlay(c *context, fn func()) {
 }
 
 // Modal shows a dialog built by fn over a dimmed window while *open is
-// true; clicking outside it or pressing Escape sets *open to false.
+// true; clicking outside it or pressing Escape sets *open to false, which
+// Dismissed reports.
 func coreModal(c *context, open *bool, fn func()) *node {
 	if !*open {
 		return nil
@@ -611,7 +606,8 @@ func coreModal(c *context, open *bool, fn func()) *node {
 }
 
 // Popover shows fn's elements in a panel below anchor while *open is
-// true; clicking outside it or pressing Escape sets *open to false.
+// true; clicking outside it or pressing Escape sets *open to false, which
+// Dismissed reports.
 func corePopover(c *context, anchor *node, open *bool, fn func()) *node {
 	if !*open {
 		return nil
@@ -643,6 +639,8 @@ func coreSelect(c *context, selected *string, options []string) *node {
 	})
 	sel.Popup(func(panel *node) {
 		stylePanel(c, panel)
+		// Options past the room the window has scroll.
+		panel.flags |= flagScrollY | flagHover
 		for _, opt := range options {
 			item := sel.Item(opt).Padding(t.Space(1.5), t.Space(2.5)).Radius(t.Radius)
 			switch {

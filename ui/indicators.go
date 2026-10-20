@@ -7,13 +7,14 @@ import (
 )
 
 // Spinner creates an indicator of work of unknown length, as AppKit's
-// spinning progress indicator: spokes turning, as high as the font size.
-// Assistive technology sees a progress indicator of unknown length; name
-// it with Label.
+// spinning progress indicator: spokes turning, as high as the font size,
+// in the theme's muted text color, or the color TextColor gives it, as one
+// on a chosen row of a list needs. Assistive technology sees a progress
+// indicator of unknown length; name it with Label.
 func coreSpinner(c *context) *node {
 	t := c.theme
 	size := t.FontSize * 1.25
-	e := coreBox(c).Size(size, size).Shrink(0).Role(RoleProgress)
+	e := coreBox(c).Size(size, size).Shrink(0).Role(RoleProgress).TextColor(t.TextMuted)
 	e.widget = "Spinner"
 	e.hasRange, e.accRange = true, [3]float64{0, 1, -1}
 	e.Draw(func(p *Painter, r Rect) {
@@ -33,7 +34,7 @@ func coreSpinner(c *context) *node {
 			alpha := 1 - float32(age)/spokes*0.85
 			var path Path
 			path.MoveTo(at(0, -in)).LineTo(at(0, -out))
-			p.StrokePath(&path, w, t.TextMuted.Alpha(alpha))
+			p.StrokePath(&path, w, e.ts.color.Alpha(alpha))
 		}
 	})
 	return e
@@ -70,8 +71,14 @@ func coreMeter(c *context, value, lo, hi float64, levels *MeterLevels) *node {
 		}
 	}
 	frac := fraction(value, lo, hi)
+	rtl := e.rtl()
 	e.Draw(func(p *Painter, r Rect) {
-		p.Fill(Rect{r.X, r.Y, r.W * frac, r.H}, color, rad)
+		// From its start: the right right to left.
+		x := r.X
+		if rtl {
+			x = r.X + r.W*(1-frac)
+		}
+		p.Fill(Rect{x, r.Y, r.W * frac, r.H}, color, rad)
 	})
 	return e
 }
@@ -98,10 +105,12 @@ func coreRating(c *context, value *int, max int) *node {
 		}
 	}
 	e.afterInput(func() {
+		// The stars go from the right right to left, as the arrows do.
+		back, forth := e.arrows()
 		switch {
-		case e.Shortcut(0, KeyRight), e.Shortcut(0, KeyUp):
+		case e.Shortcut(0, forth), e.Shortcut(0, KeyUp):
 			set(*value + 1)
-		case e.Shortcut(0, KeyLeft), e.Shortcut(0, KeyDown):
+		case e.Shortcut(0, back), e.Shortcut(0, KeyDown):
 			set(*value - 1)
 		case e.Shortcut(0, KeyHome):
 			set(0)
@@ -152,7 +161,8 @@ func coreRating(c *context, value *int, max int) *node {
 	e.DrawOver(func(p *Painter, r Rect) {
 		// Around the stars, which a row stretched leaves at its start.
 		if first, last := e.first, e.last; e.FocusVisible() && first != nil {
-			p.FocusRing(Rect{first.x, first.y, last.x + last.w - first.x, last.y + last.h - first.y}, [4]float32{t.Radius, t.Radius, t.Radius, t.Radius})
+			stars := union(Rect{first.x, first.y, first.w, first.h}, Rect{last.x, last.y, last.w, last.h})
+			p.FocusRing(stars, [4]float32{t.Radius, t.Radius, t.Radius, t.Radius})
 		}
 	})
 	e.flags |= flagOwnRing
@@ -200,10 +210,11 @@ func coreStepper(c *context, value *float64, lo, hi, step float64) *node {
 		}
 	}
 	e.afterInput(func() {
+		back, forth := e.arrows()
 		switch {
-		case e.Shortcut(0, KeyUp), e.Shortcut(0, KeyRight):
+		case e.Shortcut(0, KeyUp), e.Shortcut(0, forth):
 			set(*value + step)
-		case e.Shortcut(0, KeyDown), e.Shortcut(0, KeyLeft):
+		case e.Shortcut(0, KeyDown), e.Shortcut(0, back):
 			set(*value - step)
 		case e.Shortcut(0, KeyHome):
 			set(lo)
@@ -312,8 +323,15 @@ func coreRangeSlider(c *context, low, high *float64, lo, hi, step float64) *node
 	// Which knob the pointer drags: the one nearest to where it pressed.
 	dragging := coreLocal(e, "knob", func() int { return -1 })
 	st := e.st
+	// Right to left, lo is at the right, as a Slider's.
+	rtl := e.rtl()
 	at := func() float64 {
-		return lo + float64(max(0, min(1, (c.rt.pointerX-st.cx)/max(st.cw, 1))))*(hi-lo)
+		x, _ := st.local(c.rt.pointerX, c.rt.pointerY)
+		f := (x + st.x - st.cx) / max(st.cw, 1)
+		if rtl {
+			f = 1 - f
+		}
+		return lo + float64(max(0, min(1, f)))*(hi-lo)
 	}
 	if !st.pressed {
 		*dragging = -1
@@ -327,17 +345,17 @@ func coreRangeSlider(c *context, low, high *float64, lo, hi, step float64) *node
 			}
 			frac := fraction(*v, lo, hi)
 			knob := coreBox(c).Absolute().Top(0).Bottom(0).Width(kw).Focusable().FocusRing(false).Role(RoleSlider)
-			knob.inset[3] = percent(frac * 100)
-			knob.Margin(0, 0, 0, -frac*kw)
+			knob.StartPercent(frac * 100).MarginStart(-frac * kw)
 			knob.flags |= flagDraggable | flagHover
 			knob.hasRange, knob.accRange, knob.accStep = true, [3]float64{lo, hi, *v}, keyStep
 			// Named after the slider, as "Price minimum".
 			knob.label, knob.nameFrom, knob.nameJoin = []string{"minimum", "maximum"}[k], e, true
 			knob.afterInput(func() {
+				back, forth := knob.arrows()
 				switch {
-				case knob.Shortcut(0, KeyLeft), knob.Shortcut(0, KeyDown):
+				case knob.Shortcut(0, back), knob.Shortcut(0, KeyDown):
 					set(v, *v-keyStep, from, to)
-				case knob.Shortcut(0, KeyRight), knob.Shortcut(0, KeyUp):
+				case knob.Shortcut(0, forth), knob.Shortcut(0, KeyUp):
 					set(v, *v+keyStep, from, to)
 				case knob.Shortcut(0, KeyHome):
 					set(v, from, from, to)
@@ -377,10 +395,14 @@ func coreRangeSlider(c *context, low, high *float64, lo, hi, step float64) *node
 		h := t.Space(1.5)
 		cy := r.Y + t.Space(2.5)
 		paintTicks(p, t, r, kw, ticks, cy+t.Space(2)+t.Space(1))
-		x0 := r.X + kw/2 + (r.W-kw)*fraction(*low, lo, hi)
-		x1 := r.X + kw/2 + (r.W-kw)*fraction(*high, lo, hi)
+		f0, f1 := fraction(*low, lo, hi), fraction(*high, lo, hi)
+		if rtl {
+			f0, f1 = 1-f0, 1-f1
+		}
+		x0 := r.X + kw/2 + (r.W-kw)*f0
+		x1 := r.X + kw/2 + (r.W-kw)*f1
 		p.Fill(Rect{r.X, cy - h/2, r.W, h}, t.Border, h/2)
-		p.Fill(Rect{x0, cy - h/2, x1 - x0, h}, t.Accent, h/2)
+		p.Fill(Rect{min(x0, x1), cy - h/2, max(x0, x1) - min(x0, x1), h}, t.Accent, h/2)
 		for k, x := range []float32{x0, x1} {
 			g := float32(0)
 			if k == which {

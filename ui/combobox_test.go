@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -107,6 +108,53 @@ func TestCombobox(t *testing.T) {
 	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
 	if n := accessNode(t, tt.h.access, platform.RoleComboBox, "Font"); n.Value != "Courier" || font != "Courier" {
 		t.Errorf("after the focus left, it shows %q, chose %q", n.Value, font)
+	}
+}
+
+// A click opening a combobox's options selects its choice, as the chevron
+// does, so that typing replaces it and filters, instead of appending to it
+// and matching nothing; clicks while they show place the caret.
+func TestComboboxClickSelectsChoice(t *testing.T) {
+	font, changes := "Arial", 0
+	tt := coreNewTester(func(c *context) {
+		if coreCombobox(c, &font, fonts).Label("Font").Width(200).Changed() {
+			changes++
+		}
+	}, 400, 400)
+	tt.Click("Font")
+	if !tt.HasText("Helvetica") {
+		t.Fatalf("a click shows %q", tt.Texts())
+	}
+	tt.Type("ti")
+	if !tt.HasText("Times") || !tt.HasText("Helvetica") || !tt.HasText("Optima") || tt.HasText("Courier") {
+		t.Fatalf("typing after a click filters %q", tt.Texts())
+	}
+	tt.Key(0, KeyEnter)
+	if font != "Times" || changes != 1 {
+		t.Fatalf("Enter chose %q (%d changes)", font, changes)
+	}
+	// The chevron, at the field's end, opens them the same way.
+	r, _ := tt.Find("Font")
+	tt.ClickAt(r.X+r.W-12, r.Y+r.H/2)
+	if !tt.HasText("Optima") {
+		t.Fatalf("the chevron shows %q", tt.Texts())
+	}
+	tt.Type("co")
+	if tt.HasText("Optima") || !tt.HasText("Courier") {
+		t.Fatalf("typing after the chevron filters %q", tt.Texts())
+	}
+	tt.Key(0, KeyEnter)
+	if font != "Courier" || changes != 2 {
+		t.Fatalf("Enter chose %q (%d changes)", font, changes)
+	}
+	// A click while they show places the caret: typing appends. (Away
+	// from the first, which a double-click would select a word.)
+	tt.Click("Font")
+	tt.ClickAt(r.X+r.W/2+20, r.Y+r.H/2)
+	tt.Type("x")
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	if n := accessNode(t, tt.h.access, platform.RoleComboBox, "Font"); n.Value == "x" {
+		t.Errorf("a second click left the choice selected: %q", n.Value)
 	}
 }
 
@@ -236,5 +284,68 @@ func TestTokenField(t *testing.T) {
 	}
 	if !tt.Focused("Tags") {
 		t.Error("the input lost the focus")
+	}
+}
+
+// TestComboboxScrollsPastHighlight scrolls a long popup with the wheel past
+// the option the pointer highlighted, which stays where the wheel left it,
+// and Down still brings the option it highlights into view.
+func TestComboboxScrollsPastHighlight(t *testing.T) {
+	var many []string
+	for i := range 60 {
+		many = append(many, fmt.Sprintf("Option %02d", i))
+	}
+	choice := ""
+	tt := coreNewTester(func(c *context) {
+		coreCombobox(c, &choice, many).Label("Pick").Width(200)
+	}, 400, 600)
+	tt.Click("Pick")
+	first, ok := tt.Find("Option 00")
+	if !ok {
+		t.Fatalf("a click shows %q", tt.Texts())
+	}
+	// The pointer highlights the first, then the wheel scrolls.
+	x, y := first.X+first.W/2, first.Y+first.H/2
+	tt.Move(x, y)
+	for range 30 {
+		tt.Scroll(x, y, 0, 120)
+	}
+	if r, _ := tt.Find("Option 59"); r.H == 0 || r.Y > first.Y+400 {
+		t.Fatalf("scrolled to the end, the last option is at %v; the first showed at %v", r, first)
+	}
+	// Down highlights the next, which comes into view.
+	tt.Key(0, KeyDown)
+	if r, _ := tt.Find("Option 01"); r.Y < first.Y-first.H || r.Y > first.Y+200 {
+		t.Errorf("Down highlights Option 01 out of view, at %v; the first showed at %v", r, first)
+	}
+}
+
+// TestSelectBaseScrollsToHighlight moves the highlight of a select whose
+// popup scrolls with the keys: the option it highlights comes into view.
+func TestSelectBaseScrollsToHighlight(t *testing.T) {
+	var many []string
+	for i := range 40 {
+		many = append(many, fmt.Sprintf("Size %02d", i))
+	}
+	choice := many[0]
+	tt := coreNewTester(func(c *context) {
+		sel := coreSelectBase(c, &choice)
+		sel.Trigger.Label("Size").Children(func() { coreText(c, choice) })
+		sel.Popup(func(panel *node) {
+			coreScroll(c).MaxHeight(120).Children(func() {
+				for _, s := range many {
+					sel.Item(s).Height(20).Children(func() { coreText(c, s) })
+				}
+			})
+		})
+	}, 400, 600)
+	tt.Click("Size")
+	top, ok := tt.Find("Size 01")
+	if !ok {
+		t.Fatalf("a click shows %q", tt.Texts())
+	}
+	tt.Key(0, KeyEnd)
+	if r, _ := tt.Find("Size 39"); r.Y < top.Y-20 || r.Y+r.H > top.Y-20+120 {
+		t.Errorf("End highlights Size 39 out of view, at %v; Size 01 showed at %v", r, top)
 	}
 }

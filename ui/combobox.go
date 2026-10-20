@@ -22,13 +22,15 @@ type comboboxParts struct {
 	// showed them, next those of this frame, and items their elements.
 	// pointer is where the pointer was when it last highlighted an option.
 	// typed is set while the text is what the user typed since the popup
-	// opened, which Filtering reports.
+	// opened, which Filtering reports. shown is the option last scrolled
+	// into view as the highlight moved to it.
 	highlight *int
 	values    *[]string
 	next      []string
 	items     []*node
 	pointer   *[2]float32
 	typed     *bool
+	shown     *string
 	chosen    string
 	isChosen  bool
 }
@@ -74,6 +76,7 @@ func comboboxBase(c *context, text *string, first bool) *comboboxParts {
 		values:    coreLocal(in, "values", func() []string { return nil }),
 		pointer:   coreLocal(in, "pointer", func() [2]float32 { return [2]float32{} }),
 		typed:     coreLocal(in, "typed", func() bool { return false }),
+		shown:     coreLocal(in, "shown", func() string { return "" }),
 	}
 	in.afterInput(func() {
 		p.chosen, p.isChosen = "", false
@@ -139,8 +142,8 @@ func (p *comboboxParts) choose(v string) {
 }
 
 // Chosen returns the option the user chose in this frame, by a click or
-// Enter: ask it after Popup. It applies pending input to the controls built
-// so far, so the choice can be handled in the same build pass.
+// Enter: ask it after Popup, which takes the input of the options it
+// built as it returns, so the choice can be handled in the same build pass.
 func (p *comboboxParts) Chosen() (string, bool) {
 	p.c.rt.applyInputs()
 	return p.chosen, p.isChosen
@@ -169,13 +172,13 @@ func (p *comboboxParts) Popup(fn func(panel *node)) *node {
 	c := p.c
 	p.next, p.items = p.next[:0], p.items[:0]
 	if !*p.open {
-		*p.values = (*p.values)[:0]
+		*p.values, *p.shown = (*p.values)[:0], ""
 		return nil
 	}
 	b := p.anchor.Bounds()
 	var panel *node
 	coreOverlay(c, func() {
-		panel = coreBox(c).MinWidth(b.W).Role(RoleList).AttachTo(p.anchor, AnchorBottomLeft, AnchorTopLeft)
+		panel = coreBox(c).MinWidth(b.W).Role(RoleList).AttachTo(p.anchor, AnchorBottomStart, AnchorTopStart)
 		// Pressing an option keeps the focus in the input.
 		panel.flags |= flagClickable | flagKeepFocus
 		panel.choosesItems = true
@@ -201,7 +204,9 @@ func (p *comboboxParts) Popup(fn func(panel *node)) *node {
 }
 
 // Item creates an option: a row that is Highlighted when the pointer or
-// the arrows are on it, and that chooses value when clicked.
+// the arrows are on it, and that chooses value when clicked. The option
+// the highlight moves to scrolls into view, once, so that the wheel
+// scrolls on past it.
 func (p *comboboxParts) Item(value string) *node {
 	c := p.c
 	i := len(p.next)
@@ -217,6 +222,13 @@ func (p *comboboxParts) Item(value string) *node {
 		}
 	}
 	item.highlighted = *p.highlight == i
+	// Into view as the highlight moves to it, and not again: in every
+	// frame, it would pull the popup back as the wheel scrolls away from
+	// it, the pointer, which highlights, staying still.
+	if item.highlighted && *p.shown != value {
+		*p.shown = value
+		item.ScrollIntoView()
+	}
 	// The option the arrows are on is the one assistive technology reads
 	// as chosen, as in a list box.
 	item.checked = 1 + int8(b2f(item.highlighted))
@@ -259,7 +271,6 @@ func styleOptions(c *context, p *comboboxParts, options []string) *node {
 			item := p.Item(opt).Padding(t.Space(1.5), t.Space(2.5)).Radius(t.Radius)
 			if item.Highlighted() {
 				item.Background(t.Accent).TextColor(t.AccentText)
-				item.ScrollIntoView()
 			}
 			item.Children(func() { coreText(c, opt).SingleLine() })
 		}
@@ -297,10 +308,10 @@ func chevronDown(c *context) *node {
 // Combobox creates a combobox choosing *selected among options: a field
 // showing the choice, whose text filters the options below it as the user
 // types, those starting with it first, while a click or Down shows them
-// all. Up and Down move among them and Enter chooses, as does a click;
-// Escape closes them, and the text goes back to the choice when the
-// field loses the focus. Changed reports a new choice. Name it with
-// Label.
+// all; a click showing them selects the choice, for typing to replace.
+// Up and Down move among them and Enter chooses, as does a click; Escape
+// closes them, and the text goes back to the choice when the field loses
+// the focus. Changed reports a new choice. Name it with Label.
 //
 //	ui.Combobox(c, &app.font, fonts).Label("Font")
 func coreCombobox(c *context, selected *string, options []string) *node {
@@ -317,17 +328,30 @@ func coreCombobox(c *context, selected *string, options []string) *node {
 			if arrow.Clicked() {
 				p.SetOpen(!p.Open())
 				p.Input.Focus()
+				if p.Open() {
+					// As a click in the text opening them does.
+					p.Input.st.editor.selectAll()
+				}
 			}
 		})
 		return p.Input
 	})
 	p.anchor = f
+	// Whether the popup showed before this frame's input.
+	wasOpen := p.Open()
 	shown := options
 	if p.Filtering() {
 		shown = matching(options, *text)
 	}
 	styleOptions(c, p, shown)
 	f.afterInput(func() {
+		// A click opening the options selects the choice, as choosing
+		// one leaves it, so that the next keystroke replaces it and
+		// filters, instead of appending to it and matching nothing.
+		// Clicks while they show place the caret.
+		if in.Clicked() && !wasOpen && p.Open() && !p.Filtering() {
+			in.st.editor.selectAll()
+		}
 		if v, ok := p.Chosen(); ok {
 			if *selected != v {
 				*selected = v
@@ -393,10 +417,10 @@ func coreSearchField(c *context, query *string) *node {
 	t := c.theme
 	f, in := field(c, func() *node {
 		magnifier(c)
-		in := coreTextInputBase(c, query).Grow(1).MinWidth(t.Space(15)).Placeholder("Search")
+		in := coreTextInputBase(c, query).Grow(1).MinWidth(t.Space(15)).Placeholder(c.texts().Search())
 		in.search = true
 		if *query != "" {
-			clear := coreButtonBase(c).Size(t.Space(4), t.Space(4)).Radius(t.Space(2)).Background(t.TextMuted.Alpha(0.5)).Label("Clear")
+			clear := coreButtonBase(c).Size(t.Space(4), t.Space(4)).Radius(t.Space(2)).Background(t.TextMuted.Alpha(0.5)).Label(c.texts().Clear())
 			clear.flags &^= flagFocusable // as AppKit's: no stop of Tab
 			clear.flags |= flagKeepFocus
 			clear.role = RoleButton
@@ -466,11 +490,11 @@ func coreTokenField(c *context, tokens *[]string, suggestions []string) *node {
 	f, in := field(c, func() *node {
 		for i := 0; i < len(*tokens); i++ {
 			tok := (*tokens)[i]
-			chip := coreRow(c).Key(tok).AlignItems(Center).Gap(t.Space(1)).Padding(t.Space(0.25), t.Space(1), t.Space(0.25), t.Space(2)).
+			chip := coreRow(c).Key(tok).AlignItems(Center).Gap(t.Space(1)).Padding(t.Space(0.25), 0).PaddingStart(t.Space(2)).PaddingEnd(t.Space(1)).
 				Radius(t.Radius).Background(t.SurfacePressed).Shrink(0)
 			chip.Children(func() {
 				coreText(c, tok).SingleLine()
-				x := coreButtonBase(c).Size(t.Space(3.5), t.Space(3.5)).Radius(t.Space(1)).Label("Remove " + tok)
+				x := coreButtonBase(c).Size(t.Space(3.5), t.Space(3.5)).Radius(t.Space(1)).Label(c.texts().RemoveToken(tok))
 				x.flags &^= flagFocusable
 				x.flags |= flagKeepFocus
 				x.role = RoleButton

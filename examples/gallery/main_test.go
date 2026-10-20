@@ -2,7 +2,9 @@ package main
 
 import (
 	"testing"
+	"time"
 
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -38,25 +40,25 @@ func TestSidebarNavigation(t *testing.T) {
 		check(pagePath(page))
 	}
 	// Clicking the current page adds no history entry.
-	click("Motion")
+	click("Languages")
 	click("Back")
-	check("/overlays")
-	click("Forward")
 	check("/motion")
+	click("Forward")
+	check("/languages")
 	// Arrow navigation uses the selection that survived the click's rebuild.
 	click("Text")
 	tt.Key(0, ui.KeyDown)
-	check("/list")
+	check("/rich-text")
 	// History and other navigation synchronize the sidebar's selection.
 	g.router.Back()
 	tt.Frame()
 	check("/text")
 	tt.Key(0, ui.KeyDown)
-	check("/list")
+	check("/rich-text")
 	g.router.Push("/list/42")
 	tt.Frame()
 	tt.Key(0, ui.KeyDown)
-	check("/styling")
+	check("/charts")
 }
 
 func TestRowStarAndBreadcrumb(t *testing.T) {
@@ -116,5 +118,44 @@ func TestListDerivedSelection(t *testing.T) {
 	tt.Key(0, ui.KeyEnter)
 	if got := g.router.Path(); got != "/list/99" {
 		t.Fatalf("Enter went to %q", got)
+	}
+}
+
+func TestOverviewCounter(t *testing.T) {
+	g := &gallery{router: ui.NewRouter("/overview")}
+	tt := ui.NewTester(g.overview, 980, 720)
+	for _, step := range []struct{ click, want string }{{"Increment", "1"}, {"Increment", "2"}, {"−", "1"}} {
+		if err := tt.Click(step.click); err != nil {
+			t.Fatal(err)
+		}
+		if !tt.HasText(step.want) {
+			t.Fatalf("after %s, want %s, texts %q", step.click, step.want, tt.Texts())
+		}
+	}
+}
+
+// TestLanguagesPage checks the Languages page in English and in Chinese:
+// the formats and MyGo's own strings follow the window's language.
+func TestLanguagesPage(t *testing.T) {
+	g := &gallery{router: ui.NewRouter("/languages"), now: time.Date(2026, 1, 5, 13, 7, 0, 0, time.UTC), meeting: time.Date(2026, 1, 5, 9, 30, 0, 0, time.UTC)}
+	tt := ui.NewTester(g.languages, 980, 1400)
+	tt.SetRegion(i18n.Region{Locale: "en-US", FirstWeekday: time.Sunday, HourCycle: 12})
+	for _, want := range []string{"1,234,567.891", "Monday, January 5, 2026", "1:07 PM", "January 2026", "简体中文 (zh-Hans)", "Pseudo right to left (ar-XB)", "12,34,567.891"} {
+		if !tt.HasText(want) {
+			t.Errorf("no %q in %q", want, tt.Texts())
+		}
+	}
+	tt.SetLocale("zh-Hans")
+	for _, want := range []string{"2026年1月5日星期一", "2026年1月", "上个月", "上午/下午"} {
+		if !tt.HasText(want) {
+			t.Errorf("in Chinese, no %q in %q", want, tt.Texts())
+		}
+	}
+	// The menu of languages chooses one.
+	if err := tt.Click("Deutsch (de)"); err != nil {
+		t.Fatal(err)
+	}
+	if g.language != "de" {
+		t.Errorf("after clicking Deutsch, the language chosen is %q", g.language)
 	}
 }

@@ -99,8 +99,9 @@ Develops the app with live reload. It writes the TypeScript client, runs
 place of its built frontend, and starts it. Without `devUrl` the app serves
 `frontendDist` from disk.
 
-Changes to the Go code, the configuration, the icon or the resources rebuild
-the app, regenerate the TypeScript client and restart the app: the running
+Changes to the Go code, the configuration, the icon, the resources or the
+[catalogs](i18n.md) rebuild the app, regenerate the TypeScript client and
+the functions of the catalogs, and restart the app: the running
 build quits, then the new one starts, so the two never hold the same files,
 locks or web view profile at once. A build that fails to compile keeps the
 running one. Frontend changes are the dev server's to handle. Quitting the app, or
@@ -122,8 +123,21 @@ version information that `mygo build` embeds.
 
 | Flag | |
 |---|---|
+With `-web`, mygo dev develops an app of [native UI in browsers](ui/browsers.md)
+instead: it compiles the app to WebAssembly, serves it at
+`http://localhost:5174` (or the next free port), opens it, and rebuilds it as
+its Go code changes, which reloads the page. A build that fails to compile
+leaves the page running the last one, and shows why over it until a fix
+compiles. `o` opens the page again.
+
+| Flag | |
+|---|---|
 | `-skip-dev-command` | does not run `devCommand`, e.g. when the dev server already runs |
 | `-sign` | the identity that signs the development app on macOS (default: `-`, ad hoc) |
+| `-web` | develops the app in browsers |
+| `-port` | with `-web`, the port to serve the app at, or the next free one (default: 5174) |
+| `-open` | with `-web`, opens the app in the browser (default: true) |
+| `-lang` | runs the app in a language, such as `de` or `zh-Hant`, or a pseudo locale, `en-XA` or `ar-XB`, without changing the language it keeps; see [trying a language](i18n.md#trying-a-language) |
 
 ## mygo build
 
@@ -135,9 +149,15 @@ Builds production apps: runs `buildCommand`, compiles the app with
 `frontendDist` embedded, and packages it for each platform in
 `<out>/<os>-<arch>`. See [Building and distributing](distribution.md).
 
+The platform `web` (or `js/wasm`) builds an app of native UI for browsers
+into `<out>/web`, a static site to serve from anywhere: `index.html`, which
+loads the app, Go's `wasm_exec.js`, the app's WebAssembly, named by its
+content so that it can be cached for good, and the icon. See
+[Browsers](ui/browsers.md).
+
 | Flag | |
 |---|---|
-| `-platform` | comma separated `GOOS/GOARCH` targets, e.g. `darwin/universal,windows/amd64,linux/amd64` (default: this machine's) |
+| `-platform` | comma separated `GOOS/GOARCH` targets, e.g. `darwin/universal,windows/amd64,linux/amd64`, or `web` (default: this machine's) |
 | `-debug` | keeps development features, such as the web inspector and the [inspector of native UI](ui/inspector.md) |
 | `-o` | the output directory (default: `out` of the configuration) |
 | `-sign` | the macOS signing identity (default: `macos.signingIdentity`) |
@@ -157,6 +177,22 @@ and the events declared with `mygo.NewEvent`, to `bindings` of the
 configuration unless `-o` names another file. `mygo dev` and `mygo build` run
 it for you; apps without a frontend get no client. See
 [the generated client](bindings.md#the-generated-client).
+
+With `i18n` in the configuration, it first checks the app's
+[catalogs](i18n.md) and writes their functions: `catalog_gen.go` in the
+catalogs' directory, and a TypeScript module next to the client, named
+after the directory (`src/locales.ts`). Errors in the catalogs stop it.
+
+## mygo i18n check
+
+```
+mygo i18n check [dir]
+```
+
+Checks the app's [catalogs](i18n.md#checking-the-catalogs): it lists their
+errors, such as messages that do not parse or arguments a translation adds,
+and their warnings, such as missing translations, and exits with status 1
+when there are errors.
 
 ## mygo keygen
 
@@ -195,6 +231,7 @@ Prints the version of the CLI.
 | `MYGO_WINDOWS_CERTIFICATE_PASSWORD` | the password of `windows.certificate`, for `mygo build` |
 | `MYGO_CLI_BINARY` | a build of the CLI for the `mygo-cli` package to run |
 | `MYGO_ENV` | `production` makes an app behave like a production build, e.g. without the web inspector |
+| `MYGO_LOCALE` | the language the app runs in, over the one it keeps, which `mygo dev -lang` sets |
 
 For an app with dependencies that need cgo:
 

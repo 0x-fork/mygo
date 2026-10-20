@@ -76,7 +76,9 @@ func coreRadioBase[T comparable](c *context, selected *T, value T) *node {
 // range unless Step says otherwise; Changed reports a new value, and
 // assistive technology sees a slider of that range. Draw its track and
 // thumb where (*value-lo)/(hi-lo) puts them, and pad it by half the
-// thumb's width to keep the thumb inside it:
+// thumb's width to keep the thumb inside it. Right to left
+// (Context.Direction), lo is at the right of the content box, as the
+// arrows go: draw it mirrored.
 //
 //	s := ui.SliderBase(c, &app.volume, 0, 100).Height(24).PaddingX(12)
 //	s.Draw(func(p *ui.Painter, r ui.Rect) {
@@ -93,9 +95,14 @@ func coreSliderBase(c *context, value *float64, lo, hi float64) *node {
 	return s
 }
 
-// sliderSettings are what Step and Vertical said of a slider as the last
-// frame built it, which the input since applies by.
+// sliderSettings are what Step and Vertical say of a slider in this
+// build, and what they said in the build before, which the input since
+// applies by: the slider the user dragged.
 type sliderSettings struct {
+	now, shown sliderOptions
+}
+
+type sliderOptions struct {
 	step     float64
 	vertical bool
 }
@@ -108,7 +115,8 @@ func sliderBase(c *context, value *float64, lo, hi, step float64) *node {
 	s := coreBox(c).Focusable()
 	s.flags |= flagDraggable | flagHover
 	s.widget = "Slider"
-	*coreLocal(s, sliderKey{}, func() sliderSettings { return sliderSettings{} }) = sliderSettings{}
+	set := coreLocal(s, sliderKey{}, func() sliderSettings { return sliderSettings{} })
+	set.shown, set.now = set.now, sliderOptions{}
 	*valueBinding[sliderValue](s) = sliderValue{value: value, lo: lo, hi: hi, step: step}
 	s.onValueInput(sliderInput)
 	if step <= 0 {
@@ -128,7 +136,7 @@ func (e *node) Step(step float64) *node {
 	}
 	e.accStep = step
 	if e.widget == "Slider" || e.widget == "SliderBase" {
-		coreLocal(e, sliderKey{}, func() sliderSettings { return sliderSettings{} }).step = step
+		coreLocal(e, sliderKey{}, func() sliderSettings { return sliderSettings{} }).now.step = step
 	}
 	return e
 }
@@ -139,7 +147,7 @@ func (e *node) Step(step float64) *node {
 // so.
 func (e *node) Vertical() *node {
 	if e.widget == "SliderBase" {
-		coreLocal(e, sliderKey{}, func() sliderSettings { return sliderSettings{} }).vertical = true
+		coreLocal(e, sliderKey{}, func() sliderSettings { return sliderSettings{} }).now.vertical = true
 		e.vertical = true
 	}
 	return e
@@ -205,10 +213,11 @@ func (p tabsParts) Tab(i int) *node {
 		if tab.Clicked() {
 			choose(i, false)
 		}
+		back, forth := tab.arrows()
 		switch {
-		case tab.Shortcut(0, KeyRight), tab.Shortcut(0, KeyDown):
+		case tab.Shortcut(0, forth), tab.Shortcut(0, KeyDown):
 			choose(i+1, true)
-		case tab.Shortcut(0, KeyLeft), tab.Shortcut(0, KeyUp):
+		case tab.Shortcut(0, back), tab.Shortcut(0, KeyUp):
 			choose(i-1, true)
 		case tab.Shortcut(0, KeyHome):
 			choose(0, true)
@@ -239,11 +248,15 @@ type selectParts[T comparable] struct {
 	// on, -1 until the popup finds the chosen one; values are the
 	// options of the last frame that showed them, and next those of this
 	// frame. pointer is where the pointer was when it last highlighted an
-	// option: it highlights another once it moves.
+	// option: it highlights another once it moves. shown is the option
+	// last scrolled into view as the highlight moved to it, while shows
+	// says whether it is one.
 	highlight *int
 	values    *[]T
 	next      []T
 	pointer   *[2]float32
+	shown     *T
+	shows     *bool
 }
 
 // SelectBase creates a select without a look: a trigger that opens a
@@ -278,10 +291,12 @@ func coreSelectBase[T comparable](c *context, selected *T) *selectParts[T] {
 		highlight: coreLocal(b, "highlight", func() int { return -1 }),
 		values:    coreLocal(b, "values", func() []T { return nil }),
 		pointer:   coreLocal(b, "pointer", func() [2]float32 { return [2]float32{} }),
+		shown:     coreLocal(b, "shown", func() T { var zero T; return zero }),
+		shows:     coreLocal(b, "shows", func() bool { return false }),
 	}
 	b.afterInput(func() {
 		open := func(o bool) {
-			*s.open, *s.highlight = o, -1
+			*s.open, *s.highlight, *s.shows = o, -1, false
 			*s.pointer = [2]float32{c.rt.pointerX, c.rt.pointerY}
 			c.rt.consumed = true
 		}
@@ -361,7 +376,8 @@ func (s *selectParts[T]) Popup(fn func(panel *node)) *node {
 
 // Item creates an option choosing value: a row that is Highlighted when
 // the pointer or the arrows are on it, and chooses value and closes the
-// popup when clicked.
+// popup when clicked. The option the highlight moves to scrolls into view,
+// once, so that the wheel scrolls on past it.
 func (s *selectParts[T]) Item(value T) *node {
 	c := s.c
 	i := len(s.next)
@@ -381,6 +397,10 @@ func (s *selectParts[T]) Item(value T) *node {
 		}
 	}
 	item.highlighted = *s.highlight == i
+	if item.highlighted && (!*s.shows || *s.shown != value) {
+		*s.shown, *s.shows = value, true
+		item.ScrollIntoView()
+	}
 	item.checked = 1 + int8(b2f(value == *s.selected))
 	item.afterInput(func() {
 		if item.Clicked() {
@@ -396,13 +416,15 @@ func (e *node) Highlighted() bool { return e.highlighted }
 
 // PopoverBase shows a panel without a look below anchor while *open is
 // true: fn styles the panel and builds its content. Pressing outside the
-// panel and the anchor, or Escape, sets *open to false; the press goes on
-// to what is under the pointer, as with the web's popovers. Where there is
+// panel and the anchor, or Escape, sets *open to false, which Dismissed
+// reports; the press goes on to what is under the pointer, as with the
+// web's popovers. It starts at the anchor's start: its left, or its right
+// right to left (Direction). Where there is
 // no room below the anchor, the panel shows above it; a top margin keeps
 // it apart from the anchor on either side. fn may place it elsewhere with
-// AttachTo, as to the right of the anchor:
+// AttachTo, as after the anchor:
 //
-//	panel.AttachTo(anchor, ui.AnchorRight, ui.AnchorLeft).Margin(0, 0, 0, 6)
+//	panel.AttachTo(anchor, ui.AnchorEnd, ui.AnchorStart).MarginStart(6)
 //
 // It returns the panel, or nil while closed; Popover is PopoverBase with
 // the theme's look.
@@ -418,6 +440,7 @@ func popover(c *context, anchor *node, open *bool, modal bool, fn func(panel *no
 		return nil
 	}
 	var panel *node
+	dismissed := false
 	coreOverlay(c, func() {
 		if modal {
 			back := coreBox(c).Absolute().Left(0).Top(0).Right(0).Bottom(0)
@@ -425,15 +448,18 @@ func popover(c *context, anchor *node, open *bool, modal bool, fn func(panel *no
 			back.popover = anchor
 			if back.Clicked() {
 				*open = false
+				dismissed = true
 			}
 		}
-		panel = coreBox(c).Role(RolePopup).AttachTo(anchor, AnchorBottomLeft, AnchorTopLeft)
+		panel = coreBox(c).Role(RolePopup).AttachTo(anchor, AnchorBottomStart, AnchorTopStart)
 		// Presses on it stay in it.
 		panel.flags |= flagClickable
 		panel.Children(func() { fn(panel) })
 		if panel.OverlayShortcut(0, KeyEscape) || !modal && panel.PressedOutside() {
 			*open = false
+			dismissed = true
 		}
+		panel.dismissed = dismissed
 	})
 	return panel
 }
@@ -441,8 +467,9 @@ func popover(c *context, anchor *node, open *bool, modal bool, fn func(panel *no
 // DialogBase shows a dialog without a look over the window while *open is
 // true: fn styles the backdrop covering the window, which centers the
 // panel, and the panel, and builds the panel's content. Clicking the
-// backdrop or pressing Escape sets *open to false. It returns the panel,
-// or nil while closed; Modal is DialogBase with the theme's look.
+// backdrop or pressing Escape sets *open to false, which Dismissed
+// reports. It returns the panel, or nil while closed; Modal is DialogBase
+// with the theme's look.
 func coreDialogBase(c *context, open *bool, fn func(backdrop, panel *node)) *node {
 	if !*open {
 		return nil
@@ -451,11 +478,13 @@ func coreDialogBase(c *context, open *bool, fn func(backdrop, panel *node)) *nod
 	coreOverlay(c, func() {
 		back := coreBox(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Modal()
 		back.flags |= flagClickable
-		if back.Clicked() || back.OverlayShortcut(0, KeyEscape) {
+		dismissed := back.Clicked() || back.OverlayShortcut(0, KeyEscape)
+		if dismissed {
 			*open = false
 		}
 		back.Children(func() {
 			panel = coreBox(c).Role(RoleDialog)
+			panel.dismissed = dismissed
 			panel.flags |= flagClickable
 			panel.Children(func() { fn(back, panel) })
 		})

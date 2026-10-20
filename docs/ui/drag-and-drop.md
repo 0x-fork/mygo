@@ -1,5 +1,7 @@
 # Drag and drop
 
+<!-- preview drag-and-drop 230 -->
+
 `Drag(value)` makes an element the source of a value dragged within the
 window: once the pointer pressing it moves a few DIPs, a translucent copy
 of the element follows the pointer, and the press is no click.
@@ -26,6 +28,11 @@ if task, ok := ui.Drop[*Task](done); ok {
 - **Targets.** The innermost element under the pointer that takes the
   value's type gets it, so a target inside another that takes other types
   does not block it.
+- **Controls inside.** A press on a control that only takes clicks, as a
+  button, inside an element that drags drags that element once the pointer
+  moves, and is no click: a list's rows made of buttons reorder. A press
+  that does not move clicks the control. Controls that take the pointer's
+  moves, as text inputs and sliders, keep them.
 - **Canceling.** Escape gives up a drag.
 - **Scrolling.** Scroll containers scroll as a drag nears their top or
   bottom, faster nearer to the edge.
@@ -148,7 +155,12 @@ starts a transfer directly from a current native pointer gesture; UI
 elements normally use `DragData` so the movement threshold is applied.
 
 `Result.Operation` is the destination's final effect. `Canceled` means no
-drop occurred; `Err` reports a native/provider failure. MyGo never deletes
+drop occurred; `Escaped` tells a drag the user gave up (Escape,
+`CancelDataDrag` or the window closing) from one let go over no target, and
+`Point` is where the drag ended, in the screen coordinates of
+`Screen.CursorScreenPoint`. A tab let go outside every window, for example,
+is `Canceled && !Escaped` at `Point`. `Err` reports a native/provider
+failure. MyGo never deletes
 files. Remove application records only after a successful move, and account
 for file managers that move a file themselves. Existing `DroppedFiles` and
 `OnFileDrop` listeners keep accepting files with copy semantics.
@@ -165,6 +177,7 @@ The image is copied at drag start; one image pixel represents one DIP.
 | macOS | AppKit dragging sessions and pasteboard item providers | Text/HTML/PNG/file URLs use system UTIs. MIME names map through `UTType`, with a reversible identifier fallback. Item boundaries are preserved. |
 | Linux | GTK 3 drag contexts and asynchronous selections | MIME targets, UTF8_STRING for text, text/uri-list for URLs and files. Accepted formats are requested after drop. |
 | Windows | OLE IDataObject / IDropSource / IDropTarget | Unicode text, CF_HDROP, URL, CF_HTML, PNG and registered custom names; delayed rendering and Shell drag images. Streams preserve exact binary lengths; HGLOBAL sources may include padding. |
+| Browsers | Files dropped on the canvas, read as they drop (see [browsers](browsers.md)) | Files only, at paths of the backend's that `os` reads. Other drags, and drags out of the window, have no transfer. |
 
 GTK and OLE have a single selection/data object: multiple text items are
 joined by newlines, URI/file lists by CRLF, and other formats use the first

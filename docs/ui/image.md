@@ -1,5 +1,7 @@
 # Image
 
+<!-- preview image 240 -->
+
 `ui.Image` shows a bitmap, or an SVG in its own colors, by default at its
 size in DIPs, scaled to fit when given another size.
 
@@ -36,6 +38,24 @@ go func() {
 		win.Update(func() { app.video.Update(frame) })
 	}
 }()
+```
+
+`Pixelated` draws a bitmap shown larger than its pixels as squares of
+their colors, as pixel art and game sprites are drawn, where it would
+blend neighbors smoothly. At whole multiples of its size each pixel is a
+block of whole screen pixels. At other sizes, such as a zoom of 2.5, the
+squares keep one size, their edges blending across a single screen pixel
+rather than some squares coming out a pixel wider than others, and they
+move smoothly rather than in jumps, as Ebitengine's `FilterPixelated`
+draws. Shown smaller, it is as smooth as any.
+
+```go
+tiles, err := ui.DecodeBitmap(tilesPNG)
+if err != nil {
+	log.Fatal(err)
+}
+tiles.Pixelated()
+ui.Image(c, tiles).Size(64, 64) // 16×16 pixels, each 4×4
 ```
 
 ## Fitting

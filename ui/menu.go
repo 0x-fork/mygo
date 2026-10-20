@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -318,6 +318,9 @@ func (rt *engine) menuPress(chain []uint64, x, y float32) bool {
 	if s == nil {
 		return false
 	}
+	if rt.listMenu != nil {
+		rt.listMenu(rt, chain, x, y)
+	}
 	if s.flags&flagSelectable != 0 && s.editor == nil {
 		if p := rt.textSelectionAt(s.id, x, y); p.id != 0 {
 			s = rt.states[p.id]
@@ -329,9 +332,10 @@ func (rt *engine) menuPress(chain []uint64, x, y float32) bool {
 			rt.focused = s.id
 			rt.focusVisible = false
 		}
-		rt.blinkStart = time.Now()
+		rt.blinkStart = rt.now()
 		if ed := s.editor; ed.laidOut() {
-			i := ed.hit(x-s.x, y-s.y)
+			lx, ly := s.local(x, y)
+			i := ed.hit(lx, ly)
 			if a, b := ed.selection(); a == b || i < a || i > b {
 				ed.commitCompose()
 				ed.move(i, false)
@@ -379,9 +383,12 @@ func (rt *engine) menuKey() bool {
 		return false
 	}
 	x, y := s.vx, s.vy+min(s.vh, 32)
+	if s.rtl {
+		x += s.vw
+	}
 	text := uint64(0)
 	if s.flags&(flagEditable|flagSelectable) != 0 && s.editor != nil {
-		r := s.editor.caretRect(s)
+		r := transformRect(s.world, s.editor.caretRect(s))
 		x, y = r.X, r.Y+r.H
 		text = s.id
 		s = rt.textMenu(s)
@@ -394,7 +401,18 @@ func (rt *engine) menuKey() bool {
 // openMenuButton has the next frame build the menu of menu button s, to
 // show below it.
 func (rt *engine) openMenuButton(s *state) {
-	rt.askMenu(s, s.vx, s.vy+s.vh, true)
+	x, y := s.menuCorner()
+	rt.askMenu(s, x, y, true)
+}
+
+// menuCorner returns where the menu of a button goes: at its bottom left
+// corner, or its bottom right one right to left, where the menu opens to
+// the left (platform.Menu.RightToLeft).
+func (s *state) menuCorner() (x, y float32) {
+	if s.rtl {
+		return s.vx + s.vw, s.vy + s.vh
+	}
+	return s.vx, s.vy + s.vh
 }
 
 // openMenu shows the context menu built for the element id once the frame
@@ -404,6 +422,9 @@ func (rt *engine) openMenu(id uint64, button bool, pm *platform.Menu, labels, co
 		return
 	}
 	mr := &rt.menu
+	if s := rt.states[id]; s != nil && s.rtl {
+		pm.RightToLeft = true
+	}
 	mr.pending = &shownMenu{id: id, button: button, menu: pm, labels: labels, commands: commands, x: mr.x, y: mr.y, text: mr.text}
 }
 
@@ -449,7 +470,7 @@ func (rt *engine) menuChosen(p *shownMenu, id int) {
 			if !rt.textSelectionCommand(s, p.commands[id-1]) {
 				s.editor.queue = append(s.editor.queue, editEvent{kind: editCommand, text: p.commands[id-1]})
 			}
-			rt.blinkStart = time.Now()
+			rt.blinkStart = rt.now()
 		}
 	} else {
 		mr := &rt.menu
@@ -493,13 +514,14 @@ func (rt *engine) editCommands(s *state) []editItem {
 		_, _, selected = rt.textSelectionBounds()
 	}
 	type command = editItem
+	texts := l10n.In(rt.lang)
 	var (
-		undo      = command{"Undo", "undo", len(ed.undo) > 0}
-		cut       = command{"Cut", "cut", selected && !ed.password}
-		copyText  = command{"Copy", "copy", selected && !ed.password}
-		paste     = command{"Paste", "paste", true}
-		del       = command{"Delete", "delete", selected}
-		selectAll = command{"Select All", "selectAll", ed.buf.n > 0}
+		undo      = command{texts.Undo(), "undo", len(ed.undo) > 0}
+		cut       = command{texts.Cut(), "cut", selected && !ed.password}
+		copyText  = command{texts.Copy(), "copy", selected && !ed.password}
+		paste     = command{texts.Paste(), "paste", true}
+		del       = command{texts.Delete(), "delete", selected}
+		selectAll = command{texts.SelectAll(), "selectAll", ed.buf.n > 0}
 		separator = command{}
 		commands  []command
 	)

@@ -43,10 +43,10 @@ type tooltips struct {
 // shows; one shows at a time.
 //
 // The tip goes above anchor, centered, or below it where there is no room
-// above; fn may place it elsewhere with AttachTo, as to the right:
+// above; fn may place it elsewhere with AttachTo, as after it:
 //
 //	ui.TooltipBase(c, b, func(tip ui.Element) {
-//		tip.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).Margin(0, 0, 0, 6)
+//		tip.AttachTo(b, ui.AnchorEnd, ui.AnchorStart).MarginStart(6)
 //		tip.Padding(4, 8).Radius(6).Background(dark).TextColor(light)
 //		tip.Children(func() { ui.Text(c, "Share") })
 //	})
@@ -143,7 +143,7 @@ func (rt *engine) showTooltip(c *context) uint64 {
 		t.hover, t.hoverSince = hover, now
 	}
 	var focus uint64
-	if rt.focusVisible && rt.windowFocused && tipped(rt.focused) {
+	if rt.focusVisible && rt.windowFocus() && tipped(rt.focused) {
 		focus = rt.focused
 	}
 	if focus != t.focus {

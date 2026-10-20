@@ -2,6 +2,7 @@ package ui
 
 import (
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -247,8 +248,7 @@ func TestEditableTextInTable(t *testing.T) {
 	if tt.HasText("beach.jpeg") != true {
 		t.Fatal("the click edited at once")
 	}
-	time.Sleep(renameDelay + 50*time.Millisecond)
-	tt.Frame()
+	tt.Advance(renameDelay + 50*time.Millisecond)
 	tt.Type("sea")
 	tt.Click("notes.txt")
 	if names[1] != "sea.jpeg" || sel != 0 {
@@ -257,8 +257,7 @@ func TestEditableTextInTable(t *testing.T) {
 	// A double click opens, and does not edit.
 	tt.Click("notes.txt")
 	tt.Click("notes.txt")
-	time.Sleep(renameDelay + 50*time.Millisecond)
-	tt.Frame()
+	tt.Advance(renameDelay + 50*time.Millisecond)
 	tt.Type("x")
 	if opened != 0 || names[0] != "notes.txt" {
 		t.Errorf("a double click: opened %d, the name %q", opened, names[0])
@@ -291,5 +290,231 @@ func TestEditableText(t *testing.T) {
 	tt.Key(0, KeyEnter)
 	if title != "Plan" || !tt.Focused("Plan") {
 		t.Errorf("after Enter: %q, focused %v", title, tt.Focused("Plan"))
+	}
+}
+
+func TestTableRoundRows(t *testing.T) {
+	names := []string{"a.txt", "b.txt", "c.txt"}
+	cols := []TableColumn{{Title: "Name"}, {Title: "Kind", Width: 100}, {Title: "Size", Width: 80, Align: End}}
+	// radius returns the corners of row i's box, or of the box inside it
+	// that shows the pointer over it in a table that does not choose.
+	radius := func(s *ListState, i int, inner bool) [4]float32 {
+		t.Helper()
+		for _, r := range s.frame.rows {
+			if r.i == i {
+				if inner {
+					return r.e.first.radius
+				}
+				return r.e.radius
+			}
+		}
+		t.Fatalf("row %d not built", i)
+		return [4]float32{}
+	}
+	r := LightTheme().Radius
+	square, round := [4]float32{}, [4]float32{r, r, r, r}
+
+	sel := 1
+	s := ListState{Selected: &sel}
+	coreNewTester(tableView(&s, cols, names), 500, 300)
+	if got := radius(&s, 1, false); got != square {
+		t.Errorf("a chosen row by default: %v", got)
+	}
+	s = ListState{Selected: &sel, RoundRows: true}
+	coreNewTester(tableView(&s, cols, names), 500, 300)
+	if got := radius(&s, 1, false); got != round {
+		t.Errorf("a chosen row with RoundRows: %v", got)
+	}
+
+	// Rows chosen together make one block.
+	var chosen Selection[string]
+	chosen.Add("a.txt")
+	chosen.Add("b.txt")
+	s = ListState{Selection: &chosen, Key: func(i int) any { return names[i] }, RoundRows: true}
+	coreNewTester(tableView(&s, cols, names), 500, 300)
+	if got := radius(&s, 0, false); got != [4]float32{r, r, 0, 0} {
+		t.Errorf("the first of two rows chosen: %v", got)
+	}
+	if got := radius(&s, 1, false); got != [4]float32{0, 0, r, r} {
+		t.Errorf("the second of two rows chosen: %v", got)
+	}
+
+	// A table that does not choose shows the pointer over its rows.
+	s = ListState{}
+	coreNewTester(tableView(&s, cols, names), 500, 300)
+	if got := radius(&s, 0, true); got != square {
+		t.Errorf("a row of a table that does not choose, by default: %v", got)
+	}
+	s = ListState{RoundRows: true}
+	coreNewTester(tableView(&s, cols, names), 500, 300)
+	if got := radius(&s, 0, true); got != round {
+		t.Errorf("a row of a table that does not choose, with RoundRows: %v", got)
+	}
+}
+
+// With SortBy, a Cmd-click sorts by several columns: it adds a column,
+// ascending, after those sorted by, makes it descending, then takes it
+// out. A click sorts by one column again.
+func TestTableSortBy(t *testing.T) {
+	var by []SortOrder
+	s := ListState{SortBy: &by}
+	cols := []TableColumn{{Title: "Name", Sortable: true}, {Title: "Kind", Width: 100, Sortable: true}, {Title: "Size", Width: 80, Sortable: true}}
+	tt := coreNewTester(tableView(&s, cols, []string{"a.txt", "b.txt"}), 500, 300)
+	check := func(step string, want ...SortOrder) {
+		t.Helper()
+		if !slices.Equal(by, want) {
+			t.Fatalf("%s: %+v, want %+v", step, by, want)
+		}
+	}
+	tt.Click("Name")
+	check("a click on Name", SortOrder{Column: "Name"})
+	tt.ClickWith(Cmd, "Kind")
+	check("a Cmd-click on Kind", SortOrder{Column: "Name"}, SortOrder{Column: "Kind"})
+	kept := by
+	tt.ClickWith(Cmd, "Size")
+	check("a Cmd-click on Size", SortOrder{Column: "Name"}, SortOrder{Column: "Kind"}, SortOrder{Column: "Size"})
+	if len(kept) != 2 {
+		t.Fatalf("a click changed the slice the app kept: %+v", kept)
+	}
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	if n := accessNode(t, tt.h.access, platform.RoleColumnHeader, "Size"); n.States&platform.AccessSortAscending == 0 || n.Label != "Size" {
+		t.Errorf("Size, sorted by after Name and Kind: %+v", n)
+	}
+	tt.ClickWith(Cmd, "Kind")
+	check("a second Cmd-click on Kind", SortOrder{Column: "Name"}, SortOrder{Column: "Kind", Descending: true}, SortOrder{Column: "Size"})
+	tt.ClickWith(Cmd, "Kind")
+	check("a third Cmd-click on Kind", SortOrder{Column: "Name"}, SortOrder{Column: "Size"})
+	// The first column goes the same way, the next taking its place.
+	tt.ClickWith(Cmd, "Name")
+	check("a Cmd-click on Name", SortOrder{Column: "Name", Descending: true}, SortOrder{Column: "Size"})
+	tt.ClickWith(Cmd, "Name")
+	check("a second Cmd-click on Name", SortOrder{Column: "Size"})
+	// A click sorts by one column again, and on the first reverses it.
+	tt.ClickWith(Cmd, "Kind")
+	tt.Click("Kind")
+	check("a click on Kind", SortOrder{Column: "Kind"})
+	tt.ClickWith(Cmd, "Name")
+	tt.Click("Kind")
+	check("a click on Kind, first", SortOrder{Column: "Kind", Descending: true})
+}
+
+func TestTableHeaderMenu(t *testing.T) {
+	built, chosen := -1, -1
+	s := ListState{Columns: TableLayout{Order: []string{"Size", "Name", "Kind"}}}
+	cols := []TableColumn{{Title: "Name"}, {Title: "Kind", Width: 100}, {Title: "Size", Width: 80}}
+	tt := coreNewTester(tableView(&s, cols, []string{"a.txt"}), 500, 300)
+	// Without HeaderMenu, a header has no menu.
+	tt.RightClick("Kind")
+	if m := tt.Menu(); m != nil {
+		t.Fatalf("a menu without HeaderMenu: %q", m)
+	}
+	s.HeaderMenu = func(m *Menu, col int) {
+		built = col
+		if m.Item("Hide Column").Chosen() {
+			chosen = col
+		}
+	}
+	tt.Frame()
+	// Kind shows third, and is the second of the columns.
+	tt.RightClick("Kind")
+	if m := tt.Menu(); len(m) != 1 || m[0] != "Hide Column" || built != 1 {
+		t.Fatalf("the menu %q, built for column %d", m, built)
+	}
+	if err := tt.ChooseMenuItem("Hide Column"); err != nil {
+		t.Fatal(err)
+	}
+	if chosen != 1 {
+		t.Errorf("chose the item for column %d", chosen)
+	}
+}
+
+// Set with SortBy, Sort follows its first column, for the app to read
+// the column that sorts first; a Shift-click adds a column as a Cmd-click
+// does, as web grids do.
+func TestTableSortFollowsSortBy(t *testing.T) {
+	var by []SortOrder
+	var sort SortOrder
+	s := ListState{Sort: &sort, SortBy: &by}
+	cols := []TableColumn{{Title: "Name", Sortable: true}, {Title: "Kind", Width: 100, Sortable: true}}
+	tt := coreNewTester(tableView(&s, cols, []string{"a.txt", "b.txt"}), 500, 300)
+	check := func(step string, first SortOrder, want ...SortOrder) {
+		t.Helper()
+		if !slices.Equal(by, want) || sort != first {
+			t.Fatalf("%s: SortBy %+v, Sort %+v; want %+v, %+v", step, by, sort, want, first)
+		}
+	}
+	tt.Click("Name")
+	check("a click on Name", SortOrder{Column: "Name"}, SortOrder{Column: "Name"})
+	tt.ClickWith(Shift, "Kind")
+	check("a Shift-click on Kind", SortOrder{Column: "Name"}, SortOrder{Column: "Name"}, SortOrder{Column: "Kind"})
+	tt.ClickWith(Cmd, "Name")
+	tt.ClickWith(Shift, "Name")
+	check("Name taken out", SortOrder{Column: "Kind"}, SortOrder{Column: "Kind"})
+	tt.ClickWith(Shift, "Kind")
+	tt.ClickWith(Shift, "Kind")
+	check("sorted by none", SortOrder{})
+	// The app setting SortBy itself.
+	by = []SortOrder{{Column: "Kind", Descending: true}}
+	tt.Frame()
+	check("SortBy set by the app", SortOrder{Column: "Kind", Descending: true}, SortOrder{Column: "Kind", Descending: true})
+}
+
+// The header past the columns has HeaderMenu's menu for column -1, which
+// does not open when it has no items.
+func TestTableHeaderMenuPastTheColumns(t *testing.T) {
+	built := 0
+	items := true
+	s := ListState{HeaderMenu: func(m *Menu, col int) {
+		built = col
+		if items {
+			m.Item("Reset Columns")
+		}
+	}}
+	cols := []TableColumn{{Title: "Name", Width: 120}, {Title: "Kind", Width: 100}}
+	tt := coreNewTester(tableView(&s, cols, []string{"a.txt"}), 500, 300)
+	kind, _ := tt.Find("Kind")
+	tt.RightClickAt(450, kind.Y+kind.H/2)
+	if m := tt.Menu(); len(m) != 1 || m[0] != "Reset Columns" || built != -1 {
+		t.Fatalf("past the columns: the menu %q, built for column %d", m, built)
+	}
+	tt.CloseMenu()
+	items = false
+	tt.RightClickAt(450, kind.Y+kind.H/2)
+	if m := tt.Menu(); m != nil {
+		t.Fatalf("a menu without items opened: %q", m)
+	}
+	items = true
+	tt.RightClick("Kind")
+	if built != 1 {
+		t.Fatalf("a column's header built the menu for column %d", built)
+	}
+}
+
+// CellMenu gives the cells a context menu over the whole cell, its padding
+// too, told the row and the column as the cell builder receives them.
+func TestTableCellMenu(t *testing.T) {
+	var s ListState
+	cols := []TableColumn{{Title: "A", Width: 100, Fixed: true}, {Title: "B", Width: 100, Fixed: true}}
+	gotRow, gotCol := -1, -1
+	s.CellMenu = func(m *Menu, row, col int) {
+		gotRow, gotCol = row, col
+		if col == 1 {
+			m.Item("Open")
+		}
+	}
+	tt := NewTester(func(c *Context) {
+		Table(c, &s, cols, 4, func(row, col int) { Textf(c, "r%dc%d", row, col) }).Grow(1)
+	}, 400, 300)
+	tt.Frame()
+	r, _ := tt.Find("r2c1")
+	tt.RightClickAt(r.X+r.W+20, r.Y+r.H/2) // past the text, in the cell
+	if m := tt.Menu(); len(m) != 1 || m[0] != "Open" || gotRow != 2 || gotCol != 1 {
+		t.Fatalf("right-click in r2c1 past its text: menu %q, row %d, col %d", m, gotRow, gotCol)
+	}
+	tt.CloseMenu()
+	r, _ = tt.Find("r1c0")
+	tt.RightClickAt(r.X+2, r.Y+r.H/2)
+	if m := tt.Menu(); m != nil || gotRow != 1 || gotCol != 0 {
+		t.Fatalf("a menu built without items opened: %q (row %d, col %d)", m, gotRow, gotCol)
 	}
 }

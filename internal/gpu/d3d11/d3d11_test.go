@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/internal/gpu"
 	"github.com/egoist/mygo/internal/gpu/gputest"
 	"github.com/egoist/mygo/internal/scene"
+	"github.com/egoist/mygo/internal/wait"
 )
 
 // hiddenWindow creates a window that never shows, for a swap chain.
@@ -56,6 +57,30 @@ func TestDrawsAsTheCPURenderer(t *testing.T) {
 			if err := r.present(1); err != nil {
 				t.Fatalf("frame %d: %v", frame, err)
 			}
+		}
+
+		s = gputest.TransformedScene()
+		for range 2 {
+			if err := r.draw(s); err != nil {
+				t.Fatal(err)
+			}
+			pix, stride := r.readBack(t)
+			gputest.Compare(t, "d3d11-affine", pix, stride, s)
+		}
+		s = gputest.PerspectiveScene()
+		for range 2 {
+			if err := r.draw(s); err != nil {
+				t.Fatal(err)
+			}
+			pix, stride := r.readBack(t)
+			gputest.Compare(t, "d3d11-perspective", pix, stride, s)
+		}
+		for i, s := range gputest.TranslatedScenes() {
+			if err := r.draw(s); err != nil {
+				t.Fatal(err)
+			}
+			pix, stride := r.readBack(t)
+			gputest.Compare(t, "d3d11-translated"+[]string{"", "-between-pixels"}[i], pix, stride, s)
 		}
 		r.Release()
 	}
@@ -130,7 +155,7 @@ func resizeSettles(t *testing.T, r *Renderer) {
 	user32 := syscall.NewLazyDLL("user32.dll")
 	peek, dispatch := user32.NewProc("PeekMessageW"), user32.NewProc("DispatchMessageW")
 	var msg [64]byte
-	for deadline := time.Now().Add(5 * time.Second); settling[r.hwnd]; time.Sleep(time.Millisecond) {
+	for deadline := time.Now().Add(wait.Guard); settling[r.hwnd]; time.Sleep(time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("%s: the settle timer did not fire", kind)
 		}

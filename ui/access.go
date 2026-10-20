@@ -3,7 +3,6 @@ package ui
 import (
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/internal/platform"
 )
@@ -238,7 +237,7 @@ func (rt *engine) accessTree() *platform.AccessTree {
 	default:
 		rt.accessElement(t, root, -1, false, &focused)
 	}
-	if rt.windowFocused && rt.focused != 0 {
+	if rt.windowFocus() && rt.focused != 0 {
 		focus := rt.focused
 		// A list choosing rows with the arrows has the focus for them:
 		// assistive technology follows the row chosen, as the arrows move
@@ -295,7 +294,7 @@ func (rt *engine) accessElement(t *platform.AccessTree, e *node, parent int, scr
 	if role, ok := e.accessRole(); ok {
 		n := platform.AccessNode{
 			ID: e.id, Parent: parent, Role: role, Label: e.label,
-			Bounds: platform.RectF{X: float64(e.x), Y: float64(e.y), W: float64(e.w), H: float64(e.h)},
+			Bounds: accessBounds(e),
 		}
 		if scrolled {
 			n.Actions |= platform.ActionScrollIntoView
@@ -311,6 +310,17 @@ func (rt *engine) accessElement(t *platform.AccessTree, e *node, parent int, scr
 			return
 		}
 	}
+	if e.webView != nil {
+		// Its page first, as it paints, in a node of its own that the
+		// platform's elements of the page are inside.
+		if v := rt.host.platformWebView(e.webView); v != nil {
+			b := e.contentBox()
+			t.Nodes = append(t.Nodes, platform.AccessNode{
+				ID: e.id ^ pageNodeID, Parent: parent, Role: platform.RoleGroup, WebView: v,
+				Bounds: platform.RectF{X: float64(b.X), Y: float64(b.Y), W: float64(b.W), H: float64(b.H)},
+			})
+		}
+	}
 	// Children in flow first, absolute ones above them, as they paint.
 	scrolled = scrolled || e.scrolls()
 	for ch := e.first; ch != nil; ch = ch.next {
@@ -324,6 +334,9 @@ func (rt *engine) accessElement(t *platform.AccessTree, e *node, parent int, scr
 		}
 	}
 }
+
+// pageNodeID tells the node of a web view's page from its element's.
+const pageNodeID = 0x9e3779b97f4a7c15
 
 // accessDetails fills in the name, value, states and actions of a node.
 func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
@@ -445,6 +458,9 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 			n.SelStart, n.SelEnd = ed.selection()
 		}
 	}
+	if e.accFill != nil {
+		e.accFill(n)
+	}
 }
 
 // accessibilityOn starts describing frames for assistive technology,
@@ -452,7 +468,10 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 func (rt *engine) accessibilityOn() {
 	if !rt.access {
 		rt.access = true
-		if rt.c.root == nil {
+		// None built yet, or one waiting for the window to show: the
+		// frame builds, out of sight too (the event is input), so that
+		// assistive technology reads what the window shows now.
+		if rt.c.root == nil || rt.held {
 			rt.requestFrame()
 		}
 	}
@@ -503,9 +522,10 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 		rt.reveal(s.id)
 	case platform.AccessIncrement, platform.AccessDecrement:
 		rt.focusOn(s)
-		// Sliders step right and left, spin buttons up and down.
+		// Sliders step right and left, spin buttons up and down, as do
+		// sliders laid out right to left, whose Right goes down.
 		up, down := KeyRight, KeyLeft
-		if s.role == RoleStepper {
+		if s.role == RoleStepper || s.rtl {
 			up, down = KeyUp, KeyDown
 		}
 		k := up
@@ -519,12 +539,30 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 		if ev.Action == platform.AccessCollapse {
 			s.expand = -1
 		}
+	case platform.AccessSelectText:
+		if ed := s.editor; ed != nil && s.flags&flagEditable != 0 {
+			n := ed.buf.n
+			ed.editorSelection = editorSelection{anchor: max(0, min(ev.From, n)), caret: max(0, min(ev.To, n))}
+			if ed.area != nil {
+				ed.area.reveal = true
+			}
+			break
+		}
+		if s.input != nil {
+			s.input(InputEvent{Kind: InputSelect, Start: ev.From, End: ev.To, Time: rt.now()})
+		}
 	case platform.AccessSetValue:
 		if s.editor == nil || s.flags&flagEditable == 0 || s.editor.readOnly {
 			return
 		}
 		rt.focusOn(s)
 		s.editor.queue = append(s.editor.queue, editEvent{kind: editCommand, text: "selectAll"}, editEvent{kind: editInsert, text: ev.Text})
+	case platform.AccessInsertText:
+		if s.editor == nil || s.flags&flagEditable == 0 || s.editor.readOnly {
+			return
+		}
+		rt.focusOn(s)
+		s.editor.queue = append(s.editor.queue, editEvent{kind: editInsert, text: ev.Text})
 	}
 	rt.requestFrame()
 }
@@ -536,7 +574,7 @@ func (rt *engine) focusOn(s *state) {
 	}
 	if rt.focused != s.id {
 		rt.focused = s.id
-		rt.blinkStart = time.Now()
+		rt.blinkStart = rt.now()
 	}
 	rt.focusVisible = true
 	rt.reveal(s.id)
