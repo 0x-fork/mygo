@@ -120,6 +120,12 @@ func (x *mirrored) same(label string) {
 	if ta.KittyKeyboardFlags() != tb.KittyKeyboardFlags() {
 		fail("kitty keyboard flags %d, mirrored %d", ta.KittyKeyboardFlags(), tb.KittyKeyboardFlags())
 	}
+	if ta.ModifyOtherKeys() != tb.ModifyOtherKeys() {
+		fail("modifyOtherKeys %v, mirrored %v", ta.ModifyOtherKeys(), tb.ModifyOtherKeys())
+	}
+	if ta.MouseShape() != tb.MouseShape() {
+		fail("pointer shape %d, mirrored %d", ta.MouseShape(), tb.MouseShape())
+	}
 }
 
 // cellRow is a row as its cells show: their text, styles, colors, widths
@@ -242,6 +248,17 @@ func TestMirrorScrolling(t *testing.T) {
 // The terminal showing the frames keeps the cursor its options make
 // while programs leave the cursor alone, and takes one a program asks
 // for, until the program resets it.
+// The keyboard's modes go to the other terminal as the program sets them,
+// and a pointer shape (OSC 22) does not turn modifyOtherKeys on there.
+func TestMirrorKeyboardModes(t *testing.T) {
+	loadLib(t)
+	x := newMirrored(t, 20, 6, Options{})
+	x.feed("a pointer shape", "\x1b]22;pointer\x1b\\")
+	x.feed("modifyOtherKeys", "\x1b[>4;2m")
+	x.feed("kitty keyboard flags", "\x1b[>1u")
+	x.feed("modifyOtherKeys off", "\x1b[>4;1m\x1b[<u")
+}
+
 func TestMirrorCursorStyle(t *testing.T) {
 	loadLib(t)
 	src, err := New(Options{Conn: newPipe()})
