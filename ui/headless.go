@@ -18,7 +18,9 @@ import (
 // headless renders frames in memory with the software renderer.
 type headless struct {
 	w, h, scale float32
-	img         raster.Renderer
+	// maxButton is where the view shows the maximize button.
+	maxButton Rect
+	img       raster.Renderer
 	// requested is set when the view asks for a frame, from any goroutine
 	// for invalidate.
 	requested atomic.Bool
@@ -154,6 +156,7 @@ func (h *headless) finishDataDrag(r transfer.Result) {
 	}
 }
 func (h *headless) titleBarDoubleClicked()            {}
+func (h *headless) setMaximizeButton(r Rect)          { h.maxButton = r }
 func (h *headless) escape()                           { h.escapes++ }
 func (h *headless) isDark() bool                      { return h.dark }
 func (h *headless) rightToLeft() bool                 { return h.rtl }
@@ -624,8 +627,25 @@ func (t *Tester) Move(x, y float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: float64(x), Y: float64(y)})
 }
 
-// Scroll scrolls by dx, dy DIPs with the pointer at (x, y).
+// Scroll scrolls by dx, dy DIPs with the pointer at (x, y), as a touchpad
+// does: at once.
 func (t *Tester) Scroll(x, y, dx, dy float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: float64(x), Y: float64(y), DX: float64(dx), DY: float64(dy), Precise: true})
+}
+
+// DropFiles drops files dragged from another app at (x, y), as from
+// Finder, and reports whether an element took them (DroppedFiles).
+func (t *Tester) DropFiles(x, y float32, paths ...string) bool {
+	t.send(platform.SurfaceEvent{Kind: platform.FileDragOver, X: float64(x), Y: float64(y)})
+	taken := t.rt.event(platform.SurfaceEvent{Kind: platform.FileDrop, X: float64(x), Y: float64(y), Files: paths})
+	t.settle()
+	return taken
+}
+
+// Wheel scrolls by dx, dy DIPs with the pointer at (x, y), as a notch of
+// a mouse wheel does: a scroll container glides there over a moment,
+// which advancing the clock (Advance) shows.
+func (t *Tester) Wheel(x, y, dx, dy float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: float64(x), Y: float64(y), DX: float64(dx), DY: float64(dy)})
 }
 

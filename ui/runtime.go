@@ -45,6 +45,9 @@ type host interface {
 	cancelDataDrag()
 	setDropFormats([]transfer.Format)
 	titleBarDoubleClicked()
+	// setMaximizeButton tells where the view shows the window's maximize
+	// button (MaximizeButton), the zero Rect for nowhere.
+	setMaximizeButton(r Rect)
 	// escape tells the window an Escape nothing handled.
 	escape()
 	isDark() bool
@@ -131,6 +134,23 @@ type engine struct {
 	// holes it painted, kept from one frame to the next.
 	under []opaqueBox
 	holes []Rect
+	// culled counts the elements painting skipped (Painter.paintable),
+	// unless noCull, which paints them all, as TestPaintCullMatches
+	// compares.
+	culled uint64
+	noCull bool
+
+	// layouts counts the frames laid out, laySeq the elements laid out
+	// (layoutBox) and computed those of them not as in the frame before;
+	// layGen is the text system's generation of the last layout, when
+	// layGenOK. noLayoutCache lays every element out anew, measuring
+	// all there is to measure and keeping nothing of their text
+	// (heldText), as TestLayoutCacheMatches compares (layoutcache.go).
+	layouts, laySeq uint64
+	computed        uint32
+	layGen          uint64
+	layGenOK        bool
+	noLayoutCache   bool
 
 	states map[uint64]*state
 	// free are states pruned, which new elements take: rows coming into
@@ -157,6 +177,9 @@ type engine struct {
 	webPlaces []webPlace
 	webOut    []placedWebView
 	webShown  bool
+	// maxButton is where the frame shows the window's maximize button
+	// (MaximizeButton), and maxSent what the host got of it.
+	maxButton, maxSent Rect
 	// The focus groups of the frame, the group of each element of the
 	// focus order in one, and the element of each that had the focus
 	// last.
@@ -194,6 +217,8 @@ type engine struct {
 	exitsBuilt   bool
 	laidW, laidH float32
 	byID         map[uint64]*node
+	// going are animateExits' copies going, in order.
+	going []exit
 	// insp is the inspector (inspector.go); dupKeys are the duplicate keys
 	// reported, and warnings what the inspector lists.
 	insp inspector
@@ -208,6 +233,9 @@ type engine struct {
 	strict bool
 	// clock is a Tester's time, time.Now when nil.
 	clock func() time.Time
+	// frameAt is the time of the next frame, when the display asked for it
+	// earlier than it draws (windowHost.waitDisplay).
+	frameAt time.Time
 
 	pointerX, pointerY float32
 	pointerIn          bool
@@ -283,6 +311,10 @@ type engine struct {
 	input      bool
 	painted    [3]float32
 	gen        uint64
+	// inkStale tells that elements moved since commit found their ink
+	// (node.ink), as poses do in frames that only paint: painting then
+	// skips none.
+	inkStale   bool
 	repaintDue time.Time
 	// late is set when lists built elements while laying out.
 	late bool
@@ -347,6 +379,9 @@ type engine struct {
 	labels     []labelNode
 	tips       tooltips
 	scrollDrag scrollDrag
+	// wheeling are the elements of the scroll containers that the notches
+	// of a mouse wheel scroll smoothly (glideWheels).
+	wheeling []uint64
 	// lastPress is the element of the press (id) and of the one before
 	// (prev), and how many of the backend's count of clicks were before
 	// the first on it.
@@ -453,7 +488,7 @@ func (rt *engine) runFrame() {
 	rt.input = false
 	rt.focusRead = false
 	rt.stats.begin(rt)
-	now := rt.now()
+	now := rt.frameTime()
 	w, h, scale := rt.host.size()
 	// The content takes the room the inspector leaves.
 	appW := rt.insp.contentWidth(w)
@@ -465,6 +500,7 @@ func (rt *engine) runFrame() {
 	rt.painted = [3]float32{w, h, scale}
 	rt.animating, rt.repainting, rt.repaintAt = false, false, time.Time{}
 	rt.routeKeys()
+	rt.glideWheels(now)
 	if rt.drag != nil {
 		// The source's element is this frame's, if it builds one.
 		rt.drag.elem = nil
@@ -550,6 +586,10 @@ func (rt *engine) runFrame() {
 	rt.insp.lap(2)
 	rt.host.present(&rt.scene)
 	rt.placeWebViews()
+	if rt.maxButton != rt.maxSent {
+		rt.maxSent = rt.maxButton
+		rt.host.setMaximizeButton(rt.maxButton)
+	}
 	rt.stats.lap(phasePresent)
 	rt.prune()
 	rt.syncDropFormats()
@@ -586,6 +626,17 @@ func (rt *engine) now() time.Time {
 		return rt.clock()
 	}
 	return time.Now()
+}
+
+// frameTime returns the time of a frame starting: when the display's
+// refresh asked for it, for a frame that waited for the display to be
+// able to show it, so that what moves keeps its pace; now otherwise.
+func (rt *engine) frameTime() time.Time {
+	if t := rt.frameAt; !t.IsZero() {
+		rt.frameAt = time.Time{}
+		return t
+	}
+	return rt.now()
 }
 
 // next asks for the frame that what moves needs: one built anew while the
@@ -666,7 +717,7 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 	defer rt.endFrame()
 	rt.stats.begin(rt)
 	start := time.Now()
-	rt.c.now = rt.now()
+	rt.c.now = rt.frameTime()
 	rt.text.BeginFrame()
 	rt.repainting, rt.repaintAt = false, time.Time{}
 	root := rt.c.root
@@ -751,7 +802,7 @@ func (rt *engine) prune() {
 				}
 				// Recycle the state itself, without keeping the editor,
 				// local resources or callbacks of the element that went.
-				*s = state{}
+				*s = state{text: s.text.emptied()}
 				if len(rt.free) < maxFree {
 					rt.free = append(rt.free, s)
 				}
@@ -894,6 +945,7 @@ func (rt *engine) commit(root *node, w, h float32) {
 	rt.posed = rt.posed[:0]
 	clear(rt.webPlaces)
 	rt.webPlaces = rt.webPlaces[:0]
+	rt.maxButton = Rect{}
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
 	rt.modal, rt.modalLayer, rt.commitScope, rt.commitPage = 0, 0, focusScope{}, 0
 	if rt.groups == nil {
@@ -904,6 +956,7 @@ func (rt *engine) commit(root *node, w, h float32) {
 	// The window, which the inspector shares with the root.
 	full := Rect{0, 0, w, h}
 	rt.commitElement(root, full, false)
+	rt.inkStale = false
 	rt.arrangeFocus()
 	rt.noteGroups()
 }
@@ -966,7 +1019,8 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	if (e.flags&flagEditable != 0 || e.flags&flagSelectable != 0 && s.editor != nil) && s.cursor == 0 {
 		s.cursor = CursorText + 1
 	}
-	v := intersect(e.visualRect(Rect{e.x, e.y, e.w, e.h}), clip)
+	vis := e.visualRect(Rect{e.x, e.y, e.w, e.h})
+	v := intersect(vis, clip)
 	s.vx, s.vy, s.vw, s.vh = v.X, v.Y, v.W, v.H
 	s.cx, s.cy = e.x+e.contentX(), e.y+e.contentY()
 	s.cw, s.ch = max(e.w-e.padX(), 0), max(e.h-e.padY(), 0)
@@ -986,6 +1040,9 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	}
 	if e.webView != nil {
 		rt.noteWebView(e, clip, invisible)
+	}
+	if e.maximizeButton && !invisible && rt.maxButton == (Rect{}) && v.W > 0 && v.H > 0 {
+		rt.maxButton = v
 	}
 	switch {
 	case e.flags&flagPassThrough != 0 || invisible:
@@ -1040,6 +1097,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 			rt.commitElement(ch, clip, invisible)
 		}
 	}
+	e.setInk(vis)
 }
 
 func intersect(a, b Rect) Rect {

@@ -333,7 +333,10 @@ type WindowOptions struct {
 	TitleBarStyle string
 	// TitleBarHeight is the height of a hidden title bar in DIPs (Linux,
 	// Windows); 0 is the backend's own.
-	TitleBarHeight       int
+	TitleBarHeight int
+	// HideWindowButtons hides the window controls of a hidden title bar,
+	// which the page draws itself: TitleBar is then zero.
+	HideWindowButtons    bool
 	TrafficLightPosition *Point
 	Vibrancy             string
 	Opacity              float64
@@ -355,10 +358,18 @@ type WindowOptions struct {
 	UserScripts []UserScript
 	// Schemes lists the custom protocols the webview must route to
 	// WindowHandler.SchemeRequest.
-	Schemes   []string
-	DevTools  bool
+	Schemes  []string
+	DevTools bool
+	// UserAgent overrides the user agent of the webview.
 	UserAgent string
-	Zoom      float64
+	// UserAgentSuffix is appended to UserAgent, or to the webview's own
+	// user agent, after a space. The public package trims it.
+	UserAgentSuffix string
+	Zoom            float64
+	// TabFocusesLinks makes Tab reach links and form controls that are not
+	// text fields (macOS, WKPreferences.tabFocusesLinks); the other
+	// platforms reach them already.
+	TabFocusesLinks bool
 	// Native carries backend specific state, e.g. the WKWebViewConfiguration
 	// WebKit hands us for window.open().
 	Native uintptr
@@ -464,6 +475,11 @@ type Window interface {
 	// TitleBarDoubleClicked performs the platform action for a double click
 	// on a custom title bar (zoom/minimize on macOS).
 	TitleBarDoubleClicked()
+	// SetMaximizeButton tells where the content shows the window's maximize
+	// button, in DIPs from the top-left corner of the content, which the
+	// backend makes the system's maximize button for the pointer: Windows
+	// shows the snap layouts over it. The zero RectF is nowhere.
+	SetMaximizeButton(r RectF)
 	// PlaceFlyout places a flyout (WindowOptions.Flyout) of the given
 	// size next to its anchor again, as Flyout.Place resolves it in the
 	// work area of a display, after the anchor, the size or the parent
