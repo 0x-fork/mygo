@@ -31,6 +31,10 @@ func TestClickOffWindowElement(t *testing.T) {
 		t.Fatal("ClickWith on an off-window element returned nil")
 	}
 
+	if err := tt.RightClick("off"); err == nil {
+		t.Fatal("RightClick on an off-window element returned nil")
+	}
+
 	if err := tt.Click("on"); err != nil {
 		t.Fatalf("Click on an on-window element failed: %v", err)
 	}

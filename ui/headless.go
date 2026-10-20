@@ -486,7 +486,9 @@ func (t *Tester) targetCenter(s string) (float32, float32, error) {
 	return x, y, nil
 }
 
-// Click clicks the center of the element showing text or labeled s.
+// Click clicks the center of the element showing text or labeled s. It
+// returns an error when no element shows s, or when the element's center
+// is outside the window, where the click would land on nothing.
 func (t *Tester) Click(s string) error {
 	x, y, err := t.targetCenter(s)
 	if err != nil {
@@ -522,13 +524,14 @@ func (t *Tester) ClickAtWith(mods Modifiers, x, y float32) {
 }
 
 // RightClick clicks the center of the element showing text or labeled s
-// with the secondary button.
+// with the secondary button. Like Click, it returns an error when no
+// element shows s or its center is outside the window.
 func (t *Tester) RightClick(s string) error {
-	r, ok := t.Find(s)
-	if !ok {
-		return fmt.Errorf("ui: no element shows %q", s)
+	x, y, err := t.targetCenter(s)
+	if err != nil {
+		return err
 	}
-	t.RightClickAt(r.X+r.W/2, r.Y+r.H/2)
+	t.RightClickAt(x, y)
 	return nil
 }
 
