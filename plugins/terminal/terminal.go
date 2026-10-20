@@ -117,7 +117,9 @@ type Options struct {
 	// Theme sets the colors, and DarkTheme those in dark windows when set,
 	// as Ghostty's theme = light:…,dark:… does (GhosttyTheme returns
 	// Ghostty's themes). Without either, the terminal follows the window's
-	// light or dark appearance, with LightTheme and DarkTheme.
+	// light or dark appearance, with LightTheme and DarkTheme. Until a
+	// view shows the terminal, or UseTheme gives it other colors, programs
+	// asking its colors get Theme's.
 	Theme, DarkTheme *Theme
 	// Cursor is the shape of the cursor, which programs may change, and
 	// NoBlink keeps it from blinking unless a program asks it to.
@@ -601,6 +603,9 @@ func New(opts Options) (*Terminal, error) {
 		t.term.Free()
 		return nil, err
 	}
+	// Programs asking the colors before a view shows the terminal, or in
+	// one no view shows, get the theme asked for.
+	t.UseTheme(opts.Theme)
 	if opts.Conn != nil {
 		t.src = opts.Conn
 		t.run()
