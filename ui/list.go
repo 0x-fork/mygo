@@ -518,12 +518,14 @@ func (s *ListState) sync(e *node, n int) {
 				s.header.ok = false
 			}
 		}
-		// The choice follows its item, and is gone with it. With a
-		// Selection, only while the Selection still holds the item: one
-		// the app took out of it, choosing others, is the app moving the
-		// choice, which may land on the row the item had, as a pasted
-		// file sorted there, or an item renamed in its place.
-		if sel := s.cursor(); sel != nil && *sel == s.selRow && s.selKey != nil && (s.Selection == nil || s.Selection.has(s.selKey)) {
+		// The choice follows its item, and is gone with it. The app's
+		// Selected, with a Selection, only while the Selection still holds
+		// the item: one the app took out of it, choosing others, is the
+		// app moving the choice, which may land on the row the item had,
+		// as a pasted file sorted there, or an item renamed in its place.
+		// The list's own cursor, which only the user moves, always
+		// follows its item, chosen or not.
+		if sel := s.cursor(); sel != nil && *sel == s.selRow && s.selKey != nil && (s.Selected == nil || s.Selection == nil || s.Selection.has(s.selKey)) {
 			j, ok := s.find(s.selKey, *sel, n)
 			if !ok {
 				j = -1
