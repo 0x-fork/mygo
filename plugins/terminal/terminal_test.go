@@ -234,6 +234,38 @@ func TestScrollback(t *testing.T) {
 	}
 }
 
+// A match that wraps from a row above the viewport shows on the rows of it
+// that the viewport shows.
+func TestSearchWrappedMatch(t *testing.T) {
+	loadLib(t)
+	term, err := New(Options{Conn: newPipe()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	tt.Frame()
+	cols, _ := term.Size()
+	term.Feed([]byte(lines(0, 50, "line ") + strings.Repeat("x", cols-3) + "needle\r\n" + lines(0, 50, "after ")))
+	term.Search("needle")
+	for range 100 {
+		if s := term.SearchStatus(); !s.Searching && s.Selected > 0 {
+			break
+		}
+		tt.Frame()
+	}
+	// The match starts on row 50, from the top of the scrollback, and ends
+	// on row 51: the viewport from row 51 shows its end alone.
+	term.mu.Lock()
+	term.term.ScrollToRow(51)
+	term.mu.Unlock()
+	tt.Frame()
+	want := matchSpan{y: 0, x0: 0, x1: 2, selected: true}
+	if len(term.v.matches) != 1 || term.v.matches[0] != want {
+		t.Errorf("matches show at %+v, want %+v", term.v.matches, want)
+	}
+}
+
 // A search finds the matches in the scrollback and on the screen, selects
 // the newest, highlights those that show, and goes to the older ones,
 // scrolling; OnSearch follows it, and ending it clears the highlights.
