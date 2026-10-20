@@ -306,3 +306,21 @@ func TestDiffSeparatorsKeepRoomOnlyForScrollbars(t *testing.T) {
 		}
 	}
 }
+
+// The sides of a split diff wrap their lines at the same width, whether
+// or not it fits its content, though only the new side draws the scroll
+// bar of a viewer that scrolls.
+func TestDiffSplitSidesWrapAlike(t *testing.T) {
+	long := strings.Repeat("word ", 80)
+	old := "a\n" + long + "\nb\nc"
+	nw := "a\n" + long + "\nB\nc"
+	for _, fit := range []bool{false, true} {
+		d := &DiffState{Old: NewBuffer(old), New: NewBuffer(nw), Layout: DiffSplit, Wrap: true, FitContent: fit}
+		tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).FillWidth() }, 800, 600)
+		tt.Frame()
+		tt.Frame()
+		if o, n := d.eds[0].view.wrapWidth, d.eds[1].view.wrapWidth; o != n || o <= 0 {
+			t.Errorf("FitContent %v: the old side wraps at %v, the new one at %v", fit, o, n)
+		}
+	}
+}
