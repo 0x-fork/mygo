@@ -2395,18 +2395,23 @@ func TestDropFiles(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
 	tt.Frame()
 	paths := []string{"/Users/me/My Shots/shot (1).png", "/tmp/a&b.txt"}
+	want := []string{`/Users/me/My\ Shots/shot\ \(1\).png /tmp/a\&b.txt`, `/tmp/a\&b.txt`}
+	if runtime.GOOS == "windows" {
+		paths = []string{`C:\Users\me\My Shots\shot (1).png`, `C:\tmp\ab.txt`}
+		want = []string{`"C:\Users\me\My Shots\shot (1).png" C:\tmp\ab.txt`, `C:\tmp\ab.txt`}
+	}
 	if !tt.DropFiles(100, 100, paths...) {
 		t.Fatal("the terminal did not take the files")
 	}
 	tt.Frame()
-	if got, want := conn.take(term), `/Users/me/My\ Shots/shot\ \(1\).png /tmp/a\&b.txt`; got != want {
-		t.Errorf("dropping pasted %q, want %q", got, want)
+	if got := conn.take(term); got != want[0] {
+		t.Errorf("dropping pasted %q, want %q", got, want[0])
 	}
 	term.Feed([]byte("\x1b[?2004h"))
 	tt.Frame()
 	tt.DropFiles(100, 100, paths[1])
 	tt.Frame()
-	if got, want := conn.take(term), "\x1b[200~/tmp/a\\&b.txt\x1b[201~"; got != want {
+	if got, want := conn.take(term), "\x1b[200~"+want[1]+"\x1b[201~"; got != want {
 		t.Errorf("dropping in bracketed paste pasted %q, want %q", got, want)
 	}
 }

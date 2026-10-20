@@ -282,22 +282,24 @@ func (t *Terminal) readsClipboard() bool {
 // does: each escaped for a shell, spaces between them, so that a shell
 // takes them as arguments and an agent as files it attaches. A program
 // that reads the clipboard itself (mode 5522) is offered them as a file
-// list too.
+// list too, when the paths make one.
 func (t *Terminal) dropFiles(paths []string) {
-	d, err := transfer.FileData(paths...)
-	if err != nil || len(paths) == 0 {
+	if len(paths) == 0 {
 		return
 	}
 	escaped := make([]string, len(paths))
 	for i, p := range paths {
 		escaped[i] = shellEscape(p)
 	}
+	text := transfer.Bytes(transfer.Text, []byte(strings.Join(escaped, " ")))
+	d, err := transfer.FileData(paths...)
+	if err != nil {
+		t.PasteData(transfer.New(transfer.NewItem(text)))
+		return
+	}
 	items := d.Items()
 	first, _ := items[0].Read(transfer.FileList)
-	items[0] = transfer.NewItem(
-		transfer.Bytes(transfer.FileList, first), transfer.Bytes(transfer.URIList, first),
-		transfer.Bytes(transfer.Text, []byte(strings.Join(escaped, " "))),
-	)
+	items[0] = transfer.NewItem(transfer.Bytes(transfer.FileList, first), transfer.Bytes(transfer.URIList, first), text)
 	t.PasteData(transfer.New(items...))
 }
 
