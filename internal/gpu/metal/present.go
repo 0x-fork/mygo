@@ -260,7 +260,8 @@ func (r *Renderer) finishPending(prefetch bool) error {
 }
 
 // dropPending drops the frame pending, committing what it drew before its
-// drawable: the next draws whole.
+// drawable: the next draws whole. What Ready was given meanwhile runs, as
+// the frame waiting for this one, which never comes, can draw now.
 func (r *Renderer) dropPending() {
 	if r.pending.cb == 0 {
 		return
@@ -270,6 +271,7 @@ func (r *Renderer) dropPending() {
 	r.track(r.pending.cb)
 	release(&r.pending.cb)
 	r.pending = pendingFrame{}
+	r.wakeContent()
 }
 
 // wakeContent runs what Ready was given while a frame was pending.
