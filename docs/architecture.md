@@ -554,6 +554,24 @@ features GTK 4 lacks become X11-only code beside it.
   webview's window is created later, so the controls go back to the top of
   the z-order when it appears. A window without a caption has no room for
   its menu bar: Alt and F10 open a popup holding the bar's own submenus.
+- **Menus** are Win32's (`menu.go`). Popup menus follow the appearance
+  through uxtheme's preferred app mode (ordinal 135); the menu bar follows
+  nothing, so the window draws it, and covers the light line below it when
+  dark, from the UAH messages menus send their window (`darkmenu.go`).
+  Windows 11 still draws Win32 menus as Windows 10 did, so there MyGo draws
+  the items in the style of its own menus (WinUI's `MenuFlyout`, File
+  Explorer's), in either appearance (`menudraw.go`): popup items are
+  owner-drawn (`MFT_OWNERDRAW`, measured and drawn in `WM_MEASUREITEM` and
+  `WM_DRAWITEM` of the window the menu shows for, or of the application
+  window for trays), each into a bitmap with its highlight's rounded
+  corners antialiased, then copied, and excluded from the DC after, which
+  keeps Windows from drawing the submenus' arrows over the chevrons;
+  `WM_INITMENUPOPUP` gives the menu the background of the items. The items
+  keep their strings, which mnemonics, screen readers and the tests read.
+  The bar grows from `WM_UAHMEASUREMENUITEM` and its items get inset
+  backplates with rounded corners. A contrast theme keeps the system's
+  colors: the bar is Windows' again, the popup items take the system's.
+  Windows 10 keeps its menus.
 - **Vibrancy** sets `DWMWA_SYSTEMBACKDROP_TYPE` (Windows 11 22H2) and
   extends the frame over the client area, behind a transparent webview or
   native UI.
