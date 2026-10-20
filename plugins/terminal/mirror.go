@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -30,8 +31,9 @@ import (
 // to a second, as the view's frames do not: Frame then reports that one
 // is due.
 //
-// Programs' writes to the clipboard (OSC 52) go on to the other terminal,
-// and so do their reads with ClipboardForward, for it to answer.
+// Programs' writes to the clipboard (OSC 52) go on to the other terminal
+// of each Mirror, and their reads with ClipboardForward to one of them, the
+// first to frame, for it to answer.
 //
 // Frames read the terminal as its view does, which takes the terminal's
 // record of what changed since it last read it: a terminal a view shows
@@ -59,6 +61,9 @@ type Mirror struct {
 	// placement the last id of a placement made.
 	imgs      [2]mirroredImages
 	placement uint32
+	// clipOut is what programs copied since the last frame, which each
+	// Mirror passes on.
+	clipOut []string
 }
 
 // NewMirror returns a Mirror of the terminal, whose first frame starts the
@@ -67,14 +72,21 @@ func (t *Terminal) NewMirror() (*Mirror, error) {
 	if !vt.Loaded() {
 		return nil, errors.New("terminal: libghostty-vt is not loaded")
 	}
-	return &Mirror{t: t}, nil
+	m := &Mirror{t: t}
+	t.mu.Lock()
+	t.mirrors = append(t.mirrors, m)
+	t.mu.Unlock()
+	return m, nil
 }
 
 // Close frees the mirror.
 func (m *Mirror) Close() {
-	m.t.mu.Lock()
-	defer m.t.mu.Unlock()
+	t := m.t
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	m.closed = true
+	m.clipOut = nil
+	t.mirrors = slices.DeleteFunc(t.mirrors, func(o *Mirror) bool { return o == m })
 }
 
 // Reset has the next frame start the other terminal over, as when another
@@ -593,10 +605,10 @@ func (m *Mirror) state(out *bytes.Buffer, c vt.Cursor) {
 		fmt.Fprintf(out, "\x1b]2;%s\x1b\\", title)
 		m.title = title
 	}
-	for _, text := range t.clipOut {
+	for _, text := range m.clipOut {
 		fmt.Fprintf(out, "\x1b]52;c;%s\x1b\\", base64.StdEncoding.EncodeToString([]byte(text)))
 	}
-	t.clipOut = nil
+	m.clipOut = nil
 	for _, primary := range t.clipForward {
 		sel := "c"
 		if primary {

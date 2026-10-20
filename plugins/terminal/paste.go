@@ -219,7 +219,7 @@ func (t *Terminal) clipboardRead(req vt.ClipboardRead) (vt.ClipboardReply, vt.Cl
 		// Silent, as a read another terminal answers: an OSC 52 read goes
 		// on with a Mirror's next frame.
 		if len(req.Mimes) == 1 && req.Mimes[0] == "text/plain" && !req.List {
-			t.clipForward = append(t.clipForward, req.Primary)
+			t.clipForward = queue(t.clipForward, req.Primary)
 			t.redraw()
 		}
 		return vt.ClipboardReply{}, vt.ClipboardRefused
@@ -247,6 +247,19 @@ func (t *Terminal) clipboardRead(req vt.ClipboardRead) (vt.ClipboardReply, vt.Cl
 	t.clipReads = append(t.clipReads, r)
 	t.redraw()
 	return vt.ClipboardReply{Deferred: r.deferred}, vt.ClipboardDeferred
+}
+
+// maxQueued bounds what programs' uses of the clipboard queue for a frame
+// to take, which none may take, as a server's terminal no window shows:
+// the latest are kept.
+const maxQueued = 16
+
+// queue appends v to q, which keeps maxQueued at most.
+func queue[T any](q []T, v T) []T {
+	if len(q) >= maxQueued {
+		q = append(q[:0], q[len(q)-maxQueued+1:]...)
+	}
+	return append(q, v)
 }
 
 // sendReply queues a paste's reply in pieces, each telling how far it went

@@ -477,8 +477,12 @@ type Terminal struct {
 	closed  bool
 	clipOut []string // what programs copied, for the view to write
 	// clipForward are reads of the clipboard for a Mirror to pass on, with
-	// ClipboardForward: whether each is of the primary selection.
+	// ClipboardForward: whether each is of the primary selection. The
+	// first Mirror to frame takes them, as one terminal answers a read.
 	clipForward []bool
+	// mirrors are the terminal's Mirrors, each of which passes on what
+	// programs copy.
+	mirrors []*Mirror
 	// clipReads are reads of the clipboard waiting for the main thread to
 	// answer them: a frame takes them, reads the clipboard and writes the
 	// reply (see view.answerReads).
@@ -570,7 +574,10 @@ func New(opts Options) (*Terminal, error) {
 			if primary || t.opts.NoClipboardWrite {
 				return false
 			}
-			t.clipOut = append(t.clipOut, text)
+			t.clipOut = queue(t.clipOut, text)
+			for _, m := range t.mirrors {
+				m.clipOut = queue(m.clipOut, text)
+			}
 			t.redraw()
 			return true
 		},

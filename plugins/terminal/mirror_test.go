@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -526,6 +527,51 @@ func TestMirrorTwoWindows(t *testing.T) {
 	for i, out := range steps {
 		x.feed(fmt.Sprintf("step %d, the first window", i), out)
 		second.frame(fmt.Sprintf("step %d, the second window", i))
+	}
+}
+
+// Programs' writes to the clipboard go to every Mirror's frames, their
+// reads with ClipboardForward to one, and what no frame takes stays
+// bounded.
+func TestMirrorClipboard(t *testing.T) {
+	loadLib(t)
+	src, err := New(Options{Conn: newPipe(), ClipboardRead: ClipboardForward})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	src.Resize(20, 4)
+	m1, _ := src.NewMirror()
+	defer m1.Close()
+	m2, _ := src.NewMirror()
+	m1.Frame()
+	m2.Frame()
+	write := func(s string) string { return "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(s)) + "\x1b\\" }
+	src.Feed([]byte(write("copied") + "\x1b]52;c;?\x1b\\"))
+	f1, _ := m1.Frame()
+	f2, _ := m2.Frame()
+	for i, f := range []string{string(f1), string(f2)} {
+		if strings.Count(f, write("copied")) != 1 {
+			t.Errorf("frame of mirror %d has the write %d times: %q", i+1, strings.Count(f, write("copied")), f)
+		}
+	}
+	if n := strings.Count(string(f1)+string(f2), "\x1b]52;c;?\x1b\\"); n != 1 {
+		t.Errorf("the read went %d times, want once", n)
+	}
+	// A closed Mirror takes nothing, and what no frame takes is bounded.
+	m2.Close()
+	for i := range 100 {
+		src.Feed([]byte(write(fmt.Sprint(i)) + "\x1b]52;c;?\x1b\\"))
+	}
+	src.mu.Lock()
+	queued, forward, mirrors := len(src.clipOut), len(src.clipForward), len(src.mirrors)
+	src.mu.Unlock()
+	if queued > maxQueued || forward > maxQueued || mirrors != 1 {
+		t.Errorf("%d writes and %d reads queued, %d mirrors", queued, forward, mirrors)
+	}
+	f1, _ = m1.Frame()
+	if f := string(f1); strings.Count(f, "\x1b]52;c;") != 2*maxQueued || !strings.Contains(f, write("99")) {
+		t.Errorf("the frame passes on %d uses of the clipboard, want the last %d writes and reads", strings.Count(f, "\x1b]52;c;"), maxQueued)
 	}
 }
 
