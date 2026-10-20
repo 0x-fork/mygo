@@ -437,7 +437,7 @@ func (d *Differ) moved(s *Scene, op *Op) bool {
 			}
 		}
 	}
-	return op.Transform.Set && (fold == nil || !folds(s, op))
+	return op.Transform.Set && (!folding() || !folds(s, op))
 }
 
 // Remember keeps what Diff needs of s, which Diff was given last, to
