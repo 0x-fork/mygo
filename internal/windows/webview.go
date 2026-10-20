@@ -20,6 +20,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/egoist/mygo/internal/accelerator"
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -553,12 +554,49 @@ func (w *window) acceleratorKeyPressed(_, args uintptr) {
 	}
 	var vk uint32
 	comCall(args, accelGetVirtualKey, uintptr(unsafe.Pointer(&vk)))
-	cmd, ok := w.accels[accelKey{vk: vk, mods: currentModifiers()}]
+	cmd, ok := w.pageAccelerator(accelKey{vk: vk, mods: currentModifiers()})
 	if !ok {
 		return
 	}
 	comCall(args, accelPutHandled, 1)
 	w.b.menuCommand(cmd, w)
+}
+
+// pageEditRoles are the roles whose keys a page keeps, as in a browser and
+// in native UI: WebView2 cuts, copies and pastes with the page's own events
+// and every format of the clipboard, where editRole pastes text alone.
+var pageEditRoles = map[string]bool{
+	"undo": true, "redo": true, "cut": true, "copy": true, "paste": true,
+	"pasteAndMatchStyle": true, "delete": true, "selectAll": true,
+}
+
+// pageAccelerator returns the menu command a key pressed in a page runs,
+// if any.
+func (w *window) pageAccelerator(key accelKey) (uint16, bool) {
+	cmd, ok := w.accels[key]
+	if !ok {
+		return 0, false
+	}
+	if e := w.b.menus.entries[cmd]; e != nil && pageEditRoles[e.role] && pageEditKey(key) {
+		return 0, false
+	}
+	return cmd, true
+}
+
+// pageEditKey reports a key WebView2 edits a page with itself, as Edge
+// does. An edit role's item on another key, as Copy on Ctrl+Shift+C in a
+// terminal, still runs from it: the page would do nothing with the key.
+func pageEditKey(key accelKey) bool {
+	const ctrl, shift = accelerator.Ctrl, accelerator.Shift
+	switch key.mods {
+	case ctrl:
+		return key.vk == 'Z' || key.vk == 'Y' || key.vk == 'X' || key.vk == 'C' || key.vk == 'V' || key.vk == 'A'
+	case ctrl | shift:
+		return key.vk == 'Z' || key.vk == 'V'
+	case 0:
+		return key.vk == 0x2E // VK_DELETE
+	}
+	return false
 }
 
 func (w *window) LoadURL(raw string) {
