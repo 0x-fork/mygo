@@ -49,6 +49,9 @@ var (
 
 	fnSearchNew, fnSearchFree, fnSearchSet, fnSearchGet, fnSearchFeed, fnSearchTick, fnPointFromGridRef uintptr
 
+	fnKittyGet, fnKittyImage, fnKittyImageGet, fnPlacementIteratorNew, fnPlacementIteratorFree,
+	fnPlacementNext, fnPlacementGet, fnPlacementRenderInfo, fnSysSet, fnAlloc uintptr
+
 	// Bound with registerFunc below: they take structs or floats.
 	fnTerminalScrollViewport, fnTerminalGridRef, fnMouseEventSetPosition, fnSelectionFormatAlloc, fnFormatterTerminalNew uintptr
 )
@@ -128,6 +131,16 @@ var symbols = []struct {
 	{"ghostty_selection_gesture_free", &fnGestureFree},
 	{"ghostty_selection_gesture_reset", &fnGestureReset},
 	{"ghostty_selection_gesture_get", &fnGestureGet},
+	{"ghostty_kitty_graphics_get", &fnKittyGet},
+	{"ghostty_kitty_graphics_image", &fnKittyImage},
+	{"ghostty_kitty_graphics_image_get", &fnKittyImageGet},
+	{"ghostty_kitty_graphics_placement_iterator_new", &fnPlacementIteratorNew},
+	{"ghostty_kitty_graphics_placement_iterator_free", &fnPlacementIteratorFree},
+	{"ghostty_kitty_graphics_placement_next", &fnPlacementNext},
+	{"ghostty_kitty_graphics_placement_get", &fnPlacementGet},
+	{"ghostty_kitty_graphics_placement_render_info", &fnPlacementRenderInfo},
+	{"ghostty_sys_set", &fnSysSet},
+	{"ghostty_alloc", &fnAlloc},
 	{"ghostty_selection_gesture_event_new", &fnGestureEventNew},
 	{"ghostty_selection_gesture_event_free", &fnGestureEventFree},
 	{"ghostty_selection_gesture_event_set", &fnGestureEventSet},
@@ -183,6 +196,7 @@ func load(path string) error {
 	registerFunc(&selectionFormatAlloc, fnSelectionFormatAlloc)
 	registerFunc(&formatterTerminalNew, fnFormatterTerminalNew)
 	makeCallbacks()
+	decodePNG()
 	return nil
 }
 
@@ -312,6 +326,13 @@ var enums = []struct {
 	{"GhosttyMouseButton", "FIVE", WheelDown},
 	{"GhosttyRenderStateCursorVisualStyle", "BLOCK_HOLLOW", int64(CursorBlockHollow)},
 	{"GhosttyRenderStateDirty", "FULL", int64(Full)},
+	{"GhosttyTerminalData", "KITTY_GRAPHICS", dataKittyGraphics},
+	{"GhosttyTerminalData", "COLOR_FOREGROUND", dataColorFg},
+	{"GhosttyTerminalData", "COLOR_FOREGROUND_DEFAULT", dataColorFgDefault},
+	{"GhosttyKittyGraphicsPlacementData", "Z", placementZ},
+	{"GhosttyKittyGraphicsImageData", "GENERATION", imageGeneration},
+	{"GhosttyKittyImageFormat", "GRAY", int64(ImageGray)},
+	{"GhosttySysOption", "DECODE_PNG", sysDecodePNG},
 	{"GhosttyCellWide", "SPACER_HEAD", int64(SpacerHead)},
 	{"GhosttyStyleColorTag", "RGB", colorRGB},
 	{"GhosttySgrUnderline", "DASHED", UnderlineDashed},

@@ -181,6 +181,11 @@ type Options struct {
 	// gray on a light theme, darkens or lightens as little as reaches it,
 	// keeping its hue. SetMinimumContrast changes it.
 	MinimumContrast float32
+	// ImageLimit is the most bytes the images programs show take (the
+	// Kitty graphics protocol), as Ghostty's image-storage-limit: 320 MB
+	// when zero; a negative limit refuses images, for programs to show
+	// something else.
+	ImageLimit int64
 
 	// OnTitle, OnExit, OnBell and OnNotify run on a goroutine of the
 	// terminal when a program sets the title, when the program (or Conn)
@@ -570,6 +575,12 @@ func New(opts Options) (*Terminal, error) {
 		return nil, err
 	}
 	t.term.SetTerminfoName("xterm-256color")
+	switch {
+	case opts.ImageLimit == 0:
+		t.term.SetImageLimit(320 << 20)
+	case opts.ImageLimit > 0:
+		t.term.SetImageLimit(uint64(opts.ImageLimit))
+	}
 	// Grapheme clusters take the cells of their width, as in Ghostty:
 	// emoji with modifiers and joined emoji take two.
 	t.term.SetModeDefault(vt.ModeGraphemes, true)

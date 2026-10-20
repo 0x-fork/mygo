@@ -186,10 +186,9 @@ func NewTerminal(cols, rows int, effects Effects) (*Terminal, error) {
 	t.setValue(optDeviceAttributes, cbDeviceAttributes)
 	t.setValue(optDesktopNotification, cbDesktopNotification)
 	t.setValue(optProgressReport, cbProgressReport)
-	// Images of the Kitty graphics protocol are not drawn: refuse them,
-	// so that programs fall back to something else.
-	var limit uint64
-	t.set(optKittyImageLimit, unsafe.Pointer(&limit))
+	// Images of the Kitty graphics protocol are refused until SetImageLimit
+	// takes them, so that programs fall back to something else.
+	t.SetImageLimit(0)
 	return t, nil
 }
 

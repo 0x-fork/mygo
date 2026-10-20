@@ -54,6 +54,10 @@ type Mirror struct {
 	scrollback int
 	// modes, colors, cursor and title are what the last frame set of them.
 	modes, colors, cursor, title string
+	// imgs are the images sent of the main and the alternate screens, and
+	// placement the last id of a placement made.
+	imgs      [2]mirroredImages
+	placement uint32
 }
 
 // NewMirror returns a Mirror of the terminal, whose first frame starts the
@@ -169,6 +173,7 @@ func (m *Mirror) frame(out *bytes.Buffer) {
 	if !alt {
 		m.scrollback = scrollback
 	}
+	m.images(out, term, alt, top, rows)
 	m.state(out, rs.Cursor())
 }
 
@@ -202,8 +207,11 @@ func (m *Mirror) scrolled(ids []vt.RowID, scrollback int) int {
 // restart starts the other terminal over: its scrollback and screen, then
 // this one's, row by row.
 func (m *Mirror) restart(out *bytes.Buffer, screen []line, alt bool, top int) {
-	out.WriteString("\x1b[?1049l\x1b[0m\x1b[H\x1b[2J\x1b[3J")
+	// Both screens' images go too, which frames send again.
+	const noImages = "\x1b_Ga=d,d=A,q=2\x1b\\"
+	out.WriteString("\x1b[?1049h" + noImages + "\x1b[?1049l" + noImages + "\x1b[0m\x1b[H\x1b[2J\x1b[3J")
 	m.modes, m.cursor = "", ""
+	m.imgs = [2]mirroredImages{}
 	m.sent = make([][]byte, len(screen))
 	m.main = nil
 	if alt {

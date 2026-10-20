@@ -165,6 +165,10 @@ type view struct {
 	scrollbar vt.Scrollbar
 	lines     []rowCache
 	shaped    lru
+	// images are the placements of images that show, and bitmaps their
+	// images' (readImages).
+	images  []shownImage
+	bitmaps map[uint32]*cachedImage
 
 	keys    *vt.KeyEncoder
 	mouse   *vt.MouseEncoder

@@ -571,3 +571,79 @@ func TestMirrorColors(t *testing.T) {
 	step("set", "\x1b]10;#102030\x07\x1b]11;#fedcba\x07\x1b]12;#ff0000\x07\x1b]4;1;#0000ff;200;#008000\x07", set)
 	step("reset", "\x1b]110\x07\x1b]111\x07\x1b]112\x07\x1b]104\x07", own)
 }
+
+// The images programs place (Kitty graphics) show in the other terminal
+// where they show here, sent once, scrolling as the rows do, and go when
+// deleted: grok's preview of a pasted image showed nothing in a window of
+// a server's session.
+func TestMirrorImages(t *testing.T) {
+	loadLib(t)
+	src, err := New(Options{Conn: newPipe()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst, err := New(Options{Conn: newPipe()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := src.NewMirror()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Close(); src.Close(); dst.Close() })
+	src.ResizePixels(40, 10, 8, 16)
+	dst.ResizePixels(40, 10, 8, 16)
+	frame := func() string {
+		f, _ := m.Frame()
+		dst.Feed(f)
+		return string(f)
+	}
+	frame()
+	placements := func(term *Terminal) []vt.Placement {
+		term.mu.Lock()
+		defer term.mu.Unlock()
+		var out []vt.Placement
+		term.term.Placements(func(p vt.Placement) {
+			if p.Visible {
+				p.ID = 0 // the other terminal's are the Mirror's
+				out = append(out, p)
+			}
+		})
+		return out
+	}
+	same := func(label string) {
+		t.Helper()
+		a, b := placements(src), placements(dst)
+		if len(a) == 0 && label != "deleted" {
+			t.Errorf("%s: nothing placed here", label)
+		}
+		if fmt.Sprint(a) != fmt.Sprint(b) {
+			t.Errorf("%s: the other terminal places %+v, want %+v", label, b, a)
+		}
+	}
+	src.Feed([]byte("\x1b[3;5H" + kittyImage(9, 16, 32, ui.RGB(255, 0, 0), ",C=1") + "after"))
+	if f := frame(); !strings.Contains(f, "a=t") {
+		t.Fatalf("the image's pixels were not sent: %q", f)
+	}
+	same("placed")
+	dst.mu.Lock()
+	img, ok := dst.term.Image(9)
+	dst.mu.Unlock()
+	if !ok || img.Width != 16 || img.Height != 32 || img.Pixels[0] != 255 || img.Pixels[1] != 0 {
+		t.Errorf("the other terminal's image is %v, %+v", ok, img)
+	}
+	if f := frame(); strings.Contains(f, "_G") {
+		t.Errorf("a frame with nothing new sent images again: %q", f)
+	}
+	src.Feed([]byte("\x1b[10;1H\n\n\n"))
+	if f := frame(); strings.Contains(f, "_G") {
+		t.Errorf("scrolling sent images again: %q", f)
+	}
+	same("scrolled")
+	src.Feed([]byte("\x1b_Ga=d,d=I,i=9,q=2\x1b\\"))
+	frame()
+	same("deleted")
+	if p := placements(dst); len(p) != 0 {
+		t.Errorf("the other terminal still places %+v", p)
+	}
+}

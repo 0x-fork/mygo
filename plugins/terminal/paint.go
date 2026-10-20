@@ -137,6 +137,9 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	contrast := t.opts.MinimumContrast
 	tc, tr := t.term.Size()
 	v.matches, v.matchBuf = t.viewportMatches(v.matches, v.matchBuf, tc, tr)
+	if !held {
+		v.readImages(t.term)
+	}
 	t.mu.Unlock()
 	rs := t.rs
 	if !held {
@@ -486,6 +489,7 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 	if selection.A == 0 {
 		selection = color(v.colors.Foreground).Alpha(0.3)
 	}
+	v.drawImages(p, belowBackground, ox, oy)
 	for y := range v.lines {
 		line := &v.lines[y]
 		ry := oy + float32(y)*ch
@@ -506,6 +510,7 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 			p.Fill(ui.Rect{X: ox + float32(m.x0)*cw, Y: oy + float32(m.y)*ch, W: float32(m.x1-m.x0+1) * cw, H: ch}, c, 0)
 		}
 	}
+	v.drawImages(p, belowText, ox, oy)
 	cur, curColor, curText, block := v.cursorRect(ox, oy, cw, ch)
 	if block {
 		p.Fill(cur, curColor, 0)
@@ -550,6 +555,7 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 		p.Clip(ui.Rect{X: a, Y: r.Y, W: b - a, H: r.H}, 0, func() { text(v.theme.SelectionText) })
 		p.Clip(ui.Rect{X: b, Y: r.Y, W: r.X + r.W - b, H: r.H}, 0, func() { text(ui.Color{}) })
 	}
+	v.drawImages(p, aboveText, ox, oy)
 	if h := v.hover; h.on() && h.row < len(v.lines) {
 		v.drawDeco(p, deco{h.x0, h.x1, vt.UnderlineSingle, v.linkColor(&v.lines[h.row], h)}, ox, oy+float32(h.row)*ch, cw, ch, base)
 	}
