@@ -161,6 +161,7 @@ type view struct {
 	cols, rows             int
 
 	colors    vt.Colors
+	contrast  float32 // Options.MinimumContrast, as of the last paint
 	cursor    vt.Cursor
 	scrollbar vt.Scrollbar
 	lines     []rowCache

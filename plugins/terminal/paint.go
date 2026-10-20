@@ -135,14 +135,15 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	}
 	v.scrollbar = t.term.Scrollbar()
 	v.alt = t.term.AltScreen()
+	contrast := t.opts.MinimumContrast
 	t.mu.Unlock()
 	rs := t.rs
 	if !held {
 		rs.EndUpdate()
 	}
 	colors := rs.Colors()
-	full := rs.Dirty() == vt.Full || colors != v.colors
-	v.colors, v.cursor = colors, rs.Cursor()
+	full := rs.Dirty() == vt.Full || colors != v.colors || contrast != v.contrast
+	v.colors, v.contrast, v.cursor = colors, contrast, rs.Cursor()
 	cols, rows := rs.Size()
 	if len(v.lines) != rows {
 		v.lines = append(v.lines[:0], make([]rowCache, rows)...)
@@ -188,6 +189,9 @@ func (v *view) resolve(s vt.Style) resolved {
 	if s.Inverse {
 		r.fg, r.bg, r.hasBg, r.inverse = r.bg, r.fg, true, true
 	}
+	if v.contrast > 1 {
+		r.fg = contrasted(r.fg, r.bg, v.contrast)
+	}
 	if s.Faint {
 		r.fg = r.fg.Alpha(0.5)
 	}
@@ -199,6 +203,51 @@ func (v *view) resolve(s vt.Style) resolved {
 	}
 	r.invisible, r.underline, r.strike, r.overline = s.Invisible, s.Underline, s.Strikethrough, s.Overline
 	return r
+}
+
+// contrasted returns fg with at least the given contrast ratio with bg, as
+// WCAG reckons it: fg itself when it has it, else fg mixed toward black
+// or white, whichever contrasts more with bg, as little as reaches it.
+func contrasted(fg, bg ui.Color, ratio float32) ui.Color {
+	lb := luminance(bg)
+	if contrast(luminance(fg), lb) >= ratio {
+		return fg
+	}
+	to := ui.RGB(0, 0, 0)
+	if contrast(1, lb) > contrast(0, lb) {
+		to = ui.RGB(255, 255, 255)
+	}
+	lo, hi := float32(0), float32(1)
+	for range 8 {
+		mid := (lo + hi) / 2
+		if contrast(luminance(fg.Mix(to, mid)), lb) >= ratio {
+			hi = mid
+		} else {
+			lo = mid
+		}
+	}
+	return fg.Mix(to, hi)
+}
+
+// luminance returns the relative luminance of an sRGB color, from 0 for
+// black to 1 for white.
+func luminance(c ui.Color) float32 {
+	lin := func(v uint8) float64 {
+		f := float64(v) / 255
+		if f <= 0.04045 {
+			return f / 12.92
+		}
+		return math.Pow((f+0.055)/1.055, 2.4)
+	}
+	return float32(0.2126*lin(c.R) + 0.7152*lin(c.G) + 0.0722*lin(c.B))
+}
+
+// contrast returns the contrast ratio of two luminances, from 1 to 21.
+func contrast(a, b float32) float32 {
+	if a < b {
+		a, b = b, a
+	}
+	return (a + 0.05) / (b + 0.05)
 }
 
 // buildRow makes the cache of the render state's current row.

@@ -167,6 +167,12 @@ type Options struct {
 	// (PaddingExtend, PaddingExtendAlways), so that a full-screen
 	// program's colors reach the edges of the view.
 	PaddingColor PaddingColor
+	// MinimumContrast is the least contrast text has with its background,
+	// as Ghostty's minimum-contrast: a WCAG ratio from 1 (none, as when
+	// zero) to 21 (black on white). Text with less, as a program's light
+	// gray on a light theme, darkens or lightens as little as reaches it,
+	// keeping its hue. SetMinimumContrast changes it.
+	MinimumContrast float32
 
 	// OnTitle, OnExit, OnBell and OnNotify run on a goroutine of the
 	// terminal when a program sets the title, when the program (or Conn)
@@ -858,6 +864,15 @@ func (t *Terminal) SetCopyOnSelect(c CopyOnSelect) {
 	t.mu.Lock()
 	t.opts.CopyOnSelect = c
 	t.mu.Unlock()
+}
+
+// SetMinimumContrast changes the least contrast of text with its
+// background, as Options.MinimumContrast.
+func (t *Terminal) SetMinimumContrast(ratio float32) {
+	t.mu.Lock()
+	t.opts.MinimumContrast = ratio
+	t.mu.Unlock()
+	t.redraw()
 }
 
 // SetTheme changes the colors, as Options.Theme and DarkTheme.

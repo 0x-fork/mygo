@@ -155,6 +155,11 @@ term, err := terminal.New(terminal.Options{
 - `Cursor` and `NoBlink` set the cursor, which programs may change.
 - `Scrollback` is about how many bytes of output to keep above the
   screen: 10 MB by default, none when negative.
+- `MinimumContrast` is the least contrast text has with its background,
+  as Ghostty's `minimum-contrast`: a WCAG ratio from 1 (none, the
+  default) to 21. Text with less, as a program's light gray on a light
+  theme, darkens or lightens as little as reaches it, keeping its hue.
+  `SetMinimumContrast` changes it in a running terminal.
 - `Transparent` leaves the background undrawn, as Ghostty's
   `background-opacity`, so that what is under the view shows through: the
   window's material, or an element's translucent background. Cells with a
