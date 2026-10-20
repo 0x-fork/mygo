@@ -136,6 +136,9 @@ type surface struct {
 	// keyTaken tells that the content took the key down, whose
 	// WM_SYSCHAR then opens no menu.
 	keyTaken bool
+	// menuRan tells that the key down ran a menu item (menuShortcut): its
+	// character goes nowhere.
+	menuRan bool
 
 	reconvert  *[2]int // the runes a reconversion replaces
 	dropTarget uintptr // IDropTarget
@@ -606,13 +609,19 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		return 0, true
 	case wmKeyDown, wmSysKeyDown:
 		s.clientComposition.Reset()
-		s.keyTaken = false
+		s.keyTaken, s.menuRan = false, false
 		modifiers := mods()
 		if modifierKey(wp) {
 			s.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: modifiers})
 		}
+		if s.menuShortcut(wp, false) {
+			return 0, true
+		}
 		if k, physical, ok := keyAndPosition(wp, lp, false, modifiers); ok {
 			s.keyTaken = s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, PhysicalKey: physical, Mods: modifiers, Repeat: lp&(1<<30) != 0})
+		}
+		if !s.keyTaken && s.menuShortcut(wp, true) {
+			return 0, true
 		}
 		// Alt+F4, Alt+Space and F10 keep working.
 		return 0, m == wmKeyDown
@@ -626,6 +635,9 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		}
 		return 0, m == wmKeyUp
 	case wmSysChar:
+		if s.menuRan {
+			return 0, true
+		}
 		if s.keyTaken {
 			// The content took Alt and the key, as a terminal does.
 			return 0, true
@@ -637,6 +649,9 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 			return 0, true
 		}
 	case wmChar:
+		if s.menuRan {
+			return 0, true
+		}
 		c := uint16(wp)
 		switch {
 		case utf16.IsSurrogate(rune(c)) && c < 0xDC00:
@@ -833,4 +848,28 @@ func (w *window) Surface() platform.Surface {
 		return nil
 	}
 	return w.surface
+}
+
+// menuShortcut runs the window's menu item whose shortcut the key down vk
+// is, as macOS's menus take their key equivalents, and reports whether it
+// ran one. The app's own items take their keys before the content, which
+// gets only what they leave; items with a role (roles), only those the
+// content leaves: their keys are the content's own too, as Ctrl+C, which
+// copies in a field, interrupts in a terminal and is Edit › Copy's.
+func (s *surface) menuShortcut(vk uintptr, roles bool) bool {
+	w := s.w.top()
+	cmd, ok := w.accels[accelKey{vk: uint32(vk), mods: currentModifiers()}]
+	if !ok {
+		return false
+	}
+	e := w.b.menus.entries[cmd]
+	if e == nil || (e.role != "") != roles {
+		return false
+	}
+	if st, _, _ := procGetMenuState.Call(e.menu, uintptr(cmd), mfByCommand); uint32(st) != 0xFFFFFFFF && st&mfGrayed != 0 {
+		return false
+	}
+	s.keyTaken, s.menuRan = true, true
+	w.b.menuCommand(cmd, w)
+	return true
 }

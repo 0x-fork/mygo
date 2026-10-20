@@ -601,3 +601,29 @@ func TestMaximizeButton(hwnd uintptr, press bool) uintptr {
 	}
 	return hit
 }
+
+// TestSurfaceKey presses and releases a key in a window showing native UI,
+// with the modifiers held, as the thread's keyboard state tells them while
+// it handles the messages: the window needs not be in front.
+func TestSurfaceKey(hwnd uintptr, vk byte, mods ...byte) bool {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.surface == nil {
+		return false
+	}
+	getState, setState := user32.NewProc("GetKeyboardState"), user32.NewProc("SetKeyboardState")
+	var saved, state [256]byte
+	getState.Call(uintptr(unsafe.Pointer(&saved)))
+	state = saved
+	for _, m := range mods {
+		state[m] = 0x80
+	}
+	setState.Call(uintptr(unsafe.Pointer(&state)))
+	defer setState.Call(uintptr(unsafe.Pointer(&saved)))
+	down, up := uint32(wmKeyDown), uint32(wmKeyUp)
+	if state[vkMenu] != 0 {
+		down, up = wmSysKeyDown, wmSysKeyUp
+	}
+	procSendMessageW.Call(w.surface.hwnd, uintptr(down), uintptr(vk), 1)
+	procSendMessageW.Call(w.surface.hwnd, uintptr(up), uintptr(vk), 1|3<<30)
+	return true
+}
