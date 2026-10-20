@@ -1096,16 +1096,14 @@ func userAgentWithSuffix(ua, suffix string) string {
 	return ua + " " + suffix
 }
 
-// webkitSettingsSetUserAgentSuffix appends application details to the default
-// user agent of settings. WebKitGTK takes them as two strings and joins them
-// with "/", which is where the suffix splits: at the first one.
+// webkitSettingsSetUserAgentSuffix appends suffix to the default user agent
+// of settings, after a space, as the other backends do. WebKitGTK's
+// application details would join a name and a version with "/", and give
+// a suffix without one WebKit's version.
 func webkitSettingsSetUserAgentSuffix(settings ptr, suffix string) {
-	name, version, hasVersion := strings.Cut(suffix, "/")
-	var v *byte
-	if hasVersion {
-		v = cs(version)
-	}
-	webkitSettingsSetUserAgentWithApplicationDetails(settings, cs(name), v)
+	webkitSettingsSetUserAgent(settings, nil)
+	ua := goStr(webkitSettingsGetUserAgent(settings))
+	webkitSettingsSetUserAgent(settings, cs(userAgentWithSuffix(ua, suffix)))
 }
 
 func (w *window) UserAgent() string {
