@@ -101,6 +101,9 @@ func (w *FileWatch) Notify(n platform.FileWatchNotice) {
 // without sharing deletes a moment to let go, as the Windows backend does:
 // a test reading the file while the app saves it is such a reader.
 func (b *Backend) ReplaceFile(target, replacement string) error {
+	if b.ReplaceFileHook != nil {
+		return b.ReplaceFileHook(target, replacement)
+	}
 	if info, err := os.Stat(target); err == nil {
 		if err := os.Chmod(replacement, info.Mode().Perm()); err != nil {
 			return err

@@ -80,6 +80,9 @@ type Backend struct {
 	FileWatchNoFiles bool
 	// FileWatchAddHook is the AddHook of the file watches made.
 	FileWatchAddHook func(platform.FileWatchTarget) error
+	// ReplaceFileHook, when set, replaces files in place of ReplaceFile,
+	// as a system that fails halfway would.
+	ReplaceFileHook func(target, replacement string) error
 	// URLSchemes are the registered URL schemes, by scheme: "id name".
 	URLSchemes map[string]string
 	// LoginItem is the command that starts the app at login: "id name arg".
