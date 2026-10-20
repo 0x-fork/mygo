@@ -95,6 +95,9 @@ func (w *FileWatch) Notify(n platform.FileWatchNotice) {
 // ReplaceFile renames replacement over target, with the target's
 // permissions.
 func (b *Backend) ReplaceFile(target, replacement string) error {
+	if b.ReplaceFileHook != nil {
+		return b.ReplaceFileHook(target, replacement)
+	}
 	if info, err := os.Stat(target); err == nil {
 		if err := os.Chmod(replacement, info.Mode().Perm()); err != nil {
 			return err
