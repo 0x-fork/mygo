@@ -41,6 +41,10 @@ type rowCache struct {
 type bgSpan struct {
 	x0, x1 int
 	c      ui.Color
+	// cursor tells that the span is one character in inverse video, as
+	// a program draws its own cursor: its background does not extend
+	// into the padding.
+	cursor bool
 }
 
 // glyphRun is the glyphs of a run of cells of one style, placed in their
@@ -160,6 +164,7 @@ type resolved struct {
 	fg, bg, ul       ui.Color
 	hasBg, hasUl     bool
 	variant          int // 1 bold, 2 italic
+	inverse          bool
 	invisible        bool
 	underline        int
 	strike, overline bool
@@ -181,7 +186,7 @@ func (v *view) resolve(s vt.Style) resolved {
 	r.bg, r.hasBg = col(s.BG, v.colors.Background)
 	r.ul, r.hasUl = col(s.UnderlineColor, v.colors.Foreground)
 	if s.Inverse {
-		r.fg, r.bg, r.hasBg = r.bg, r.fg, true
+		r.fg, r.bg, r.hasBg, r.inverse = r.bg, r.fg, true, true
 	}
 	if s.Faint {
 		r.fg = r.fg.Alpha(0.5)
@@ -257,9 +262,9 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 		}
 		if st.hasBg && st.bg != def.bg {
 			if n := len(line.bgs); n > 0 && line.bgs[n-1].x1 == x && line.bgs[n-1].c == st.bg {
-				line.bgs[n-1].x1 = x + w
+				line.bgs[n-1].x1, line.bgs[n-1].cursor = x+w, false
 			} else {
-				line.bgs = append(line.bgs, bgSpan{x, x + w, st.bg})
+				line.bgs = append(line.bgs, bgSpan{x, x + w, st.bg, st.inverse})
 			}
 		}
 		if st.underline != 0 {
@@ -515,10 +520,10 @@ func (v *view) extendPadding(p *ui.Painter, r ui.Rect, ox, oy, cw, ch float32) {
 			continue
 		}
 		ry := oy + float32(y)*ch
-		if first := line.bgs[0]; first.x0 == 0 && ox > left {
+		if first := line.bgs[0]; first.x0 == 0 && !first.cursor && ox > left {
 			p.Fill(ui.Rect{X: left, Y: ry, W: ox - left, H: ch}, first.c, 0)
 		}
-		if last := line.bgs[len(line.bgs)-1]; last.x1 >= cols && right > gx1 {
+		if last := line.bgs[len(line.bgs)-1]; last.x1 >= cols && !last.cursor && right > gx1 {
 			p.Fill(ui.Rect{X: gx1, Y: ry, W: right - gx1, H: ch}, last.c, 0)
 		}
 	}
@@ -527,6 +532,9 @@ func (v *view) extendPadding(p *ui.Painter, r ui.Rect, ox, oy, cw, ch float32) {
 			return
 		}
 		for _, b := range line.bgs {
+			if b.cursor {
+				continue
+			}
 			x0, x1 := span(b)
 			p.Fill(ui.Rect{X: x0, Y: y0, W: x1 - x0, H: y1 - y0}, b.c, 0)
 		}

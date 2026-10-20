@@ -61,10 +61,13 @@ const (
 	// above and below the grid, as Ghostty's extend. While a full-screen
 	// program shows (the alternate screen) it extends every row's; on the
 	// main screen only those of rows whose every cell has a background of
-	// its own, so that a shell's highlights stay in their cells.
+	// its own, so that a shell's highlights stay in their cells. A lone
+	// character in inverse video, as a program draws its own cursor,
+	// keeps its background in its cell.
 	PaddingExtend
 	// PaddingExtendAlways extends the backgrounds of every row's cells
-	// nearest to the padding, as Ghostty's extend-always.
+	// nearest to the padding, as Ghostty's extend-always, but for a lone
+	// character in inverse video's.
 	PaddingExtendAlways
 )
 

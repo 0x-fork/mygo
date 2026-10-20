@@ -1941,6 +1941,13 @@ func TestPadding(t *testing.T) {
 			_, y2 := cellCenter(term, 0, 2)
 			near("the padding beside a full-screen program's green", at(5, y2), green)
 			near("the padding below a full-screen program", at(200, 197), blue)
+			// A program's own cursor, a character in inverse video, stays
+			// in its cell, even at the edge of a full-screen program's row.
+			term.Feed([]byte("\x1b[2J\x1b[H\x1b[7m \x1b[0m\x1b[K"))
+			tt.Frame()
+			_, y0 = cellCenter(term, 0, 0)
+			near("the padding beside a program's cursor", at(5, y0), th.Background)
+			near("the padding above a program's cursor", at(5, 3), th.Background)
 		case PaddingExtendAlways:
 			near("the padding beside a row half green", at(5, y1), green)
 		}

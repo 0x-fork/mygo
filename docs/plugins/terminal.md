@@ -169,7 +169,8 @@ term, err := terminal.New(terminal.Options{
   full-screen program shows, and on the main screen only those of rows
   whose every cell has a background of its own, so that a prompt's
   highlights stay in their cells; `terminal.PaddingExtendAlways` extends
-  every row's.
+  every row's. Either way, a lone character in inverse video, as a program
+  draws its own cursor, keeps its background in its cell.
 
   ```go
   term, err := terminal.New(terminal.Options{
