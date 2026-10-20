@@ -442,9 +442,13 @@ func (b *Backend) RegisterHotkey(id int, acc string) error {
 
 func (b *Backend) UnregisterHotkey(id int) { procUnregisterHotKey.Call(b.appHwnd, uintptr(id)) }
 
-// traysAppearance tells the icons whose taskbar turned dark or light.
+// traysAppearance tells the icons whose taskbar turned dark or light. A
+// temporary icon, shown only for a notification, has no handler to tell.
 func (b *Backend) traysAppearance() {
 	for _, t := range b.trays {
+		if t.temporary || t.h == nil {
+			continue
+		}
 		if dark := t.Dark(); dark != t.dark {
 			t.dark = dark
 			if t.template {
