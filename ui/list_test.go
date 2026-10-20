@@ -1460,6 +1460,45 @@ func TestPivotKeptAcrossRebuilds(t *testing.T) {
 	}
 }
 
+// A right-click between frames chooses its row in the next frame's
+// build, by the rows the app has then: rows gone since the last frame are
+// not asked for their keys, and a row whose item moved is chosen where it
+// went, with its menu.
+func TestRightClickAfterRowsChanged(t *testing.T) {
+	ids := []string{"a", "b", "c", "d", "e"}
+	var chosen Selection[string]
+	s := ListState{Selection: &chosen, Key: func(i int) any { return ids[i] }}
+	menuRow := ""
+	tt := coreNewTester(func(c *context) {
+		coreList(c, &s, len(ids), func(i int) {
+			id := ids[i]
+			coreText(c, "Row "+id).Height(20).ContextMenu(func(m *Menu) {
+				menuRow = id
+				m.Item("Delete")
+			})
+		}).Grow(1)
+	}, 300, 400)
+	e, _ := tt.Find("Row e")
+	// The app removes the last rows before the next frame.
+	ids = ids[:2]
+	tt.RightClickAt(e.X+5, e.Y+5)
+	if chosen.Len() != 0 || tt.Menu() != nil {
+		t.Errorf("right-click on a row gone: chose %v, menu %v", slices.Collect(chosen.All()), tt.Menu())
+	}
+	tt.CloseMenu()
+	// Rows come above "b" before the next frame: the right-click where
+	// "b" showed chooses it at its new row.
+	ids = []string{"a", "b", "c", "d"}
+	tt.Frame()
+	b, _ := tt.Find("Row b")
+	ids = []string{"x", "y", "a", "b", "c", "d"}
+	tt.RightClickAt(b.X+5, b.Y+5)
+	if got := slices.Collect(chosen.All()); !slices.Equal(got, []string{"b"}) || menuRow != "b" {
+		t.Errorf("right-click on b with rows added above: chose %v, menu of %q", got, menuRow)
+	}
+	tt.CloseMenu()
+}
+
 // A right-click that chooses a row reports the new choice through the
 // list's Changed, as a click does.
 func TestRightClickChoiceIsChanged(t *testing.T) {
