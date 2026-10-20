@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/egoist/mygo/plugins/terminal/internal/vt"
@@ -51,8 +52,8 @@ type Mirror struct {
 	// scrollback is how many rows the main screen's scrollback held at the
 	// last frame that showed the main screen.
 	scrollback int
-	// modes, cursor and title are what the last frame set of them.
-	modes, cursor, title string
+	// modes, colors, cursor and title are what the last frame set of them.
+	modes, colors, cursor, title string
 }
 
 // NewMirror returns a Mirror of the terminal, whose first frame starts the
@@ -464,6 +465,39 @@ var mirroredModes = []vt.Mode{
 	5, // DECSCNM, the screen in reverse video
 }
 
+// programColors returns the sequences that set the colors programs set
+// (OSC 4, 10, 11, 12) and reset the others, which the other terminal's
+// own defaults then color.
+func programColors(term *vt.Terminal) string {
+	set, def := term.Colors(false), term.Colors(true)
+	var b bytes.Buffer
+	osc := func(code string, c vt.RGB) {
+		fmt.Fprintf(&b, "\x1b]%s;rgb:%02x/%02x/%02x\x1b\\", code, c.R, c.G, c.B)
+	}
+	for _, c := range []struct {
+		code      string
+		set, def  vt.RGB
+		has, dhas bool
+	}{
+		{"10", set.Foreground, def.Foreground, set.HasForeground, def.HasForeground},
+		{"11", set.Background, def.Background, set.HasBackground, def.HasBackground},
+		{"12", set.Cursor, def.Cursor, set.HasCursor, def.HasCursor},
+	} {
+		if c.has && (!c.dhas || c.set != c.def) {
+			osc(c.code, c.set)
+		} else {
+			fmt.Fprintf(&b, "\x1b]1%s\x1b\\", c.code)
+		}
+	}
+	b.WriteString("\x1b]104\x1b\\")
+	for i := range set.Palette {
+		if set.Palette[i] != def.Palette[i] {
+			osc("4;"+strconv.Itoa(i), set.Palette[i])
+		}
+	}
+	return b.String()
+}
+
 // state sets the cursor, the modes and the title, where they changed, and
 // passes on programs' uses of the clipboard.
 func (m *Mirror) state(out *bytes.Buffer, c vt.Cursor) {
@@ -493,6 +527,10 @@ func (m *Mirror) state(out *bytes.Buffer, c vt.Cursor) {
 	if s := modes.String(); s != m.modes {
 		out.WriteString(s)
 		m.modes = s
+	}
+	if colors := programColors(term); colors != m.colors {
+		out.WriteString(colors)
+		m.colors = colors
 	}
 	if title := term.Title(); title != m.title {
 		fmt.Fprintf(out, "\x1b]2;%s\x1b\\", title)

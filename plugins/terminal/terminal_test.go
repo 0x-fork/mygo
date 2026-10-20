@@ -2307,3 +2307,76 @@ func TestPaddingPartialRows(t *testing.T) {
 		}
 	}
 }
+
+// A program that asked (mode 2031) is told when the colors go from light
+// to dark or back, as Ghostty tells it: a server's terminal as its window
+// tells it the theme, and a terminal a view shows as the window's
+// appearance changes. Claude Code and Copilot CLI ask, to recolor.
+func TestColorSchemeChanges(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	server, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	server.UseTheme(LightTheme())
+	server.UseTheme(DarkTheme())
+	if got := conn.take(server); got != "" {
+		t.Errorf("told %q without asking", got)
+	}
+	server.Feed([]byte("\x1b[?2031h"))
+	server.UseTheme(LightTheme())
+	server.UseTheme(LightTheme())
+	if got, want := conn.take(server), "\x1b[?997;2n"; got != want {
+		t.Errorf("going light told %q, want %q", got, want)
+	}
+
+	conn = newPipe()
+	term, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	term.Feed([]byte("\x1b[?2031h"))
+	tt.Frame()
+	tt.SetDark(true)
+	tt.Frame()
+	if got, want := conn.take(term), "\x1b[?997;1n"; got != want {
+		t.Errorf("a dark window told %q, want %q", got, want)
+	}
+}
+
+// A transparent terminal draws a background a program set (OSC 11), as
+// Ghostty shows it, and none again once the program resets it.
+func TestTransparentProgramBackground(t *testing.T) {
+	loadLib(t)
+	term, err := New(Options{Conn: newPipe(), Theme: LightTheme(), Transparent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Fill().Background(ui.RGB(0, 0, 255)).Children(func() { View(c, term).Fill() })
+	}, 400, 200)
+	at := func() ui.Color {
+		c := tt.Image().RGBAAt(int(300*term.v.scale), int(150*term.v.scale))
+		return ui.RGB(c.R, c.G, c.B)
+	}
+	red, blue := ui.RGB(255, 0, 0), ui.RGB(0, 0, 255)
+	for _, c := range []struct {
+		label, out string
+		want       ui.Color
+	}{
+		{"at the start", "", blue},
+		{"set", "\x1b]11;#ff0000\x07", red},
+		{"reset", "\x1b]111\x07", blue},
+	} {
+		term.Feed([]byte(c.out))
+		tt.Frame()
+		if got := at(); got != c.want {
+			t.Errorf("%s: the background is %v, want %v", c.label, got, c.want)
+		}
+	}
+}

@@ -540,7 +540,7 @@ before to what the server's shows now. The window's terminal reads them from
 its `Conn` as if a program wrote them, and shows the server's screen and
 scrollback cell for cell, with its cursor and the modes that change what it
 sends (the cursor keys', the keyboard protocols', the mouse's, bracketed
-paste), while it still selects, copies, opens links and composes as any
+paste) and the colors programs set (OSC 4, 10, 11, 12), while it still selects, copies, opens links and composes as any
 terminal does. It never lays out a program's output itself, so it cannot
 come to show something else: a window fed the program's output from a
 snapshot of the server's screen can, as programs that redraw by moving the
@@ -571,6 +571,23 @@ new size.
 term, err := terminal.New(terminal.Options{Conn: stream, ResizeByConn: true})
 // Where the server's stream says it resized to cols×rows:
 term.Resize(cols, rows)
+```
+
+The server's terminal answers the program's questions, so it needs what
+only the window knows. A `Conn` with `ResizePixels(cols, rows, cellWidth,
+cellHeight int) error` is told the size of the window's cells in pixels,
+and one with `UseTheme(theme *terminal.Theme) error` the window's colors;
+the server gives them to its terminal with `ResizePixels` and `UseTheme`.
+Programs asking the size in pixels, or taking the mouse in pixels (mode
+1016), then count in the window's cells, and those asking the colors (OSC
+4, 10, 11, 12) or whether they are dark get the window's. A program that
+asked (mode 2031) is told when they go from light to dark or back, as a
+terminal a view shows tells it when the window's appearance changes.
+
+```go
+// The server, where a window's stream says so:
+term.ResizePixels(cols, rows, cellWidth, cellHeight)
+term.UseTheme(theme)
 ```
 
 The user's clears are the server's to make: cleared in the window alone,

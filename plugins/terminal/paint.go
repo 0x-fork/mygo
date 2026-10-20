@@ -474,7 +474,9 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 	ox := (float32(math.Round(float64(r.X*s))) + float32(v.ox)) / s
 	oy := (float32(math.Round(float64(r.Y*s))) + float32(v.oy)) / s
 	base := float32(v.baseline) / s
-	if !v.t.opts.Transparent {
+	// A transparent terminal still draws a background a program set (OSC
+	// 11), as Ghostty shows it.
+	if !v.t.opts.Transparent || v.colors.Background != rgb(v.theme.Background) {
 		p.Fill(r, color(v.colors.Background), 0)
 	}
 	if v.t.opts.PaddingColor != PaddingBackground {

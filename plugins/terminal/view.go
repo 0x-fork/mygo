@@ -261,6 +261,7 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 			v.applied = theme
 			t.themeConn(theme)
 		}
+		t.schemeChanged(t.curTheme, theme)
 		t.curTheme = theme
 		if focused != v.focused && t.term.Mode(vt.ModeFocusEvent) {
 			t.in.push(vt.EncodeFocus(focused))

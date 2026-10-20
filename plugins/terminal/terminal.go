@@ -160,7 +160,8 @@ type Options struct {
 	// Transparent leaves the terminal's background undrawn, so that what
 	// is under the view shows through, as the window's material or an
 	// element's translucent background, as Ghostty's background-opacity
-	// does: cells with a background color of their own still draw it.
+	// does: cells with a background color of their own still draw it, and
+	// so does the terminal a background a program set (OSC 11).
 	// Give the theme the background the view shows on, which the text
 	// under a block cursor takes.
 	Transparent bool
@@ -903,7 +904,22 @@ func (t *Terminal) UseTheme(theme *Theme) {
 		return
 	}
 	theme.apply(t.term)
+	t.schemeChanged(t.curTheme, theme)
 	t.curTheme = theme
+}
+
+// schemeChanged tells a program that asked to be told (mode 2031) that the
+// colors went from light to dark or back, from old to theme, as Ghostty
+// does; t.mu is held.
+func (t *Terminal) schemeChanged(old, theme *Theme) {
+	if old == nil || old == theme || old.dark() == theme.dark() || !t.term.Mode(vt.ModeColorScheme) {
+		return
+	}
+	n := 2
+	if theme.dark() {
+		n = 1
+	}
+	t.in.push([]byte(fmt.Sprintf("\x1b[?997;%dn", n)))
 }
 
 // SetTheme changes the colors, as Options.Theme and DarkTheme.

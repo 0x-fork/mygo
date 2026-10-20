@@ -526,3 +526,48 @@ func TestMirrorMouse(t *testing.T) {
 		dst.Close()
 	}
 }
+
+// The colors programs set (OSC 4, 10, 11, 12) show in the other terminal,
+// as on the source's, and their reset gives back the other terminal's
+// own: a TUI that sets the terminal's background, or a shell script its
+// palette, showed none of it.
+func TestMirrorColors(t *testing.T) {
+	loadLib(t)
+	src, err := New(Options{Conn: newPipe()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dark := DarkTheme()
+	dst, err := New(Options{Conn: newPipe()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := src.NewMirror()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Close(); src.Close(); dst.Close() })
+	src.UseTheme(LightTheme())
+	dst.UseTheme(dark)
+	step := func(label, out string, want vt.TermColors) {
+		t.Helper()
+		src.Feed([]byte(out))
+		f, _ := m.Frame()
+		dst.Feed(f)
+		dst.mu.Lock()
+		got := dst.term.Colors(false)
+		dst.mu.Unlock()
+		if got.Foreground != want.Foreground || got.Background != want.Background || got.HasCursor != want.HasCursor || got.Cursor != want.Cursor || got.Palette[1] != want.Palette[1] || got.Palette[200] != want.Palette[200] {
+			t.Errorf("%s: fg %v bg %v cursor %v palette 1 %v, 200 %v; want %v %v %v %v %v", label,
+				got.Foreground, got.Background, got.Cursor, got.Palette[1], got.Palette[200],
+				want.Foreground, want.Background, want.Cursor, want.Palette[1], want.Palette[200])
+		}
+	}
+	own := dst.term.Colors(true)
+	step("at the start", "", own)
+	set := own
+	set.Foreground, set.Background, set.Cursor, set.HasCursor = vt.RGB{R: 0x10, G: 0x20, B: 0x30}, vt.RGB{R: 0xfe, G: 0xdc, B: 0xba}, vt.RGB{R: 0xff}, true
+	set.Palette[1], set.Palette[200] = vt.RGB{B: 0xff}, vt.RGB{G: 0x80}
+	step("set", "\x1b]10;#102030\x07\x1b]11;#fedcba\x07\x1b]12;#ff0000\x07\x1b]4;1;#0000ff;200;#008000\x07", set)
+	step("reset", "\x1b]110\x07\x1b]111\x07\x1b]112\x07\x1b]104\x07", own)
+}
