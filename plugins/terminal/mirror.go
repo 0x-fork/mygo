@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/egoist/mygo/plugins/terminal/internal/vt"
@@ -51,8 +52,12 @@ type Mirror struct {
 	// scrollback is how many rows the main screen's scrollback held at the
 	// last frame that showed the main screen.
 	scrollback int
-	// modes, cursor and title are what the last frame set of them.
-	modes, cursor, title string
+	// modes, colors, cursor and title are what the last frame set of them.
+	modes, colors, cursor, title string
+	// imgs are the images sent of the main and the alternate screens, and
+	// placement the last id of a placement made.
+	imgs      [2]mirroredImages
+	placement uint32
 }
 
 // NewMirror returns a Mirror of the terminal, whose first frame starts the
@@ -168,6 +173,7 @@ func (m *Mirror) frame(out *bytes.Buffer) {
 	if !alt {
 		m.scrollback = scrollback
 	}
+	m.images(out, term, alt, top, rows)
 	m.state(out, rs.Cursor())
 }
 
@@ -201,8 +207,11 @@ func (m *Mirror) scrolled(ids []vt.RowID, scrollback int) int {
 // restart starts the other terminal over: its scrollback and screen, then
 // this one's, row by row.
 func (m *Mirror) restart(out *bytes.Buffer, screen []line, alt bool, top int) {
-	out.WriteString("\x1b[?1049l\x1b[0m\x1b[H\x1b[2J\x1b[3J")
+	// Both screens' images go too, which frames send again.
+	const noImages = "\x1b_Ga=d,d=A,q=2\x1b\\"
+	out.WriteString("\x1b[?1049h" + noImages + "\x1b[?1049l" + noImages + "\x1b[0m\x1b[H\x1b[2J\x1b[3J")
 	m.modes, m.cursor = "", ""
+	m.imgs = [2]mirroredImages{}
 	m.sent = make([][]byte, len(screen))
 	m.main = nil
 	if alt {
@@ -453,12 +462,48 @@ func readLine(term *vt.Terminal, rs *vt.RenderState, y int) line {
 }
 
 // mirroredModes are the modes the other terminal takes: those that change
-// what it sends, as the keys and the mouse, and how it draws.
+// what it sends, as the keys and the mouse, and how it draws. Those off
+// go first: the mouse's events and format are one setting each, which
+// setting one of their modes picks and resetting any sets back to none or
+// X10's, as Ghostty does.
 var mirroredModes = []vt.Mode{
 	vt.ModeCursorKeys, 66, // DECCKM, DECNKM (the keypad's)
 	vt.ModeFocusEvent, vt.ModeAltScroll, vt.ModeBracketedPaste, vt.ModeGraphemes,
 	9, 1000, 1002, 1003, 1005, 1006, 1015, 1016, // the mouse's
 	5, // DECSCNM, the screen in reverse video
+}
+
+// programColors returns the sequences that set the colors programs set
+// (OSC 4, 10, 11, 12) and reset the others, which the other terminal's
+// own defaults then color.
+func programColors(term *vt.Terminal) string {
+	set, def := term.Colors(false), term.Colors(true)
+	var b bytes.Buffer
+	osc := func(code string, c vt.RGB) {
+		fmt.Fprintf(&b, "\x1b]%s;rgb:%02x/%02x/%02x\x1b\\", code, c.R, c.G, c.B)
+	}
+	for _, c := range []struct {
+		code      string
+		set, def  vt.RGB
+		has, dhas bool
+	}{
+		{"10", set.Foreground, def.Foreground, set.HasForeground, def.HasForeground},
+		{"11", set.Background, def.Background, set.HasBackground, def.HasBackground},
+		{"12", set.Cursor, def.Cursor, set.HasCursor, def.HasCursor},
+	} {
+		if c.has && (!c.dhas || c.set != c.def) {
+			osc(c.code, c.set)
+		} else {
+			fmt.Fprintf(&b, "\x1b]1%s\x1b\\", c.code)
+		}
+	}
+	b.WriteString("\x1b]104\x1b\\")
+	for i := range set.Palette {
+		if set.Palette[i] != def.Palette[i] {
+			osc("4;"+strconv.Itoa(i), set.Palette[i])
+		}
+	}
+	return b.String()
 }
 
 // state sets the cursor, the modes and the title, where they changed, and
@@ -467,12 +512,17 @@ func (m *Mirror) state(out *bytes.Buffer, c vt.Cursor) {
 	t := m.t
 	term := t.term
 	var modes bytes.Buffer
-	for _, md := range mirroredModes {
-		v := byte('l')
-		if term.Mode(md) {
-			v = 'h'
+	for _, on := range []bool{false, true} {
+		for _, md := range mirroredModes {
+			if term.Mode(md) != on {
+				continue
+			}
+			v := byte('l')
+			if on {
+				v = 'h'
+			}
+			fmt.Fprintf(&modes, "\x1b[?%d%c", md, v)
 		}
-		fmt.Fprintf(&modes, "\x1b[?%d%c", md, v)
 	}
 	mok := 1
 	if term.ModifyOtherKeys() {
@@ -485,6 +535,10 @@ func (m *Mirror) state(out *bytes.Buffer, c vt.Cursor) {
 	if s := modes.String(); s != m.modes {
 		out.WriteString(s)
 		m.modes = s
+	}
+	if colors := programColors(term); colors != m.colors {
+		out.WriteString(colors)
+		m.colors = colors
 	}
 	if title := term.Title(); title != m.title {
 		fmt.Fprintf(out, "\x1b]2;%s\x1b\\", title)
@@ -504,12 +558,18 @@ func (m *Mirror) state(out *bytes.Buffer, c vt.Cursor) {
 	t.clipForward = nil
 	x, y := term.Cursor()
 	var cur bytes.Buffer
-	shape := map[vt.CursorStyle]int{vt.CursorBlock: 2, vt.CursorUnderline: 4, vt.CursorBar: 6}[c.Style]
-	if shape == 0 {
-		shape = 2
-	}
-	if c.Blinking {
-		shape--
+	// A cursor as this terminal's options make it, which programs left
+	// alone or reset, is the default of the other terminal too (DECSCUSR
+	// 0), which takes its own options': a client's Cursor shows.
+	shape := 0
+	if c.Style != vtCursor(t.opts.Cursor) || c.Blinking == t.opts.NoBlink {
+		shape = map[vt.CursorStyle]int{vt.CursorBlock: 2, vt.CursorUnderline: 4, vt.CursorBar: 6}[c.Style]
+		if shape == 0 {
+			shape = 2
+		}
+		if c.Blinking {
+			shape--
+		}
 	}
 	visible := "l"
 	if c.Visible {

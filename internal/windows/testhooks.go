@@ -300,9 +300,9 @@ func TestInputClick(hwnd uintptr, x, y float64) (ok bool, missed string) {
 	if w == nil || w.surface == nil {
 		return false, ""
 	}
-	var r rect
-	procGetWindowRect.Call(w.caption.snap, uintptr(unsafe.Pointer(&r)))
-	pt := point{(r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2}
+	scale := float64(w.surface.dpi()) / 96
+	pt := point{int32(x * scale), int32(y * scale)}
+	procClientToScreen.Call(w.surface.hwnd, uintptr(unsafe.Pointer(&pt)))
 	user32.NewProc("SetCursorPos").Call(uintptr(pt.X), uintptr(pt.Y))
 	mouse := user32.NewProc("mouse_event")
 	const leftDown, leftUp = 0x0002, 0x0004
