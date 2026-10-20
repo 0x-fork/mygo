@@ -1670,8 +1670,11 @@ backend, which:
   bar, tray, popup) so `UpdateMenuItem` can change label/state in place and
   rebuilt menus release their items,
 - performs edit roles natively (first responder on macOS,
-  `webkit_web_view_execute_editing_command` on Linux), or sends them to a
-  window showing native UI as a `SurfaceCommand`, and reports everything
+  `webkit_web_view_execute_editing_command` on Linux; on Windows a page
+  keeps their keys, which WebView2 performs, and the menu items run
+  `document.execCommand` through DevTools, paste typing the clipboard's
+  text), or sends them to a window showing native UI as a
+  `SurfaceCommand`, and reports everything
   else through `WindowHandler.MenuItemClicked` for a window's menu, or
   `AppHandler.MenuItemClicked` for menus without one; the core toggles
   checkbox/radio state, performs window and view roles and calls `Click`

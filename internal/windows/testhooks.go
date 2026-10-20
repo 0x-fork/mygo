@@ -104,7 +104,7 @@ func TestActivateAccelerator(hwnd uintptr, acc string) bool {
 	if !ok {
 		return false
 	}
-	cmd, ok := w.accels[accelKey{vk: vk, mods: a.Modifiers}]
+	cmd, ok := w.pageAccelerator(accelKey{vk: vk, mods: a.Modifiers})
 	if ok {
 		theBackend.menuCommand(cmd, w)
 	}
