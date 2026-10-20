@@ -4,6 +4,8 @@ package windows
 
 import (
 	"math"
+	"sync"
+	"syscall"
 	"unsafe"
 )
 
@@ -122,10 +124,14 @@ type measureItemStruct struct {
 	ItemData                                      uintptr
 }
 
-// menuPalette is the colors of popup menus, COLORREFs: WinUI's, opaque
-// over the menu's background. A contrast theme's are the system's.
+// menuPalette is the colors of popup menus, COLORREFs: the background and
+// outline of Windows 11's menus, and WinUI's colors opaque over them. A
+// contrast theme's are the system's.
 type menuPalette struct {
 	back, plate, text, plateText, secondary, disabled, line uint32
+	// border is the menu's outline, which DWM draws around the rounded
+	// window, DWMWA_COLOR_DEFAULT for its own.
+	border uint32
 }
 
 const (
@@ -146,13 +152,14 @@ func (b *Backend) menuPalette() menuPalette {
 	case highContrastOn():
 		text := sysColor(colorMenuText)
 		return menuPalette{back: sysColor(colorMenu), plate: sysColor(colorHighlight), text: text,
-			plateText: sysColor(colorHighlightText), secondary: text, disabled: sysColor(colorGrayText), line: text}
+			plateText: sysColor(colorHighlightText), secondary: text, disabled: sysColor(colorGrayText), line: text,
+			border: dwmColorDefault}
 	case b.isDark():
-		return menuPalette{back: 0x2C2C2C, plate: 0x393939, text: 0xFFFFFF, plateText: 0xFFFFFF,
-			secondary: 0xCFCFCF, disabled: 0x797979, line: 0x3D3D3D}
+		return menuPalette{back: 0x2B2B2B, plate: 0x383838, text: 0xFFFFFF, plateText: 0xFFFFFF,
+			secondary: 0xCFCFCF, disabled: 0x787878, line: 0x3D3D3D, border: 0x3E3E3E}
 	}
 	return menuPalette{back: 0xF9F9F9, plate: 0xF0F0F0, text: 0x1A1A1A, plateText: 0x1A1A1A,
-		secondary: 0x5F5F5F, disabled: 0x9F9F9F, line: 0xEAEAEA}
+		secondary: 0x5F5F5F, disabled: 0x9F9F9F, line: 0xEAEAEA, border: 0xE5E5E5}
 }
 
 // menuBrush returns a brush of a color, made once.
@@ -259,6 +266,12 @@ const (
 // the menus send the window they show for.
 func (b *Backend) menuItemMessage(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool) {
 	switch m {
+	case wmEnterMenuLoop:
+		b.hookMenus(true)
+		return 0, false
+	case wmExitMenuLoop:
+		b.hookMenus(false)
+		return 0, false
 	case wmInitMenuPopup:
 		// The menu's background in the appearance, around its items. The
 		// window menu is Windows'.
@@ -465,4 +478,77 @@ func blend(a, b uint32, t float64) uint32 {
 		return uint32(math.Round(y+(x-y)*t)) << shift
 	}
 	return mix(16) | mix(8) | mix(0)
+}
+
+// A menu with items its app draws loses Windows 11's frame: its window is
+// square, under the drop shadow of its class (CS_DROPSHADOW) along two
+// sides. While the menus show, a hook of the main thread rounds the windows
+// of menus as they are created, as Windows rounds its own, outlined in
+// their colors, and takes the class's shadow off, for DWM's around the
+// rounded window.
+
+const (
+	whCallWndProc = 4
+	wmCreate      = 0x0001
+	gclStyle      = ^uintptr(25) // -26
+	gcwAtom       = ^uintptr(31) // -32
+	menuClassAtom = 0x8000       // #32768
+	csDropShadow  = 0x00020000
+
+	dwmwcpRoundSmall = 3
+	dwmwaBorderColor = 34
+	dwmColorDefault  = 0xFFFFFFFF
+)
+
+var (
+	procSetWindowsHookExW   = user32.NewProc("SetWindowsHookExW")
+	procUnhookWindowsHookEx = user32.NewProc("UnhookWindowsHookEx")
+	procCallNextHookEx      = user32.NewProc("CallNextHookEx")
+	procGetClassLongPtrW    = user32.NewProc("GetClassLongPtrW")
+	procSetClassLongPtrW    = user32.NewProc("SetClassLongPtrW")
+
+	// menuHookCallback is made once: callbacks are never freed.
+	menuHookCallback = sync.OnceValue(func() uintptr { return syscall.NewCallback(menuHook) })
+)
+
+// cwpStruct is CWPSTRUCT.
+type cwpStruct struct {
+	LParam, WParam uintptr
+	Message        uint32
+	Hwnd           uintptr
+}
+
+// hookMenus hooks the main thread's messages while its menus show (on), or
+// unhooks them.
+func (b *Backend) hookMenus(on bool) {
+	switch {
+	case !fluentMenus():
+	case on && b.menuHook == 0:
+		b.menuHook, _, _ = procSetWindowsHookExW.Call(whCallWndProc, menuHookCallback(), 0, uintptr(currentThreadID()))
+	case !on && b.menuHook != 0:
+		procUnhookWindowsHookEx.Call(b.menuHook)
+		b.menuHook = 0
+	}
+}
+
+func menuHook(code, wp, lp uintptr) uintptr {
+	if int32(code) >= 0 {
+		if m := (*cwpStruct)(native(lp)); m.Message == wmCreate {
+			if atom, _, _ := procGetClassLongPtrW.Call(m.Hwnd, gcwAtom); atom == menuClassAtom {
+				roundMenu(m.Hwnd, theBackend.menuPalette().border)
+			}
+		}
+	}
+	r, _, _ := procCallNextHookEx.Call(0, code, wp, lp)
+	return r
+}
+
+// roundMenu gives a menu's window, being created, Windows 11's frame.
+func roundMenu(hwnd uintptr, border uint32) {
+	pref := int32(dwmwcpRoundSmall)
+	procDwmSetWindowAttribute.Call(hwnd, dwmwaWindowCornerPreference, uintptr(unsafe.Pointer(&pref)), 4)
+	procDwmSetWindowAttribute.Call(hwnd, dwmwaBorderColor, uintptr(unsafe.Pointer(&border)), 4)
+	if style, _, _ := procGetClassLongPtrW.Call(hwnd, gclStyle); style&csDropShadow != 0 {
+		procSetClassLongPtrW.Call(hwnd, gclStyle, style&^csDropShadow)
+	}
 }

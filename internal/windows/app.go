@@ -75,6 +75,8 @@ type Backend struct {
 	// (menudraw.go).
 	menuFonts   map[int]menuFonts
 	menuBrushes map[uint32]uintptr
+	// menuHook hooks the main thread while menus show.
+	menuHook uintptr
 	// comp shows the controls of windows with a material behind them
 	// (compositor.go). compRetry is when to try making it again after
 	// compFails failures in a row, and composeAt when timerCompose draws

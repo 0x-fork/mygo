@@ -568,6 +568,13 @@ features GTK 4 lacks become X11-only code beside it.
   keeps Windows from drawing the submenus' arrows over the chevrons;
   `WM_INITMENUPOPUP` gives the menu the background of the items. The items
   keep their strings, which mnemonics, screen readers and the tests read.
+  A menu with owner-drawn items loses Windows 11's frame, its window square
+  under its class's drop shadow (`CS_DROPSHADOW`) along two sides: while
+  menus show (`WM_ENTERMENULOOP` to `WM_EXITMENULOOP`, and around
+  `TrackPopupMenuEx`, which creates its window before), a `WH_CALLWNDPROC`
+  hook of the main thread rounds the windows of class `#32768` in their
+  `WM_CREATE` (`DWMWCP_ROUNDSMALL`, outlined in the colors of Windows'
+  menus) and takes the shadow off the class, for DWM's around the window.
   The bar grows from `WM_UAHMEASUREMENUITEM` and its items get inset
   backplates with rounded corners. A contrast theme keeps the system's
   colors: the bar is Windows' again, the popup items take the system's.

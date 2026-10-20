@@ -420,6 +420,9 @@ func (b *Backend) trackPopup(menu, owner uintptr, pt point, flags uintptr) uint1
 	// The owner must be in the foreground, or the menu does not close
 	// when the user clicks elsewhere.
 	procSetForegroundWindow.Call(owner)
+	// Windows creates the menu's window before WM_ENTERMENULOOP.
+	b.hookMenus(true)
+	defer b.hookMenus(false)
 	cmd, _, _ := procTrackPopupMenuEx.Call(menu, tpmReturnCmd|tpmRightButton|flags, uintptr(pt.X), uintptr(pt.Y), owner, 0)
 	postMessage(owner, 0, 0, 0) // WM_NULL, as the documentation asks
 	return uint16(cmd)
