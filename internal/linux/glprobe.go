@@ -154,8 +154,8 @@ func glContext(win ptr) (ctx, gerr ptr) {
 // of its renderer, or why there is none.
 func probeGL() (renderer, failure string) { return probeGLWith(nil) }
 
-// probeGLWith is probeGL, which passes made the window it makes, for tests
-// to watch.
+// probeGLWith is probeGL, which passes the window it makes to made, when
+// set, for tests to watch.
 func probeGLWith(made func(win ptr)) (renderer, failure string) {
 	var (
 		windowNew     func(parent ptr, attr *gdkWindowAttr, mask int32) ptr
