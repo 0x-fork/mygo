@@ -262,7 +262,10 @@ func (m *Mirror) restart(out *bytes.Buffer, screen []line, alt bool, top int) {
 	m.main = nil
 	if alt {
 		// The main screen of a full-screen program's terminal is not to be
-		// read: the other one's shows from when the program ends.
+		// read: the other one's shows from when the program ends, which
+		// starts over again, as the other's main screen and scrollback are
+		// empty now.
+		m.scrollback = -1
 		out.WriteString("\x1b[?1049h")
 		m.redraw(out, screen)
 		return

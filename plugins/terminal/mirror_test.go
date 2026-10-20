@@ -338,6 +338,25 @@ func TestMirrorAltScreen(t *testing.T) {
 	x.feed("after", "$ ls\r\n")
 }
 
+// A terminal that takes a Mirror's frames from while a full-screen program
+// shows gets the main screen and its scrollback once the program ends.
+func TestMirrorResetInAltScreen(t *testing.T) {
+	loadLib(t)
+	x := newMirrored(t, 20, 5, Options{})
+	x.feed("history", lines(0, 50, "x"))
+	x.feed("a full-screen program", "\x1b[?1049hfull screen")
+	x.m.Reset()
+	other, err := New(Options{Conn: newPipe()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	other.Resize(20, 5)
+	x.dst = other
+	x.frame("another terminal")
+	x.feed("the program ends", "\x1b[?1049l")
+}
+
 func TestMirrorResize(t *testing.T) {
 	loadLib(t)
 	x := newMirrored(t, 20, 6, Options{})
