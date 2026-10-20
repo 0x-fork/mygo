@@ -300,9 +300,9 @@ func TestInputClick(hwnd uintptr, x, y float64) (ok bool, missed string) {
 	if w == nil || w.surface == nil {
 		return false, ""
 	}
-	scale := float64(w.surface.dpi()) / 96
-	pt := point{int32(x * scale), int32(y * scale)}
-	procClientToScreen.Call(w.surface.hwnd, uintptr(unsafe.Pointer(&pt)))
+	var r rect
+	procGetWindowRect.Call(w.caption.snap, uintptr(unsafe.Pointer(&r)))
+	pt := point{(r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2}
 	user32.NewProc("SetCursorPos").Call(uintptr(pt.X), uintptr(pt.Y))
 	mouse := user32.NewProc("mouse_event")
 	const leftDown, leftUp = 0x0002, 0x0004
@@ -576,3 +576,28 @@ func TestRecentDocuments() []string {
 
 // TestWindowTitle returns the text of a window's title bar.
 func TestWindowTitle(hwnd uintptr) string { return (&window{hwnd: hwnd}).Title() }
+
+// TestMaximizeButton reports what Windows' hit test answers in the middle
+// of the maximize button the content draws (SetMaximizeButton), and, when
+// press, presses and releases it there as the mouse does: with the
+// non-client messages that a window answering HTMAXBUTTON gets. It reports
+// 0 when no window is over the button.
+func TestMaximizeButton(hwnd uintptr, press bool) uintptr {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.caption == nil || w.caption.snap == 0 || w.surface == nil {
+		return 0
+	}
+	if v, _, _ := procIsWindowVisible.Call(w.caption.snap); v == 0 {
+		return 0
+	}
+	var r rect
+	procGetWindowRect.Call(w.caption.snap, uintptr(unsafe.Pointer(&r)))
+	lp := uintptr(uint16(int16((r.Top+r.Bottom)/2)))<<16 | uintptr(uint16(int16((r.Left+r.Right)/2)))
+	hit, _, _ := procSendMessageW.Call(w.caption.snap, wmNCHitTest, 0, lp)
+	if press {
+		procSendMessageW.Call(w.caption.snap, wmNCMouseMove, hit, lp)
+		procSendMessageW.Call(w.caption.snap, wmNCLButtonDown, hit, lp)
+		procSendMessageW.Call(w.caption.snap, wmNCLButtonUp, hit, lp)
+	}
+	return hit
+}

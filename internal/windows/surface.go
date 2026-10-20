@@ -501,6 +501,11 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		return 0, true
 	case wmMouseLeave:
 		s.tracking = false
+		if c := s.w.caption; c != nil && c.snap != 0 && cursorOver(c.snap) {
+			// Over the maximize button the content draws, whose window
+			// gives the content the pointer's moves.
+			return 0, true
+		}
 		s.mouseLeft()
 		s.send(platform.SurfaceEvent{Kind: platform.PointerLeave})
 		return 0, true
