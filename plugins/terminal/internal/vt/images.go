@@ -211,30 +211,55 @@ type sysImage struct {
 	data, dataLen uintptr
 }
 
+// Ghostty's limits on an image, as Kitty's: no side longer than
+// maxImageSide pixels, and no more than maxImageBytes of pixels.
+const (
+	maxImageSide  = 10000
+	maxImageBytes = 400 << 20
+)
+
+// imageFits reports whether an image of w×h RGBA pixels is within
+// Ghostty's limits.
+func imageFits(w, h int) bool {
+	return w > 0 && h > 0 && w <= maxImageSide && h <= maxImageSide && 4*w*h <= maxImageBytes
+}
+
 // decodePNG gives the library a PNG decoder, without which it refuses
-// images sent as PNG (Kitty graphics, f=100), as grok sends them.
+// images sent as PNG (Kitty graphics, f=100), as grok sends them. A PNG
+// whose header gives it more pixels than Ghostty's limits take is refused
+// before it is decoded, as its size is the program's to claim; the pixels
+// are converted into the library's memory, with no copy of them between.
 func decodePNG() {
 	cb := newCallback(func(_, alloc, data, n, out uintptr) uintptr {
 		if data == 0 || n == 0 {
 			return 0
 		}
-		img, err := png.Decode(bytes.NewReader(unsafe.Slice((*byte)(mem(data)), n)))
+		src := unsafe.Slice((*byte)(mem(data)), n)
+		cfg, err := png.DecodeConfig(bytes.NewReader(src))
+		if err != nil || !imageFits(cfg.Width, cfg.Height) {
+			return 0
+		}
+		img, err := png.Decode(bytes.NewReader(src))
 		if err != nil {
 			return 0
 		}
 		b := img.Bounds()
-		rgba, ok := img.(*image.NRGBA)
-		if !ok || rgba.Stride != 4*b.Dx() || b.Min != (image.Point{}) {
-			rgba = image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-			draw.Draw(rgba, rgba.Bounds(), img, b.Min, draw.Src)
+		w, h := b.Dx(), b.Dy()
+		if !imageFits(w, h) {
+			return 0
 		}
-		size := uintptr(len(rgba.Pix))
+		size := uintptr(4 * w * h)
 		p := call(fnAlloc, alloc, size)
 		if p == 0 {
 			return 0
 		}
-		copy(unsafe.Slice((*byte)(mem(p)), size), rgba.Pix)
-		*(*sysImage)(mem(out)) = sysImage{width: uint32(b.Dx()), height: uint32(b.Dy()), data: p, dataLen: size}
+		dst := &image.NRGBA{Pix: unsafe.Slice((*byte)(mem(p)), size), Stride: 4 * w, Rect: image.Rect(0, 0, w, h)}
+		if nrgba, ok := img.(*image.NRGBA); ok && nrgba.Stride == 4*w && b.Min == (image.Point{}) {
+			copy(dst.Pix, nrgba.Pix)
+		} else {
+			draw.Draw(dst, dst.Rect, img, b.Min, draw.Src)
+		}
+		*(*sysImage)(mem(out)) = sysImage{width: uint32(w), height: uint32(h), data: p, dataLen: size}
 		return 1
 	})
 	call(fnSysSet, sysDecodePNG, cb)
