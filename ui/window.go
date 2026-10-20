@@ -675,6 +675,12 @@ func (h *windowHost) titleBarDoubleClicked() {
 	}
 }
 
+func (h *windowHost) setMaximizeButton(r Rect) {
+	if h.conn.SetMaximizeButton != nil {
+		h.conn.SetMaximizeButton(rectF(r))
+	}
+}
+
 func (h *windowHost) escape() {
 	if h.conn.Escape != nil {
 		h.conn.Escape()
