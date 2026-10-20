@@ -482,6 +482,57 @@ term, err := terminal.New(terminal.Options{Conn: session})
 A terminal whose `Conn` never sends anything shows what the app writes
 with `Feed`, as a log with colors would.
 
+## A server's terminal, shown elsewhere
+
+A server that keeps sessions running, as a multiplexer does, keeps each
+session's terminal, which the program's output goes to, and windows show it
+from another process. A `Mirror` of the server's terminal frames what it
+shows: `Frame` returns VT sequences that bring a terminal showing the frames
+before to what the server's shows now. The window's terminal reads them from
+its `Conn` as if a program wrote them, and shows the server's screen and
+scrollback cell for cell, with its cursor and the modes that change what it
+sends (the cursor keys', the keyboard protocols', the mouse's, bracketed
+paste), while it still selects, copies, opens links and composes as any
+terminal does. It never lays out a program's output itself, so it cannot
+come to show something else: a window fed the program's output from a
+snapshot of the server's screen can, as programs that redraw by moving the
+cursor relative to where it is show, as agents' interfaces do.
+
+```go
+// The server, one Mirror for each window, its first frame starting it over:
+m, err := term.NewMirror()
+frame, due := m.Frame() // after output; due: a synchronized update holds it
+```
+
+Frames draw rows where they are, and rows that scroll off pass through the
+window's screen in order, so that its scrollback is the server's; soft wraps
+stay soft. A frame does not come while a program holds a synchronized update
+(mode 2026), up to a second: `Frame` then reports that one is due.
+
+The window's terminal sets `ResizeByConn`: its view only asks `Conn` for the
+size it fits, and the screen keeps its size until the window calls `Resize`,
+where the server's stream says the server resized, before the frames of the
+new size.
+
+```go
+term, err := terminal.New(terminal.Options{Conn: stream, ResizeByConn: true})
+// Where the server's stream says it resized to cols×rows:
+term.Resize(cols, rows)
+```
+
+Programs' writes to the clipboard (OSC 52) go on with the frames, for the
+window's terminal to write with its own policy. With `ClipboardRead:
+terminal.ClipboardForward` on the server's terminal, programs' reads go on
+too, and the window's terminal answers them, asking the user as it would:
+the server's answers nothing. The server answers programs' other queries
+itself, as the terminal they write to.
+
+`History` returns the server's scrollback and screen down to the cursor as
+rows, without the cursor and the modes, for a terminal that takes a session
+over after its program ended, as after the server restarted: fed to it, the
+cursor is left under what it shows, for the next program to start below it
+rather than over it. A full-screen program's screen has none.
+
 ## The library
 
 libghostty-vt is a native library of Ghostty, built for each platform from

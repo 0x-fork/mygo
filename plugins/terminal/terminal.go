@@ -86,6 +86,19 @@ type Options struct {
 	// is typed is written to it. Command, Dir and Env are then ignored. A
 	// Conn with a method Resize(cols, rows int) error is told the size.
 	Conn io.ReadWriteCloser
+	// ResizeByConn leaves the size of the screen to whoever reads Conn:
+	// the view tells Conn the size it fits, with its Resize, and the
+	// screen takes a size only as Terminal.Resize sets it. A client of a
+	// server that keeps the session's terminal, as a multiplexer's, calls
+	// Resize where the server's output says the server resized, so that
+	// its screen lays out each byte at the size the server's did. Resized
+	// at once, as the view resizes it otherwise, the screen would lay out
+	// at the new size the output the program wrote for the one before,
+	// which the server laid out at that one: a line would wrap here and
+	// not there, and the program's next redraw, which moves the cursor
+	// from where it thinks it is, would land elsewhere, as the server's
+	// screen would show to the next client attaching.
+	ResizeByConn bool
 
 	// Font is the font of the text: the system's monospaced font at 13
 	// DIPs when zero.
@@ -259,6 +272,11 @@ const (
 	// ClipboardAsk asks the app first: Options.OnClipboardRequest when
 	// set, else the terminal's own prompt in the view.
 	ClipboardAsk
+	// ClipboardForward leaves OSC 52 reads to the terminals that show
+	// this one's Mirror frames, which pass them on: the terminal answering
+	// is theirs, with their clipboard and their policy. This one answers
+	// nothing, and refuses the Kitty protocol's reads (OSC 5522).
+	ClipboardForward
 )
 
 // CursorStyle is the shape of the cursor.
@@ -393,9 +411,13 @@ type Terminal struct {
 	mu      sync.Mutex
 	term    *vt.Terminal
 	size    gridSize
+	asked   gridSize // what the view last asked Conn for, with ResizeByConn
 	events  events
 	closed  bool
 	clipOut []string // what programs copied, for the view to write
+	// clipForward are reads of the clipboard for a Mirror to pass on, with
+	// ClipboardForward: whether each is of the primary selection.
+	clipForward []bool
 	// clipReads are reads of the clipboard waiting for the main thread to
 	// answer them: a frame takes them, reads the clipboard and writes the
 	// reply (see view.answerReads).
@@ -973,7 +995,31 @@ func (t *Terminal) resize(s gridSize) {
 	case *pty.PTY:
 		src.Resize(s.cols, s.rows, s.cols*s.cellW, s.rows*s.cellH)
 	case interface{ Resize(cols, rows int) error }:
-		t.resizeConn(src, s)
+		if !t.opts.ResizeByConn { // the size came from the Conn's reader
+			t.resizeConn(src, s)
+		}
+	}
+}
+
+// viewResize gives the screen the size the view fits, s, or with
+// Options.ResizeByConn asks Conn for it, the screen keeping its size and
+// taking the cells' new metrics only; t.mu is held.
+func (t *Terminal) viewResize(s gridSize) {
+	c, ok := t.src.(interface{ Resize(cols, rows int) error })
+	if !t.opts.ResizeByConn || !ok {
+		t.resize(s)
+		return
+	}
+	if t.term == nil {
+		return
+	}
+	if s.cellW != t.size.cellW || s.cellH != t.size.cellH {
+		t.size.cellW, t.size.cellH = s.cellW, s.cellH
+		t.term.Resize(t.size.cols, t.size.rows, s.cellW, s.cellH)
+	}
+	if s.cols != t.asked.cols || s.rows != t.asked.rows {
+		t.asked = s
+		t.resizeConn(c, s)
 	}
 }
 

@@ -1913,3 +1913,52 @@ func TestPointerShape(t *testing.T) {
 	step("\x1b]22;crosshair\x07", 0, ui.CursorCrosshair, "OSC 22 without the mouse")
 	step("\x1b]22;\x07", 0, ui.CursorText, "OSC 22 reset, to the I-beam")
 }
+
+// sizedPipe is a pipe told the size, as a server's connection is.
+type sizedPipe struct {
+	*pipe
+	sizes chan [2]int
+}
+
+func (p sizedPipe) Resize(cols, rows int) error {
+	p.sizes <- [2]int{cols, rows}
+	return nil
+}
+
+// With ResizeByConn, the view asks Conn for its size, once, and the
+// screen takes a size only from Resize, which Conn is not told of.
+func TestResizeByConn(t *testing.T) {
+	loadLib(t)
+	conn := sizedPipe{newPipe(), make(chan [2]int, 16)}
+	term, err := New(Options{Conn: conn, ResizeByConn: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	term.Resize(30, 10)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	tt.Frame()
+	tt.Frame()
+	var asked [2]int
+	select {
+	case asked = <-conn.sizes:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the view did not ask Conn for its size")
+	}
+	if asked == [2]int{30, 10} {
+		t.Fatalf("asked %v, the screen's own size: the test's view should fit another", asked)
+	}
+	if c, r := term.Size(); c != 30 || r != 10 {
+		t.Errorf("the screen took the view's size, %dx%d, before Resize", c, r)
+	}
+	term.Resize(asked[0], asked[1])
+	tt.Frame()
+	if c, r := term.Size(); c != asked[0] || r != asked[1] {
+		t.Errorf("after Resize the screen is %dx%d, want %v", c, r, asked)
+	}
+	select {
+	case s := <-conn.sizes:
+		t.Errorf("Conn told %v again: by the view twice, or by Resize", s)
+	case <-time.After(200 * time.Millisecond):
+	}
+}

@@ -114,7 +114,7 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		}
 		return
 	}
-	t.resize(gridSize{v.cols, v.rows, v.cellW, v.cellH})
+	t.viewResize(gridSize{v.cols, v.rows, v.cellW, v.cellH})
 	if v.ticking && v.gesture != nil {
 		v.autoscroll()
 	}
