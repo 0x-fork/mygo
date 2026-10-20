@@ -106,6 +106,36 @@ func TestDragSelectScrollsAtEdge(t *testing.T) {
 	tt.Release(x, 299)
 }
 
+// In a list shorter than its two edges, a drag held below its middle
+// scrolls it down and one held above scrolls it up.
+func TestDragSelectShortListScrollsTowardThePointer(t *testing.T) {
+	s := &ListState{DragSelect: true}
+	s.Selection = &Selection[int]{}
+	tt := NewTester(func(c *Context) {
+		Column(c).Children(func() {
+			List(c, s, 30, func(i int) { Textf(c, "Row %d", i) }).Height(50)
+		})
+	}, 300, 300)
+	tt.Frame()
+	st := s.frame.e.st
+	for _, held := range []struct {
+		y    float32
+		down bool
+	}{{30, true}, {20, false}} {
+		scrollBy(st, 0, 100-float32(st.scrollY))
+		tt.Frame()
+		x, from := st.x+20, st.scrollY
+		tt.Press(x, st.y+25)
+		tt.Move(x, st.y+25+4)
+		tt.Move(x, st.y+held.y)
+		tt.Frame()
+		if moved := st.scrollY - from; held.down && moved <= 0 || !held.down && moved >= 0 {
+			t.Errorf("held %v down a list 50 tall: scrolled by %v", held.y, moved)
+		}
+		tt.Release(x, st.y+held.y)
+	}
+}
+
 func TestDragSelectWithReorderPanics(t *testing.T) {
 	defer func() {
 		if recover() == nil {

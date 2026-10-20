@@ -137,11 +137,13 @@ func (rt *engine) scrollDragSelect() {
 	st := f.e.st
 	x, y := st.local(rt.pointerX, rt.pointerY)
 	speed := func(at, size float32) float32 {
+		// In a list shorter than both edges, each takes its half.
+		edge := min(dragScrollEdge, size/2)
 		switch {
-		case at < dragScrollEdge:
-			return -min(dragScrollEdge-at, 2*dragScrollEdge) / 2
-		case at > size-dragScrollEdge:
-			return min(at-(size-dragScrollEdge), 2*dragScrollEdge) / 2
+		case at < edge:
+			return -min(edge-at, 2*dragScrollEdge) / 2
+		case at > size-edge:
+			return min(at-(size-edge), 2*dragScrollEdge) / 2
 		}
 		return 0
 	}
