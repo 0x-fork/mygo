@@ -76,6 +76,9 @@ export default defineConfig({
 The icon is `resources/icon.png`, or the `icon` of the configuration: a square PNG,
 ideally 1024×1024. `mygo build` makes it the `.icns` of macOS, the icon
 resource of the Windows executable and the icon of the Linux desktop entry.
+Beside it, the same name with `-dev` (`resources/icon-dev.png`) is the icon
+of the development app that `mygo dev` builds, when it exists, to tell it
+from the app in the Dock or the taskbar; it does not ship with the app.
 
 On macOS, `macos.icon` adds an asset catalog, which macOS prefers to the
 `.icns`: an `Assets.car` compiled with `actool`, whose app icon is named
@@ -312,6 +315,54 @@ export default defineConfig({
 `helperEntitlements` [helper executables](#helper-executables).
 `minimumSystemVersion` is the oldest macOS the app runs on, 12.0 by
 default.
+
+### Provisioning profiles
+
+Restricted entitlements, such as Communication Notifications, need a
+provisioning profile that authorizes them, including for Developer ID
+distribution. Set `macos.provisioningProfile` to its path, relative to the
+project or absolute. `build` and `dev` copy it to the bundle's
+`Contents/embedded.provisionprofile` before signing, so the signed app,
+disk image and update archive contain it.
+
+```ts
+export default defineConfig({
+  macos: {
+    signingIdentity: process.env.MACOS_SIGNING_IDENTITY,
+    provisioningProfile: process.env.MACOS_PROVISIONING_PROFILE,
+    entitlements: "entitlements.plist",
+  },
+});
+```
+
+The profile must match the signing certificate, bundle identifier and
+entitlements, including the application and team identifiers. MyGo embeds
+it as supplied; it does not create profiles or derive entitlements from
+them. Apple validates their authorization when the app runs. A profile
+cannot be used with ad-hoc signing (`-sign -`). `dev` signs ad hoc unless
+it is given `-sign` (it does not use `macos.signingIdentity`), and its app's
+identifier is `<identifier>.dev`, which the app's profile does not
+authorize: leave the profile and the restricted entitlements out of
+development builds with a [computed configuration](configuration.md#computed-configuration),
+
+```ts
+export default defineConfig(({ command }) => ({
+  macos: {
+    signingIdentity: process.env.MACOS_SIGNING_IDENTITY,
+    ...(command === "build" && {
+      provisioningProfile: process.env.MACOS_PROVISIONING_PROFILE,
+      entitlements: "entitlements.plist",
+    }),
+  },
+}));
+```
+
+or pass `-sign` and give `dev` a profile for `<identifier>.dev`. It
+watches the profile and rebuilds when it changes.
+
+Keep profiles out of version control and provide their paths through the
+build environment. See Apple's
+[Inside code signing: provisioning profiles](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles).
 
 ## Windows
 

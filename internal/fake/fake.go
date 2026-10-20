@@ -34,6 +34,9 @@ type Backend struct {
 
 	mu               sync.Mutex
 	windows          []*Window
+	trayIDs          []string
+	trays            []*tray
+	trayDark         bool
 	appMenu          *platform.Menu
 	popups           []Popup
 	updates          []*platform.MenuItem
@@ -83,6 +86,8 @@ type Backend struct {
 	LoginItem string
 	// DockMenu is the menu of the Dock icon.
 	DockMenu *platform.Menu
+	// ForegroundAllowed counts AllowForeground calls.
+	ForegroundAllowed int
 	// Cleared counts ClearBrowsingData calls.
 	Cleared int
 	// cookies holds the cookies of the pages, by name, domain and path.
@@ -216,7 +221,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if o.Surface {
 		w.surface = &Surface{w: w, Scale: 1}
 	}
-	if !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset") {
+	if !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset") && !o.HideWindowButtons {
 		// Three buttons 46 wide at the top right, as on Windows.
 		w.TitleBarRoom = platform.TitleBar{Height: cmp.Or(o.TitleBarHeight, 32), Right: 138}
 	}
@@ -325,7 +330,35 @@ func (b *Backend) Applications() ([]platform.Application, error) {
 	return append([]platform.Application(nil), Apps...), nil
 }
 
-func (b *Backend) NewTray(platform.TrayHandler) (platform.Tray, error) { return &tray{}, nil }
+func (b *Backend) NewTray(h platform.TrayHandler) (platform.Tray, error) {
+	t := &tray{b: b, h: h}
+	b.mu.Lock()
+	b.trays = append(b.trays, t)
+	b.mu.Unlock()
+	return t, nil
+}
+
+// SetTrayDark turns the menu bar the icons show on dark or light, as the
+// system's appearance or the wallpaper does, and tells the icons.
+func (b *Backend) SetTrayDark(dark bool) {
+	b.mu.Lock()
+	changed := b.trayDark != dark
+	b.trayDark = dark
+	trays := append([]*tray(nil), b.trays...)
+	b.mu.Unlock()
+	if changed {
+		for _, t := range trays {
+			t.h.AppearanceChanged()
+		}
+	}
+}
+
+// TrayIDs returns the IDs the tray icons were given, in order.
+func (b *Backend) TrayIDs() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.trayIDs...)
+}
 
 func (b *Backend) RegisterHotkey(id int, acc string) error {
 	b.mu.Lock()
@@ -466,6 +499,9 @@ type Window struct {
 	// TitleBarRoom is what TitleBar returns: set for windows with a hidden
 	// title bar, and changed by tests before they call H.TitleBarChanged.
 	TitleBarRoom platform.TitleBar
+	// MaximizeButton is where the content last said it shows the maximize
+	// button.
+	MaximizeButton platform.RectF
 	// AsyncFunction answers CallAsyncFunction.
 	AsyncFunction func(body string) (string, error)
 	// AsyncCallback, when set, receives CallAsyncFunction calls to answer
@@ -630,6 +666,7 @@ func (w *Window) SetContentProtection(bool)          {}
 func (w *Window) SetVibrancy(string)                 {}
 func (w *Window) SetMenu(m *platform.Menu)           { w.mu.Lock(); w.menu = m; w.mu.Unlock() }
 func (w *Window) StartDrag()                         {}
+func (w *Window) SetMaximizeButton(r platform.RectF) { w.MaximizeButton = r }
 func (w *Window) TitleBarDoubleClicked()             {}
 func (w *Window) LoadURL(url string)                 { w.mu.Lock(); w.url = url; w.mu.Unlock() }
 func (w *Window) LoadHTML(html, _ string)            { w.addHTML(html) }
@@ -728,6 +765,7 @@ type app struct{ b *Backend }
 
 func (app) SetActivationPolicy(string)                {}
 func (app) Activate()                                 {}
+func (a app) AllowForeground()                        { a.b.ForegroundAllowed++ }
 func (app) Hide()                                     {}
 func (app) Unhide()                                   {}
 func (app) IsHidden() bool                            { return false }
@@ -955,8 +993,15 @@ type shell struct{}
 func (shell) OpenExternal(string) error { return nil }
 func (shell) OpenPath(string) error     { return nil }
 func (shell) ShowItemInFolder(string)   {}
-func (shell) TrashItem(string) error    { return nil }
 func (shell) Beep()                     {}
+
+// Trashed are the paths TrashItem was given.
+var Trashed []string
+
+func (shell) TrashItem(path string) error {
+	Trashed = append(Trashed, path)
+	return nil
+}
 
 // Opened are the paths OpenApplication was given.
 var Opened []string
@@ -1093,8 +1138,22 @@ func (b *Backend) PreferenceReads() int {
 	return b.prefsReads
 }
 
-type tray struct{}
+type tray struct {
+	b *Backend
+	h platform.TrayHandler
+}
 
+func (t *tray) Dark() bool {
+	t.b.mu.Lock()
+	defer t.b.mu.Unlock()
+	return t.b.trayDark
+}
+
+func (t *tray) SetID(id string) {
+	t.b.mu.Lock()
+	t.b.trayIDs = append(t.b.trayIDs, id)
+	t.b.mu.Unlock()
+}
 func (*tray) SetImage([]byte, bool) error { return nil }
 func (*tray) SetTitle(string)             {}
 func (*tray) SetToolTip(string)           {}
@@ -1103,7 +1162,11 @@ func (*tray) PopUpMenu(*platform.Menu)    {}
 
 // Bounds puts the icon in the menu bar above the fake display's work area.
 func (*tray) Bounds() platform.Rect { return platform.Rect{X: 1300, Width: 30, Height: 25} }
-func (*tray) Destroy()              {}
+func (t *tray) Destroy() {
+	t.b.mu.Lock()
+	t.b.trays = slices.DeleteFunc(t.b.trays, func(x *tray) bool { return x == t })
+	t.b.mu.Unlock()
+}
 
 // Surface is a fake window surface: it records what the content asks of
 // it, and tests deliver events through Send.
@@ -1134,7 +1197,10 @@ type Surface struct {
 }
 
 func (s *Surface) StartDataDrag(r platform.DragRequest) { s.dataDrag = &r }
-func (s *Surface) CancelDataDrag()                      { s.FinishDataDrag(transfer.Result{Canceled: true}) }
+func (s *Surface) CancelDataDrag() {
+	p := screen{}.CursorPoint()
+	s.FinishDataDrag(transfer.Result{Canceled: true, Escaped: true, Point: image.Point{X: p.X, Y: p.Y}})
+}
 func (s *Surface) SetDropFormats(f []transfer.Format) {
 	s.dropFormats = append([]transfer.Format(nil), f...)
 }

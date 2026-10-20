@@ -4501,6 +4501,23 @@ func (_handle Element) MaxWidthPercent(p float32) Element {
 	return wrapElement(_node.MaxWidthPercent(p))
 }
 
+// MaximizeButton marks the element as the window's maximize button, which
+// the view draws in a window with a hidden title bar without the system's
+// (mygo.WindowOptions.HideWindowButtons): on Windows 11, holding the
+// pointer over it shows the snap layouts, as over the system's. It takes
+// the pointer as any element does, and the view maximizes the window when
+// it is clicked (mygo.Window.Maximize). The first such element of a frame
+// counts; elsewhere it does nothing.
+func (_handle Element) MaximizeButton() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.MaximizeButton())
+}
+
 // Menu makes the element a menu button: it opens a menu below it, which
 // build fills with items, as the pointer goes down on it, as a pop-up
 // button does, and for Enter, Space or Down while it has the focus. It
@@ -5000,6 +5017,27 @@ func (_handle Element) Row() Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Row())
+}
+
+// RowDoubleClicked reports, while a row of a List or a Table builds, that
+// the row was double-clicked since the last frame with the pointer over the
+// element: a cell sees its row's double click this way and leaves the click
+// to the row, which chooses, where DoubleClicked would take it.
+//
+//	ui.Table(c, &app.list, cols, len(app.rows), func(row, col int) {
+//		cell := ui.Box(c).FillWidth().Children(func() { ui.Text(c, app.rows[row][col]) })
+//		if cell.RowDoubleClicked() {
+//			app.edit(row, col)
+//		}
+//	})
+func (_handle Element) RowDoubleClicked() bool {
+	_node := _handle.node()
+	if _node == nil {
+		return false
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.RowDoubleClicked()
 }
 
 // RowSpan makes the element span n rows of its grid, or, for a negative n,

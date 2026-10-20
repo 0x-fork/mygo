@@ -537,6 +537,34 @@ func TestIPCAndProtocol(t *testing.T) {
 	}
 }
 
+// TestUserAgentSuffix: PageOptions.UserAgentSuffix appends to the user agent
+// of the page's web view, its own or the one UserAgent sets, instead of
+// replacing it as UserAgent does.
+func TestUserAgentSuffix(t *testing.T) {
+	const suffix = "MyApp/1.2"
+	check := func(name, want string, opts mygo.PageOptions) {
+		t.Helper()
+		opts.UserAgentSuffix = " " + suffix + " "
+		w := newWindow(t, mygo.WindowOptions{Hidden: true, URL: "app://localhost/", Page: opts})
+		waitFor(t, w, "document.readyState === 'complete'")
+		ua, err := mygo.EvalAs[string](w.Page(), "navigator.userAgent")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !strings.HasSuffix(ua, " "+suffix) {
+			t.Errorf("%s: navigator.userAgent = %q, want the suffix %q", name, ua, suffix)
+		}
+		if want != "" && ua != want {
+			t.Errorf("%s: navigator.userAgent = %q, want %q", name, ua, want)
+		}
+		if got := w.Page().UserAgent(); !strings.HasSuffix(got, " "+suffix) {
+			t.Errorf("%s: Page.UserAgent() = %q, want the suffix %q", name, got, suffix)
+		}
+	}
+	check("default user agent", "", mygo.PageOptions{})
+	check("UserAgent", "MyAgent/2 "+suffix, mygo.PageOptions{UserAgent: "MyAgent/2"})
+}
+
 func TestChannels(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	if err := w.Page().LoadURL("app://localhost/"); err != nil {
@@ -2344,6 +2372,29 @@ func TestHiddenTitleBar(t *testing.T) {
 	eventually(t, "the room of the controls back", func() bool { return room(w) == shown })
 }
 
+// HideWindowButtons keeps a hidden title bar without its window controls,
+// which the page draws itself: it hears no room for them, and the window
+// keeps the rest of the title bar, its resizing top edge on Windows.
+func TestHiddenWindowButtons(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{X: 80, Y: 80, Width: 480, Height: 320,
+		TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 40, HideWindowButtons: true})
+	w.Page().LoadHTML("<p>no window buttons</p>", "")
+	waitFor(t, w, "document.querySelector('p')")
+	v, _ := mygo.EvalAs[[]string](w.Page(), `(() => {
+		const s = getComputedStyle(document.documentElement);
+		return ["height", "inset-left", "inset-right"].map((k) => s.getPropertyValue("--mygo-titlebar-" + k).trim());
+	})()`)
+	if slices.ContainsFunc(v, func(s string) bool { return s != "" && s != "0px" }) {
+		t.Errorf("room = %q, want none", v)
+	}
+	if names, ok := titleButtons(w); ok && len(names) > 0 {
+		t.Errorf("buttons = %q, want none", names)
+	}
+	if px, want, ok := topNonClient(w); ok && px != want {
+		t.Errorf("non-client area at the top = %d px, want %d", px, want)
+	}
+}
+
 func expectClick(t *testing.T, clicks chan string, want string) {
 	t.Helper()
 	select {
@@ -2746,11 +2797,27 @@ func TestContentWindowObserved(t *testing.T) {
 		mygo.RunOnMain(func() { s = name })
 		return s == "Grace"
 	})
+	// Text typed through accessibility goes in over the selection, at
+	// the caret after the value set.
+	if !accessPerform(w, "Name", "insert", " Hopper") {
+		t.Fatal("cannot insert text into the text field")
+	}
+	eventually(t, "the text inserted", func() bool {
+		var s string
+		mygo.RunOnMain(func() { s = name })
+		return s == "Grace Hopper"
+	})
+	if accessPerform(w, "Notes", "insert", "x") {
+		t.Error("text could be inserted into the read-only text field")
+	}
 	// AppKit answers for what the element does not.
 	if accessPerform(w, "Settings", "press", "") {
 		t.Error("a text could be pressed")
 	}
 	// The overrides of the older API answer too.
+	if _, settable, _, ok := axAttribute(w, "Name", "AXSelectedText"); ok && !settable {
+		t.Error("the text field's selected text is not settable")
+	}
 	if _, settable, _, ok := axAttribute(w, "Name", "AXValue"); ok && !settable {
 		t.Error("the text field's value is not settable")
 	}
