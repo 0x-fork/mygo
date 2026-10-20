@@ -192,6 +192,12 @@ type ListState struct {
 	wroteY  float64
 	req     listRequest
 	heights listHeights
+
+	// scrolled tells that the app asked the list to scroll (ScrollTo,
+	// ScrollIntoView, ScrollToEnd): a mouse wheel's notches on their way
+	// stop there (glideWheels).
+	scrolled bool
+
 	// width, gap and padTop are those the rows were placed with: the width
 	// of the rows, the gap between them, and where the first starts below
 	// the list's top. border is its top border.
@@ -289,17 +295,22 @@ type followMark struct {
 // is measured.
 func (s *ListState) ScrollTo(row int, align Align) {
 	s.req = listRequest{set: true, row: row, align: align}
+	s.scrolled = true
 }
 
 // ScrollIntoView scrolls the list as little as shows row whole, as
 // Element.ScrollIntoView does an element.
 func (s *ListState) ScrollIntoView(row int) {
 	s.req = listRequest{set: true, row: row, near: true}
+	s.scrolled = true
 }
 
 // ScrollToEnd scrolls the list to its end, where FollowEnd follows it
 // again.
-func (s *ListState) ScrollToEnd() { s.req = listRequest{set: true, end: true} }
+func (s *ListState) ScrollToEnd() {
+	s.req = listRequest{set: true, end: true}
+	s.scrolled = true
+}
 
 // Visible returns the first and the last row the list showed in the last
 // frame, last below first when it showed none: a list nearing the end of
