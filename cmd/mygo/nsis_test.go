@@ -114,10 +114,10 @@ func TestWindowsInstaller(t *testing.T) {
 }
 
 // TestWindowsInstallerEncoding checks that installer.nsi is written as UTF-8
-// with a byte order mark. The script starts with `Unicode true`, and NSIS
-// reads such a script as UTF-16 unless it carries a BOM: without one, a name
-// or a path with a non-ASCII character, e.g. 望言字幕导出 or a folder named
-// 中文, makes makensis report "no files found" and the build fails.
+// with a byte order mark. NSIS on Windows reads a script without a BOM as
+// ANSI, in the machine's code page, even after `Unicode true`: a name or a
+// path with a non-ASCII character, e.g. 望言字幕导出 or a folder named 中文,
+// then makes makensis report "no files found" and the build fails.
 func TestWindowsInstallerEncoding(t *testing.T) {
 	dir := testModule(t, map[string]string{
 		"main.go":   "package main\n\nfunc main() {}\n",
