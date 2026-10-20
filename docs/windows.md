@@ -51,6 +51,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `TitleBarStyle` | hides the title bar but keeps the window buttons over the page, see [custom title bars](frontend.md#custom-title-bars), or over [native UI](ui/windows.md) |
 | `TrafficLightPosition` | moves the window buttons of a hidden title bar (macOS) |
 | `TitleBarHeight` | the height of the title bar the page draws under the window buttons (Linux, Windows) |
+| `HideWindowButtons` | hides the window buttons of a hidden title bar, which keeps its resizing top edge, shadow and corners: the page draws its own and calls `Minimize`, `Maximize`, `Unmaximize` and `Close` |
 | `Transparent`, `Vibrancy` | a transparent window, and the material behind a transparent page or [native UI](ui/windows.md) (macOS, Windows 11 22H2). On Windows, a window with a material has no menu bar: Alt and F10 open its menus in a popup |
 | `BackgroundColor` | fills the window until the page paints, in CSS syntax such as `"#1e1e1e"`, or `"light-dark(#f5f5f7, #1e1e1e)"` to follow the appearance |
 | `Opacity` | between 0 and 1 |
@@ -59,7 +60,8 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `SkipTaskbar` | leaves the window out of the taskbar (Linux, Windows) |
 | `AutoHideMenuBar` | shows the menu bar only while the keyboard is in it, from Alt or F10 (Linux, Windows), see [the menu bar](menus.md#the-menu-bar) |
 | `Parent`, `Modal` | a child window, modal to its parent; for one placed next to a part of it, see [flyouts](#flyouts) |
-| `Page` | the options of the window's [page](#pages): its preload script, trusted origins, web inspector, zoom and user agent |
+| `Panel` | the window of a launcher or a quick entry, floating above all apps, see [panels](#panels) |
+| `Page` | the options of the window's [page](#pages): its preload script, trusted origins, web inspector, zoom, user agent and its suffix |
 
 ## Show windows without flashing
 
@@ -87,6 +89,41 @@ as long as it would show on a connected display. They override `X`, `Y`,
 `Width`, `Height`, `UseContentSize`, `Maximized` and `FullScreen`, which
 stay the defaults of the first launch. Give each kind of window its own key:
 `"main"`, `"preferences"`.
+
+An app that keeps its data elsewhere, such as in its own database, keeps
+the states there with a `WindowStateStore`, set before the first window
+with a `StateKey`, and no `window-state.json` is written:
+
+```go
+type windowStates struct{ db *sql.DB }
+
+func (s windowStates) LoadWindowStates() (map[string]mygo.WindowState, error) {
+	var data []byte
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = 'windows'`).Scan(&data)
+	if err != nil {
+		return nil, err
+	}
+	var states map[string]mygo.WindowState
+	return states, json.Unmarshal(data, &states)
+}
+
+func (s windowStates) SaveWindowStates(states map[string]mygo.WindowState) error {
+	data, err := json.Marshal(states)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('windows', ?)`, data)
+	return err
+}
+
+mygo.App.SetWindowStateStore(windowStates{db})
+```
+
+MyGo loads the states once, when the first window with a `StateKey` is
+created, and saves them all when such a window closes and when the app
+quits, on the main thread. Windows open with their options when there are
+no states or loading them fails; a save that fails is tried again the next
+time.
 
 ## Size, position and state
 
@@ -126,7 +163,10 @@ Other properties:
 - `SetAutoHideMenuBar` hides the menu bar until Alt or F10, or shows it
   for good again (Linux, Windows).
 - `SetVisibleOnAllWorkspaces` shows it on every Space or virtual desktop
-  (macOS, Linux).
+  (macOS, Linux); on macOS also over other apps in full screen, as an
+  overlay does, even with `DisableFullScreen`, if the app is an accessory
+  (`ActivationPolicyAccessory`, `App.Dock.Hide`): macOS shows no windows of
+  regular apps there, but [panels](#panels).
 - `SetContentProtection(true)` keeps it out of screenshots and screen
   recordings.
 - `SetIgnoreMouseEvents(true)` lets clicks through to what is behind it.
@@ -287,6 +327,85 @@ closes the others that show, but its own ancestors, as the user would.
 `examples/flyout` opens a list of colors, a note editor and an About box,
 a popover on macOS.
 
+## Panels
+
+A panel is the window of a launcher, a command palette or a quick entry,
+as Spotlight's and Raycast's are: summoned from anywhere by a
+[global shortcut](native.md#global-shortcuts), it floats above the windows
+of every app, on whichever Space or virtual desktop the user is on, over
+apps in full screen too, and stays out of the taskbar, the Dock's windows
+and the app switcher. It cannot be minimized, maximized or go full screen,
+and has no menu bar on Linux and Windows. On macOS, showing it gives it the
+keyboard without activating the app: the app the user was in stays the
+active one, as its menu bar shows, and has the keyboard back as the panel
+hides. Clicks in the panel leave it active too.
+
+```go
+mygo.App.SetActivationPolicy(mygo.ActivationPolicyAccessory) // no Dock icon (macOS)
+mygo.App.OnWindowAllClosed(func() {})                     // keep running with no window
+
+mygo.App.WhenReady(func() {
+	panel := mygo.NewWindow(mygo.WindowOptions{
+		Panel:       true,
+		Hidden:      true,
+		Frameless:   true,
+		Transparent: true,
+		Vibrancy:    mygo.VibrancyHUD,
+		Width:       680,
+		Height:      420,
+		URL:         "/launcher",
+	})
+	// Hide rather than close, so that it shows at once the next time:
+	// on Escape, Cmd-W or Alt-F4, and as the user goes elsewhere.
+	panel.OnClose(func(e *mygo.CloseEvent) {
+		e.PreventDefault()
+		panel.Hide()
+	})
+	panel.OnBlur(panel.Hide)
+
+	mygo.GlobalShortcut.Register("Alt+Shift+Space", func() {
+		if panel.IsVisible() {
+			panel.Hide()
+			return
+		}
+		// On the display with the pointer, a third of the way down.
+		d := mygo.Screen.DisplayNearestPoint(mygo.Screen.CursorScreenPoint())
+		width, height := panel.Size()
+		panel.SetPosition(d.WorkArea.X+(d.WorkArea.Width-width)/2, d.WorkArea.Y+(d.WorkArea.Height-height)/3)
+		panel.Show()
+	})
+})
+```
+
+An Escape the page does not handle (`preventDefault()`) or native UI
+leaves closes a panel, as the user closing it, which `OnClose` listeners
+may turn into hiding it, as above. A launcher is usually an accessory app,
+without a Dock icon, from the start: give it `LSUIElement` in
+`macos.infoPlist` of [`mygo.config.ts`](configuration.md), or set its
+activation policy before `App.Run`, as above. A regular app is activated
+as it launches, as any app the user opens: the first window it shows,
+a panel too, brings it to the front.
+
+How each platform shows them:
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| window | an `NSPanel` with the nonactivating style, never the main window | a utility window (`_NET_WM_WINDOW_TYPE_UTILITY`), kept above, out of the taskbar and the pager; a surface of the overlay layer under Wayland (gtk-layer-shell) | a topmost tool window (`WS_EX_TOOLWINDOW`), owned by a hidden window, so it never has a taskbar button, with Windows 11's rounded corners |
+| workspaces | every Space, as a full-screen auxiliary (`CanJoinAllSpaces`, `FullScreenAuxiliary`), out of Mission Control and the window cycle | every workspace (sticky) | the virtual desktop it shows on |
+| keyboard | the key window, the app staying inactive | the active window; on a layer surface, exclusively while it shows | the foreground window, which the key press of a global shortcut lets it take |
+
+Under Wayland, where apps neither place nor raise their windows, a panel
+is a surface of the layer shell where the compositor speaks the protocol
+(Sway, Hyprland, KDE Plasma, COSMIC…) and `libgtk-layer-shell.so.0` is
+installed, as launchers there are: it shows on the overlay layer, above
+windows in full screen too, out of the taskbar, centered on the output
+the user is on, or where `X` and `Y` or `SetPosition` put it. It keeps the
+keyboard while it shows, as other launchers there do, so that it gets the
+keys from the start: it is blurred only as it hides, so close it on
+Escape, which the user presses there. Elsewhere, as on GNOME, which has no
+layer shell, it is a window as others: the compositor decides where it
+shows and what is above it.
+
 ## Events
 
 Listeners run on the main thread: keep them short, and start goroutines for
@@ -363,6 +482,12 @@ mygo.NewWindow(mygo.WindowOptions{
 | `TrustedOrigins` | other origins whose pages may call Go, see [who may call](bindings.md#who-may-call) |
 | `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled`; for a window of native UI, its [inspector](ui/inspector.md) |
 | `ZoomFactor`, `UserAgent` | the page's zoom (1 is 100%) and user agent |
+| `SafariTabFocus` | leaves Tab to text fields and elements with a tabindex, as Safari does unless the system's keyboard navigation is on; by default Tab reaches links, buttons, checkboxes and selects too (macOS) |
+| `UserAgentSuffix` | appended to the user agent instead of replacing it, which `UserAgent` does, such as `"MyApp/1.2"`; it appends to `UserAgent` too, and `SetUserAgent` keeps it, and leading and trailing spaces are trimmed |
+
+`UserAgentSuffix` is for the sites that want to see the app, and for the ones
+that serve a bare web view older pages because its user agent names no browser:
+`"Version/17.0 Safari/605.1.15"` makes the page look like Safari.
 
 Page events, on `win.Page()`:
 

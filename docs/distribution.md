@@ -76,6 +76,9 @@ export default defineConfig({
 The icon is `resources/icon.png`, or the `icon` of the configuration: a square PNG,
 ideally 1024×1024. `mygo build` makes it the `.icns` of macOS, the icon
 resource of the Windows executable and the icon of the Linux desktop entry.
+Beside it, the same name with `-dev` (`resources/icon-dev.png`) is the icon
+of the development app that `mygo dev` builds, when it exists, to tell it
+from the app in the Dock or the taskbar; it does not ship with the app.
 
 On macOS, `macos.icon` adds an asset catalog, which macOS prefers to the
 `.icns`: an `Assets.car` compiled with `actool`, whose app icon is named
@@ -313,6 +316,54 @@ export default defineConfig({
 `minimumSystemVersion` is the oldest macOS the app runs on, 12.0 by
 default.
 
+### Provisioning profiles
+
+Restricted entitlements, such as Communication Notifications, need a
+provisioning profile that authorizes them, including for Developer ID
+distribution. Set `macos.provisioningProfile` to its path, relative to the
+project or absolute. `build` and `dev` copy it to the bundle's
+`Contents/embedded.provisionprofile` before signing, so the signed app,
+disk image and update archive contain it.
+
+```ts
+export default defineConfig({
+  macos: {
+    signingIdentity: process.env.MACOS_SIGNING_IDENTITY,
+    provisioningProfile: process.env.MACOS_PROVISIONING_PROFILE,
+    entitlements: "entitlements.plist",
+  },
+});
+```
+
+The profile must match the signing certificate, bundle identifier and
+entitlements, including the application and team identifiers. MyGo embeds
+it as supplied; it does not create profiles or derive entitlements from
+them. Apple validates their authorization when the app runs. A profile
+cannot be used with ad-hoc signing (`-sign -`). `dev` signs ad hoc unless
+it is given `-sign` (it does not use `macos.signingIdentity`), and its app's
+identifier is `<identifier>.dev`, which the app's profile does not
+authorize: leave the profile and the restricted entitlements out of
+development builds with a [computed configuration](configuration.md#computed-configuration),
+
+```ts
+export default defineConfig(({ command }) => ({
+  macos: {
+    signingIdentity: process.env.MACOS_SIGNING_IDENTITY,
+    ...(command === "build" && {
+      provisioningProfile: process.env.MACOS_PROVISIONING_PROFILE,
+      entitlements: "entitlements.plist",
+    }),
+  },
+}));
+```
+
+or pass `-sign` and give `dev` a profile for `<identifier>.dev`. It
+watches the profile and rebuilds when it changes.
+
+Keep profiles out of version control and provide their paths through the
+build environment. See Apple's
+[Inside code signing: provisioning profiles](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles).
+
 ## Windows
 
 The executable carries the icon, the version information and a manifest
@@ -435,6 +486,44 @@ of the new version, so a version that adds URL schemes or file types gets
 them. The Debian package suits people who want the system's package manager to
 update the app; `install.sh` suits the others, and is the Linux install
 that updates itself.
+
+## Languages
+
+An app with [catalogs](i18n.md) declares their languages to each system,
+its source language first, which the system falls back to:
+
+- macOS: `CFBundleDevelopmentRegion`, `CFBundleLocalizations` and a
+  localization folder per language in `Contents/Resources`, named as Xcode
+  names them (`de.lproj`, `zh-Hans.lproj`, `zh-HK.lproj` for `zh-Hant-HK`),
+  so that AppKit says its own texts (the Services menu, the panels) in the
+  language the app shows, and System Settings lists the app's languages.
+- Linux: `Name[xx]` and `Comment[xx]` in the desktop entry, by POSIX
+  locale (`de`, `zh_CN`, `zh_TW`, `sr@latin`).
+- Windows: the installer is in each of the languages, and picks the
+  system's; NSIS 3 has files of some 60 languages, and a language it has
+  none of stops the build, saying which it has. The file properties have a
+  table of strings per language.
+
+The app's name and description in a language are its catalog's
+`mygo.appName` and `mygo.appDescription`; the configuration's `name` and
+`linux.comment` are those of the source language. An app without catalogs
+declares no languages.
+
+On macOS, the other strings of `Info.plist`, such as the reasons the
+system shows as it asks for the microphone or the system's audio
+(`NSMicrophoneUsageDescription`, `NSAudioCaptureUsageDescription`), are
+translated as Xcode's projects translate them: by an `InfoPlist.strings`
+of the language among the app's [resources](#platform-resources), which
+the build keeps, adding the app's name where the file has none.
+
+```
+resources/darwin/
+├── ja.lproj/InfoPlist.strings        "NSMicrophoneUsageDescription" = "音声メモを録音します。";
+└── zh-Hans.lproj/InfoPlist.strings   "NSMicrophoneUsageDescription" = "用麦克风录语音笔记。";
+```
+
+The file is the text format Xcode writes, in UTF-8 or UTF-16, or a
+property list in XML.
 
 ## URL schemes and file types
 

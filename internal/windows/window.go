@@ -32,8 +32,13 @@ type window struct {
 	pending      []pendingCall
 	webViewErr   error
 	webViewFails int // creations that failed
-	closed       bool
-	destroying   bool
+	// scriptIDs are the ids of the scripts added to every document, which
+	// SetUserScripts removes; scriptGen counts the replacements, so an id
+	// that arrives after one is removed at once.
+	scriptIDs  []string
+	scriptGen  int
+	closed     bool
+	destroying bool
 
 	minW, minH, maxW, maxH int // DIPs
 	movable, closable      bool
@@ -131,6 +136,11 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	var owner uintptr
 	if p, ok := o.Parent.(*window); ok && p != nil && !p.closed {
 		w.parent, owner = p, p.hwnd
+	} else if o.Panel {
+		// A tool window alone may still get a taskbar button, on the
+		// taskbars of other displays: an owned one never does. The
+		// application window is hidden for good.
+		owner = b.appHwnd
 	}
 	style, ex := w.styles()
 	class := windowClass
@@ -145,6 +155,10 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 		return nil, errors.New("mygo: cannot create a window")
 	}
 	b.windows[w.hwnd] = w
+	if o.Panel {
+		// Windows 11 gives tool windows the small corners of menus.
+		w.roundFlyout()
+	}
 	if o.Flyout != nil {
 		if o.HasShadow {
 			w.roundFlyout()
@@ -185,7 +199,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if b.icon != 0 {
 		w.setIcon(b.icon)
 	}
-	if b.appMenu != nil && o.Flyout == nil {
+	if b.appMenu != nil && w.hasAppMenu() {
 		w.installMenu(b.appMenu)
 	}
 	if o.Modal && w.parent != nil {
@@ -221,6 +235,14 @@ func (w *window) styles() (style, ex uint32) {
 	if !o.Focusable {
 		ex |= wsExNoActivate
 	}
+	if o.Panel {
+		// Out of the taskbar and Alt+Tab, on whichever virtual desktop
+		// is current as it shows, and above other apps' windows. Without
+		// a window menu: DWM draws the close button of a tool window's
+		// menu where a material extends the frame, over the content.
+		ex |= wsExToolWindow | wsExTopmost
+		style &^= wsSysMenu
+	}
 	if w.noRedirect {
 		ex |= wsExNoRedirect
 	}
@@ -249,13 +271,38 @@ func (w *window) placeInitially() {
 		y = work.Top + (work.Bottom-work.Top-height)/2
 	}
 	procSetWindowPos.Call(w.hwnd, 0, uintptr(x), uintptr(y), uintptr(width), uintptr(height), swpNoZOrder|swpNoActivate)
+	if o.UseContentSize && !w.captionless() {
+		w.fitContent(width, height, toPx(o.Width, dpi), toPx(o.Height, dpi), false, 0, 0)
+	}
+}
+
+// fitContent grows the window, outerW by outerH, whose content was to be
+// wantW by wantH pixels, by what its content lacks, and with at moves the
+// content to (atX, atY) on the screen: AdjustWindowRectEx counts a menu
+// bar of one line as the system draws it, and MyGo draws Windows 11's
+// taller (measureMenuBarItem), as a bar too wide for its window wraps.
+func (w *window) fitContent(outerW, outerH, wantW, wantH int32, at bool, atX, atY int32) {
+	var c, wr rect
+	procGetClientRect.Call(w.hwnd, uintptr(unsafe.Pointer(&c)))
+	procGetWindowRect.Call(w.hwnd, uintptr(unsafe.Pointer(&wr)))
+	var origin point
+	procClientToScreen.Call(w.hwnd, uintptr(unsafe.Pointer(&origin)))
+	dw, dh := wantW-c.Right, wantH-c.Bottom
+	dx, dy := int32(0), int32(0)
+	if at {
+		dx, dy = atX-origin.X, atY-origin.Y
+	}
+	if dw == 0 && dh == 0 && dx == 0 && dy == 0 {
+		return
+	}
+	procSetWindowPos.Call(w.hwnd, 0, uintptr(wr.Left+dx), uintptr(wr.Top+dy), uintptr(outerW+dw), uintptr(outerH+dh), swpNoZOrder|swpNoActivate)
 }
 
 // outerSize returns the window size for a content size, in pixels.
 func (w *window) outerSize(width, height int32, dpi int) (int32, int32) {
 	r := rect{0, 0, width, height}
 	menu := uintptr(0)
-	if !w.autoHideMenu && !w.noRedirect && (w.hmenu != 0 || w.b.appMenu != nil) {
+	if !w.autoHideMenu && !w.noRedirect && (w.hmenu != 0 || w.b.appMenu != nil && w.hasAppMenu()) {
 		menu = 1
 	}
 	style, ex := windowLong(w.hwnd, gwlStyle), windowLong(w.hwnd, gwlExStyle)
@@ -308,6 +355,12 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 	}
 	if m == wmMouseActivate && w.ownsFocusableFlyout() {
 		return maActivateAndEat, true
+	}
+	if r, ok := w.b.menuItemMessage(w.hwnd, m, wp, lp); ok {
+		return r, true
+	}
+	if r, ok := w.menuBarMessage(m, wp, lp); ok {
+		return r, true
 	}
 	switch m {
 	case wmClose:
@@ -565,6 +618,10 @@ func (w *window) Title() string {
 	return string(utf16Decode(buf))
 }
 
+// The core marks the title of an edited document; Windows shows no file.
+func (w *window) SetRepresentedFile(string) {}
+func (w *window) SetDocumentEdited(bool)    {}
+
 func utf16Decode(b []uint16) []rune {
 	for i, c := range b {
 		if c == 0 {
@@ -611,6 +668,10 @@ func (w *window) SetContentBounds(r platform.Rect) {
 		procAdjustWindowRectExForDpi.Call(uintptr(unsafe.Pointer(&outer)), windowLong(w.hwnd, gwlStyle), menu, windowLong(w.hwnd, gwlExStyle), uintptr(dpi))
 	}
 	procSetWindowPos.Call(w.hwnd, 0, uintptr(outer.Left), uintptr(outer.Top), uintptr(outer.Right-outer.Left), uintptr(outer.Bottom-outer.Top), swpNoZOrder|swpNoActivate)
+	if !w.captionless() {
+		x, y := toPx(r.X, dpi), toPx(r.Y, dpi)
+		w.fitContent(outer.Right-outer.Left, outer.Bottom-outer.Top, toPx(r.X+r.Width, dpi)-x, toPx(r.Y+r.Height, dpi)-y, true, x, y)
+	}
 }
 
 func (w *window) ContentBounds() platform.Rect {
@@ -982,9 +1043,13 @@ func (w *window) SetVibrancy(material string) {
 	procInvalidateRect(w.hwnd)
 }
 
+// hasAppMenu tells whether the window shows the application menu in its
+// menu bar: flyouts and panels show none.
+func (w *window) hasAppMenu() bool { return w.opts.Flyout == nil && !w.opts.Panel }
+
 func (w *window) SetMenu(m *platform.Menu) {
 	w.ownMenu = m != nil
-	if m == nil && w.b.appMenu != nil {
+	if m == nil && w.hasAppMenu() {
 		m = w.b.appMenu
 	}
 	w.installMenu(m)

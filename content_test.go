@@ -5,15 +5,18 @@ package mygo
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"image/png"
 	"log"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/internal/fake"
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/wait"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -49,7 +52,7 @@ func TestContentReadyToShow(t *testing.T) {
 	onMain(func() { s.Frame() })
 	select {
 	case <-ready:
-	case <-time.After(5 * time.Second):
+	case <-time.After(wait.Guard):
 		t.Fatal("not ready after its first frame")
 	}
 	w.Invalidate()
@@ -336,5 +339,86 @@ func TestContentDuplicateKeyTellsWhere(t *testing.T) {
 	_, _, _ = contentWindow(t, view)
 	if s := out.String(); !strings.Contains(s, "key 1") || !strings.Contains(s, "content_test.go:") {
 		t.Errorf("a duplicate key logs %q", s)
+	}
+}
+
+// TestContentMenuRightToLeft shows the context menu of an element laid
+// out right to left right to left, and others left to right.
+func TestContentMenuRightToLeft(t *testing.T) {
+	view := func(c *ui.Context) {
+		ui.Row(c).Fill().Children(func() {
+			ui.Box(c).Size(100, 100).ContextMenu(func(m *ui.Menu) { m.Item("Left to right") })
+			ui.Row(c).Direction(ui.RightToLeft).Size(100, 100).ContextMenu(func(m *ui.Menu) { m.Item("Right to left") })
+		})
+	}
+	_, _, s := contentWindow(t, view)
+	for _, x := range []float64{50, 150} {
+		onMain(func() {
+			s.Send(platform.SurfaceEvent{Kind: platform.PointerDown, X: x, Y: 50, Button: 1})
+			s.Send(platform.SurfaceEvent{Kind: platform.PointerUp, X: x, Y: 50, Button: 1})
+			s.Frame()
+		})
+		onMain(func() {}) // the menu, posted
+	}
+	var got []string
+	for _, p := range fb.Popups() {
+		got = append(got, fmt.Sprintf("%s %v", p.Menu.Items[0].Label, p.Menu.RightToLeft))
+	}
+	if want := []string{"Left to right false", "Right to left true"}; !slices.Equal(got, want) {
+		t.Errorf("the menus shown are %q, want %q", got, want)
+	}
+}
+
+// HideWindowButtons leaves native UI the whole title bar: the controls it
+// draws itself take no room of the system's.
+func TestContentHiddenWindowButtons(t *testing.T) {
+	var bar ui.TitleBar
+	view := func(c *ui.Context) { bar = c.TitleBar() }
+	w := NewWindow(WindowOptions{Width: 300, Height: 200, TitleBarStyle: TitleBarHidden, HideWindowButtons: true, Content: ui.View(view)})
+	t.Cleanup(w.Destroy)
+	wins := fb.Windows()
+	fw := wins[len(wins)-1]
+	if !fw.Opts.HideWindowButtons {
+		t.Error("the backend was not told to hide the window buttons")
+	}
+	s := fw.FakeSurface()
+	onMain(func() {
+		w.native = &contentTitleBarWindow{Window: w.native, t: t}
+		s.Frame()
+	})
+	if bar != (ui.TitleBar{}) {
+		t.Errorf("TitleBar = %+v, want none", bar)
+	}
+}
+
+// The view tells the backend where it shows the maximize button, and that
+// it shows none once the button goes.
+func TestContentMaximizeButton(t *testing.T) {
+	shown := true
+	view := func(c *ui.Context) {
+		ui.Row(c).Fill().AlignItems(ui.Start).Children(func() {
+			ui.Spacer(c)
+			if shown {
+				ui.ButtonBase(c.Key("max")).Size(40, 30).Label("Maximize").MaximizeButton()
+			}
+		})
+	}
+	w := NewWindow(WindowOptions{Width: 300, Height: 200, TitleBarStyle: TitleBarHidden, HideWindowButtons: true, Content: ui.View(view)})
+	t.Cleanup(w.Destroy)
+	wins := fb.Windows()
+	fw := wins[len(wins)-1]
+	s := fw.FakeSurface()
+	onMain(func() {
+		w.native = &contentTitleBarWindow{Window: w.native, t: t}
+		s.Frame()
+	})
+	if want := (platform.RectF{X: 260, Y: 0, W: 40, H: 30}); fw.MaximizeButton != want {
+		t.Errorf("maximize button at %+v, want %+v", fw.MaximizeButton, want)
+	}
+	onMain(func() { shown = false })
+	w.Invalidate()
+	onMain(func() { s.Frame() })
+	if fw.MaximizeButton != (platform.RectF{}) {
+		t.Errorf("maximize button at %+v after it went", fw.MaximizeButton)
 	}
 }

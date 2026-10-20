@@ -97,6 +97,11 @@ export interface Config {
   urlSchemes?: string[];
   /** The types of files the app opens, which reach `App.OnOpenFile`. */
   fileAssociations?: FileAssociation[];
+  /**
+   * The catalogs of the app's messages, which make the languages it ships.
+   * Without it, the app ships English only.
+   */
+  i18n?: I18nConfig;
   /** Signed updates, which `mygo.Updater` installs. */
   updates?: UpdatesConfig;
   /** macOS packaging. */
@@ -105,6 +110,18 @@ export interface Config {
   windows?: WindowsConfig;
   /** Linux packaging. */
   linux?: LinuxConfig;
+}
+
+/**
+ * The catalogs of the app's messages: a JSON file per language in `dir`,
+ * named after its BCP 47 tag (`de.json`, `zh-Hant.json`), whose messages
+ * `mygo generate` writes typed Go and TypeScript functions for.
+ */
+export interface I18nConfig {
+  /** The directory of the catalogs, a Go package of its own (default `locales`). */
+  dir?: string;
+  /** The language the app is written in, which the others fall back to (default `en`). */
+  source?: string;
 }
 
 /** A type of file the app opens. */
@@ -178,6 +195,12 @@ export interface MacOSConfig {
   signingIdentity?: string;
   /** A property list of entitlements to sign the app with. */
   entitlements?: string;
+  /**
+   * A provisioning profile embedded before signing, for restricted entitlements.
+   * Must match the app's identifier, entitlements and signing identity.
+   * Cannot be used with ad-hoc signing. Paths are relative to the project.
+   */
+  provisioningProfile?: string;
   /**
    * Property lists of entitlements for code among the resources, by its path
    * there, e.g. `{ "bin/server": "server.entitlements.plist" }` for a helper

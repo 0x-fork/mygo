@@ -90,6 +90,15 @@ type MaterialSurface interface {
 	ShowsMaterial() bool
 }
 
+// PacedSurface is a Surface whose frames following each other come at the
+// display's refreshes, marked Paced: a renderer that waits for the display
+// lets such a frame draw once the display can take it, with FrameNow.
+type PacedSurface interface {
+	// FrameNow sends a SurfaceFrame at once, as a refresh would, for a
+	// frame a Paced one left to draw.
+	FrameNow()
+}
+
 // IdleSurface is a Surface that can give back memory once frames stop.
 type IdleSurface interface {
 	// Idle tells that no frame came for a while: the surface may give
@@ -113,6 +122,11 @@ type TextInputState struct {
 	// Client supplies full text and geometry for a custom text element. The
 	// Text/Start/End snapshot remains the plain-widget and TextCaret fallback.
 	Client TextInputClient
+	// NoInputMethod keeps input methods out while Active: keys type the
+	// characters of the keyboard's layout as TextInput, and nothing is
+	// composed, as winit's set_ime_allowed(false). Browsers cannot turn
+	// input methods off, and ignore it.
+	NoInputMethod bool
 }
 
 // SurfaceNative holds the native objects of a Surface.
@@ -155,7 +169,9 @@ const (
 	// PointerMove reports the pointer at X, Y.
 	PointerMove
 	// PointerDown and PointerUp report Button pressed or released at X,
-	// Y; Clicks counts quick successive presses (2 for a double click).
+	// Y; Clicks counts quick successive presses (2 for a double click),
+	// by the system's double-click settings. A release may leave it 0, for
+	// its press's.
 	PointerDown
 	PointerUp
 	// PointerLeave reports the pointer left the surface.
@@ -180,7 +196,10 @@ const (
 	SurfaceFocus
 	SurfaceBlur
 	// SurfaceCommand performs the edit command Text: "copy", "cut",
-	// "paste", "selectAll", "undo", "redo" or "delete" (Edit menu roles).
+	// "paste", "pasteAndMatchStyle", "selectAll", "undo", "redo" or
+	// "delete" (Edit menu roles), or a Format menu role's: "bold",
+	// "italic", "underline", "strikethrough", "alignLeft", "alignCenter"
+	// or "alignRight".
 	SurfaceCommand
 	// FileDragOver reports files of another app dragged over X, Y, and
 	// FileDragLeave that they left. FileDrop drops Files at X, Y.
@@ -255,6 +274,11 @@ type SurfaceEvent struct {
 	Action AccessActionKind
 	// WebView is WebViewTabOut's.
 	WebView WebView
+	// Paced marks a SurfaceFrame of frames following each other at the
+	// display's refreshes (PacedSurface): the content may draw it later,
+	// once the display can take it, which it tells by returning true from
+	// SurfaceEvent; the refreshes go on meanwhile.
+	Paced bool
 }
 
 // Modifiers are the modifier keys held during an event.

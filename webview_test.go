@@ -56,6 +56,44 @@ func webViewWindow(t *testing.T, show *bool) (*Window, *WebView, *fake.Surface, 
 	return w, v, s, fv
 }
 
+func TestWebViewThemePreferences(t *testing.T) {
+	onMain(func() { fb.SetPreferences(platform.Preferences{TextScale: 1.5}) })
+	defer onMain(func() { fb.SetPreferences(platform.Preferences{}) })
+	show := true
+	_, _, _, fv := webViewWindow(t, &show)
+	if len(fv.Opts.UserScripts) != 2 || !strings.Contains(fv.Opts.UserScripts[1].Source, `"textScale":1.5`) {
+		t.Fatal("web view does not install initial preferences")
+	}
+	onMain(func() { fb.SetPreferences(platform.Preferences{TextScale: 2}) })
+	received(t, fv.Window, func(m map[string]any) bool {
+		p, _ := m["p"].(map[string]any)
+		return m["n"] == "mygo:preferences" && p["textScale"] == float64(2)
+	})
+	// The web view's next documents start with the new ones.
+	src := onMainValue(func() string { return fv.Opts.UserScripts[1].Source })
+	if !strings.Contains(src, `"textScale":2`) {
+		t.Errorf("web view's preferences script after a change = %s", src)
+	}
+}
+
+// TestWebViewTabFocus passes the page's Tab behavior to a web view: every
+// control by default, Safari's text fields only when asked for.
+func TestWebViewTabFocus(t *testing.T) {
+	w, _, s := contentWindow(t, func(c *ui.Context) {})
+	if _, err := w.NewWebView(WebViewOptions{Page: PageOptions{SafariTabFocus: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if views := s.WebViews(); len(views) != 1 || views[0].Opts.TabFocusesLinks {
+		t.Errorf("web views %d: SafariTabFocus not applied", len(views))
+	}
+	if _, err := w.NewWebView(WebViewOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if views := s.WebViews(); len(views) != 2 || !views[1].Opts.TabFocusesLinks {
+		t.Error("Tab reaches every control by default")
+	}
+}
+
 func TestWebViewNeedsContent(t *testing.T) {
 	w, _ := testWindow(t, WindowOptions{})
 	if _, err := w.NewWebView(WebViewOptions{}); !errors.Is(err, errNoContent) {

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -214,5 +215,191 @@ func TestTransformedFramesStayOnGPU(t *testing.T) {
 	frame()
 	if g.frames != 3 || s.pixels != 0 || h.soft.Image.Pix != nil {
 		t.Fatal("active or resting transforms switched to CPU rendering")
+	}
+}
+
+// A painter tells whether its frame draws on a GPU: from the first frame,
+// whose renderer is made as it paints; not with a renderer drawing in
+// software, nor in memory, nor headless. When that changes as a frame is
+// presented, the window is painted again.
+func TestAccelerated(t *testing.T) {
+	soft, fail := false, false
+	h, _, frame := gpuHost(t, func() (gpuRenderer, error) {
+		switch {
+		case fail:
+			return nil, errors.New("no device")
+		case soft:
+			return &softGPU{}, nil
+		}
+		return &testGPU{}, nil
+	})
+	var told []bool
+	h.rt = newRuntime(func(c *context) {
+		coreBox(c).Size(20, 20).Draw(func(p *Painter, r Rect) { told = append(told, p.Accelerated()) })
+	}, h)
+	invalidated := 0
+	h.conn.Invalidate = func() { invalidated++ }
+	frame()
+	if len(told) != 1 || !told[0] || invalidated != 0 {
+		t.Fatalf("on a GPU: told %v, invalidated %d times", told, invalidated)
+	}
+
+	// The GPU goes away as a frame presents: the next is painted without.
+	h.gpu.(*testGPU).fail, fail = true, true
+	frame()
+	if invalidated != 1 || h.gpu != nil {
+		t.Fatalf("after the loss: invalidated %d times, renderer %v", invalidated, h.gpu)
+	}
+	told = told[:0]
+	frame()
+	if len(told) != 1 || told[0] || invalidated != 1 {
+		t.Fatalf("in memory: told %v, invalidated %d times", told, invalidated)
+	}
+
+	// A renderer drawing in software, as WARP, is not a GPU.
+	h.event(platform.SurfaceEvent{Kind: platform.SurfaceRenew})
+	soft, fail = true, false
+	told = told[:0]
+	frame()
+	if len(told) != 1 || told[0] {
+		t.Errorf("in software: told %v", told)
+	}
+
+	var headless []bool
+	coreRender(func(c *context) {
+		coreBox(c).Size(20, 20).Draw(func(p *Painter, r Rect) { headless = append(headless, p.Accelerated()) })
+	}, 40, 40, 1)
+	if len(headless) == 0 || slices.Contains(headless, true) {
+		t.Errorf("headless: told %v", headless)
+	}
+}
+
+// pacedSurface is a test surface whose frames following each other are
+// paced by the display, and which draws one at once on FrameNow.
+type pacedSurface struct {
+	testSurface
+	h   *windowHost
+	now int
+}
+
+func (s *pacedSurface) FrameNow() {
+	s.now++
+	s.h.event(platform.SurfaceEvent{Kind: platform.SurfaceFrame})
+}
+
+// waitingGPU is a GPU renderer that has a frame wait until wake is called,
+// while ready is false.
+type waitingGPU struct {
+	testGPU
+	ready bool
+	wake  func()
+}
+
+func (g *waitingGPU) Ready(wake func()) bool {
+	if g.ready {
+		return true
+	}
+	g.wake = wake
+	return false
+}
+
+// TestPacedFrameWaitsForTheDisplay checks that a frame paced by the
+// display waits, without drawing, for the GPU renderer to be able to draw
+// it, and draws once it wakes the window, through the main thread.
+func TestPacedFrameWaitsForTheDisplay(t *testing.T) {
+	var gpus []*waitingGPU
+	h, _, frame := gpuHost(t, func() (gpuRenderer, error) {
+		g := &waitingGPU{ready: true}
+		gpus = append(gpus, g)
+		return g, nil
+	})
+	s := &pacedSurface{h: h}
+	var posted []func()
+	h.conn.Surface = s
+	h.conn.Post = func(fn func()) { posted = append(posted, fn) }
+	paced := func() { h.event(platform.SurfaceEvent{Kind: platform.SurfaceFrame, Paced: true}) }
+	runPosted := func() {
+		fns := posted
+		posted = nil
+		for _, fn := range fns {
+			fn()
+		}
+	}
+	frame()
+	g := gpus[0]
+	paced()
+	if g.frames != 2 {
+		t.Fatalf("a paced frame the renderer is ready for: %d frames, want 2", g.frames)
+	}
+
+	// Not ready: the frame waits.
+	g.ready = false
+	paced()
+	if g.frames != 2 || g.wake == nil || !h.waiting {
+		t.Fatalf("waiting: %d frames, wake %v, waiting %v", g.frames, g.wake != nil, h.waiting)
+	}
+	// The renderer wakes the window through the main thread, which draws
+	// the frame at once.
+	g.ready = true
+	g.wake()
+	if g.frames != 2 || len(posted) != 1 {
+		t.Fatalf("woken off the main thread: %d frames, %d posted", g.frames, len(posted))
+	}
+	runPosted()
+	if g.frames != 3 || s.now != 1 || h.waiting {
+		t.Fatalf("woken: %d frames, %d drawn at once, waiting %v", g.frames, s.now, h.waiting)
+	}
+
+	// Refreshes passing while a frame waits ask for the same frame, which
+	// draws at the time the first asked for it.
+	g.ready = false
+	paced()
+	asked := h.waitedAt
+	paced()
+	if h.waitedAt != asked {
+		t.Fatal("a later refresh changed the time of the frame waiting")
+	}
+	g.ready = true
+	g.wake()
+	runPosted()
+	if g.frames != 4 || s.now != 2 || h.waiting || h.rt.c.now != asked {
+		t.Fatalf("waited across refreshes: %d frames, %d drawn at once, waiting %v, frame time %v (asked %v)", g.frames, s.now, h.waiting, h.rt.c.now, asked)
+	}
+
+	// A frame the surface draws for another reason, as a resize's, draws
+	// the waiting one: a wake after it draws nothing more.
+	g.ready = false
+	g.wake = nil
+	paced()
+	frame()
+	if g.frames != 5 || h.waiting {
+		t.Fatalf("drawn meanwhile: %d frames, waiting %v", g.frames, h.waiting)
+	}
+	g.wake()
+	runPosted()
+	if g.frames != 5 || s.now != 2 {
+		t.Fatalf("a late wake: %d frames, %d drawn at once", g.frames, s.now)
+	}
+
+	// A renderer let go while a frame waits for it never wakes the window:
+	// the next paced frame asks the renderer taking its place.
+	paced()
+	if !h.waiting {
+		t.Fatal("not waiting")
+	}
+	g.fail = true
+	frame() // fails, and another renderer draws it
+	if len(gpus) != 2 || h.waiting {
+		t.Fatalf("after a failure: %d renderers, waiting %v", len(gpus), h.waiting)
+	}
+	gpus[1].ready = false
+	paced()
+	if !h.waiting || h.waitingOn != gpus[1] {
+		t.Fatal("the paced frame did not wait for the new renderer")
+	}
+	h.gpu = &waitingGPU{ready: true}
+	paced()
+	if h.waiting {
+		t.Fatal("a paced frame still waits for a renderer let go")
 	}
 }
