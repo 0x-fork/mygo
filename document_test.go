@@ -257,6 +257,29 @@ func TestDocumentSaveKeepsTheNewContentsWhenReplacingFails(t *testing.T) {
 	}
 }
 
+// A sibling that could not be written goes, even when the file went
+// meanwhile: it holds no new contents to keep.
+func TestDocumentSaveDropsASiblingNotWritten(t *testing.T) {
+	var path string
+	ds := testDocs(t, DocumentsOptions[string]{
+		Autosave: AutosaveOff,
+		Write: func(w io.Writer, s string) error {
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+			return errors.New("cannot write")
+		},
+	})
+	path = writeTemp(t, "a.txt", "one")
+	d, _ := ds.Open(path)
+	d.Set("two")
+	err := d.Save()
+	entries, _ := os.ReadDir(filepath.Dir(path))
+	if err == nil || len(entries) != 0 {
+		t.Fatalf("save error %v, files %v", err, entries)
+	}
+}
+
 func TestDocumentSaveKeepsLinks(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("hard links and symlinks need privileges")
