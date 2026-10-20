@@ -177,7 +177,11 @@ func (r *Renderer) SetPost(post func(func())) {
 	r.post = post
 	finish := func() {
 		pool(func() {
-			if r.pending.cb == 0 {
+			// A frame not paced may have drawn the frame pending this was
+			// posted for, and another may be pending, whose drawable is
+			// being fetched: its fetch posts again once done, rather than
+			// the main thread waiting for it.
+			if r.pending.cb == 0 || !r.pre.ready(r.fetched) {
 				return
 			}
 			if err := r.finishPending(true); err != nil {
