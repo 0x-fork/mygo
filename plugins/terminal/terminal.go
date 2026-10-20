@@ -464,6 +464,10 @@ type Terminal struct {
 	opts Options
 	in   inputQueue
 
+	// quoting is how dropped files' paths are quoted, for the program's
+	// shell.
+	quoting quoting
+
 	// mu guards the emulator, which the reader changes and frames read.
 	mu      sync.Mutex
 	term    *vt.Terminal
@@ -608,6 +612,7 @@ func New(opts Options) (*Terminal, error) {
 	t.UseTheme(opts.Theme)
 	if opts.Conn != nil {
 		t.src = opts.Conn
+		t.quoting = quotingFor(runtime.GOOS, "")
 		t.run()
 		return t, nil
 	}
@@ -617,6 +622,7 @@ func New(opts Options) (*Terminal, error) {
 		t.term.Free()
 		return nil, err
 	}
+	t.quoting = quotingFor(runtime.GOOS, path)
 	dir := opts.Dir
 	if dir == "" {
 		dir, _ = os.UserHomeDir()

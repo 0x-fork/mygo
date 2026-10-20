@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -14,6 +15,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/egoist/mygo/plugins/terminal/internal/vt"
 	"github.com/egoist/mygo/transfer"
@@ -2424,6 +2426,84 @@ func TestTransparentProgramBackground(t *testing.T) {
 	}
 }
 
+// Dropped files' paths are quoted for the program's shell, so that each
+// is one argument, whatever it holds: a newline does not end the command,
+// nor do PowerShell's $(…) or $var expand. Where the shells are installed,
+// they read each quoted path back as it was.
+func TestQuotePaths(t *testing.T) {
+	cases := []struct {
+		q          quoting
+		path, want string
+	}{
+		{quotePOSIX, "/Users/me/My Shots/shot (1).png", `/Users/me/My\ Shots/shot\ \(1\).png`},
+		{quotePOSIX, "/tmp/a&b.txt", `/tmp/a\&b.txt`},
+		{quotePOSIX, "/tmp/$(id)`id`;x|y*", "/tmp/\\$\\(id\\)\\`id\\`\\;x\\|y\\*"},
+		{quotePOSIX, "/tmp/日本 語", `/tmp/日本\ 語`},
+		{quotePOSIX, "/tmp/x\ntouch pwned", `$'/tmp/x\x0atouch pwned'`},
+		{quotePOSIX, "/tmp/it's\tthere\\", `$'/tmp/it\'s\x09there\\'`},
+		{quotePOSIX, "/tmp/a\rb\x1b[201~c", `$'/tmp/a\x0db\x1b[201~c'`},
+		{quotePOSIX, "/tmp/\xff.bin", `$'/tmp/\xff.bin'`},
+		{quotePowerShell, `C:\tmp\ab.txt`, `C:\tmp\ab.txt`},
+		{quotePowerShell, `C:\Users\me\My Shots\shot (1).png`, `'C:\Users\me\My Shots\shot (1).png'`},
+		{quotePowerShell, `C:\dl\$(Start-Process calc) x.txt`, `'C:\dl\$(Start-Process calc) x.txt'`},
+		{quotePowerShell, `C:\dl\$env:USERNAME.txt`, `'C:\dl\$env:USERNAME.txt'`},
+		{quotePowerShell, "C:\\dl\\a`b;c.txt", "'C:\\dl\\a`b;c.txt'"},
+		{quotePowerShell, `C:\dl\it's ‘q’.txt`, `'C:\dl\it''s ‘‘q’’.txt'`},
+		{quoteCmd, `C:\tmp\ab.txt`, `C:\tmp\ab.txt`},
+		{quoteCmd, `C:\a b\c&d.txt`, `"C:\a b\c&d.txt"`},
+	}
+	for _, c := range cases {
+		if got := c.q.quote(c.path); got != c.want {
+			t.Errorf("quoting %d of %q = %s, want %s", c.q, c.path, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		goos, program string
+		want          quoting
+	}{
+		{"linux", "/bin/zsh", quotePOSIX},
+		{"darwin", "/usr/local/bin/pwsh", quotePowerShell},
+		{"windows", `C:\Program Files\PowerShell\7\pwsh.exe`, quotePowerShell},
+		{"windows", `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, quotePowerShell},
+		{"windows", `C:\Windows\System32\cmd.exe`, quoteCmd},
+		{"windows", `C:\Program Files\Git\bin\bash.exe`, quotePOSIX},
+		{"windows", `C:\tools\nu.exe`, quotePowerShell},
+	} {
+		if got := quotingFor(c.goos, c.program); got != c.want {
+			t.Errorf("quotingFor(%s, %s) = %d, want %d", c.goos, c.program, got, c.want)
+		}
+	}
+	// The shells read the paths back.
+	type shell struct {
+		names []string
+		q     quoting
+		args  func(quoted string) []string
+	}
+	shells := []shell{
+		{[]string{"bash", "zsh"}, quotePOSIX, func(q string) []string { return []string{"-c", "printf %s " + q} }},
+		{[]string{"pwsh", "powershell"}, quotePowerShell, func(q string) []string {
+			return []string{"-NoProfile", "-NonInteractive", "-Command", "& { [Console]::Out.Write($args[0]) } " + q}
+		}},
+	}
+	for _, sh := range shells {
+		for _, name := range sh.names {
+			bin, err := exec.LookPath(name)
+			if err != nil {
+				continue
+			}
+			for _, c := range cases {
+				if c.q != sh.q || (runtime.GOOS == "windows" && strings.ContainsFunc(c.path, unicode.IsControl)) {
+					continue
+				}
+				out, err := exec.Command(bin, sh.args(c.want)...).Output()
+				if err != nil || string(out) != c.path {
+					t.Errorf("%s read %s as %q (%v), want %q", name, c.want, out, err, c.path)
+				}
+			}
+		}
+	}
+}
+
 // Files dropped on a terminal paste their paths, escaped for a shell and
 // between spaces, as Ghostty does: bracketed for a program that asks, so
 // that an agent takes them as files it attaches.
@@ -2441,7 +2521,7 @@ func TestDropFiles(t *testing.T) {
 	want := []string{`/Users/me/My\ Shots/shot\ \(1\).png /tmp/a\&b.txt`, `/tmp/a\&b.txt`}
 	if runtime.GOOS == "windows" {
 		paths = []string{`C:\Users\me\My Shots\shot (1).png`, `C:\tmp\ab.txt`}
-		want = []string{`"C:\Users\me\My Shots\shot (1).png" C:\tmp\ab.txt`, `C:\tmp\ab.txt`}
+		want = []string{`'C:\Users\me\My Shots\shot (1).png' C:\tmp\ab.txt`, `C:\tmp\ab.txt`}
 	}
 	if !tt.DropFiles(100, 100, paths...) {
 		t.Fatal("the terminal did not take the files")

@@ -2,10 +2,13 @@ package terminal
 
 import (
 	"errors"
-	"runtime"
+	"fmt"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/plugins/terminal/internal/vt"
 	"github.com/egoist/mygo/transfer"
@@ -279,17 +282,17 @@ func (t *Terminal) readsClipboard() bool {
 }
 
 // dropFiles pastes the paths of files dropped on the terminal, as Ghostty
-// does: each escaped for a shell, spaces between them, so that a shell
-// takes them as arguments and an agent as files it attaches. A program
-// that reads the clipboard itself (mode 5522) is offered them as a file
-// list too, when the paths make one.
+// does: each quoted for the program's shell, spaces between them, so that
+// a shell takes them as arguments and an agent as files it attaches. A
+// program that reads the clipboard itself (mode 5522) is offered them as a
+// file list too, when the paths make one.
 func (t *Terminal) dropFiles(paths []string) {
 	if len(paths) == 0 {
 		return
 	}
 	escaped := make([]string, len(paths))
 	for i, p := range paths {
-		escaped[i] = shellEscape(p)
+		escaped[i] = t.quoting.quote(p)
 	}
 	text := transfer.Bytes(transfer.Text, []byte(strings.Join(escaped, " ")))
 	d, err := transfer.FileData(paths...)
@@ -303,15 +306,84 @@ func (t *Terminal) dropFiles(paths []string) {
 	t.PasteData(transfer.New(items...))
 }
 
-// shellEscape escapes a path for a shell: a backslash before each
-// character a shell would read otherwise, as Ghostty escapes them; on
-// Windows, quotes around a path that needs them.
-func shellEscape(path string) string {
-	if runtime.GOOS == "windows" {
-		if strings.ContainsAny(path, " \t&()[]{}^=;!'+,`~") {
+// quoting is how a shell takes a path as one argument, whatever it holds.
+type quoting int
+
+const (
+	// quotePOSIX: a backslash before each character a POSIX shell, or
+	// fish, would read otherwise, as Ghostty escapes them; a path with
+	// control characters, as a newline, which would end the command, is
+	// quoted as $'…', where they are escapes.
+	quotePOSIX quoting = iota
+	// quotePowerShell: single quotes, in which PowerShell expands nothing,
+	// unlike its double quotes ($(…), $var and `), each single quote in the
+	// path doubled. A POSIX shell takes them too.
+	quotePowerShell
+	// quoteCmd: double quotes, in which cmd.exe reads & | < > ^ as text.
+	quoteCmd
+)
+
+// quotingFor returns the quoting of the shell a terminal runs, by the
+// program's name: PowerShell's, cmd.exe's or a POSIX shell's, and for
+// another program on Windows PowerShell's, the shell the terminal runs
+// when given none (command), elsewhere a POSIX shell's. A Conn's program, which the terminal does not know, takes the
+// platform's.
+func quotingFor(goos string, program string) quoting {
+	name := program
+	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
+		name = name[i+1:]
+	}
+	name = strings.TrimSuffix(strings.ToLower(name), ".exe")
+	switch {
+	case name == "pwsh" || name == "powershell":
+		return quotePowerShell
+	case name == "cmd":
+		return quoteCmd
+	case slices.Contains([]string{"sh", "bash", "zsh", "fish", "dash", "ksh", "mksh"}, name):
+		return quotePOSIX
+	case goos == "windows":
+		if program == "" {
+			// No program: the default shell, PowerShell where there is one.
+			if _, err := exec.LookPath("pwsh.exe"); err == nil {
+				return quotePowerShell
+			}
+			if _, err := exec.LookPath("powershell.exe"); err == nil {
+				return quotePowerShell
+			}
+			return quoteCmd
+		}
+		return quotePowerShell
+	}
+	return quotePOSIX
+}
+
+// quote quotes a path for the shell.
+func (q quoting) quote(path string) string {
+	switch q {
+	case quotePowerShell:
+		if !strings.ContainsFunc(path, plainPathRune) && path != "" {
+			return path
+		}
+		var b strings.Builder
+		b.WriteByte('\'')
+		for _, r := range path {
+			b.WriteRune(r)
+			// PowerShell's single quotes: ' and the curly ones, ‘ ’ ‚ ‛,
+			// which a file name may hold.
+			if r == '\'' || r == '\u2018' || r == '\u2019' || r == '\u201a' || r == '\u201b' {
+				b.WriteRune(r)
+			}
+		}
+		b.WriteByte('\'')
+		return b.String()
+	case quoteCmd:
+		if strings.ContainsAny(path, " \t&()[]{}^=;!'+,`~|<>") {
 			return `"` + path + `"`
 		}
 		return path
+	}
+	if strings.ContainsFunc(path, func(r rune) bool { return r == utf8.RuneError || unicode.IsControl(r) }) {
+		return ansiCQuote(path)
 	}
 	var b strings.Builder
 	for _, r := range path {
@@ -320,5 +392,41 @@ func shellEscape(path string) string {
 		}
 		b.WriteRune(r)
 	}
+	return b.String()
+}
+
+// plainPathRune reports whether r is not one that PowerShell takes as a
+// path's own unquoted: a letter, a digit or one of _ - . : \ /.
+func plainPathRune(r rune) bool {
+	switch {
+	case 'a' <= r && r <= 'z', 'A' <= r && r <= 'Z', '0' <= r && r <= '9':
+		return false
+	}
+	return !strings.ContainsRune(`_-.:\/`, r)
+}
+
+// ansiCQuote quotes s as bash, zsh and ksh's $'…': control characters and
+// bytes that are not UTF-8 as \xHH, a backslash and a single quote
+// escaped. A shell without it, as fish, reads it as something other than
+// the path, never as a command.
+func ansiCQuote(s string) string {
+	var b strings.Builder
+	b.WriteString("$'")
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == utf8.RuneError && n <= 1 || unicode.IsControl(r):
+			for _, c := range []byte(s[i : i+n]) {
+				fmt.Fprintf(&b, "\\x%02x", c)
+			}
+		case r == '\\' || r == '\'':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		default:
+			b.WriteString(s[i : i+n])
+		}
+		i += n
+	}
+	b.WriteByte('\'')
 	return b.String()
 }
