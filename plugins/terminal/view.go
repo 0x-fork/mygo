@@ -184,9 +184,12 @@ type view struct {
 	selecting, reporting bool
 	pointer              [2]float32
 	// hover is the link Command is held over, which a click opens and
-	// which shows underlined; linkPress: the primary button pressed one,
-	// and the press is the link's until the release.
+	// which shows underlined, hoverLink what it opens and hoverPath
+	// whether that is a file path (HoveredLink); linkPress: the primary
+	// button pressed one, and the press is the link's until the release.
 	hover     linkSpan
+	hoverLink string
+	hoverPath bool
 	linkPress bool
 	// pointerAt is the pointer over the grid (pointerShape); tracking whether
 	// the program took the mouse as of the last frame, and modeShape the
@@ -264,9 +267,9 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 		}
 		// The hand over a link follows Command as it is pressed and let
 		// go of, with the pointer still.
-		v.hover = linkSpan{}
+		v.hover, v.hoverLink, v.hoverPath = linkSpan{}, "", false
 		if e.Hovered() {
-			_, _, v.hover = v.linkUnder(c.Modifiers(), v.pointer[0], v.pointer[1])
+			v.hoverLink, v.hoverPath, v.hover = v.linkUnder(c.Modifiers(), v.pointer[0], v.pointer[1])
 		}
 		v.pointerAt = v.pointerShape(t.term, c.Modifiers())
 		// Input methods compose where the cursor is now, which the last
@@ -983,7 +986,7 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 	// program that takes the mouse sees it.
 	link, path, hover := v.linkUnder(ev.Mods, ev.X, ev.Y)
 	if hover != v.hover {
-		v.hover = hover
+		v.hover, v.hoverLink, v.hoverPath = hover, link, path
 		v.services.Invalidate()
 	}
 	if link != "" && ev.Kind == ui.InputPointerDown && ev.Button == 0 {
@@ -1063,6 +1066,29 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 type linkSpan struct{ row, x0, x1 int }
 
 func (s linkSpan) on() bool { return s.x1 > s.x0 }
+
+// HoveredLink returns the link Command (Control elsewhere) is held over
+// in the view, which a click opens and which shows underlined, as
+// Options.OpenLink takes it; whether it is a file path; and the rectangle
+// of its cells in DIPs, relative to the view. It returns "" over no link,
+// or while no view shows the terminal. An app shows a preview of a link
+// with it, over the view: read it in the view function, after View.
+func (t *Terminal) HoveredLink() (link string, path bool, at ui.Rect) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	v := t.v
+	if v == nil || !v.hover.on() || v.scale == 0 {
+		return "", false, ui.Rect{}
+	}
+	cw, ch := float32(v.cellW)/v.scale, float32(v.cellH)/v.scale
+	h := v.hover
+	return v.hoverLink, v.hoverPath, ui.Rect{
+		X: float32(v.ox)/v.scale + float32(h.x0)*cw,
+		Y: float32(v.oy)/v.scale + float32(h.row)*ch,
+		W: float32(h.x1-h.x0) * cw,
+		H: ch,
+	}
+}
 
 // linkUnder is the link a click with mods at (x, y) opens, whether it is
 // a file path, and its cells: none without Command, or while the primary

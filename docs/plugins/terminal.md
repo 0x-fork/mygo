@@ -503,6 +503,10 @@ The terminal's methods are safe from any goroutine:
   sequences.
 - `Title`, `Dir` (the directory the shell reported), `Size` (in cells) and
   `Text` (the screen and its scrollback) read the terminal.
+- `HoveredLink` returns the link Command (Control elsewhere) is held over
+  in the view, as `OpenLink` takes it, whether it is a file path, and the
+  rectangle of its cells relative to the view: read it after `View` to
+  show a preview of the link over the view.
 - `SetFont` and `SetTheme` change the font and the colors; `SetFont` also
   sets the size a zoom resets to, and drops the zoom.
 - `Resize` sets the size of a terminal no view shows, and `Snapshot`

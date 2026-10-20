@@ -1304,12 +1304,20 @@ func TestCommandClickLinkWithoutOpenLink(t *testing.T) {
 	if h := term.v.hover; h != (linkSpan{0, 0, 4}) {
 		t.Errorf("hovered %+v, want the hyperlink's cells 0..4", h)
 	}
+	x0, y0 := cellCenter(term, 0, 0)
+	x4, _ := cellCenter(term, 4, 0)
+	if link, path, at := term.HoveredLink(); link != "vscode://file/a.go" || path || !at.Contains(x0, y0) || at.Contains(x4, y0) {
+		t.Errorf("HoveredLink is %q, %v, %+v, want the hyperlink over cells 0..4", link, path, at)
+	}
 	tt.HoldModifiers(0)
 	if c := tt.Cursor(); c != ui.CursorText {
 		t.Errorf("the cursor is %v once Command is let go of", c)
 	}
 	if h := term.v.hover; h.on() {
 		t.Errorf("hovered %+v once Command is let go of", h)
+	}
+	if link, _, _ := term.HoveredLink(); link != "" {
+		t.Errorf("HoveredLink is %q once Command is let go of", link)
 	}
 	term.Feed([]byte("\x1b[?1002h\x1b[?1006h"))
 	tt.Frame()
