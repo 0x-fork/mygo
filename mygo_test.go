@@ -2185,6 +2185,10 @@ func TestSingleInstance(t *testing.T) {
 		if wd == "" {
 			t.Error("working directory not forwarded")
 		}
+		// The window it focuses can take the focus on Wayland.
+		if fb.ActivationToken != "mygo-test-token" {
+			t.Errorf("activation token = %q", fb.ActivationToken)
+		}
 		got <- args
 	})
 	defer off()
@@ -2195,7 +2199,7 @@ func TestSingleInstance(t *testing.T) {
 	onMain(func() { packageURLSchemes = "mygo-test" })
 	defer onMain(func() { packageURLSchemes = schemes })
 	cmd := exec.Command(os.Args[0], "-test.run=^$", "--from-second", "instance", "mygo-test://open?x=1")
-	cmd.Env = append(os.Environ(), "MYGO_TEST_SECOND_INSTANCE=1")
+	cmd.Env = append(os.Environ(), "MYGO_TEST_SECOND_INSTANCE=1", "XDG_ACTIVATION_TOKEN=mygo-test-token")
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)
