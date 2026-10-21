@@ -171,20 +171,49 @@ func (rt *engine) setHover(chain []uint64) bool {
 		return false
 	}
 	// Only elements that look at their hover need a frame.
-	need := false
-	for _, list := range [][]uint64{chain, rt.hover} {
-		for _, id := range list {
-			if s := rt.states[id]; s != nil && s.flags&(flagHover|flagTrackPointer) != 0 {
-				need = true
-			}
-		}
-	}
+	need := rt.watchHover(chain) || rt.watchHover(rt.hover)
 	rt.hover = chain
 	if need {
 		rt.requestFrame()
 	}
 	rt.updateCursor()
 	return true
+}
+
+// watchHover reports whether an element of chain looks at its hover.
+func (rt *engine) watchHover(chain []uint64) bool {
+	for _, id := range chain {
+		if s := rt.states[id]; s != nil && s.flags&(flagHover|flagTrackPointer) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// rehover makes the elements under the pointer hover after a frame built
+// and laid them out anew, as the row taking the place of one removed: a
+// pointer standing still sends no event that would. It asks for the frame
+// that shows them hovering, which a frame being built cannot.
+func (rt *engine) rehover() {
+	if rt.pressed != nil || rt.scrollDrag.st != nil {
+		// The hover holds the elements under the pointer as the press
+		// began (Hovered).
+		return
+	}
+	chain := rt.chain[:0]
+	if rt.pointerIn {
+		chain = rt.appendHitChain(chain, rt.pointerX, rt.pointerY)
+	}
+	old := rt.hover
+	if !rt.setHover(chain) {
+		rt.chain = chain[:0]
+		return
+	}
+	rt.chain = old[:0]
+	if rt.watchHover(chain) {
+		rt.redraw, rt.repaintDue = false, time.Time{}
+		rt.host.requestFrame()
+	}
 }
 
 func (rt *engine) pointerMove(x, y float32) {

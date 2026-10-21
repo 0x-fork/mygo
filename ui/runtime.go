@@ -613,6 +613,11 @@ func (rt *engine) runFrame() {
 		rt.redraw, rt.repaintDue = false, time.Time{}
 		rt.host.requestFrame()
 	}
+	// What the frame moved under the pointer hovers; with the element
+	// pressed gone, as a button showing over a row the pointer left, what
+	// the pointer is over now hovers rather than what it was over as the
+	// press began.
+	rt.rehover()
 	rt.armTimer()
 	rt.showMenu()
 	rt.c.finish()
@@ -790,11 +795,10 @@ func (rt *engine) prune() {
 			rt.host.cancelDataDrag()
 		}
 	}
-	unpressed := false
 	for id, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
 			if rt.pressed == s {
-				rt.pressed, unpressed = nil, true
+				rt.pressed = nil
 			}
 			if !rt.keptAlive(s) {
 				if s.textAdapter != nil {
@@ -812,16 +816,6 @@ func (rt *engine) prune() {
 				}
 			}
 		}
-	}
-	if unpressed {
-		// The element pressed went away, as a button showing over a row
-		// the pointer left: what the pointer is over now hovers, rather
-		// than what it was over as the press began.
-		var chain []uint64
-		if rt.pointerIn {
-			chain = rt.hitChain(rt.pointerX, rt.pointerY)
-		}
-		rt.setHover(chain)
 	}
 	rt.restoreFocus()
 	// The focus does not stay in a page kept out of sight.
