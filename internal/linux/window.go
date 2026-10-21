@@ -784,9 +784,6 @@ func (w *window) SetIgnoreMouseEvents(bool) {}
 func (w *window) SetContentProtection(bool) {}
 func (w *window) SetVibrancy(string)        {}
 
-// SetMaximizeButton does nothing: GTK has no snap layouts.
-func (w *window) SetMaximizeButton(platform.RectF) {}
-
 // StartDrag begins moving the window with the last button press. On an
 // undecorated window the compositor takes the pointer once the move
 // starts, so the move waits until the pointer moves, keeping a second

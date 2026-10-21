@@ -669,7 +669,6 @@ func (w *Window) SetContentProtection(bool)          {}
 func (w *Window) SetVibrancy(string)                 {}
 func (w *Window) SetMenu(m *platform.Menu)           { w.mu.Lock(); w.menu = m; w.mu.Unlock() }
 func (w *Window) StartDrag()                         {}
-func (w *Window) SetMaximizeButton(r platform.RectF) { w.MaximizeButton = r }
 func (w *Window) TitleBarDoubleClicked()             {}
 func (w *Window) LoadURL(url string)                 { w.mu.Lock(); w.url = url; w.mu.Unlock() }
 func (w *Window) LoadHTML(html, _ string)            { w.addHTML(html) }
@@ -1220,6 +1219,10 @@ func (s *Surface) FinishDataDrag(r transfer.Result) {
 }
 
 func (s *Surface) Native() platform.SurfaceNative { return platform.SurfaceNative{} }
+
+// SetMaximizeButton records the button in the window's MaximizeButton
+// (platform.MaximizeButtonSurface).
+func (s *Surface) SetMaximizeButton(r platform.RectF) { s.w.MaximizeButton = r }
 
 func (s *Surface) Size() (float64, float64, float64) {
 	s.w.mu.Lock()
