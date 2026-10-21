@@ -250,6 +250,8 @@ var (
 	testPinchOnce              sync.Once
 	cgEventSetType             func(event uintptr, typ uint32)
 	cgEventSetDoubleValueField func(event uintptr, field uint32, value float64)
+	cgEventGetLocation         func(event uintptr) NSPoint
+	cgEventSetLocation         func(event uintptr, p NSPoint)
 )
 
 // TestPinch pinches a touchpad at a point of a window showing native UI
@@ -267,11 +269,14 @@ func TestPinch(handle uintptr, x, y, magnification float64) (ok bool) {
 	testPinchOnce.Do(func() {
 		purego.RegisterLibFunc(&cgEventSetType, libCG, "CGEventSetType")
 		purego.RegisterLibFunc(&cgEventSetDoubleValueField, libCG, "CGEventSetDoubleValueField")
+		purego.RegisterLibFunc(&cgEventGetLocation, libCG, "CGEventGetLocation")
+		purego.RegisterLibFunc(&cgEventSetLocation, libCG, "CGEventSetLocation")
 	})
 	withPool(func() {
 		content := msgRect(send(w.win, "contentView"), sel("frame"))
+		want := NSPoint{x, content.Size.Height - y}
 		ev := msgMouseEvent(class("NSEvent"), sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
-			5, NSPoint{x, content.Size.Height - y}, 0, 0, sendInt(w.win, "windowNumber"), 0, 0, 0, 0) // NSEventTypeMouseMoved
+			5, want, 0, 0, sendInt(w.win, "windowNumber"), 0, 0, 0, 0) // NSEventTypeMouseMoved
 		// A gesture event of the window server, of the HID system's zoom
 		// type, which AppKit makes a magnify event of.
 		cg := uintptr(send(ev, "CGEvent"))
@@ -281,6 +286,17 @@ func TestPinch(handle uintptr, x, y, magnification float64) (ok bool) {
 		ev = send(class("NSEvent"), "eventWithCGEvent:", cg)
 		if ev == 0 || sendInt(ev, "type") != 30 { // NSEventTypeMagnify
 			return
+		}
+		// The way through CGEvent moves the point by the window's origin
+		// once more: move it back (CoreGraphics' y goes down).
+		near := func(p NSPoint) bool { return math.Abs(p.X-want.X) < 0.5 && math.Abs(p.Y-want.Y) < 0.5 }
+		if got := msgPoint(ev, sel("locationInWindow")); !near(got) {
+			at := cgEventGetLocation(cg)
+			cgEventSetLocation(cg, NSPoint{at.X - (got.X - want.X), at.Y + (got.Y - want.Y)})
+			ev = send(class("NSEvent"), "eventWithCGEvent:", cg)
+			if ev == 0 || !near(msgPoint(ev, sel("locationInWindow"))) {
+				return
+			}
 		}
 		send(w.surface.view, "magnifyWithEvent:", uintptr(ev))
 		ok = true
