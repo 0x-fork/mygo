@@ -30,7 +30,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		return true
 	}
 	switch ev.Kind {
-	case platform.PointerMove, platform.PointerDown, platform.PointerUp, platform.PointerScroll:
+	case platform.PointerMove, platform.PointerDown, platform.PointerUp, platform.PointerScroll, platform.PointerZoom:
 		rt.mods = Modifiers(ev.Mods)
 	}
 	switch ev.Kind {
@@ -65,6 +65,9 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.PointerScroll:
 		rt.pointerMove(x, y)
 		rt.scroll(float32(ev.DX), float32(ev.DY), Modifiers(ev.Mods), ev.Precise)
+	case platform.PointerZoom:
+		rt.pointerMove(x, y)
+		rt.zoom(float32(ev.Scale), Modifiers(ev.Mods))
 	case platform.KeyPressed:
 		rt.modsChanged(Modifiers(ev.Mods))
 		taken = rt.keyDownPhysical(Modifiers(ev.Mods), Key(ev.Key), Key(ev.PhysicalKey), ev.Repeat)
@@ -497,6 +500,17 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise bool) {
 			return
 		}
 	}
+}
+
+// zoom gives a pinch to the element under the pointer that handles its
+// input; no element zooms of its own.
+func (rt *engine) zoom(scale float32, mods Modifiers) {
+	if scale <= 0 || scale == 1 {
+		return
+	}
+	chain := rt.appendHitChain(rt.chain[:0], rt.pointerX, rt.pointerY)
+	rt.chain = chain[:0]
+	rt.deliver(rt.handler(chain), InputEvent{Kind: InputZoom, Scale: scale, Mods: mods})
 }
 
 // dragTo returns the offset of content whose thumb moved by moved DIPs
