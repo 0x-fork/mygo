@@ -264,6 +264,8 @@ func (rt *engine) pointerMove(x, y float32) {
 			rt.chain = old[:0]
 		} else {
 			rt.chain = chain[:0]
+			// The pointer may have gone onto a scroll bar, or off it.
+			rt.updateCursor()
 		}
 	}
 	if moved {
@@ -405,6 +407,9 @@ func (rt *engine) pointerUp(button, clicks int) {
 	}
 	if rt.scrollDrag.st != nil {
 		rt.scrollDrag.st = nil
+		// The pointer may have left the bar, over what the hover missed.
+		rt.setHover(rt.hitChain(rt.pointerX, rt.pointerY))
+		rt.updateCursor()
 		rt.requestFrame()
 		return
 	}

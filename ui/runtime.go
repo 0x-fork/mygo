@@ -1110,18 +1110,24 @@ func intersect(a, b Rect) Rect {
 // updateCursor shows the cursor of the element under the pointer: the
 // innermost one's that sets a cursor, up to the innermost element that
 // takes clicks, whose own cursor is the default unless it sets one, so a
-// button in a text field shows no I-beam.
+// button in a text field shows no I-beam. A scroll bar's track, and the
+// thumb being dragged wherever the pointer goes, show the default, not
+// the cursor of the text under the bar.
 func (rt *engine) updateCursor() {
-	if rt.pressed == nil && rt.overWebView() {
+	if rt.pressed == nil && rt.scrollDrag.st == nil && rt.overWebView() {
 		// The page sets the cursor over it: it is set again as the
 		// pointer comes back.
 		rt.cursor = cursorUnknown
 		return
 	}
 	c := CursorDefault
-	if rt.pressed != nil && rt.pressed.cursor != 0 {
+	switch {
+	case rt.scrollDrag.st != nil:
+	case rt.pressed != nil && rt.pressed.cursor != 0:
 		c = rt.pressed.cursor - 1
-	} else {
+	case slices.ContainsFunc(rt.hover, rt.overScrollbar):
+		// The bar takes presses before what is under it (scrollbarPress).
+	default:
 		for _, id := range rt.hover {
 			s := rt.states[id]
 			if s == nil {
@@ -1140,6 +1146,20 @@ func (rt *engine) updateCursor() {
 		rt.cursor = c
 		rt.host.setCursor(c)
 	}
+}
+
+// overScrollbar reports whether the pointer is over the track of a scroll
+// bar element id shows.
+func (rt *engine) overScrollbar(id uint64) bool {
+	s := rt.states[id]
+	if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 {
+		return false
+	}
+	x, y := s.local(rt.pointerX, rt.pointerY)
+	x += s.x
+	y += s.y
+	g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, rt.c.theme.scrollbarWidth(), s.rtl)
+	return g.vertical && g.vTrack.Contains(x, y) || g.horizontal && g.hTrack.Contains(x, y)
 }
 
 // cursorUnknown is the cursor the engine last set while the pointer is
