@@ -1408,11 +1408,15 @@ func (e *node) Dismissed() bool { return e.dismissed }
 
 // scrollbarPress starts dragging the thumb of the scroll container under
 // the pointer when the press is on its scroll bar, or pages toward the
-// press on the bar's track.
+// press on the bar's track. Hidden bars take no press, as AppKit's
+// overlay scrollers: it goes through to the content under them, as a
+// click on a table's last row under its horizontal bar. The hover this
+// press set does not show them yet, so they are those the last frame
+// painted (barsShown).
 func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 	for _, id := range chain {
 		s := rt.states[id]
-		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 {
+		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 || !s.barsShown {
 			continue
 		}
 		lx, ly := s.local(x, y)
