@@ -58,6 +58,11 @@ func (a *Application) RequestSingleInstanceLock() bool {
 	for attempt := 0; attempt < 5; attempt++ {
 		if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
 			// Another instance owns the lock: hand over our arguments.
+			// On Windows the first instance, in the background, could not
+			// bring its windows to the front from OnSecondInstance: this
+			// launch, which the user just started, passes its right to
+			// the foreground on before it exits.
+			backend().App().AllowForeground()
 			_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 			_, _ = conn.Write(msg)
 			if uc, ok := conn.(*net.UnixConn); ok {
