@@ -1,77 +1,94 @@
 //go:build !js
 
 // testDocs, which these use, is document_test.go's and that file builds
-// everywhere but js — the browser has no document files or windows to open,
-// so this follows it.
+// everywhere but js, so this follows it.
 
 package mygo
 
 import (
+	"bytes"
+	"io"
 	"testing"
-	"time"
+
+	"github.com/egoist/mygo/internal/wait"
 )
 
-// TestDocumentEqualReadsDocument is the shape DocumentsOptions.Equal takes
-// when an app compares against what the document holds: the callback reads
-// the document. It deadlocked once — Set and markSaved called Equal holding
-// docBase.mu, and Content takes the same mutex, so the frame that edited (or
-// saved) the document stopped on itself. ImageCache.ask is the same mistake
-// (0487c37b); this one was on every platform, not just the desktop.
-//
-// The watchdog is the test: a deadlock does not fail an assertion, it stops
-// the goroutine from ever returning, so a timeout is the only way it is seen.
+// An Equal that reads the document it compares for: Set and saving once
+// called it holding docBase.mu, which Content takes too, and deadlocked.
 func TestDocumentEqualReadsDocument(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		edit func(t *testing.T, doc *Document[string])
-	}{
-		{"Set", func(_ *testing.T, doc *Document[string]) { doc.Set("edited") }},
-		{"Changed", func(_ *testing.T, doc *Document[string]) { doc.Changed() }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var doc *Document[string]
-			ds := testDocs(t, DocumentsOptions[string]{
-				Equal: func(a, b string) bool { return a == doc.Content() },
-			})
-			doc = ds.New()
-
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				tc.edit(t, doc)
-			}()
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-				t.Fatalf("Document.%s deadlocked: Equal ran while docBase.mu was held and re-entered it", tc.name)
-			}
-		})
-	}
-}
-
-// TestDocumentEqualStillEdits is the behaviour the fix must keep: an app whose
-// Equal says the content is what the file has leaves the document unedited,
-// and an Equal that reads the document is a legal way to say it. The saved
-// content of a new document is empty, which is what SetEdited(false) records
-// when the app's own store holds nothing yet.
-func TestDocumentEqualStillEdits(t *testing.T) {
+	writing, release := make(chan struct{}, 1), make(chan struct{})
+	var block bool
 	var doc *Document[string]
 	ds := testDocs(t, DocumentsOptions[string]{
-		// Reading the document here is what used to deadlock; comparing
-		// a to b is the behaviour the option is for.
-		Equal: func(a, b string) bool { _ = doc.Content(); return a == b },
+		Autosave: AutosaveOff,
+		Equal:    func(a, b string) bool { _ = doc.Content(); return a == b },
+		Write: func(w io.Writer, s string) error {
+			if block {
+				writing <- struct{}{}
+				<-release
+			}
+			_, err := io.WriteString(w, s)
+			return err
+		},
 	})
-	doc = ds.New()
-	doc.SetEdited(false) // the file's content, as the app read it
-
-	doc.Set("something")
+	path := writeTemp(t, "a.txt", "one")
+	doc, _ = ds.Open(path)
+	returns(t, "Set", func() { doc.Set("two") })
 	if !doc.IsEdited() {
 		t.Error("content different from the file's did not edit the document")
 	}
-	// Undoing back to what the file has is not an edit, which is the whole
-	// reason Equal exists.
-	doc.Set("")
+	returns(t, "Set", func() { doc.Set("one") })
 	if doc.IsEdited() {
 		t.Error("content equal to the file's left the document edited")
 	}
+
+	// Edited while it is written, back to what was written: saving asks
+	// Equal, which reads the document, and leaves it unedited.
+	doc.Set("three")
+	block = true
+	done := make(chan error, 1)
+	go func() { done <- doc.Save() }()
+	<-writing
+	doc.Set("four")
+	doc.Set("three")
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if doc.IsEdited() {
+		t.Error("saved what Equal finds the content to be, and still edited")
+	}
+}
+
+// Equal is for contents that == can't compare, as []byte.
+func TestDocumentEqualUncomparable(t *testing.T) {
+	ds := &Documents[[]byte]{opts: DocumentsOptions[[]byte]{Equal: bytes.Equal}}
+	d := ds.newDocument([]byte("a"), "x")
+	d.mu.Lock()
+	d.content, d.changes = []byte("b"), 2
+	settle := d.markSaved(docSnapshot{at: 1, value: []byte("b")})
+	d.savedAt = 1
+	d.mu.Unlock()
+	if settle == nil {
+		t.Fatal("edited while written, and Equal not asked")
+	}
+	settle()
+	if d.edited {
+		t.Error("content Equal to what was written left the document edited")
+	}
+}
+
+// returns runs f, which fails the test should it never return.
+func returns(t *testing.T, what string, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { defer close(done); f() }()
+	wait.Until(t, what+" to return", func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	})
 }

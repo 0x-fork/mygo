@@ -320,33 +320,32 @@ func (d *Document[T]) capture() docSnapshot {
 
 // markSaved records that the file has s. d.mu is held.
 //
-// It returns whether Equal still has to be consulted, and the two values it
-// would be given: Equal is the app's and may read the document, so it is not
-// called here (see settleSaved).
-func (d *Document[T]) markSaved(s docSnapshot) (check bool, content, saved any) {
+// When Equal still has to say whether the document is edited, it returns
+// a function that asks it, to call once d.mu is down: Equal is the app's
+// and may read the document. That function reports whether the document
+// became unedited while it has a recovery copy, which is then of no use.
+func (d *Document[T]) markSaved(s docSnapshot) (settle func() bool) {
 	v := s.value.(T)
 	d.saved, d.savedKnown = v, true
 	d.edited = d.changes != s.at
-	if eq := d.ds.opts.Equal; eq != nil && d.edited {
-		return true, d.content, v
+	eq := d.ds.opts.Equal
+	if eq == nil || !d.edited {
+		return nil
 	}
-	return false, content, saved
-}
-
-// settleSaved consults Equal, off the document's lock, and records what it
-// says about the document being edited. It is markSaved's second half, called
-// once the lock markSaved ran under is down: it takes the lock back for the
-// write, by which time the app's Equal has already returned.
-func (d *Document[T]) settleSaved(check bool, content, saved any) {
-	if !check || !d.ds.opts.Equal(content.(T), saved.(T)) {
-		return
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.savedKnown && any(d.saved) == saved {
-		if any(d.content) == content {
-			d.edited = false
+	content, at := d.content, d.changes
+	return func() bool {
+		if !eq(content, v) {
+			return false
 		}
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		// Unless the content or the file changed again meanwhile.
+		if !d.edited || d.changes != at || d.savedAt != s.at {
+			return false
+		}
+		d.edited, d.dirtySince = false, time.Time{}
+		d.scheduleLocked()
+		return d.backedUp != 0
 	}
 }
 
@@ -380,8 +379,7 @@ type docSnapshot struct {
 // machinery.
 type docOps interface {
 	capture() docSnapshot
-	markSaved(s docSnapshot) (check bool, content, saved any)
-	settleSaved(check bool, content, saved any)
+	markSaved(s docSnapshot) (settle func() bool)
 	replace(v any)
 	restore(v any)
 	makeWindow() *Window
