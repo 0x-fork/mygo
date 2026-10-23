@@ -151,7 +151,8 @@ type view struct {
 
 	// The grid, in device pixels: the cells, the baseline in a cell, and
 	// the origin of the grid relative to the element; scale is device
-	// pixels per DIP.
+	// pixels per DIP, and size the element's in DIPs.
+	size                   [2]float32
 	font                   fontKey
 	fonts                  [4]ui.Font
 	scale                  float32
@@ -187,6 +188,16 @@ type view struct {
 	// press went to the program, which gets the release too.
 	selecting, reporting bool
 	pointer              [2]float32
+	// barHeld tells that the primary button drags the scroll bar, held
+	// barGrab DIPs below the thumb's top; overBar that the pointer is over
+	// the bar, as of its last move, and barHover as of the last build.
+	// barLit is whether the last paint showed the bar hovered or held,
+	// barBack how many rows the viewport was above the bottom, and barSeen
+	// when either last changed, from which the bar fades out.
+	barHeld, overBar, barHover, barLit bool
+	barGrab                            float32
+	barBack                            int64
+	barSeen                            time.Time
 	// hover is the link Command is held over, which a click opens and
 	// which shows underlined, hoverLink what it opens and hoverPath
 	// whether that is a file path (HoveredLink); linkPress: the primary
@@ -280,6 +291,10 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 			v.hoverLink, v.hoverPath, v.hover = v.linkUnder(c.Modifiers(), v.pointer[0], v.pointer[1])
 		}
 		v.pointerAt = v.pointerShape(t.term, c.Modifiers())
+		v.barHover = e.Hovered() && v.overScrollbar(v.pointer[0], v.pointer[1])
+		if v.barHover || v.barHeld {
+			v.pointerAt = ui.CursorDefault // the bar's, not the text's
+		}
 		// Input methods compose where the cursor is now, which the last
 		// frame may not show yet.
 		v.caretCell = [2]int{v.cursor.X, v.cursor.Y}
@@ -991,6 +1006,9 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 		v.linkPress = ev.Kind != ui.InputPointerUp
 		return true
 	}
+	if v.scrollbarEvent(ev) {
+		return true
+	}
 	// Command over a link: a hand, and a click opens it, before a
 	// program that takes the mouse sees it.
 	link, path, hover := v.linkUnder(ev.Mods, ev.X, ev.Y)
@@ -1103,10 +1121,79 @@ func (t *Terminal) HoveredLink() (link string, path bool, at ui.Rect) {
 // a file path, and its cells: none without Command, or while the primary
 // button selects or the program has a press; t.mu is held.
 func (v *view) linkUnder(mods ui.Modifiers, x, y float32) (link string, path bool, at linkSpan) {
-	if mods&ui.Cmd == 0 || v.selecting || v.reporting || v.cellW == 0 {
+	if mods&ui.Cmd == 0 || v.selecting || v.reporting || v.cellW == 0 || v.overScrollbar(x, y) {
 		return "", false, linkSpan{}
 	}
 	return v.linkAt(v.cellAt(x, y))
+}
+
+// scrollbarStrip is how wide the strip at the right edge is over which the
+// scroll bar takes the pointer, in DIPs.
+const scrollbarStrip = 12
+
+// overScrollbar reports whether the scroll bar takes the pointer at (x, y):
+// over its strip while there is a scrollback, which shows the bar, or
+// while it is dragged; t.mu is held.
+func (v *view) overScrollbar(x, y float32) bool {
+	if v.barHeld {
+		return true
+	}
+	w, h := v.size[0], v.size[1]
+	if x < w-scrollbarStrip || x >= w || y < 0 || y >= h {
+		return false
+	}
+	sb := v.t.term.Scrollbar()
+	return sb.Total > sb.Len
+}
+
+// scrollbarEvent drags the scroll bar, and reports whether it took the
+// event: a press on the thumb holds it where it is pressed, and one on the
+// rest of the strip by its middle, which comes to the pointer; the moves
+// until the release scroll the scrollback along. t.mu is held.
+func (v *view) scrollbarEvent(ev ui.InputEvent) bool {
+	if over := v.overScrollbar(ev.X, ev.Y); over != v.overBar {
+		v.overBar = over
+		v.services.Invalidate() // the pointer's shape
+	}
+	switch {
+	case v.barHeld && ev.Kind == ui.InputPointerUp && ev.Button == 0:
+		v.barHeld = false
+		v.services.Invalidate()
+	case v.barHeld:
+		v.dragScrollbar(ev.Y)
+	case v.overBar && ev.Kind == ui.InputPointerDown && ev.Button == 0:
+		y, h := thumb(v.t.term.Scrollbar(), v.size[1])
+		v.barGrab = h / 2
+		if ev.Y >= y && ev.Y < y+h {
+			v.barGrab = ev.Y - y
+		}
+		v.barHeld = true
+		v.dragScrollbar(ev.Y)
+	default:
+		return false
+	}
+	return true
+}
+
+// dragScrollbar scrolls the scrollback so that the thumb's top is barGrab
+// above y; t.mu is held.
+func (v *view) dragScrollbar(y float32) {
+	term := v.t.term
+	sb := term.Scrollbar()
+	if sb.Total <= sb.Len {
+		return
+	}
+	_, h := thumb(sb, v.size[1])
+	travel := v.size[1] - h
+	if travel <= 0 {
+		return
+	}
+	f := max(0, min((y-v.barGrab)/travel, 1))
+	to := int(math.Round(float64(f) * float64(sb.Total-sb.Len)))
+	if d := to - int(sb.Offset); d != 0 {
+		term.ScrollBy(d)
+		v.services.Invalidate()
+	}
 }
 
 // linkAt is the link at the cell: a hyperlink (OSC 8), a URL printed as
