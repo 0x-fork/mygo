@@ -170,6 +170,9 @@ type view struct {
 	// images' (readImages).
 	images  []shownImage
 	bitmaps map[uint32]*cachedImage
+	// virtual are the virtual placements, by their images' ids, which
+	// placeholder cells show.
+	virtual map[uint32][]virtualImage
 
 	keys    *vt.KeyEncoder
 	mouse   *vt.MouseEncoder
