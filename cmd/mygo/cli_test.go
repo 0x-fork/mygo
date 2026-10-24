@@ -336,6 +336,17 @@ func TestModuleSpecifier(t *testing.T) {
 	}
 }
 
+func TestExtraLDFlags(t *testing.T) {
+	t.Setenv("MYGO_LDFLAGS", "")
+	if f := extraLDFlags(); f != "" {
+		t.Errorf("extraLDFlags = %q without MYGO_LDFLAGS", f)
+	}
+	t.Setenv("MYGO_LDFLAGS", " -buildid= -X example.com/app.DSN=https://key@example.com/1 ")
+	if f, want := extraLDFlags(), " -buildid= -X example.com/app.DSN=https://key@example.com/1"; f != want {
+		t.Errorf("extraLDFlags = %q, want %q", f, want)
+	}
+}
+
 func TestPackageFlags(t *testing.T) {
 	c := &Config{Name: "Bob's App", Version: "1.0.0", Identifier: "com.example.bob", URLSchemes: []string{"bob", "bob-dev"}}
 	got := packageFlags(c)
