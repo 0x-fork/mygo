@@ -99,6 +99,14 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	theBackend = b
 	registerClasses()
 
+	// AppKit's AutoFill heuristics watch every text input client for
+	// contact and password fields, in a helper process ("AutoFill (App)")
+	// and with sync calls that cost CPU and stall scrolling on macOS 26.
+	// MyGo draws its own text fields, which never take those suggestions.
+	// Ghostty, Zed and Chromium turn it off the same way.
+	send(send(class("NSUserDefaults"), "standardUserDefaults"), "registerDefaults:",
+		uintptr(send(class("NSDictionary"), "dictionaryWithObject:forKey:", uintptr(nsBool(false)), uintptr(nsString("NSAutoFillHeuristicControllerEnabled")))))
+
 	b.app = send(class("NSApplication"), "sharedApplication")
 	send(b.app, "setActivationPolicy:", activationPolicy(opts.ActivationPolicy))
 	// No automatic "Show Tab Bar" items and window tabbing.
