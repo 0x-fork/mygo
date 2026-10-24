@@ -1777,7 +1777,10 @@ after the debounce, the core lists again the directories that notices
 named and stats the files, and the events are the differences between what
 it sees and what it saw (`fileWatchDiff`). An entry whose identity
 (`os.SameFile`) moved is a rename, unless a hard link makes it ambiguous,
-and what moved with a directory renamed above it says nothing more. The
+and what moved with a directory renamed above it says nothing more. A
+file replaced at its path by another file, as an atomic save replaces it,
+is a write, not a removal and a creation: apps that follow a document
+would take it for deleted. The
 entries are paired by looking their identity up (`fileWatchIDs`: device
 and inode, or on Windows the volume and file index `os.SameFile` reads),
 so a directory of n files renamed costs n lookups, not n² comparisons;
