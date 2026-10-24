@@ -529,6 +529,7 @@ func readLine(term *vt.Terminal, rs *vt.RenderState, y int) line {
 // X10's, as Ghostty does.
 var mirroredModes = []vt.Mode{
 	vt.ModeCursorKeys, 66, // DECCKM, DECNKM (the keypad's)
+	67, 1035, 1036, 1039, // DECBKM (Backspace's), NumLock's keypad, Alt's ESC
 	vt.ModeFocusEvent, vt.ModeAltScroll, vt.ModeBracketedPaste, vt.ModeGraphemes,
 	9, 1000, 1002, 1003, 1005, 1006, 1015, 1016, // the mouse's
 	5, // DECSCNM, the screen in reverse video

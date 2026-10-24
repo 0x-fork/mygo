@@ -264,6 +264,15 @@ func TestMirrorKeyboardModes(t *testing.T) {
 	x.feed("modifyOtherKeys", "\x1b[>4;2m")
 	x.feed("kitty keyboard flags", "\x1b[>1u")
 	x.feed("modifyOtherKeys off", "\x1b[>4;1m\x1b[<u")
+	// The modes the keys' encoding takes from the terminal: Backspace's,
+	// NumLock's keypad and Alt's ESC.
+	x.feed("keys' modes", "\x1b[?67h\x1b[?1035h\x1b[?1036l\x1b[?1039l")
+	for _, md := range []vt.Mode{67, 1035, 1036, 1039} {
+		if a, b := x.src.term.Mode(md), x.dst.term.Mode(md); a != b {
+			t.Errorf("mode %d is %v, mirrored %v", md, a, b)
+		}
+	}
+	x.feed("keys' modes back", "\x1b[?67l\x1b[?1035l\x1b[?1036h\x1b[?1039h")
 }
 
 func TestMirrorCursorStyle(t *testing.T) {
