@@ -1913,7 +1913,23 @@ func TestClearBrowsingData(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, w, `window.run`)
-	mustEval(t, w, `(localStorage.setItem("token", "secret"), window.oldPage = true)`)
+	observer := newWindow(t, mygo.WindowOptions{Hidden: true})
+	if err := observer.Page().LoadURL("app://localhost/"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, observer, `window.run`)
+	mustEval(t, observer, `(() => {
+		localStorage.getItem("token");
+		window.stored = false;
+		addEventListener("storage", e => {
+			if (e.key === "token" && e.newValue === "secret") window.stored = true;
+		});
+		return true;
+	})()`)
+	// Eval waits for JavaScript, not for the storage process to apply its
+	// writes. Observe the write from another page before asking to delete it.
+	mustEval(t, w, `(localStorage.removeItem("token"), localStorage.setItem("token", "secret"), window.oldPage = true)`)
+	waitFor(t, observer, `window.stored`)
 	if err := mygo.App.ClearBrowsingData(); err != nil {
 		t.Fatal(err)
 	}
