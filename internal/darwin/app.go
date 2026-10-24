@@ -103,9 +103,15 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	// contact and password fields, in a helper process ("AutoFill (App)")
 	// and with sync calls that cost CPU and stall scrolling on macOS 26.
 	// MyGo draws its own text fields, which never take those suggestions.
-	// Ghostty, Zed and Chromium turn it off the same way.
+	// Ghostty, Zed and Chromium turn it off the same way. macOS 26 reads
+	// NSAutoFillHeuristicControllerEnabled; macOS 27 reads only
+	// NSAutoFillHeuristicsEnabled, and without it starts Safari's AutoFill
+	// helper as soon as a view takes text input.
+	no := nsBool(false)
 	send(send(class("NSUserDefaults"), "standardUserDefaults"), "registerDefaults:",
-		uintptr(send(class("NSDictionary"), "dictionaryWithObject:forKey:", uintptr(nsBool(false)), uintptr(nsString("NSAutoFillHeuristicControllerEnabled")))))
+		uintptr(send(class("NSDictionary"), "dictionaryWithObjects:forKeys:",
+			uintptr(nsArray(no, no)),
+			uintptr(nsArray(nsString("NSAutoFillHeuristicControllerEnabled"), nsString("NSAutoFillHeuristicsEnabled"))))))
 
 	b.app = send(class("NSApplication"), "sharedApplication")
 	send(b.app, "setActivationPolicy:", activationPolicy(opts.ActivationPolicy))
