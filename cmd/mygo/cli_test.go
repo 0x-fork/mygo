@@ -21,7 +21,7 @@ func TestConfigDefaults(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "frontend"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "frontend", "package.json"), []byte("{}"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "frontend", "package.json"), []byte(`{"dependencies": {"mygo-runtime": "^1"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	c, err := loadConfig(dir)
@@ -57,13 +57,21 @@ func TestConfigDefaults(t *testing.T) {
 		t.Errorf("invalid devUrl accepted: %v", err)
 	}
 
-	// A frontend at the project root.
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if c, err := loadConfig(root); err != nil || c.Bindings != filepath.Join("src", "mygo.ts") {
-		t.Errorf("bindings with package.json at the root = %q, %v", c.Bindings, err)
+	// A frontend at the project root, and a package.json that is not one:
+	// it does not depend on mygo-runtime, which the client imports.
+	for _, tc := range []struct{ pkg, want string }{
+		{`{"dependencies": {"mygo-runtime": "^1"}}`, filepath.Join("src", "mygo.ts")},
+		{`{"devDependencies": {"mygo-runtime": "workspace:*"}}`, filepath.Join("src", "mygo.ts")},
+		{`{"devDependencies": {"mygo-cli": "^1"}}`, ""},
+		{`{}`, ""},
+	} {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(tc.pkg), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if c, err := loadConfig(root); err != nil || c.Bindings != tc.want {
+			t.Errorf("bindings with package.json %s at the root = %q, %v; want %q", tc.pkg, c.Bindings, err, tc.want)
+		}
 	}
 }
 
