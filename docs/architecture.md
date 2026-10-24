@@ -2030,7 +2030,9 @@ either.
   (`SurfaceCommand`), files dragged and dropped, and assistive technology.
   The back and forward buttons of a mouse come as the keys `KeyBack` and
   `KeyForward`, as do the keys of keyboards that have them: buttons 3 and 4
-  of `otherMouseDown:` on macOS, buttons 8 and 9 and `XF86Back` and
+  of `otherMouseDown:` on macOS, and `swipeWithEvent:`'s swipes, left
+  going back as in Safari, which touchpads swiping between pages send and
+  mice's makers' software sends for their buttons (Logi Options+), buttons 8 and 9 and `XF86Back` and
   `XF86Forward` on Linux, and `WM_XBUTTONUP` (taken, so that
   DefWindowProc sends no `WM_APPCOMMAND` as well), `VK_BROWSER_BACK` and
   `VK_BROWSER_FORWARD`, and `WM_APPCOMMAND`'s browser commands on Windows.
