@@ -682,6 +682,9 @@ func initSurfaceCallbacks() {
 	})
 	cbSurfaceSize = purego.NewCallback(func(widget, allocation, data ptr) {
 		if s := b().surfaceOf(data); s != nil {
+			if s.layers != 0 {
+				s.shape() // to the new size
+			}
 			s.send(platform.SurfaceEvent{Kind: platform.SurfaceResize})
 		}
 	})
@@ -701,6 +704,9 @@ func initSurfaceCallbacks() {
 	cbSurfaceRealize = purego.NewCallback(func(widget, data ptr) {
 		if s := b().surfaceOf(data); s != nil {
 			gtkIMContextSetClientWindow(s.im, s.eventWindow())
+			if s.layers != 0 {
+				s.shape() // the new window has none
+			}
 			if s.cursor != platform.CursorDefault {
 				s.SetCursor(s.cursor) // on the area that took another's place
 			}
