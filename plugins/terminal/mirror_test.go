@@ -626,6 +626,9 @@ func TestMirrorMouse(t *testing.T) {
 		{"\x1b[?1002h\x1b[?1006h", "\x1b[<0;3;4M", "\x1b[<32;6;4M"},
 		{"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h", "\x1b[<35;3;4M\x1b[<0;3;4M", "\x1b[<32;6;4M"},
 		{"\x1b[?1000h", "\x1b[M #$", ""},
+		// crossterm's EnableMouseCapture, as herdr's: 1006 after 1015
+		// picks SGR.
+		{"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h", "\x1b[<35;3;4M\x1b[<0;3;4M", "\x1b[<32;6;4M"},
 	} {
 		src, err := New(Options{Conn: newPipe()})
 		if err != nil {
@@ -780,5 +783,67 @@ func TestMirrorImages(t *testing.T) {
 	same("deleted")
 	if p := placements(dst); len(p) != 0 {
 		t.Errorf("the other terminal still places %+v", p)
+	}
+}
+
+// The other terminal sends the mouse's events in the format the terminal
+// would, whatever order the program set and reset their modes in: the
+// last of a setting's modes picks it, and the others stay set.
+func TestMirrorMouseOrder(t *testing.T) {
+	loadLib(t)
+	for _, modes := range []string{
+		"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h",
+		"\x1b[?1003h\x1b[?1000h\x1b[?1006h\x1b[?1015h",
+		"\x1b[?1002h\x1b[?1003h\x1b[?1003l",
+		"\x1b[?1000h\x1b[?1016h\x1b[?1006h",
+		"\x1b[?1000h\x1b[?1006h\x1b[?1016h",
+		"\x1b[?1000h\x1b[?1015h\x1b[?1005h",
+		"\x1b[?1000h\x1b[?1005h\x1b[?1006h\x1b[?1006l",
+		"\x1b[?9h\x1b[?1000h\x1b[?9h\x1b[?1006h",
+	} {
+		src, err := New(Options{Conn: newPipe()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		dst, err := New(Options{Conn: newPipe()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := src.NewMirror()
+		if err != nil {
+			t.Fatal(err)
+		}
+		src.Feed([]byte(modes))
+		f, _ := m.Frame()
+		dst.Feed(f)
+		sends := func(term *vt.Terminal) string {
+			var out []string
+			for _, ev := range []struct {
+				pressed bool
+				action  vt.MouseAction
+				button  int
+				x       float32
+			}{
+				{false, vt.MouseMotion, vt.ButtonNone, 5},
+				{false, vt.MousePress, vt.ButtonLeft, 1505},
+				{true, vt.MouseMotion, vt.ButtonLeft, 15},
+				{false, vt.MouseRelease, vt.ButtonLeft, 25},
+			} {
+				e, err := vt.NewMouseEncoder()
+				if err != nil {
+					t.Fatal(err)
+				}
+				e.Sync(term, 3000, 100, 10, 10, 0, 0, ev.pressed)
+				out = append(out, string(e.Encode(ev.action, ev.button, 0, ev.x, 5)))
+				e.Free()
+			}
+			return fmt.Sprintf("%q", out)
+		}
+		if got, want := sends(dst.term), sends(src.term); got != want {
+			t.Errorf("%q: the other terminal sends %s, want %s", modes, got, want)
+		}
+		m.Close()
+		src.Close()
+		dst.Close()
 	}
 }
