@@ -247,6 +247,11 @@ type engine struct {
 	// pressClicks is the press's count of clicks, which its release
 	// carries.
 	pressClicks int
+	// downing counts the presses pointerDown is handling, and ups holds the
+	// releases (button, clicks) that came meanwhile, through a main loop
+	// a handler ran nested, for it to apply once the press is recorded.
+	downing int
+	ups     [][2]int
 	// listMenu and listDrag are the parts of lists a right-click and a
 	// drag reach, set as the first list builds, and cellClick and
 	// cellInBlock the parts of tables choosing cells a click and a press
