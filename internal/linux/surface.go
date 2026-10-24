@@ -335,6 +335,10 @@ func (s *surface) RequestFrame() {
 	}
 }
 
+// drawing tells that the area draws a frame: in its tick callback, its
+// draw signal or its render signal.
+func (s *surface) drawing() bool { return s.ticking || s.cr != 0 || s.rendering }
+
 // drawsGL tells that the area draws its frames with OpenGL, in its render
 // signal: a GtkGLArea with a context.
 func (s *surface) drawsGL() bool { return s.gl && gtkGLAreaGetError(s.area) == 0 }
