@@ -130,7 +130,7 @@ export interface FileAssociation {
   ext: string[];
   /** What the files are, e.g. `"Markdown Document"`. */
   name?: string;
-  /** The MIME type of the files, by which Linux identifies them (default: `application/x-<app>-<ext>`). */
+  /** The MIME type of the files, by which Linux identifies them; the app defines an unregistered one (`x-`) (default: `application/x-<app>-<ext>`). */
   mimeType?: string;
   /** The app's role for the files on macOS (default: `"Editor"`). */
   role?: "Editor" | "Viewer";

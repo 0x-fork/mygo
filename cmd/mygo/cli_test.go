@@ -546,6 +546,7 @@ func TestFileAssociations(t *testing.T) {
 		FileAssociations: []FileAssociation{
 			{Ext: []string{"md", "markdown"}, Name: "Markdown Document", MimeType: "text/markdown"},
 			{Ext: []string{"note"}, Name: "Note", Role: "Viewer"},
+			{Ext: []string{"sketch"}, Name: "Sketch", MimeType: "application/x-notes-sketch"},
 		}}
 	plist := string(infoPlist(c, "Notes", "", ""))
 	for _, want := range []string{"<key>CFBundleDocumentTypes</key>", "<string>Markdown Document</string>", "<string>markdown</string>", "<string>Viewer</string>", "<string>text/markdown</string>"} {
@@ -554,11 +555,12 @@ func TestFileAssociations(t *testing.T) {
 		}
 	}
 	entry := linuxDesktopEntry(c, "notes", "notes")
-	if !strings.Contains(entry, "Exec=notes %U\n") || !strings.Contains(entry, "MimeType=text/markdown;application/x-notes-note;x-scheme-handler/notes;\n") {
+	if !strings.Contains(entry, "Exec=notes %U\n") || !strings.Contains(entry, "MimeType=text/markdown;application/x-notes-note;application/x-notes-sketch;x-scheme-handler/notes;\n") {
 		t.Errorf("desktop entry:\n%s", entry)
 	}
 	xml := mimePackage(c)
-	if !strings.Contains(xml, `<mime-type type="application/x-notes-note">`) || !strings.Contains(xml, `<glob pattern="*.note"/>`) || strings.Contains(xml, "text/markdown") {
+	if !strings.Contains(xml, `<mime-type type="application/x-notes-note">`) || !strings.Contains(xml, `<glob pattern="*.note"/>`) || strings.Contains(xml, "text/markdown") ||
+		!strings.Contains(xml, "<mime-type type=\"application/x-notes-sketch\">\n    <comment>Sketch</comment>\n    <glob pattern=\"*.sketch\"/>") {
 		t.Errorf("MIME package:\n%s", xml)
 	}
 	reg, unreg := nsisAssociations(c, "Notes.exe")

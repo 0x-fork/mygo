@@ -77,7 +77,7 @@ Each file association has:
 |---|---|
 | `ext` | the file name extensions, without dots: `["md", "markdown"]` |
 | `name` | what the files are: `"Markdown Document"` |
-| `mimeType` | their MIME type, by which Linux identifies files; without one the app defines `application/x-<app>-<ext>` |
+| `mimeType` | their MIME type, by which Linux identifies files; the app defines an unregistered one (`x-`), and without one `application/x-<app>-<ext>` |
 | `role` | `Editor` (the default) or `Viewer`, on macOS |
 
 ## i18n

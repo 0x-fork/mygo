@@ -110,18 +110,21 @@ type FileAssociation struct {
 	Ext []string `json:"ext"`
 	// Name describes the files, e.g. "Markdown Document".
 	Name string `json:"name"`
-	// MimeType of the files. Linux identifies files by it; without one
-	// the app defines application/x-<name>-<first extension>.
+	// MimeType of the files. Linux identifies files by it; the app defines
+	// an unregistered one (x-), and without one
+	// application/x-<name>-<first extension>.
 	MimeType string `json:"mimeType"`
 	// Role is "Editor" (default) or "Viewer" (macOS).
 	Role string `json:"role"`
 }
 
 // mimeType returns the MIME type of an association, and whether the app
-// defines it.
+// defines it: an unregistered type (x-) is the app's, as no system knows
+// it.
 func (c *Config) mimeType(fa FileAssociation) (string, bool) {
 	if fa.MimeType != "" {
-		return fa.MimeType, false
+		_, sub, _ := strings.Cut(fa.MimeType, "/")
+		return fa.MimeType, strings.HasPrefix(sub, "x-")
 	}
 	return "application/x-" + slugify(c.executableName()) + "-" + strings.ToLower(fa.Ext[0]), true
 }
