@@ -67,6 +67,10 @@ type Backend struct {
 	// KeepAwake calls not released yet.
 	Watching bool
 	Awake    int
+	// Playing is what NowPlaying.Set showed last, nil once removed, and
+	// NowPlayingSets counts the calls.
+	Playing        *platform.NowPlayingInfo
+	NowPlayingSets int
 	// Online and Metered are what Network.Status answers with, and
 	// WatchingNetwork whether Network.Watch was called.
 	Online, Metered bool
@@ -326,12 +330,13 @@ func (b *Backend) Dialogs() platform.Dialogs   { return dialogs{b} }
 func (b *Backend) Clipboard() platform.Clipboard {
 	return clipboard{b}
 }
-func (b *Backend) Shell() platform.Shell     { return shell{} }
-func (b *Backend) Screen() platform.Screen   { return screen{} }
-func (b *Backend) Theme() platform.Theme     { return theme{b} }
-func (b *Backend) Power() platform.Power     { return power{b} }
-func (b *Backend) Network() platform.Network { return network{b} }
-func (b *Backend) Secrets() platform.Secrets { return secrets{b} }
+func (b *Backend) Shell() platform.Shell           { return shell{} }
+func (b *Backend) Screen() platform.Screen         { return screen{} }
+func (b *Backend) Theme() platform.Theme           { return theme{b} }
+func (b *Backend) Power() platform.Power           { return power{b} }
+func (b *Backend) Network() platform.Network       { return network{b} }
+func (b *Backend) NowPlaying() platform.NowPlaying { return nowPlaying{b} }
+func (b *Backend) Secrets() platform.Secrets       { return secrets{b} }
 
 // Apps are the applications Applications lists, which tests set.
 var Apps []platform.Application
@@ -1060,6 +1065,25 @@ func (power) IdleTime() time.Duration { return 42 * time.Second }
 
 // EmitPower simulates a power or session event.
 func (b *Backend) EmitPower(event string) { b.h.PowerEvent(event) }
+
+type nowPlaying struct{ b *Backend }
+
+func (n nowPlaying) Set(info *platform.NowPlayingInfo) {
+	n.b.mu.Lock()
+	defer n.b.mu.Unlock()
+	if info != nil {
+		c := *info
+		info = &c
+	}
+	n.b.Playing = info
+	n.b.NowPlayingSets++
+}
+
+// EmitMediaCommand simulates a media key or a command of the system's
+// media controls.
+func (b *Backend) EmitMediaCommand(cmd platform.MediaCommand, position time.Duration) {
+	b.h.MediaCommand(cmd, position)
+}
 
 type network struct{ b *Backend }
 

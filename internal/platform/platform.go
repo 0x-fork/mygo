@@ -92,6 +92,7 @@ type Backend interface {
 	Theme() Theme
 	Power() Power
 	Network() Network
+	NowPlaying() NowPlaying
 	// Secrets may be called before Init, from any goroutine.
 	Secrets() Secrets
 	// Applications lists the applications installed on the computer.
@@ -171,6 +172,9 @@ type AppHandler interface {
 	NetworkChanged(status NetworkStatus)
 	HotkeyPressed(id int)
 	NotificationClicked(id string)
+	// MediaCommand reports a media key or a remote command for what
+	// NowPlaying shows; position is where MediaSeek asks to go.
+	MediaCommand(cmd MediaCommand, position time.Duration)
 }
 
 // AppController exposes application level native features.
@@ -950,6 +954,40 @@ type Power interface {
 	KeepAwake(display bool, reason string) (release func())
 	OnBattery() bool
 	IdleTime() time.Duration
+}
+
+// MediaCommand is a command of the system's media controls, or a set of
+// them (NowPlayingInfo.Commands).
+type MediaCommand uint32
+
+const (
+	MediaPlay MediaCommand = 1 << iota
+	MediaPause
+	MediaTogglePlayPause
+	MediaStop
+	MediaNext
+	MediaPrevious
+	MediaSeek
+)
+
+// NowPlayingInfo is what the app plays, fully defaulted by the core.
+type NowPlayingInfo struct {
+	Title, Artist, Album string
+	Artwork              []byte // PNG or JPEG, or nil
+	Duration             time.Duration
+	// Position is where playback was when the core set the info; the
+	// system advances it at Rate while State is "playing".
+	Position time.Duration
+	Rate     float64 // the speed while playing, 1 by default
+	State    string  // "playing", "paused" or "stopped"
+	Commands MediaCommand
+}
+
+// NowPlaying shows what the app plays where the system shows media, and
+// reports AppHandler.MediaCommand for the commands the info enables.
+type NowPlaying interface {
+	// Set shows info; nil removes it and stops reporting commands.
+	Set(info *NowPlayingInfo)
 }
 
 // NetworkStatus is the state of the computer's network connection.
