@@ -132,7 +132,10 @@ that let them read the response, and MyGo answers their preflights.
 Other sites get none, unless the window trusts them
 (`PageOptions.TrustedOrigins`), and handlers may set their own.
 On Windows, fetch a scheme at `http://<scheme>.localhost/`, where
-WebView2 serves it.
+WebView2 serves it, and another host at `http://<host>.<scheme>.localhost/`
+(`myapp://abc/` is `http://abc.myapp.localhost/`). Such hosts are DNS
+names (letters, digits, hyphens and dots) and are reported in lower case;
+URLs with another host or a port aren't served there.
 
 ## The mygo-runtime package
 

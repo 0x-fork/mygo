@@ -78,6 +78,7 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── darwin/         macOS: AppKit + WKWebView through the Objective-C runtime
 │   ├── linux/          Linux: GTK 3 + WebKitGTK through dlopen
 │   ├── windows/        Windows: Win32 + WebView2 through syscall and COM
+│   ├── schemehost/     maps custom scheme URLs to the http://*.localhost URLs WebView2 serves them at
 │   ├── web/            browsers (js/wasm): native UI on canvases, through syscall/js
 │   ├── unsupported/    stub for other platforms
 │   ├── fake/           in-memory backend for unit tests
@@ -524,12 +525,14 @@ features GTK 4 lacks become X11-only code beside it.
   that report a result (Eval, CapturePage, PrintToPDF) get the reason, as
   later ones do: the window closed, or WebView2 could not create it.
   User data lives in `%LOCALAPPDATA%\<name>\WebView2`.
-- **Custom schemes** load from `http://<scheme>.localhost/`, which WebView2
+- **Custom schemes** load from `http://<scheme>.localhost/`, and their
+  other hosts from `http://<host>.<scheme>.localhost/` (`internal/schemehost`:
+  hosts of DNS labels, lower-cased, without a port), which WebView2
   lets the app answer through `WebResourceRequested`. Chromium treats
   `*.localhost` as a secure origin, and unlike `https`, `http` blocks no
   mixed content, so pages reach `ws://` and `http://` URLs as with the
   custom schemes of the other backends. The backend maps URLs both ways, so
-  the core only sees `<scheme>://localhost/`.
+  the core only sees `<scheme>://<host>/`.
   Responses are buffered: WebView2 takes a whole stream. `LoadHTML` with a
   base URL serves the document from that URL the same way.
 - **Eval** goes through the DevTools protocol (`Runtime.evaluate` with
@@ -4393,7 +4396,7 @@ which npm allows only for packages that exist: the first release uses an
 | content protection, click-through | yes | ignored | yes |
 | panels | `NSPanel` with the nonactivating style, floating, on all Spaces as a full-screen auxiliary | sticky utility window, kept above, out of the taskbar and the pager; a gtk-layer-shell overlay surface on Wayland where it can be | topmost `WS_EX_TOOLWINDOW` owned by the hidden application window, rounded |
 | flyouts | borderless nonactivating `NSPanel` child window, or an `NSPopover`; placed in the visible frame | `GTK_WINDOW_POPUP` (override-redirect, placed in the work area, on X11; `xdg_popup` with `gdk_window_move_to_rect` on Wayland); focusable ones grab the seat | owned `WS_POPUP` + `WS_EX_TOOLWINDOW`, `WS_EX_NOACTIVATE` unless focusable, `CS_DROPSHADOW` for a shadow, with corners rounded by DWM on Windows 11 |
-| custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `http://<scheme>.localhost` (the page's `location`) |
+| custom scheme origin | `<scheme>://<host>` | `<scheme>://<host>` | `http://<scheme>.localhost`, or `http://<host>.<scheme>.localhost` for another host (the page's `location`) |
 | `LoadHTML` documents | a reload loads the base URL (`about:blank` without one), so the core cancels it (`Navigation.Reload`) and loads the HTML again; not in the history | as macOS | as macOS, but in the history: going back to one with a base URL loads that URL |
 | window.open | keeps the opener | independent window | keeps the opener: the new window's web view, set up, becomes the popup (`put_NewWindow`, under a deferral) |
 | native UI surface | layer-backed NSView, frames from `CADisplayLink` (a timer at the display's rate before macOS 14), input methods through NSTextInputClient | GtkGLArea (GtkDrawingArea without a GPU), GtkIMMulticontext | `MyGoSurface` child window, IMM32 |
