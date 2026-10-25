@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-// A device is the system's audio output, opened by openDevice.
+// A device is the system's audio output, opened by openDevice to hold
+// about ahead of what is heard.
 type device interface {
 	// write plays interleaved stereo frames after those written before,
 	// waiting while the device holds enough already. An error closes the
@@ -60,7 +61,8 @@ func run() {
 		for !active() {
 			<-wake
 		}
-		dev, n, err := openOutput()
+		lat := outputLatency()
+		dev, n, err := openOutput(lat.ahead())
 		if err != nil {
 			setErr(err)
 			dev, n = newNullDevice(err != errUnsupported), nullFrames
@@ -70,7 +72,7 @@ func run() {
 		buf := make([]float32, n*channels)
 		idle := time.Duration(0)
 		per := frames(int64(n), sampleRate)
-		for !inTest() {
+		for !inTest() && outputLatency() == lat {
 			busy := mix(buf)
 			if err := dev.write(buf); err != nil {
 				// Lost, or a null device trying the real one again.

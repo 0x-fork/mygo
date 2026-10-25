@@ -126,6 +126,18 @@ everything stopped, so an app that plays nothing keeps no audio device
 busy. It plays at 48 kHz in stereo, about 40 ms ahead; players of other
 rates are resampled as they play.
 
+`audio.SetLatency` sets how far ahead it mixes, as Web Audio's
+`latencyHint`:
+
+| latency | ahead | for |
+|---|---|---|
+| `LatencyInteractive` (the default) | about 40 ms | games and interfaces: sounds start, stop and change as soon as asked |
+| `LatencyPlayback` | about 250 ms | music players: playback rides out the moments the system keeps an app waiting, as macOS does for up to 0.2 s while its appearance changes, where 40 ms runs dry and is heard to stop |
+
+With `LatencyPlayback`, plays, pauses, seeks and volume changes are heard
+that much later. Set it before playing: an output already open opens
+again, which drops what it held.
+
 | platform | output |
 |---|---|
 | macOS | an Audio Queue on the default output, which follows it |

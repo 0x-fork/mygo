@@ -1765,22 +1765,27 @@ voice counts frames past it modulo the length for `Position`.
 The output (`audio/output.go`) is a goroutine locked to one thread that
 opens the device when a voice starts, mixes 10 to 21 ms at a time and
 writes it with a call that blocks while the device holds enough, and
-closes the device after five idle seconds. Each platform gives one
-`openDevice`:
+closes the device after five idle seconds. `audio.SetLatency` chooses how
+much the device holds ahead, 40 ms or 250 ms; the output opens it again
+when that changes. Each platform gives one `openDevice`, which takes it:
 
-- macOS: an Audio Queue of four buffers of 512 frames, started once all
-  hold audio; its callback, created once, hands buffers back over a channel.
+- macOS: an Audio Queue of buffers of 512 frames, as many as hold that (4
+  or 24), started once all hold audio; its callback, created once, hands
+  buffers back over a channel. A theme change can keep every thread of an
+  app waiting for up to 0.2 s, which 4 buffers do not ride out.
 - Linux: `pa_simple_write` of PulseAudio's simple API (`libpulse-simple`,
-  which PipeWire serves too) with a 40 ms target, else ALSA's
+  which PipeWire serves too) with that as its target, else ALSA's
   `snd_pcm_writei` on `default`, both through purego.
-- Windows: WASAPI in shared mode, event driven, with a 40 ms buffer,
+- Windows: WASAPI in shared mode, event driven, with a buffer of that,
   `AUTOCONVERTPCM` and the default-quality resampler; it compares the
   default endpoint's ID every 500 ms and fails the write when it changed,
   which reopens the device.
-- Browsers: an AudioWorklet from a Blob URL that queues three chunks and
-  posts a request whenever it used one; the output waits for a request
-  before mixing the next. One AudioContext serves the page; closing
-  suspends it, and the first pointer or key input resumes it.
+- Browsers: an AudioWorklet from a Blob URL that queues chunks of 1024
+  frames (three, or twelve) and posts a request whenever it used one; the
+  output waits for a request before mixing the next, and asks more or
+  answers fewer when the latency changes. One AudioContext serves the
+  page, with the `latencyHint` it began with; closing suspends it, and the
+  first pointer or key input resumes it.
 
 Where `openDevice` fails, a null device takes the frames on the wall
 clock and fails after two seconds, so the output tries the device again;
