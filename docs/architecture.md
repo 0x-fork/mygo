@@ -2410,7 +2410,10 @@ either.
   adapter supplies absolute UTF-16 text ranges, selection, marked text,
   mutation callbacks, range geometry and hit testing. It is invalidated on
   replacement/disposal, and focus changes unmark the old client and reset
-  native composition. GTK and IMM32 use bounded surrounding context while
+  native composition. Revealing the element, as the focus does, scrolls
+  to the client's caret (`clientCaret`), not the element's box, which a
+  code editor as high as its lines makes as tall as the file. GTK and
+  IMM32 use bounded surrounding context while
   macOS can query arbitrary document ranges directly. `ShapeText` and
   `ShapeRichText` retain per-paragraph `TextLayout` geometry; an application
   owns its buffer, selections, rendering, editing and undo policy.

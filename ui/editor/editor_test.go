@@ -665,3 +665,29 @@ func TestCodeEditorTokenFaces(t *testing.T) {
 	}
 	check(v, l)
 }
+
+// An editor as high as its lines, in a scroll view, shows its caret as it
+// takes the focus, not its first line.
+func TestFitContentFocusRevealsCaret(t *testing.T) {
+	st := &State{Buffer: NewBuffer(strings.Repeat("line\n", 300)), FitContent: true}
+	var scroll ui.ScrollState
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Scroll(c).Fill().TrackScroll(&scroll).Children(func() {
+			ui.Box(c).Height(400).Shrink(0)
+			View(c, st).Shrink(0)
+		})
+	}, 600, 400)
+	tt.Frame()
+	st.Select(200*5, 200*5)
+	tt.Frame()
+	tt.Key(0, ui.KeyTab)
+	tt.Frame()
+	if !st.Focused() {
+		t.Fatal("Tab didn't focus the editor")
+	}
+	lh := st.ed.view.lineHeight
+	top := 400 + float32(st.LineTop(200))
+	if scroll.Y > top || scroll.Y+400 < top+lh {
+		t.Fatalf("focused, the view scrolled to %v, which doesn't show the caret at %v", scroll.Y, top)
+	}
+}
