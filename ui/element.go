@@ -316,6 +316,9 @@ type node struct {
 	material    Material
 	effect      Effect
 	effecting   bool
+	// cache keeps the element's layer while what it paints is the same
+	// (Cache).
+	cache layerKeeper
 	// grads holds a conic fill and a border's gradient, which few elements
 	// have; blur is the standard deviation of the element's blur, in DIPs.
 	grads      *gradients

@@ -3174,7 +3174,20 @@ either.
   beyond a canvas of its size; what the subtree paints is clipped to that
   part, and backdrops end at its edge (`Scene.Drawn`, `Scene.BackdropOf`,
   which the painter, the builders and the CPU renderer use alike), as at a
-  canvas's. The canvas is transient (`Image.Transient`). `ui/shader` gives an
+  canvas's. The canvas is transient (`Image.Transient`), unless the
+  element is kept (`Element.Cache`, `ui/cache.go`): then it paints the
+  subtree into the other of two scenes and compares it with the last
+  through a `scene.Differ` of its own (`layerCache`), and only a scene
+  that differs, or is of another scale or part, bumps the canvas's
+  version and goes in the frame's `Canvases`; one that does not stays
+  the canvas's scene all the same, as the atlases hold its glyphs this
+  frame. The window's `Differ` then finds the image op the same, so
+  damage over the element redraws one image. A kept element alone (no
+  effect, no blur) renders, rather than its box, what it paints around
+  it (`keptLayer.area`: each one's box and shadows grown by 4, in its
+  space, clipped by those that clip). Its code is reached only through
+  the interface `Cache` stores (`layerKeeper`), so apps that never call
+  it do not link it. `ui/shader` gives an
   effect's entry point (`ColorEffect`, `DistortionEffect`, `LayerEffect`)
   a `Fragment` that calls it, and the bridge reads the content as image 3
   (`LayerImage`) from where the box's corner lies in it
