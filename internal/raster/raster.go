@@ -1432,7 +1432,7 @@ func mixMask(src, dst byte, coverage uint32) byte {
 
 func (r *renderer) image(op *scene.Op) {
 	img := op.Image
-	if img == nil || img.W == 0 || img.H == 0 || op.Rect.Empty() || unflipped(op.Src).Empty() {
+	if img == nil || img.W == 0 || img.H == 0 || op.Rect.Empty() || unflipped(op.Src).Empty() || img.Pixels() == nil {
 		return
 	}
 	opacity := op.Opacity
