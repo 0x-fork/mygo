@@ -387,6 +387,8 @@ type engine struct {
 	// the page around the elements being committed.
 	kept       map[uint64]bool
 	commitPage uint64
+	// commitHidden is set while commit is inside a Hidden element.
+	commitHidden bool
 	// announcements are the texts for assistive technology to read out
 	// (Context.Announce).
 	announcements []string
@@ -1097,8 +1099,10 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	if e.kind == kindText && e.first != nil && !inline {
 		placeInline(e, e, 0)
 	}
+	savedHidden := rt.commitHidden
+	rt.commitHidden = savedHidden || e.hidden
 	saved, savedPage := rt.enterScope(e), rt.commitPage
-	defer func() { rt.commitScope, rt.commitPage = saved, savedPage }()
+	defer func() { rt.commitScope, rt.commitPage, rt.commitHidden = saved, savedPage, savedHidden }()
 	s := e.st
 	s.page = rt.commitPage
 	if e.flags&flagPage != 0 {
@@ -1161,8 +1165,8 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	}
 	// What is invisible keeps its box but takes neither the pointer nor
 	// the focus, and has no text to find; so does what is inert, which
-	// shows.
-	invisible := e.flags&(flagInvisible|flagInert) != 0 || hidden || e.backface && e.transform.facesAway()
+	// shows, and what is Hidden, which has no box.
+	invisible := e.flags&(flagInvisible|flagInert) != 0 || hidden || e.hidden || e.backface && e.transform.facesAway()
 	if invisible {
 		s.vw, s.vh = 0, 0
 		if rt.focused == e.id {
@@ -1229,6 +1233,10 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		}
 	}
 	e.setInk(vis)
+	if e.hidden {
+		// It paints nothing, wherever it is.
+		e.ink, e.noCull = [4]float32{inf, inf, -inf, -inf}, false
+	}
 }
 
 func intersect(a, b Rect) Rect {
