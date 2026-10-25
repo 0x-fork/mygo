@@ -2242,7 +2242,18 @@ either.
   `Painter.After`, as spinners and progress bars of unknown length do)
   paints the elements of the last frame again at its own time
   (`repaintFrame`), without building or laying out; elements out of view
-  are not painted, so they ask for none. Such a frame is asked for with
+  are not painted, so they ask for none. Nor are the others, mostly
+  (`ui/repaint.go`): the frame painting the window keeps, for each Draw or
+  DrawOver callback that asked for frames, the operations it painted and
+  the painter as it was (`paintPart`), and a frame that only paints again
+  runs those callbacks alone and splices what they paint into the last
+  frame's scene in place of what they painted (`repaintParts`). It paints
+  the window whole when anything else asked (a pose moving, a drawing
+  painting into a layer or a canvas, as `engine.untracked` notes), while
+  the inspector shows or a drag moves, and once the parts have added more
+  glyphs, stops and words than `partsGrowth` past what the whole frame
+  held. `TestRepaintPartsMatchWhole` compares the frames with those
+  painted whole (`engine.noParts`). Such a frame is asked for with
   `redraw` set, which every event of the surface clears, so that the frame
   builds anew in case the event changed what the view shows; anything
   asking for a frame clears it too, and the frame `Painter.After` has due

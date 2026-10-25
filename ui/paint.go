@@ -34,6 +34,10 @@ type Painter struct {
 	// cull skips the elements whose ink is clipped out (paintable): in
 	// the frame's painting, where the elements are where commit put them.
 	cull bool
+	// drawing tells that a Draw or DrawOver callback paints into the
+	// window's scene, and asked that it asked to be painted again (see
+	// paintPart).
+	drawing, asked bool
 }
 
 // opaqueBox is the box of an element painting an opaque background, and
@@ -50,6 +54,7 @@ const continuousCorners = runtime.GOOS == "darwin"
 
 func (rt *engine) paint(root *node, w, h, scale float32) {
 	rt.paints++
+	rt.drawn = rt.drawn[:0]
 	s := &rt.scene
 	// The root paints the theme's background: frames start transparent, so
 	// that a transparent root shows what is behind the content, such as a
@@ -76,6 +81,7 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	}
 	rt.paintDrag(p, w, h)
 	rt.under, rt.holes = p.under[:0], p.holes[:0] // kept for the next frame's
+	rt.partsBase = sceneData(s)
 }
 
 // Now returns the time of the frame being painted, which drawings that
@@ -101,7 +107,10 @@ func (p *Painter) Accelerated() bool {
 // frame paints the elements of this one again without building the view.
 // Call it in every frame while the drawing moves; an element out of view
 // is not painted, so it asks for none.
-func (p *Painter) AnimationFrame() { p.rt.repainting, p.rt.repaintFull = true, true }
+func (p *Painter) AnimationFrame() {
+	p.rt.repainting, p.rt.repaintFull = true, true
+	p.asks()
+}
 
 // AnimationFrameRate is AnimationFrame for a drawing that looks as smooth
 // at fps frames a second as at the display's rate, as a record turning, a
@@ -116,6 +125,7 @@ func (p *Painter) AnimationFrame() { p.rt.repainting, p.rt.repaintFull = true, t
 func (p *Painter) AnimationFrameRate(fps float32) {
 	p.rt.repainting = true
 	p.rt.repaintRate = max(p.rt.repaintRate, fps)
+	p.asks()
 }
 
 // After asks for the element to be painted again after d, for a drawing
@@ -128,6 +138,7 @@ func (p *Painter) After(d time.Duration) {
 	if p.rt.repaintAt.IsZero() || at.Before(p.rt.repaintAt) {
 		p.rt.repaintAt = at
 	}
+	p.asks()
 }
 
 // snap converts a rectangle to device pixels, rounding its edges to whole
@@ -275,7 +286,7 @@ func (p *Painter) element(e *node) {
 			}
 		}
 		if e.paintFn != nil {
-			e.paintFn(p, box)
+			p.draw(e, box, false)
 		}
 		switch e.kind {
 		case kindText:
@@ -345,7 +356,7 @@ func (p *Painter) element(e *node) {
 		p.border(e, box)
 	}
 	if own && e.paintAfterFn != nil {
-		e.paintAfterFn(p, box)
+		p.draw(e, box, true)
 	}
 	if e.flags&flagDebug != 0 && (e.parent == nil || e.parent.flags&flagDebug == 0) {
 		p.debug(e)

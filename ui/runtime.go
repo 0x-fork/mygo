@@ -332,10 +332,23 @@ type engine struct {
 	// when the repaint timer asked for the next (framesAtOnce).
 	repaintRate float32
 	repaintFull bool
-	paceEvery   int
-	paceRate    float32
-	pacedAt     time.Time
-	pacedNext   time.Time
+	// drawn are the Draw and DrawOver callbacks of the last frame painted
+	// that asked to be painted again (paintPart), and untracked tells that
+	// something else asked, or that painting the parts alone would not do:
+	// the window is painted whole. partsBase is how much data the scene
+	// held painted whole (sceneData), partOps the operations of the scene
+	// painted before, and partPaints counts the frames painted in parts;
+	// noParts paints every frame whole, for tests that compare.
+	drawn      []paintPart
+	untracked  bool
+	partsBase  int
+	partOps    []scene.Op
+	partPaints int
+	noParts    bool
+	paceEvery  int
+	paceRate   float32
+	pacedAt    time.Time
+	pacedNext  time.Time
 	// inkStale tells that elements moved since commit found their ink
 	// (node.ink), as poses do in frames that only paint: painting then
 	// skips none.
@@ -526,7 +539,7 @@ func (rt *engine) runFrame() {
 	rt.gen = rt.text.Generation()
 	rt.painted = [3]float32{w, h, scale}
 	rt.animating, rt.repainting, rt.repaintAt = false, false, time.Time{}
-	rt.repaintRate, rt.repaintFull = 0, false
+	rt.repaintRate, rt.repaintFull, rt.untracked = 0, false, false
 	rt.routeKeys()
 	rt.glideWheels(now)
 	if rt.drag != nil {
@@ -839,10 +852,12 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 	rt.c.now = rt.frameTime()
 	rt.text.BeginFrame()
 	rt.repainting, rt.repaintAt = false, time.Time{}
-	rt.repaintRate, rt.repaintFull = 0, false
+	rt.repaintRate, rt.repaintFull, rt.untracked = 0, false, false
 	root := rt.c.root
 	rt.repose()
-	rt.paint(root, w, h, scale)
+	if !rt.repaintParts() {
+		rt.paint(root, w, h, scale)
+	}
 	for try := 0; try < 2 && rt.text.Full(); try++ {
 		rt.text.MakeRoom()
 		rt.paint(root, w, h, scale)

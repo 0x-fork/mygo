@@ -123,6 +123,7 @@ func (rt *engine) showPose(e *node, r *poseRec) {
 	e.poseFade = max(0, min(v[4], 1))
 	if r.moving() || d.current(rt) && d.moving() {
 		rt.repainting, rt.repaintFull = true, true
+		rt.untracked = true // moving what is inside it
 	}
 }
 

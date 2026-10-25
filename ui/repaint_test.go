@@ -429,3 +429,109 @@ func TestAnimationFrameRateAtOnce(t *testing.T) {
 		t.Errorf("after a frame 3ms late, the next is due %v, want %v", tt.rt.repaintDue.Sub(began), due.Sub(began))
 	}
 }
+
+// partsView is a window of elements painting what does not move, and of
+// drawings that move, painted again in parts: under a rounded clip that
+// scrolls, at half opacity, scaled, with text, one over another painted
+// after it, in a Draw and a DrawOver callback. statics counts the calls of
+// the callbacks that do not move.
+func partsView(statics *int) func(c *context) {
+	red, blue, green := RGB(220, 40, 40), RGB(37, 99, 235), RGB(20, 160, 60)
+	static := func(p *Painter, r Rect) {
+		*statics++
+		p.Fill(Rect{r.X + 2, r.Y + 2, r.W - 4, r.H - 4}, green, 4)
+	}
+	moving := func(p *Painter, r Rect) {
+		ms := float32(p.Now().UnixMilli() % 40)
+		p.AnimationFrame()
+		p.Fill(Rect{r.X + ms, r.Y, 6, r.H}, blue, 3)
+		p.Stroke(Rect{r.X + 40 - ms, r.Y + 2, 16, 16}, red, 8, 1)
+		p.Text(r.X+ms/2, r.Y+r.H-4, "ab", 10, red)
+	}
+	return func(c *context) {
+		coreColumn(c).Background(RGB(250, 250, 250)).Padding(4).Children(func() {
+			coreBox(c).Size(120, 20).Draw(static)
+			coreScroll(c).Height(40).Radius(10).Children(func() {
+				coreBox(c).Size(120, 24).Shrink(0).Draw(moving)
+				coreBox(c).Size(120, 24).Shrink(0).Draw(static)
+			})
+			coreRow(c).Children(func() {
+				coreBox(c).Size(60, 20).Opacity(0.5).Background(red).Draw(moving).DrawOver(static)
+				coreBox(c).Size(60, 20).Scale(0.8, 1.2).Draw(static).DrawOver(func(p *Painter, r Rect) {
+					p.After(16 * time.Millisecond)
+					p.Fill(Rect{r.X + float32(p.Now().UnixMilli()%30), r.Y, 4, 4}, red, 0)
+				})
+			})
+			coreBox(c).Size(120, 20).Margin(-30, 0, 0, 0).Draw(static) // over the row
+		})
+	}
+}
+
+// TestRepaintPartsMatchWhole checks that frames painting again only the
+// drawings that move, in parts, paint what painting the window whole does,
+// without calling the callbacks of what does not move.
+func TestRepaintPartsMatchWhole(t *testing.T) {
+	var statics, wholeStatics int
+	parts := newRepaintTester(partsView(&statics))
+	whole := newRepaintTester(partsView(&wholeStatics))
+	whole.rt.noParts = true
+	n := statics
+	for i := range 12 {
+		d := time.Duration(5+i*3) * time.Millisecond
+		pb, _ := parts.frame(d)
+		wb, _ := whole.frame(d)
+		if pb || wb {
+			t.Fatalf("frame %d built the view: %v %v", i, pb, wb)
+		}
+		if !bytes.Equal(parts.Image().Pix, whole.Image().Pix) {
+			t.Fatalf("frame %d: painted in parts differs from painted whole", i)
+		}
+	}
+	if statics != n {
+		t.Errorf("the drawings that do not move were painted %d times again", statics-n)
+	}
+	if parts.rt.partPaints != 12 || whole.rt.partPaints != 0 {
+		t.Errorf("%d frames painted in parts, want 12 (and %d whole)", parts.rt.partPaints, whole.rt.partPaints)
+	}
+}
+
+// TestRepaintPartsWhole checks that a frame paints the window whole when
+// something other than a drawing in a Draw callback moves: a drawing
+// asking from a layer's content, and a drawing whose painting outgrows
+// what the scene held.
+func TestRepaintPartsWhole(t *testing.T) {
+	statics := 0
+	tt := newRepaintTester(func(c *context) {
+		coreBox(c).Size(100, 20).Draw(func(p *Painter, r Rect) { statics++ })
+		coreBox(c).Size(100, 20).Blur(2).Children(func() {
+			coreBox(c).Size(50, 10).Draw(func(p *Painter, r Rect) { p.AnimationFrame() })
+		})
+	})
+	n := statics
+	tt.frame(8 * time.Millisecond)
+	if tt.rt.partPaints != 0 || statics != n+1 {
+		t.Errorf("a drawing moving in a layer: %d frames in parts, the rest painted %d times", tt.rt.partPaints, statics-n)
+	}
+	// A drawing painting more and more glyphs.
+	k := 1
+	tt = newRepaintTester(func(c *context) {
+		coreBox(c).Size(190, 90).Draw(func(p *Painter, r Rect) {
+			p.AnimationFrame()
+			for i := range k {
+				p.Text(r.X+float32(i%40)*4, r.Y+10+float32(i/40), "x", 6, RGB(0, 0, 0))
+			}
+			k += 600
+		})
+	})
+	whole := 0
+	for range 10 {
+		p := tt.rt.partPaints
+		tt.frame(8 * time.Millisecond)
+		if tt.rt.partPaints == p {
+			whole++
+		}
+	}
+	if whole == 0 {
+		t.Error("a scene growing in parts was never painted whole")
+	}
+}
