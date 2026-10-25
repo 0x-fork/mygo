@@ -1762,6 +1762,16 @@ their gains (a 2×2 matrix of volume and pan) over 5 ms on every change,
 pause and resume. Looping happens in the source, so a loop has no gap; the
 voice counts frames past it modulo the length for `Position`.
 
+`Position` is where a voice is heard, not mixed. The mixer counts the
+frames it mixed and, of the latest, those the device holds: as many as it
+was written, up to its latency, from when it opened (`setHeld`). Each
+voice marks the output's frame and its own source frame where each mix
+starts and ends, and forgets the marks the output played; `Position`
+interpolates them at the frame heard, which carries speed changes, a
+stream waiting for its decoder, and a pause playing out. A seek or a
+stop drops them, so the position is the target at once and stands there
+until the output plays what it mixed since.
+
 The output (`audio/output.go`) is a goroutine locked to one thread that
 opens the device when a voice starts, mixes 10 to 21 ms at a time and
 writes it with a call that blocks while the device holds enough, and

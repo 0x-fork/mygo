@@ -47,10 +47,16 @@ func active() bool {
 	return len(voices) > 0 && !testMode
 }
 
-func inTest() bool {
+// mixFor mixes into buf for an output open at latency lat, and reports
+// whether anything plays; ok is false, and it mixes nothing, once tests
+// mix by hand or the latency changed.
+func mixFor(buf []float32, lat Latency) (busy, ok bool) {
 	mu.Lock()
 	defer mu.Unlock()
-	return testMode
+	if testMode || latency != lat {
+		return false, false
+	}
+	return mixLocked(buf), true
 }
 
 // run opens the device while anything plays, and mixes into it.
@@ -66,14 +72,20 @@ func run() {
 		if err != nil {
 			setErr(err)
 			dev, n = newNullDevice(err != errUnsupported), nullFrames
+			// It holds nothing: what it takes is heard as it takes it.
+			setHeld(0)
 		} else {
 			setErr(nil)
+			setHeld(int64(lat.ahead() * sampleRate / time.Second))
 		}
 		buf := make([]float32, n*channels)
 		idle := time.Duration(0)
 		per := frames(int64(n), sampleRate)
-		for !inTest() && outputLatency() == lat {
-			busy := mix(buf)
+		for {
+			busy, ok := mixFor(buf, lat)
+			if !ok {
+				break
+			}
 			if err := dev.write(buf); err != nil {
 				// Lost, or a null device trying the real one again.
 				break

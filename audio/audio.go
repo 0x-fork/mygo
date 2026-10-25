@@ -358,11 +358,13 @@ func (p *Player) Seek(t time.Duration) {
 	v.reset(f)
 }
 
-// Position returns how far the player is from the start.
+// Position returns how far the player is from the start, in what is heard:
+// the output mixes ahead of it (SetLatency), and the player goes on for
+// as long after a pause, but it is where Seek moved it at once.
 func (p *Player) Position() time.Duration {
 	mu.Lock()
 	defer mu.Unlock()
-	return time.Duration(p.v.position() / p.v.rate * float64(time.Second))
+	return time.Duration(p.v.position(p.v.heardAt()) / p.v.rate * float64(time.Second))
 }
 
 // Duration returns how long the player's audio is, or 0 if unknown.

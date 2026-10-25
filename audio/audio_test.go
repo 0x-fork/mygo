@@ -23,7 +23,16 @@ func setup(t *testing.T) {
 	}
 	voices = nil
 	volume = 1
+	held, unheard = 0, 0
 	mu.Unlock()
+}
+
+// hold makes the output hold n frames ahead of what is heard, as a device
+// that just opened.
+func hold(n int64) {
+	mu.Lock()
+	defer mu.Unlock()
+	held, unheard = n, 0
 }
 
 // render mixes n frames.
