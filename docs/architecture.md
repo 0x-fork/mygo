@@ -1663,7 +1663,9 @@ as in Tauri:
   it active then). Windows makes a topmost tool window owned by the hidden
   application window (a tool window alone may get a button on other
   displays' taskbars, as PowerToys found), its corners rounded as
-  Windows 11 rounds other windows'; the key press of a `RegisterHotKey`
+  Windows 11 rounds other windows'; one the app maximizes fills the work
+  area (`maximizeInWorkArea`), where Windows would give a window without
+  a maximize box the whole monitor, over the taskbar; the key press of a `RegisterHotKey`
   shortcut lets the process take the foreground, and hiding the panel
   gives it back. Linux makes a sticky utility window, kept above, or on
   Wayland a surface of the overlay layer (`internal/linux/layer.go`):

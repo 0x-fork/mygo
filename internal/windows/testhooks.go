@@ -670,6 +670,24 @@ func TestPinchSurface(hwnd uintptr, x, y, scale float64) (float64, bool) {
 	return math.Exp(float64(delta) / 120 * math.Ln2 / 3), true
 }
 
+// TestMaximizedRects returns, in pixels, a window's rectangle, the part of
+// it DWM shows (without its invisible borders), its client area on the
+// screen, and the monitor and work area it is on, and whether it is
+// zoomed.
+func TestMaximizedRects(hwnd uintptr) (window, shown, client, monitor, work [4]int32, zoomed bool) {
+	var r, s, c rect
+	procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
+	procDwmGetWindowAttribute.Call(hwnd, dwmwaExtendedFrameBounds, uintptr(unsafe.Pointer(&s)), unsafe.Sizeof(s))
+	procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&c)))
+	var origin point
+	procClientToScreen.Call(hwnd, uintptr(unsafe.Pointer(&origin)))
+	mon, _, _ := procMonitorFromWindow.Call(hwnd, monitorDefaultToNearest)
+	mi := monitorInfo(mon)
+	z, _, _ := procIsZoomed.Call(hwnd)
+	four := func(r rect) [4]int32 { return [4]int32{r.Left, r.Top, r.Right, r.Bottom} }
+	return four(r), four(s), [4]int32{origin.X, origin.Y, origin.X + c.Right, origin.Y + c.Bottom}, four(mi.Monitor), four(mi.Work), z != 0
+}
+
 // TestHitTest reports what Windows' hit test answers at a point of a
 // window, in pixels from the top-left of its client area (negative from
 // the right or the bottom): the answer of the topmost visible window
