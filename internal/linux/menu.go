@@ -362,9 +362,14 @@ func (w *window) SetAutoHideMenu(v bool) {
 }
 
 // menuHides reports whether the menu bar shows only while its menus are
-// open: one that hides, and any in full screen, which leaves the page the
-// whole screen.
-func (w *window) menuHides() bool { return w.autoHideMenu || w.state&stateFullscreen != 0 }
+// open: one that hides, any in full screen, which leaves the page the
+// whole screen, and any in a window with a hidden title bar, whose page
+// draws the title bar at the top of the window, with the window buttons
+// over it: a bar above would push both down, under the menus. Windows
+// leaves such a window no menu bar either.
+func (w *window) menuHides() bool {
+	return w.autoHideMenu || w.state&stateFullscreen != 0 || w.hiddenTitleBar()
+}
 
 // revealMenu shows a menu bar that hides and opens its first menu, as F10
 // does in GTK, while the key event is current: the menu grabs its device.
