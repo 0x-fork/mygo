@@ -80,11 +80,13 @@ func sceneData(s *scene.Scene) int {
 
 // repaintParts paints the parts of the last frame painted again (see
 // paintPart), and reports whether it could: false when the window must be
-// painted whole.
+// painted whole, as when the glyph atlases, which every window shares,
+// moved or forgot the glyphs the rest of the scene draws, as another
+// window making room in them does.
 func (rt *engine) repaintParts() bool {
 	s := &rt.scene
 	if rt.untracked || len(rt.drawn) == 0 || rt.insp.open || rt.drag != nil || rt.noParts ||
-		sceneData(s) > 2*rt.partsBase+partsGrowth {
+		sceneData(s) > 2*rt.partsBase+partsGrowth || atlasGenerations(s) != rt.atlases {
 		return false
 	}
 	rt.partPaints++

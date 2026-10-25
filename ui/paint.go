@@ -82,6 +82,13 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	rt.paintDrag(p, w, h)
 	rt.under, rt.holes = p.under[:0], p.holes[:0] // kept for the next frame's
 	rt.partsBase = sceneData(s)
+	rt.atlases = atlasGenerations(s)
+}
+
+// atlasGenerations returns the generations of the atlases s draws glyphs
+// and masks from.
+func atlasGenerations(s *scene.Scene) [2]uint64 {
+	return [2]uint64{s.MaskAtlas.Generation(), s.ColorAtlas.Generation()}
 }
 
 // Now returns the time of the frame being painted, which drawings that

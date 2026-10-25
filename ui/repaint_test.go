@@ -535,3 +535,31 @@ func TestRepaintPartsWhole(t *testing.T) {
 		t.Error("a scene growing in parts was never painted whole")
 	}
 }
+
+// TestRepaintPartsAfterAtlasMoved checks that a window paints itself whole
+// when another window made room in the glyph atlases they share: its text
+// painted in parts kept the places its glyphs had before, which then held
+// the other window's glyphs and masks, as black boxes where text was.
+func TestRepaintPartsAfterAtlasMoved(t *testing.T) {
+	a := newRepaintTester(func(c *context) {
+		coreBox(c).Size(200, 50).Draw(func(p *Painter, r Rect) {
+			p.Text(r.X+4, r.Y+30, "Hello, world", 20, RGB(0, 0, 0))
+		})
+		coreBox(c).Size(20, 20).Draw(func(p *Painter, r Rect) { p.AnimationFrame() })
+	})
+	a.frame(8 * time.Millisecond)
+	want := bytes.Clone(a.Image().Pix)
+	// Another window drawing more glyphs than the atlas has room for.
+	b := newRepaintTester(func(c *context) {
+		coreBox(c).Size(200, 100).Draw(func(p *Painter, r Rect) {
+			for i := range 400 {
+				p.Text(r.X, r.Y+40, string(rune('一'+i)), 48, RGB(0, 0, 0))
+			}
+		})
+	})
+	b.frame(8 * time.Millisecond)
+	a.frame(8 * time.Millisecond)
+	if !bytes.Equal(a.Image().Pix, want) {
+		t.Error("the window's text changed after another window made room in the atlas")
+	}
+}

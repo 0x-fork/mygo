@@ -338,10 +338,12 @@ type engine struct {
 	// the window is painted whole. partsBase is how much data the scene
 	// held painted whole (sceneData), partOps the operations of the scene
 	// painted before, and partPaints counts the frames painted in parts;
-	// noParts paints every frame whole, for tests that compare.
+	// noParts paints every frame whole, for tests that compare. atlases
+	// are the generations of the glyph atlases the scene was painted with.
 	drawn      []paintPart
 	untracked  bool
 	partsBase  int
+	atlases    [2]uint64
 	partOps    []scene.Op
 	partPaints int
 	noParts    bool
