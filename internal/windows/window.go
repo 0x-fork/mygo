@@ -1088,7 +1088,7 @@ func (w *window) extendGlass(always bool) {
 	if w.vibrancy != "" {
 		var r rect
 		procGetClientRect.Call(w.hwnd, uintptr(unsafe.Pointer(&r)))
-		m = glassMargins(w.hiddenTitleBar && !w.fullScreen && w.IsMaximized(), r.Bottom-r.Top)
+		m = glassMargins(w.glassFromBottom(), r.Bottom-r.Top)
 	}
 	if m == w.glass && !always {
 		return
@@ -1097,15 +1097,35 @@ func (w *window) extendGlass(always bool) {
 	procDwmExtendFrameIntoClientArea.Call(w.hwnd, uintptr(unsafe.Pointer(&m)))
 }
 
+// glassFromBottom reports a window whose frame extends from the bottom
+// over its client area (glassMargins) rather than all over: a frameless
+// window, and a maximized one with a hidden title bar. Flyouts are popups
+// without a caption, whose frame DWM draws no buttons in.
+//
+// A frameless window keeps WS_CAPTION, WS_SYSMENU and the boxes of its
+// styles, for snapping, Win+arrow keys, the taskbar's minimize and the
+// window menu of Alt+Space; frameCalcSize leaves it no title bar. Extended
+// all over, the frame covers the window's top, and DWM draws its caption
+// buttons there, over the page.
+func (w *window) glassFromBottom() bool {
+	if w.frameless {
+		return w.opts.Flyout == nil
+	}
+	return w.hiddenTitleBar && !w.fullScreen && w.IsMaximized()
+}
+
 // glassMargins returns the frame's extension that shows the material over
-// a client area height pixels high. DWM draws its caption buttons in the
-// frame at the top, under the hidden title bar's own while the window is
-// restored. Maximized, the client area starts below the top of the window
-// (frameCalcSize) and DWM's buttons show above the title bar's: the frame
-// extends from the bottom over the whole client area instead, and its top
-// is only the strip off screen, too short for buttons.
-func glassMargins(maximizedHiddenTitleBar bool, height int32) margins {
-	if maximizedHiddenTitleBar {
+// a client area height pixels high. DWM draws the caption buttons of a
+// window's styles in the frame at the top. A restored window with a hidden
+// title bar draws its own over them. Maximized, its client area starts
+// below the top of the window (frameCalcSize) and DWM's buttons would show
+// above the title bar's; a frameless window has no buttons of its own at
+// all. fromBottom extends the frame from the bottom over the whole client
+// area instead: the material still shows everywhere, and the frame's top
+// is only what lies above the client area, a strip off screen or nothing,
+// too short for buttons.
+func glassMargins(fromBottom bool, height int32) margins {
+	if fromBottom {
 		return margins{Bottom: max(height, 1)}
 	}
 	return margins{-1, -1, -1, -1} // a sheet over the whole window
