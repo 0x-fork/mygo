@@ -24,10 +24,11 @@ const (
 type Config struct {
 	// Name is the display name of the app (default: directory name).
 	Name string `json:"name"`
-	// Slug names the app's files where a name must be plain ASCII: the
-	// Linux executable, its desktop entry, icon and Debian package, the
-	// update archives and deltas of every platform, the variables of the
-	// install scripts, and the MIME types the app defines. Lower-case
+	// Slug names the app's files where a name must be plain ASCII: the disk
+	// images of macOS, the installers of Windows, the Linux executable, its
+	// desktop entry, icon and Debian package, the update archives and
+	// deltas of every platform, the variables of the install scripts, and
+	// the MIME types the app defines. Lower-case
 	// letters, digits and hyphens (default: the name as slugify makes it,
 	// as my-app of "My App" and yun-yin-le of "云音乐").
 	Slug string `json:"slug"`

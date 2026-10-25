@@ -48,7 +48,7 @@ func installPS1(c *Config) string {
 		"Name":       c.Name,
 		"Exe":        c.executableName() + ".exe",
 		"Folder":     fsName(c.Name),
-		"Setup":      fsName(c.Name) + " Setup ",
+		"Setup":      installerPrefix(c),
 		"Identifier": c.Identifier,
 		"Env":        envName(c.slug()),
 		"Releases":   "",
@@ -217,7 +217,7 @@ function Install-App {
 		Get-File ($base + 'SHA256SUMS') $sumsFile
 		$sum = $null
 		$name = $null
-		$pattern = '^([0-9a-fA-F]{64}) [ *](' + [regex]::Escape($setupPrefix) + '(\S+) ' + $arch + '\.exe)$'
+		$pattern = '^([0-9a-fA-F]{64}) [ *](' + [regex]::Escape($setupPrefix) + '(\S+)-' + $arch + '\.exe)$'
 		foreach ($line in [IO.File]::ReadAllLines($sumsFile)) {
 			if ($line.TrimEnd() -match $pattern) {
 				$sum = $Matches[1]

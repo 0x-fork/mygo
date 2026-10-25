@@ -49,9 +49,10 @@ export interface Config {
   /** The name users see: the app, its executable, menus and installers (default: the directory's name). */
   name?: string;
   /**
-   * The name of the app's files where a name must be plain ASCII: the Linux
-   * executable, desktop entry, icon and Debian package, the update archives
-   * of every platform, and the variables of the install scripts. Lower-case
+   * The name of the app's files where a name must be plain ASCII: the disk
+   * images of macOS and the installers of Windows, the Linux executable,
+   * desktop entry, icon and Debian package, the update archives of every
+   * platform, and the variables of the install scripts. Lower-case
    * letters and digits with single hyphens between them (default: the name
    * in lower case, with hyphens between its words and Chinese, Japanese and
    * Korean in Latin letters, as `my-app` of "My App" and `yun-yin-le` of

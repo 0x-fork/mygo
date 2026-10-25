@@ -44,8 +44,8 @@ when cross-compiling, set `CC` to a suitable cross compiler.
 
 | Platform | In `build/<os>-<arch>/` |
 |---|---|
-| macOS | `My App.app`, signed, and `My App 0.1.0 arm64.dmg` (`My App 0.1.0.dmg` for `darwin/universal`), with [updates](updates.md) also `install.sh` |
-| Windows | `My App.exe`, the files of the app, and the installer `My App Setup 0.1.0 amd64.exe`, with [updates](updates.md) also [`install.ps1`](#install-scripts-for-macos-and-windows) |
+| macOS | `My App.app`, signed, and `my-app-0.1.0-arm64.dmg` (`my-app-0.1.0.dmg` for `darwin/universal`), with [updates](updates.md) also `install.sh` |
+| Windows | `My App.exe`, the files of the app, and the installer `my-app-setup-0.1.0-amd64.exe`, with [updates](updates.md) also [`install.ps1`](#install-scripts-for-macos-and-windows) |
 | Linux | `my-app`, `my-app.desktop`, `my-app.png`, `my-app.xml` for the file types the app defines, the files of the app, their archive `my-app-0.1.0-linux-amd64.tar.gz` with [`install.sh`](#the-install-script), and the Debian package `my-app_0.1.0_amd64.deb` |
 
 Other flags: `-debug` keeps development features such as the inspector,
@@ -372,8 +372,9 @@ window. A `.syso` file of your own in the main package replaces them.
 
 ### The installer
 
-`mygo build` also makes `My App Setup 1.2.0 amd64.exe`, named for its
-architecture as the disk images are, so that the installers of two
+`mygo build` also makes `my-app-setup-1.2.0-amd64.exe`, named after the
+app's [`slug`](configuration.md#the-app) and its architecture as the disk
+images are, so that the installers of two
 targets, uploaded to one release, keep both. It installs the app for
 the current user in `%LOCALAPPDATA%\Programs\My App`, which needs no
 administrator rights and lets the app [update itself](updates.md), adds a
