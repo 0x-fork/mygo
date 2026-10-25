@@ -3473,12 +3473,13 @@ either.
     which a timer asks for, gives it two of the window's size again.
     The swap chain flips in sequence (`FLIP_SEQUENTIAL`), so that a frame
     draws only what changed since the last, as Metal's (below): DXGI keeps
-    what each buffer holds, and as a frame is presented with the area it
-    drew as its dirty rectangle (`Present1`), copies into it what the last
-    frame changed outside that area, so there is no buffer age to track.
-    The frame clears the area (`ID3D11DeviceContext1::ClearView`, which
-    Direct3D 11.1 has, WARP too) and draws the batches scissored to it; a
-    frame that changed nothing is not presented. With WARP, on a runner
+    what each buffer holds, and as a frame is presented with the
+    rectangles it drew as its dirty rectangles (`Present1`), copies into
+    it what the last frame changed outside them, so there is no buffer
+    age to track. The frame clears the rectangles
+    (`ID3D11DeviceContext1::ClearView`, which Direct3D 11.1 has, WARP too)
+    and draws the batches scissored to each; a frame that changed nothing
+    is not presented. With WARP, on a runner
     without a GPU, a caret blinking in a window of 1280×760 pixels took a
     tenth of the CPU's time it took drawn whole;
   - `internal/gpu/metal` with a shader in Metal Shading Language
@@ -3555,7 +3556,14 @@ either.
     rather than clearing it, copies a texel cleared to the frame's color
     over the area (with the `down` pass, so that the GPU converts the
     color as it does clearing), and draws the batches scissored to it,
-    leaving out those outside. Apple's tile-based GPUs then load and store
+    leaving out those outside. The area is up to eight rectangles apart
+    from each other (`gpu.Part`, from the Differ's, which `gpu.Ages`
+    keeps for each drawable, those that meet or nearly do merged, and
+    past eight the two whose union grows least): a spinner in one corner
+    and a progress bar in the other redraw themselves, not all between,
+    each batch drawing once in each rectangle it meets, so that none is
+    blended twice. A backdrop an effect reads is within one rectangle,
+    drawn before the effect reads it. Apple's tile-based GPUs then load and store
     only the tiles the pass draws in: a caret blinking in a window of
     3200×2000 pixels takes 0.4 ms of the GPU a frame rather than 2.4,
     and a spinner 0.4 rather than 2.9, on an M5. Copying the last frame
@@ -3610,9 +3618,9 @@ either.
     differs, `load_linux.go` or `load_js.go`. A frame draws only what
     changed since the last (`Renderer.Partial`, with `scene.Differ` and
     `gpu.Pipelines`, as Metal's), into a framebuffer that keeps what was
-    drawn, so there is no buffer age to track: it clears the area with the
-    scissor test on, which `glClear` keeps to, and draws the batches
-    scissored to it. GTK keeps the GtkGLArea's framebuffer from render to
+    drawn, so there is no buffer age to track: it clears the rectangles of
+    the area with the scissor test on, which `glClear` keeps to, and
+    draws the batches scissored to each. GTK keeps the GtkGLArea's framebuffer from render to
     render, but makes its buffers anew, holding nothing defined, whenever
     it allocates the area, at the same size too: a `SurfaceResize` has the
     next frame draw whole (`Invalidate`). A canvas's WebGL 2 context keeps
