@@ -3576,6 +3576,25 @@ func (_handle Element) Draw(fn func(p *Painter, r Rect)) Element {
 	return wrapElement(_node.Draw(fn))
 }
 
+// DrawObjects paints the inline objects of a text (Span.ObjectWidth)
+// with p, after its glyphs: fn gets each one that shows, its rune in
+// the text, the text elements' inside it included, and its box, in
+// window DIPs, ObjectHeight above the baseline and ObjectDescent below.
+// It paints in the text's clip and in the transform of the element
+// holding the object. fn only paints: it may run more than once a frame.
+//
+//	ui.RichText(c, ui.Span{Text: "area "}, ui.Span{Text: "\uFFFC", ObjectWidth: w, ObjectHeight: h, ObjectDescent: d}).
+//		DrawObjects(func(p *ui.Painter, at int, r ui.Rect) { formula.Draw(p, r) })
+func (_handle Element) DrawObjects(fn func(p *Painter, at int, r Rect)) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.DrawObjects(fn))
+}
+
 // DrawOver paints on the element with p after its children.
 func (_handle Element) DrawOver(fn func(p *Painter, r Rect)) Element {
 	_node := _handle.node()

@@ -324,6 +324,8 @@ type node struct {
 	opacitySet bool
 	cursor     Cursor
 	paintFn    func(p *Painter, r Rect)
+	// objectFn draws the inline objects of a text (DrawObjects).
+	objectFn func(p *Painter, at int, r Rect)
 	// styleFn sets the colors and opacity the element paints with, as it
 	// is painted: it changes nothing else, so that an element out of view
 	// can skip it.
@@ -1372,6 +1374,21 @@ func (e *node) Draw(fn func(p *Painter, r Rect)) *node { e.paintFn = fn; return 
 
 // DrawOver paints on the element with p after its children.
 func (e *node) DrawOver(fn func(p *Painter, r Rect)) *node { e.paintAfterFn = fn; return e }
+
+// DrawObjects paints the inline objects of a text (Span.ObjectWidth)
+// with p, after its glyphs: fn gets each one that shows, its rune in
+// the text, the text elements' inside it included, and its box, in
+// window DIPs, ObjectHeight above the baseline and ObjectDescent below.
+// It paints in the text's clip and in the transform of the element
+// holding the object. fn only paints: it may run more than once a frame.
+//
+//	ui.RichText(c, ui.Span{Text: "area "}, ui.Span{Text: "\uFFFC", ObjectWidth: w, ObjectHeight: h, ObjectDescent: d}).
+//		DrawObjects(func(p *ui.Painter, at int, r ui.Rect) { formula.Draw(p, r) })
+func (e *node) DrawObjects(fn func(p *Painter, at int, r Rect)) *node {
+	linkObjects.Do(func() { paintObjects = (*Painter).textObjects })
+	e.objectFn = fn
+	return e
+}
 
 // ID returns the element's identity, stable from frame to frame.
 func (e *node) ID() uint64 { return e.id }

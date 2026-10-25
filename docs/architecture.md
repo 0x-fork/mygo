@@ -3298,8 +3298,10 @@ either.
   A span with an `ObjectWidth` makes its object replacement characters
   inline objects: boxes standing on the baseline, which lines break
   around and which draw no glyph (`Glyph.Object`), as a rich text's
-  images. The line takes their height in the shared layout; each engine
-  only gives them their width: Core Text through run delegates, whose
+  images, or a text's math with `Element.DrawObjects`, which paints them
+  after the glyphs. The line takes their height, and their descent
+  (`ObjectDescent`, encoded only for objects), in the shared layout;
+  each engine only gives them their width: Core Text through run delegates, whose
   callbacks return floats Go cannot, so they are leaves in assembly
   (`rundelegate_darwin_*.s`); DirectWrite through `IDWriteInlineObject`s,
   their places found by hit testing, as its glyph runs' are; Pango through

@@ -4,6 +4,7 @@ import (
 	"math"
 	"runtime"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo/internal/scene"
@@ -269,6 +270,9 @@ func (p *Painter) element(e *node) {
 			p.inline = e
 			if spans := e.paintSpans(&sp); !e.contentSet || !p.contentText(e, ox, oy, ts, spans) {
 				p.textLayout(e.tl, ox, oy, ts.color, ts, spans)
+				if e.objectFn != nil {
+					paintObjects(p, e.tl, ox, oy, e.objectFn)
+				}
 			}
 			p.inline = nil
 		case kindImage:
@@ -702,6 +706,42 @@ func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textS
 		}
 	}
 	p.textForeground(l, x, y, color, ts, sp)
+}
+
+// paintObjects is textObjects once DrawObjects is called, so that apps
+// that never call it do not link it.
+var (
+	paintObjects func(p *Painter, l *text.Layout, x, y float32, fn func(p *Painter, at int, r Rect))
+	linkObjects  sync.Once
+)
+
+// textObjects calls fn with each inline object of l, laid out from
+// (x, y), that shows: its rune and its box, in the transform of the
+// inline element holding it.
+func (p *Painter) textObjects(l *text.Layout, x, y float32, fn func(p *Painter, at int, r Rect)) {
+	if l == nil {
+		return
+	}
+	var spans []text.Span
+	saved := p.transform
+	defer func() { p.transform = saved }()
+	for li := range l.Lines {
+		line := &l.Lines[li]
+		for _, g := range line.Glyphs {
+			if !g.Object {
+				continue
+			}
+			if spans == nil {
+				spans = text.DecodeSpans(l.Params.Spans)
+			}
+			h, d := objectMetrics(spans, g.Cluster)
+			r := Rect{x + g.X, y + line.Baseline - h, g.Advance, h + d}
+			p.transform = saved.Mul(p.inlineTransform(g.Cluster))
+			if p.visible(r, 0) {
+				fn(p, g.Cluster, r)
+			}
+		}
+	}
 }
 
 // textBackgrounds paints all backgrounds before the foreground, so a
