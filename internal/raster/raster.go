@@ -275,10 +275,11 @@ func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, boun
 				}
 			}
 		case scene.OpPushClip:
-			radii := scene.Corners(op.Rect, op.Radii, op.Continuous)
-			c := clip{shape: newShape(op.Rect, radii), round: hasRadii(radii), spans: -1}
-			c.transform = op.Transform
-			c.inverse, c.valid = op.Transform.Inverse()
+			rect, transform := scene.MovedClip(op.Rect, op.Transform)
+			radii := scene.Corners(rect, op.Radii, op.Continuous)
+			c := clip{shape: newShape(rect, radii), round: hasRadii(radii), spans: -1}
+			c.transform = transform
+			c.inverse, c.valid = transform.Inverse()
 			if c.continuous && !c.transform.Set {
 				// Continuous corners take long to find the spans of, which
 				// every operation within the clip needs.
