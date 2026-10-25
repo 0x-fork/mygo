@@ -984,7 +984,8 @@ func (w *Window) SetOpacity(v float64) {
 // Opacity returns the window opacity.
 func (w *Window) Opacity() float64 { return get(w, platform.Window.Opacity) }
 
-// SetHasShadow sets whether the window has a shadow.
+// SetHasShadow sets whether the window has a shadow. On Linux a window
+// keeps the shadow it was created with (DisableShadow).
 func (w *Window) SetHasShadow(v bool) { w.do(func(n platform.Window) { n.SetHasShadow(v) }) }
 
 // HasShadow reports whether the window has a shadow.

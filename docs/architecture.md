@@ -345,9 +345,26 @@ purego gives three primitives, used everywhere:
   which `SetBounds` sets too, and `SetResizable(false)` to the size it has,
   or than its natural size, which GTK makes 200x200 when the window's child
   has none, as the web view: the box around the web view asks for 1x1.
+- On Wayland, GTK decorates a frameless window, or one with a hidden title
+  bar, itself (`useCSD`): `gtk_window_set_titlebar` with a `GtkBox` that
+  never shows gives it client-side decorations without a title bar, so GTK
+  draws its shadow and border around the page, resizes the window from
+  them, and drops them while the window is maximized or in full screen.
+  GTK sizes the window without them (`gtk_window_get_size`, the default
+  size, the geometry hints), so the page keeps the size asked for, and
+  Wayland has no positions they would shift. A window with `DisableShadow`,
+  a transparent one (the decorations would outline the rectangle around a
+  page that shows its own shape; GTK draws them on an app-paintable window
+  too), panels and flyouts, a hidden title bar on a compositor that
+  decorates windows itself, and every window on X11 stay undecorated
+  (`gtk_window_set_decorated`): an X11 window that decorates itself has
+  its shadow inside its X window, which the frame extents that `Bounds`
+  counts do not tell, and Mutter puts its own shadow around opaque
+  undecorated windows there. GTK styles the decorations once, so the
+  shadow comes with the window: `SetHasShadow` changes nothing on Linux.
 - GTK gives windows without decorations no resize borders, so the outer
-  5 px of the page of a frameless window, or one with a hidden title bar,
-  resize it (16 px along the edges from a corner resize the corner). The web view's `motion-notify-event` shows
+  5 px of the page of an undecorated frameless window, or one with a
+  hidden title bar, resize it (16 px along the edges from a corner resize the corner). The web view's `motion-notify-event` shows
   a resize cursor there, keeping WebKit's cursor to restore, and its
   `button-press-event` calls `gtk_window_begin_resize_drag` with the press,
   as a Wayland compositor requires; neither event reaches WebKit. Nothing
@@ -357,7 +374,8 @@ purego gives three primitives, used everywhere:
   compositor that speaks `org_kde_kwin_server_decoration` (KWin, COSMIC,
   Sway) for every window GTK does not decorate itself, one without
   decorations too, and the compositor draws its title bar on it. A
-  frameless window is realized before it shows and announced client-side
+  frameless window GTK does not decorate itself is realized before it
+  shows and announced client-side
   instead (`gdk_wayland_window_announce_csd`, looked up at startup): GDK
   keeps that for the `GdkWindow` and requests it again whenever the window
   maps or the compositor answers with another mode, so the window gets no

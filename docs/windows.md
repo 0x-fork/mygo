@@ -56,7 +56,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `CornerRadius` | rounds a frameless window's corners: its content and material are cut to them on macOS, and Windows 11 gives it its own rounded corners |
 | `BackgroundColor` | fills the window until the page paints, in CSS syntax such as `"#1e1e1e"`, or `"light-dark(#f5f5f7, #1e1e1e)"` to follow the appearance |
 | `Opacity` | between 0 and 1 |
-| `DisableResize`, `DisableMove`, `DisableMinimize`, `DisableMaximize`, `DisableClose`, `DisableFullScreen`, `DisableShadow` | take abilities away |
+| `DisableResize`, `DisableMove`, `DisableMinimize`, `DisableMaximize`, `DisableClose`, `DisableFullScreen`, `DisableShadow` | take abilities away. On Linux under Wayland, `DisableShadow` keeps a frameless window or a hidden title bar without the shadow and border GTK draws around them |
 | `AlwaysOnTop` | keeps the window above others |
 | `SkipTaskbar` | leaves the window out of the taskbar (Linux, Windows) |
 | `AutoHideMenuBar` | shows the menu bar only while the keyboard is in it, from Alt or F10 (Linux, Windows), see [the menu bar](menus.md#the-menu-bar) |
@@ -157,7 +157,8 @@ Other properties:
   `SetAlwaysOnTop`, `SetOpacity`, `SetHasShadow`, `SetBackgroundColor` and
   `SetVibrancy` change what the options set. On Windows, `SetVibrancy`
   changes the material of a window created with one, and shows none in
-  other windows.
+  other windows. On Linux, a window keeps the shadow it was created with
+  (`DisableShadow`).
 - `SetIcon(png)` gives the window its own icon in its title bar and taskbar
   button (Linux, Windows).
 - `SetSkipTaskbar` hides the window from the taskbar (Linux, Windows).
