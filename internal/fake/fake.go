@@ -472,6 +472,7 @@ type Window struct {
 	Flyout platform.Flyout
 
 	mu        sync.Mutex
+	active    bool // SetActiveAppearance
 	scripts   []string
 	menu      *platform.Menu
 	title     string
@@ -656,28 +657,32 @@ func (w *Window) Show() {
 	w.focused = w.focused || w.Opts.Flyout == nil || w.Opts.Flyout.Focusable
 	w.mu.Unlock()
 }
-func (w *Window) ShowInactive()                      { w.mu.Lock(); w.visible = true; w.mu.Unlock() }
-func (w *Window) Hide()                              { w.mu.Lock(); w.visible = false; w.mu.Unlock() }
-func (w *Window) IsVisible() bool                    { w.mu.Lock(); defer w.mu.Unlock(); return w.visible }
-func (w *Window) Focus()                             { w.H.Focused() }
-func (w *Window) Blur()                              { w.H.Blurred() }
-func (w *Window) IsFocused() bool                    { w.mu.Lock(); defer w.mu.Unlock(); return w.focused }
-func (w *Window) Minimize()                          { w.mu.Lock(); w.minimized = true; w.mu.Unlock(); w.H.Minimized() }
-func (w *Window) IsMinimized() bool                  { w.mu.Lock(); defer w.mu.Unlock(); return w.minimized }
-func (w *Window) Maximize()                          { w.mu.Lock(); w.maximized = true; w.mu.Unlock(); w.H.Maximized() }
-func (w *Window) Unmaximize()                        { w.mu.Lock(); w.maximized = false; w.mu.Unlock(); w.H.Unmaximized() }
-func (w *Window) IsMaximized() bool                  { w.mu.Lock(); defer w.mu.Unlock(); return w.maximized }
-func (w *Window) Restore()                           { w.mu.Lock(); w.minimized = false; w.mu.Unlock(); w.H.Restored() }
-func (w *Window) SetFullScreen(v bool)               { w.mu.Lock(); w.full = v; w.mu.Unlock() }
-func (w *Window) IsFullScreen() bool                 { w.mu.Lock(); defer w.mu.Unlock(); return w.full }
-func (w *Window) Center()                            {}
-func (w *Window) SetOpacity(float64)                 {}
-func (w *Window) Opacity() float64                   { return 1 }
-func (w *Window) SetHasShadow(bool)                  {}
-func (w *Window) HasShadow() bool                    { return true }
-func (w *Window) SetIgnoreMouseEvents(bool)          {}
-func (w *Window) SetContentProtection(bool)          {}
-func (w *Window) SetVibrancy(string)                 {}
+func (w *Window) ShowInactive()              { w.mu.Lock(); w.visible = true; w.mu.Unlock() }
+func (w *Window) Hide()                      { w.mu.Lock(); w.visible = false; w.mu.Unlock() }
+func (w *Window) IsVisible() bool            { w.mu.Lock(); defer w.mu.Unlock(); return w.visible }
+func (w *Window) Focus()                     { w.H.Focused() }
+func (w *Window) Blur()                      { w.H.Blurred() }
+func (w *Window) IsFocused() bool            { w.mu.Lock(); defer w.mu.Unlock(); return w.focused }
+func (w *Window) Minimize()                  { w.mu.Lock(); w.minimized = true; w.mu.Unlock(); w.H.Minimized() }
+func (w *Window) IsMinimized() bool          { w.mu.Lock(); defer w.mu.Unlock(); return w.minimized }
+func (w *Window) Maximize()                  { w.mu.Lock(); w.maximized = true; w.mu.Unlock(); w.H.Maximized() }
+func (w *Window) Unmaximize()                { w.mu.Lock(); w.maximized = false; w.mu.Unlock(); w.H.Unmaximized() }
+func (w *Window) IsMaximized() bool          { w.mu.Lock(); defer w.mu.Unlock(); return w.maximized }
+func (w *Window) Restore()                   { w.mu.Lock(); w.minimized = false; w.mu.Unlock(); w.H.Restored() }
+func (w *Window) SetFullScreen(v bool)       { w.mu.Lock(); w.full = v; w.mu.Unlock() }
+func (w *Window) IsFullScreen() bool         { w.mu.Lock(); defer w.mu.Unlock(); return w.full }
+func (w *Window) Center()                    {}
+func (w *Window) SetOpacity(float64)         {}
+func (w *Window) Opacity() float64           { return 1 }
+func (w *Window) SetHasShadow(bool)          {}
+func (w *Window) HasShadow() bool            { return true }
+func (w *Window) SetIgnoreMouseEvents(bool)  {}
+func (w *Window) SetContentProtection(bool)  {}
+func (w *Window) SetVibrancy(string)         {}
+func (w *Window) SetActiveAppearance(v bool) { w.mu.Lock(); w.active = v; w.mu.Unlock() }
+
+// ActiveAppearance reports what SetActiveAppearance set last.
+func (w *Window) ActiveAppearance() bool             { w.mu.Lock(); defer w.mu.Unlock(); return w.active }
 func (w *Window) SetMenu(m *platform.Menu)           { w.mu.Lock(); w.menu = m; w.mu.Unlock() }
 func (w *Window) StartDrag()                         {}
 func (w *Window) TitleBarDoubleClicked()             {}

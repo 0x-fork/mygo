@@ -783,6 +783,7 @@ func (w *window) HasShadow() bool           { return true }
 func (w *window) SetIgnoreMouseEvents(bool) {}
 func (w *window) SetContentProtection(bool) {}
 func (w *window) SetVibrancy(string)        {}
+func (w *window) SetActiveAppearance(bool)  {}
 
 // StartDrag begins moving the window with the last button press. On an
 // undecorated window the compositor takes the pointer once the move

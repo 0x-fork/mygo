@@ -357,6 +357,7 @@ func registerAppDelegate() {
 		method("applicationShouldTerminateAfterLastWindowClosed:", func(self id, _ objc.SEL, app id) bool { return false }),
 		method("observeValueForKeyPath:ofObject:change:context:", func(self id, _ objc.SEL, keyPath, object, change id, ctx uintptr) {
 			if goString(keyPath) == "effectiveAppearance" {
+				theBackend.refreshSystemBackings()
 				theBackend.h.ThemeChanged()
 			}
 		}),
@@ -364,6 +365,7 @@ func registerAppDelegate() {
 			theBackend.h.DisplaysChanged()
 		}),
 		method("preferencesChanged:", func(self id, _ objc.SEL, n id) {
+			theBackend.refreshSystemBackings()
 			theBackend.h.ThemeChanged()
 		}),
 		method("localeChanged:", func(self id, _ objc.SEL, n id) {

@@ -52,7 +52,8 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `TrafficLightPosition` | moves the window buttons of a hidden title bar (macOS) |
 | `TitleBarHeight` | the height of the title bar the page draws under the window buttons (Linux, Windows) |
 | `HideWindowButtons` | hides the window buttons of a hidden title bar, which keeps its resizing top edge, shadow and corners: the page draws its own and calls `Minimize`, `Maximize`, `Unmaximize` and `Close` |
-| `Transparent`, `Vibrancy` | a transparent window, and the material behind a transparent page or [native UI](ui/windows.md) (macOS, Windows 11 22H2). On Windows, a window with a material has no menu bar: Alt and F10 open its menus in a popup |
+| `Transparent`, `Vibrancy` | a transparent window, and the material behind a transparent page or [native UI](ui/windows.md) (macOS, Windows 11 22H2): `VibrancyGlass` and `VibrancyGlassClear` are macOS 26's Liquid Glass. On Windows, a window with a material has no menu bar: Alt and F10 open its menus in a popup |
+| `CornerRadius` | rounds a frameless window's corners: its content and material are cut to them on macOS, and Windows 11 gives it its own rounded corners |
 | `BackgroundColor` | fills the window until the page paints, in CSS syntax such as `"#1e1e1e"`, or `"light-dark(#f5f5f7, #1e1e1e)"` to follow the appearance |
 | `Opacity` | between 0 and 1 |
 | `DisableResize`, `DisableMove`, `DisableMinimize`, `DisableMaximize`, `DisableClose`, `DisableFullScreen`, `DisableShadow` | take abilities away |
@@ -170,6 +171,11 @@ Other properties:
 - `SetContentProtection(true)` keeps it out of screenshots and screen
   recordings.
 - `SetIgnoreMouseEvents(true)` lets clicks through to what is behind it.
+- `SetActiveAppearance(true)` keeps the window drawn as active while
+  another app is in front (macOS), so that the clear Liquid Glass
+  (`VibrancyGlassClear`) of a panel floating over it stays clear. It uses a
+  private AppKit call, which a later macOS may drop: apps for the Mac App
+  Store should leave it off.
 - `SetProgressBar` shows the progress of a task on the taskbar button
   (Windows), the Dock icon (macOS) or the launcher entry (Linux docks that
   support it):
