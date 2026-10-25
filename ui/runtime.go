@@ -339,18 +339,23 @@ type engine struct {
 	// held painted whole (sceneData), partOps the operations of the scene
 	// painted before, and partPaints counts the frames painted in parts;
 	// noParts paints every frame whole, for tests that compare. atlases
-	// are the generations of the glyph atlases the scene was painted with.
-	drawn      []paintPart
-	untracked  bool
-	partsBase  int
-	atlases    [2]uint64
-	partOps    []scene.Op
-	partPaints int
-	noParts    bool
-	paceEvery  int
-	paceRate   float32
-	pacedAt    time.Time
-	pacedNext  time.Time
+	// are the generations of the glyph atlases the scene was painted with,
+	// partTransient how many masks of the atlas's transient room the parts
+	// drew (text.System.TransientUses), and transient whether the rest of
+	// the scene draws any.
+	drawn         []paintPart
+	untracked     bool
+	partsBase     int
+	atlases       [2]uint64
+	partTransient uint64
+	transient     bool
+	partOps       []scene.Op
+	partPaints    int
+	noParts       bool
+	paceEvery     int
+	paceRate      float32
+	pacedAt       time.Time
+	pacedNext     time.Time
 	// inkStale tells that elements moved since commit found their ink
 	// (node.ink), as poses do in frames that only paint: painting then
 	// skips none.

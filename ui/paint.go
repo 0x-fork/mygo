@@ -73,6 +73,8 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	}
 	rt.painter = Painter{rt: rt, s: s, scale: scale, opacity: 1, clip: Rect{0, 0, w, h}, opaque: opaque, under: under, holes: rt.holes[:0]}
 	p := &rt.painter
+	uses := rt.text.TransientUses()
+	rt.partTransient = 0
 	p.cull = !rt.inkStale && !rt.noCull
 	p.element(root)
 	p.cull = false
@@ -83,6 +85,7 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	rt.under, rt.holes = p.under[:0], p.holes[:0] // kept for the next frame's
 	rt.partsBase = sceneData(s)
 	rt.atlases = atlasGenerations(s)
+	rt.transient = rt.text.TransientUses()-uses > rt.partTransient
 }
 
 // atlasGenerations returns the generations of the atlases s draws glyphs
