@@ -50,7 +50,7 @@ func installPS1(c *Config) string {
 		"Folder":     fsName(c.Name),
 		"Setup":      fsName(c.Name) + " Setup ",
 		"Identifier": c.Identifier,
-		"Env":        envName(slugify(c.executableName())),
+		"Env":        envName(c.slug()),
 		"Releases":   "",
 		"API":        "",
 		"TagPrefix":  "",

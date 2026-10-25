@@ -420,10 +420,11 @@ export default defineConfig({
 
 ## Linux
 
-`mygo build` writes the executable, named after the app in lower case, a
-desktop entry and the icon, and a Debian package, which installs the app
-in `/opt/my-app` with its desktop entry, icons, URL schemes and file
-types:
+`mygo build` writes the executable, named after the app's
+[`slug`](configuration.md#the-app), which is its name in lower case by
+default, a desktop entry and the icon, and a Debian package, which
+installs the app in `/opt/my-app` with its desktop entry, icons, URL
+schemes and file types:
 
 ```ts
 export default defineConfig({
@@ -451,6 +452,14 @@ command, `/usr/bin/my-app` from the package and `~/.local/bin/my-app` from
 [`install.sh`](#the-install-script); without it, neither adds a command,
 which leaves the name to a command-line tool of the same name, such as
 the app's own.
+
+Keep the slug of a released app. Its Linux files are named after it, and
+an update replaces the files of the same names: one to a version with
+another slug leaves the old executable in place, which the desktop entry
+that `install.sh` registered still runs, and the Debian package of the
+new slug is another package, installed next to the old one. Choose the
+slug before the first release, as `cloud-music` for `云音乐`, whose own
+would be `yun-yin-le`.
 
 ### The install script
 
@@ -551,7 +560,7 @@ the lines of every platform's latest files.
 short, not a release whose files someone replaced. On Windows, sign the
 installer ([code signing](#code-signing)) so that Windows shows who made it.
 
-For testing, `MY_APP_DOWNLOAD_URL` (the slug of the app in capitals) is
+For testing, `MY_APP_DOWNLOAD_URL` (the [slug](configuration.md#the-app) of the app in capitals) is
 where both scripts download from instead, `MY_APP_INSTALL_DIR` the folder
 of the app on macOS, and `MY_APP_NO_OPEN=1` leaves the app closed.
 

@@ -329,11 +329,11 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		}
 		artifacts = append(artifacts, exe)
 	default:
-		exe := filepath.Join(stage, slugify(name))
+		exe := filepath.Join(stage, c.slug())
 		if err := compile(goarch, exe); err != nil {
 			return nil, err
 		}
-		files, err := writeLinuxDesktop(c, stage, slugify(name))
+		files, err := writeLinuxDesktop(c, stage, c.slug())
 		if err != nil {
 			return nil, err
 		}
@@ -372,7 +372,7 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		}
 	}
 	if _, ok := debArch[goarch]; goos == "linux" && ok {
-		deb, err := writeDeb(c, stage, slugify(name), goarch, installed)
+		deb, err := writeDeb(c, stage, c.slug(), goarch, installed)
 		if err != nil {
 			return nil, err
 		}
