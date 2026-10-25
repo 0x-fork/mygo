@@ -104,8 +104,8 @@ Publish the files where `updates` points to:
 - **S3**: `mygo build -upload` uploads them, with the installers, to the
   bucket of `updates.s3`; see [below](#publishing-to-s3).
 - **Your server**: upload the archives, deltas and manifests to the `url`
-  directory, with the Linux `install.sh`, and keep the files of earlier
-  versions there. Upload the manifests last, so apps never see a manifest
+  directory, with `install.sh`, `install.ps1` and `SHA256SUMS` (with the
+  lines of every platform), and keep the files of earlier versions there. Upload the manifests last, so apps never see a manifest
   whose files are missing.
 
 Each platform, such as `darwin-arm64`, `darwin-universal` or
@@ -136,7 +136,7 @@ of each platform. It needs no other tool: the credentials come from
 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary ones,
 `AWS_SESSION_TOKEN`, and the region from `s3.region`, else `AWS_REGION`
 (or `AWS_DEFAULT_REGION`), else `us-east-1`, which R2 accepts. The
-manifests and `install.sh`, whose names stay from version to version, are
+manifests, the install scripts and `SHA256SUMS`, whose names stay from version to version, are
 uploaded with `Cache-Control: no-cache`, so a CDN checks them again.
 
 The bucket is named in the host name of requests on Amazon S3 and in their
