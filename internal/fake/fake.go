@@ -93,6 +93,8 @@ type Backend struct {
 	LoginItem string
 	// DockMenu is the menu of the Dock icon.
 	DockMenu *platform.Menu
+	// Active is what App.IsActive answers; SetActive changes it.
+	Active bool
 	// ForegroundAllowed counts AllowForeground calls.
 	ForegroundAllowed int
 	// ActivationToken is the token of WithActivationToken while its
@@ -789,7 +791,7 @@ func (w *Window) UserClose() bool {
 type app struct{ b *Backend }
 
 func (app) SetActivationPolicy(string) {}
-func (app) Activate()                  {}
+func (a app) Activate()                { a.b.SetActive(true) }
 func (a app) AllowForeground()         { a.b.ForegroundAllowed++ }
 func (a app) WithActivationToken(token string, fn func()) {
 	prev := a.b.ActivationToken
@@ -800,6 +802,7 @@ func (a app) WithActivationToken(token string, fn func()) {
 func (app) Hide()                                     {}
 func (app) Unhide()                                   {}
 func (app) IsHidden() bool                            { return false }
+func (a app) IsActive() bool                          { return a.b.Active }
 func (app) SetBadge(string)                           {}
 func (app) Badge() string                             { return "" }
 func (app) Bounce(bool) int                           { return 0 }
@@ -1148,6 +1151,20 @@ func (b *Backend) SetPreferences(p platform.Preferences) {
 	b.prefs = p
 	b.mu.Unlock()
 	b.h.ThemeChanged()
+}
+
+// SetActive makes the app the active one, or not, and reports it as the
+// system does when it changes (main thread).
+func (b *Backend) SetActive(active bool) {
+	if b.Active == active {
+		return
+	}
+	b.Active = active
+	if active {
+		b.h.DidBecomeActive()
+	} else {
+		b.h.DidResignActive()
+	}
 }
 
 // SetSystemLanguages changes the languages the user prefers, as the user

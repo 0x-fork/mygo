@@ -191,6 +191,9 @@ type AppController interface {
 	Hide()
 	Unhide()
 	IsHidden() bool
+	// IsActive reports whether the app is the active one: in front on
+	// macOS, with a window that has the keyboard elsewhere.
+	IsActive() bool
 	SetBadge(label string)
 	Badge() string
 	// Bounce requests user attention and returns an id for CancelBounce.
