@@ -295,9 +295,7 @@ func (w *window) setUp(controller uintptr) {
 		comCall(controller, ctlPutIsVisible, 1)
 		w.resizeWebView()
 	}
-	if w.caption != nil {
-		w.caption.layout() // above the webview's window
-	}
+	w.layoutControls() // above the webview's window
 	if o.Zoom > 0 && o.Zoom != 1 {
 		w.SetZoom(o.Zoom)
 	}

@@ -541,21 +541,29 @@ features GTK 4 lacks become X11-only code beside it.
   maximized. Windows 10, which has no snap layouts, keeps none: over a
   window that keeps any of its top it draws its whole title bar. The build
   comes from `RtlGetVersion`, which no manifest changes.
-- A hidden title bar (`titlebar.go`) gets its controls from two child
-  windows above the webview's. The buttons are a layered window
-  (`UpdateLayeredWindow`, premultiplied BGRA): Segoe Fluent Icons glyphs
-  (Segoe MDL2 Assets on Windows 10) drawn white on black with GDI give
-  their coverage, over backplates of Chromium's alphas. It answers
+- The top edge of a window without a caption (`topedge.go`), which
+  `WM_NCCALCSIZE` gives to the client area, where the webview's or the
+  surface's window answers `HTCLIENT`, is a child window above them: a
+  layered window without a bitmap (`WS_EX_NOREDIRECTIONBITMAP`), as tall
+  as the sizing frame, that answers `HTTOP`, and `HTTOPLEFT` and
+  `HTTOPRIGHT` near the corners it reaches, and sends the window's presses
+  on, so it resizes; Windows Terminal's caption works the same way. Below
+  it, `--app-region: drag` still moves the window. It spans a frameless
+  window and stops at a hidden title bar's buttons, and hides while the
+  window is maximized, in full screen or not resizable.
+- A hidden title bar (`titlebar.go`) gets its controls from a child window
+  above the webview's, beside the top edge. The buttons are a layered
+  window (`UpdateLayeredWindow`, premultiplied BGRA): Segoe Fluent Icons
+  glyphs (Segoe MDL2 Assets on Windows 10) drawn white on black with GDI
+  give their coverage, over backplates of Chromium's alphas. It answers
   `WM_NCHITTEST` with `HTMINBUTTON`, `HTMAXBUTTON` and `HTCLOSE`, passes
   `WM_NCMOUSEMOVE` to `DefWindowProc`, which opens Windows 11's snap
   layouts over maximize, and runs the buttons itself from the non-client
-  button messages, sending the window `WM_SYSCOMMAND`. The top edge is a
-  layered window without a bitmap (`WS_EX_NOREDIRECTIONBITMAP`), as tall as
-  the sizing frame, that answers `HTTOP` and sends the window's presses on,
-  so it resizes; Windows Terminal's caption works the same way. The
-  webview's window is created later, so the controls go back to the top of
-  the z-order when it appears. A window without a caption has no room for
-  its menu bar: Alt and F10 open a popup holding the bar's own submenus.
+  button messages, sending the window `WM_SYSCOMMAND`. The webview's
+  window is created later, so the controls and the top edge go back to the
+  top of the z-order when it appears. A window without a caption has no
+  room for its menu bar: Alt and F10 open a popup holding the bar's own
+  submenus.
 - **Menus** are Win32's (`menu.go`). Popup menus follow the appearance
   through uxtheme's preferred app mode (ordinal 135); the menu bar follows
   nothing, so the window draws it, and covers the light line below it when
@@ -4357,7 +4365,7 @@ which npm allows only for packages that exist: the first release uses an
 | IsOnBattery, IdleTime | IOKit power sources, `CGEventSourceSecondsSinceLastEventType` | `/sys/class/power_supply`; Mutter idle monitor or `GetSessionIdleTime` | `GetSystemPowerStatus`, `GetLastInputInfo` |
 | network status | `nw_path_monitor` on a queue of its own, the first `Status` waiting (up to a second) for its first path; online when the path is satisfied, metered when it is expensive or constrained | `GNetworkMonitor`, `network-available` (a default route) and `network-metered` | `GetNetworkConnectivityHint`, `NotifyNetworkConnectivityHintChange`; online from local access up (not none or hidden), metered for a fixed or variable cost, roaming, over or near the data limit |
 | window position | honored | ignored by Wayland compositors | honored |
-| resize borders without a title bar | the window's own | the outer 5 px of the page | invisible, outside the window; along the top of a hidden title bar, a child window |
+| resize borders without a title bar | the window's own | the outer 5 px of the page | invisible, outside the window; along the top of a frameless window or a hidden title bar, a child window |
 | content protection, click-through | yes | ignored | yes |
 | panels | `NSPanel` with the nonactivating style, floating, on all Spaces as a full-screen auxiliary | sticky utility window, kept above, out of the taskbar and the pager; a gtk-layer-shell overlay surface on Wayland where it can be | topmost `WS_EX_TOOLWINDOW` owned by the hidden application window, rounded |
 | flyouts | borderless nonactivating `NSPanel` child window, or an `NSPopover`; placed in the visible frame | `GTK_WINDOW_POPUP` (override-redirect, placed in the work area, on X11; `xdg_popup` with `gdk_window_move_to_rect` on Wayland); focusable ones grab the seat | owned `WS_POPUP` + `WS_EX_TOOLWINDOW`, `WS_EX_NOACTIVATE` unless focusable, `CS_DROPSHADOW` for a shadow, with corners rounded by DWM on Windows 11 |

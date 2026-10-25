@@ -59,6 +59,7 @@ type window struct {
 	frameless              bool
 	hiddenTitleBar         bool        // a TitleBarStyle that hides the caption
 	caption                *captionBar // the controls in its place, nil if they failed
+	topEdge                uintptr     // the window over the top resize border of one without a caption (topedge.go), or 0
 	noRedirect             bool        // no redirection bitmap, for a material behind the page
 	fullScreen             bool
 	reframing              bool     // SetFullScreen is changing the frame
@@ -203,6 +204,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if w.hiddenTitleBar {
 		w.caption = newCaptionBar(w)
 	}
+	w.newTopEdge()
 	if o.Surface {
 		if w.surface = newSurface(w); w.surface == nil {
 			procDestroyWindow.Call(w.hwnd)
@@ -228,9 +230,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 		w.showMaximized = true
 	}
 	w.skipTaskbar = o.SkipTaskbar // applied once the taskbar button exists
-	if w.caption != nil {
-		w.caption.layout()
-	}
+	w.layoutControls()
 	if !o.Surface {
 		b.whenEnvironment(w.createWebView)
 	}
@@ -521,8 +521,8 @@ func (w *window) sized(kind uintptr) {
 	if w.surface != nil {
 		w.surface.fit()
 	}
-	if w.caption != nil && kind != sizeMinimized {
-		w.caption.layout()
+	if kind != sizeMinimized {
+		w.layoutControls()
 	}
 	if w.vibrancy != "" && kind != sizeMinimized {
 		w.extendGlass(false)
@@ -551,6 +551,17 @@ func (w *window) sized(kind uintptr) {
 		w.state = sizeRestored
 	}
 	w.h.Resized()
+}
+
+// layoutControls lays out what sits above the webview or the surface: the
+// top edge, and above it the window controls of a hidden title bar, among
+// them a maximize button the content draws (SetMaximizeButton), which
+// keeps the snap layouts over its whole height.
+func (w *window) layoutControls() {
+	w.layoutTopEdge()
+	if w.caption != nil {
+		w.caption.layout()
+	}
 }
 
 // captionless reports a window without a caption: frameless, or with a
@@ -622,6 +633,9 @@ func (w *window) cleanup() {
 	w.failPending(errDestroyed)
 	if w.caption != nil {
 		w.caption.forget()
+	}
+	if w.topEdge != 0 {
+		delete(w.b.topEdges, w.topEdge)
 	}
 	if w.controller != 0 {
 		comCall(w.controller, ctlClose)
