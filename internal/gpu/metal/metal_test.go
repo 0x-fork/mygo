@@ -409,8 +409,9 @@ func TestRingSplitDrawsTheSamePixels(t *testing.T) {
 			instances := len(r.b.Instances)
 			r.b.NoRingSplit = true
 			whole := renderRaw(t, r, c.Scene, wide)
-			if c.Split && instances <= len(r.b.Instances) {
-				t.Errorf("%s wide=%v: the split drew %d instances, whole %d", c.Name, wide, instances, len(r.b.Instances))
+			// Split, a ring is more pieces, or none where it shows nothing.
+			if c.Split && instances == len(r.b.Instances) {
+				t.Errorf("%s wide=%v: the split drew %d instances, as whole", c.Name, wide, instances)
 			}
 			if d := differing(split, whole); d != 0 {
 				t.Errorf("%s wide=%v: %d bytes differ between split and whole", c.Name, wide, d)

@@ -3370,9 +3370,15 @@ either.
   backdrop-reading effects as barriers. Its planner shares clipping rules
   with drawing, grows shadow support before transforming it, and skips
   scenes without potential opaque fills. Large shadows with a caster and
-  border-only fills draw as up to four scissored strips around interiors
-  where their output is zero. These scissors never change a clip mask's
-  sampling coordinates. Both transformations are shared by all GPU backends.
+  border-only fills draw as scissored strips that leave out where their
+  output is zero: inside the caster, between a border's edges, and outside
+  a border's outer edge. With round corners they draw in bands of rows
+  (`gpu/bands.go`), each drawing only the columns between where the outer
+  edge may reach and where the inner one certainly covers, so a circle a
+  pixel wide shades about its length rather than its box; the bands across
+  the corners are as many as pay for their draw calls (`bandCost`). With
+  continuous corners they draw around one rectangle. These scissors never
+  change a clip mask's sampling coordinates. Both transformations are shared by all GPU backends.
   Large fills, shadows and images with continuous corners (negative radii,
   which only Metal gets) draw as nine-patches (`gpu/corners.go`): their
   corners' boxes as they are, and the cross between them as a twin with
