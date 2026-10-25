@@ -3,6 +3,7 @@ package editor
 import (
 	"bytes"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -431,6 +432,42 @@ func TestCJKWordAt(t *testing.T) {
 		if a, z := wordAt(r, c.off, ""); a != c.a || z != c.z {
 			t.Errorf("wordAt(%d) = %d, %d, want %d, %d", c.off, a, z, c.a, c.z)
 		}
+	}
+}
+
+func TestCodeEditorFoldImports(t *testing.T) {
+	for _, tc := range []struct {
+		lang, text string
+		want       []fold
+	}{
+		// A block in brackets alone folds by them, as before.
+		{"go", "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc main() {}", []fold{{2, 4}}},
+		// Several, to the closing line of the last.
+		{"go", "package main\n\nimport \"fmt\"\nimport (\n\t\"os\"\n)\n\nfunc main() {}", []fold{{2, 5}}},
+		// One import alone does not fold.
+		{"go", "package main\n\nimport \"fmt\"\n\nfunc main() {}", nil},
+		// A run of them, a long one in it, and blank lines between.
+		{"typescript", "// x\nimport a from './a'\nimport {\n  b,\n  c,\n} from './b'\n\nimport './d'\n\nconst e = a", []fold{{1, 7}}},
+		{"python", "\"\"\"Doc.\"\"\"\nimport os\nfrom x import (\n    a,\n)\nimport sys\n\nprint(os)", []fold{{1, 5}}},
+		{"rust", "use std::io;\npub use crate::x;\n\nfn main() {}", []fold{{0, 1}}},
+		{"c", "#include <stdio.h>\n#include \"x.h\"\n\nint main() {}", []fold{{0, 1}}},
+		{"java", "package a;\n\nimport a.B;\nimport a.C;\n\nclass D {}", []fold{{2, 3}}},
+		// Not the lines of a docstring.
+		{"python", "\"\"\"\nfrom here on\nimport this\n\"\"\"\nimport os\nimport sys\n", []fold{{4, 5}}},
+		{"go", "// import a\n// import b\npackage main\n", nil},
+		// None in a language without imports.
+		{"markdown", "import a\nimport b\n", nil},
+	} {
+		ct := newEditorTest(t, tc.lang, tc.text)
+		ct.st.FoldImports()
+		if got := ct.st.ed.folds; !slices.Equal(got, tc.want) {
+			t.Errorf("%s: folds %v, want %v", tc.lang, got, tc.want)
+		}
+	}
+	// The gutter marks the run's first line, not the others.
+	ct := newEditorTest(t, "javascript", "import a from 'a'\nimport b from 'b'\nimport c from 'c'\n\nf(a, b, c)")
+	if !ct.st.ed.foldable(0) || ct.st.ed.foldable(1) {
+		t.Errorf("foldable %v %v, want the first line only", ct.st.ed.foldable(0), ct.st.ed.foldable(1))
 	}
 }
 
