@@ -592,7 +592,8 @@ win.Page().OnDownloadDone(func(d *mygo.Download) {
 ### Permissions
 
 Pages ask for the camera, the microphone, the location or notifications.
-By default the app's own pages get what they ask for and other pages get
+By default the app's own pages, those of custom schemes included (see
+[trust](frontend.md#trust)), get what they ask for and other pages get
 nothing. `Page.SetPermissionHandler` decides instead; it runs on the main
 thread:
 
