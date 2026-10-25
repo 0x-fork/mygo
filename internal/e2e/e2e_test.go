@@ -2550,8 +2550,8 @@ func TestWindowOpenAllowed(t *testing.T) {
 	if id, _ := mygo.EvalAs[int](child.Page(), "mygo.windowId"); id != child.ID() {
 		t.Errorf("child bridge reports window %d, want %d", id, child.ID())
 	}
-	// On Linux new windows are independent pages (see Window.SetWindowOpenHandler).
-	if opener, _ := mygo.EvalAs[bool](child.Page(), "window.opener !== null"); !opener && runtime.GOOS == "darwin" {
+	// On Linux new windows are independent pages (see Page.SetWindowOpenHandler).
+	if opener, _ := mygo.EvalAs[bool](child.Page(), "window.opener !== null"); !opener && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
 		t.Error("window.opener is not set")
 	}
 }

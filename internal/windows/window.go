@@ -50,6 +50,9 @@ type window struct {
 	filtersAll    bool
 	hidingScript  string
 	navigating    string
+	// reloadAdopted reloads the first document of an adopted popup
+	// (newWindowRequested).
+	reloadAdopted bool
 
 	minW, minH, maxW, maxH int // DIPs
 	movable, closable      bool
