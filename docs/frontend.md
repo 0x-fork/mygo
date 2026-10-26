@@ -436,6 +436,26 @@ win.Page().SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOpt
 })
 ```
 
+`req.UserInitiated` tells the windows a user opened, with a click on the link
+or a click or key press whose handler calls `window.open()`, from the ones a
+script opened on its own, as a pop-up from a timer or as the page loads.
+Refuse those, as ads in an embedded page:
+
+```go
+win.Page().SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
+	if !req.UserInitiated {
+		return nil // a pop-up
+	}
+	go mygo.Shell.OpenExternal(req.URL)
+	return nil
+})
+```
+
+On Linux, WebKitGTK blocks a `window.open()` without a user's gesture itself,
+so the handler is asked only about the ones a gesture made. A script the app
+runs itself with `Page.Eval` counts as a user's gesture on macOS and Linux,
+where WebKit runs it as one.
+
 `win.Page().OnWillNavigate` can cancel the page's own navigations, e.g. to keep the
 app's window on the app: see [Windows](windows.md#pages).
 

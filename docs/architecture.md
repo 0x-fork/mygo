@@ -1715,6 +1715,17 @@ as in Tauri:
   web view is set up (its scripts, handlers and filters), which then becomes
   the popup (`put_NewWindow`) before WebView2 navigates it, so the page keeps
   its opener. On Linux the new window loads the URL as an independent page.
+  `UserInitiated` says whether a user's gesture made a request, and so
+  does `NavigateEvent` for navigations: on
+  macOS WebKit's private `-[WKNavigationAction _isUserInitiated]` (looked
+  up with `respondsToSelector:`; without it, a link or a form's
+  `navigationType`), which sees a click whose handler calls
+  `window.open()` or sets `location.href`; on Linux
+  `webkit_navigation_action_is_user_gesture`, though WebKitGTK refuses a
+  `window.open()` without one itself before asking
+  (`javascript-can-open-windows-automatically` stays off), so the handler
+  sees those only on macOS and Windows; on Windows the event arguments'
+  `get_IsUserInitiated`, WebView2 having no pop-up blocker.
 
 ## Menus
 

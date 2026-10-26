@@ -1725,7 +1725,8 @@ func initWindowCallbacks() {
 		// manager, which would route the new window's IPC to the opener.
 		// Open an independent window instead; its page has no opener.
 		url := goStr(webkitURIRequestGetURI(webkitNavigationActionGetRequest(action)))
-		if child, ok := w.h.NewWindow(platform.NewWindowRequest{URL: url}).(*window); ok && child != nil {
+		req := platform.NewWindowRequest{URL: url, UserInitiated: webkitNavigationActionIsUserGesture(action)}
+		if child, ok := w.h.NewWindow(req).(*window); ok && child != nil {
 			child.LoadURL(url)
 		}
 		return 0
