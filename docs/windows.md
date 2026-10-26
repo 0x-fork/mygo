@@ -199,8 +199,12 @@ Other properties:
 
 ## Child and modal windows
 
-A window with a `Parent` stays above it. With `Modal`, it also blocks its
-parent until it closes, like a dialog:
+A window with a `Parent` stays above it and closes with it. It can go to
+any display, and stays where it is as its parent moves, on every platform.
+On macOS it is ordered above its parent whenever the parent comes in
+front, stays above a parent that is `AlwaysOnTop`, goes with it into
+full screen, and hides while the parent is minimized or hidden. With `Modal`,
+it also blocks its parent until it closes, like a dialog:
 
 ```go
 prefs := mygo.NewWindow(mygo.WindowOptions{

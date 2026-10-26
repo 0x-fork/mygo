@@ -69,6 +69,29 @@ func TestOnScreen(handle uintptr) bool {
 	return sendInt(id(handle), "occlusionState")&occlusionStateVisible != 0
 }
 
+// TestWindowOrder returns the app's windows on screen, panels too, front
+// to back.
+func TestWindowOrder() []uintptr {
+	var order []uintptr
+	withPool(func() {
+		for _, w := range theBackend.windowsFrontToBack() {
+			order = append(order, uintptr(w))
+		}
+	})
+	return order
+}
+
+// TestOnActiveSpace reports whether a window is on the Space that shows,
+// a full-screen window's own when it is in front.
+func TestOnActiveSpace(handle uintptr) bool {
+	return sendBool(id(handle), "isOnActiveSpace")
+}
+
+// TestWindowLevel returns a window's level.
+func TestWindowLevel(handle uintptr) int {
+	return sendInt(id(handle), "level")
+}
+
 // TestEndSheet ends the sheet attached to a window as if its first button
 // was clicked, and reports whether there was one.
 func TestEndSheet(handle uintptr) bool {
