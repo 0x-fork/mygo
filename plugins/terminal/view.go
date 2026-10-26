@@ -190,7 +190,9 @@ type view struct {
 	// selecting tells that the primary button selects; reporting that a
 	// press went to the program, which gets the release too.
 	selecting, reporting bool
-	pointer              [2]float32
+	// extending keeps a Shift-click drag anchored to the existing selection.
+	extending bool
+	pointer   [2]float32
 	// barHeld tells that the primary button drags the scroll bar, held
 	// barGrab DIPs below the thumb's top; overBar that the pointer is over
 	// the bar, as of its last move, and barHover as of the last build.
@@ -1052,6 +1054,11 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 			return false
 		}
 		v.selecting = true
+		v.extending = ev.Mods&ui.Shift != 0 && t.term.ExtendSelection(ref)
+		if v.extending {
+			v.gesture.Reset(t.term)
+			return true
+		}
 		if s, ok := v.gesture.Press(t.term, ref, px, py, uint64(time.Now().UnixNano())); ok {
 			t.term.SetSelection(&s)
 		} else {
@@ -1066,6 +1073,11 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 		if !ok {
 			return true
 		}
+		if v.extending {
+			t.term.ExtendSelection(ref)
+			v.ticking = v.selectionScrollDirection() != 0
+			return true
+		}
 		if s, ok := v.gesture.Drag(t.term, ref, px, py, v.geometry(), ev.Mods&ui.Alt != 0); ok {
 			t.term.SetSelection(&s)
 		}
@@ -1077,7 +1089,9 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 		}
 		v.selecting, v.ticking = false, false
 		ref, ok := t.term.CellAt(col, row)
-		if ok {
+		if v.extending {
+			v.extending = false
+		} else if ok {
 			v.gesture.Release(t.term, &ref)
 		} else {
 			v.gesture.Release(t.term, nil)
@@ -1245,16 +1259,39 @@ func (v *view) geometry() vt.Geometry {
 // is held.
 func (v *view) autoscroll() {
 	t := v.t
-	dir := v.gesture.Autoscroll(t.term)
+	dir := 0
+	if v.extending {
+		dir = v.selectionScrollDirection()
+	} else {
+		dir = v.gesture.Autoscroll(t.term)
+	}
 	if dir == 0 || !v.selecting {
 		v.ticking = false
 		return
 	}
 	t.term.ScrollBy(dir)
 	col, row := v.cellAt(v.pointer[0], v.pointer[1])
+	if v.extending {
+		if ref, ok := t.term.CellAt(col, row); ok {
+			t.term.ExtendSelection(ref)
+		}
+		return
+	}
 	if s, ok := v.gesture.Tick(t.term, col, row, float64(v.pointer[0]*v.scale), float64(v.pointer[1]*v.scale), v.geometry(), false); ok {
 		t.term.SetSelection(&s)
 	}
+}
+
+// selectionScrollDirection follows a Shift-click drag past either edge.
+func (v *view) selectionScrollDirection() int {
+	y := v.pointer[1] * v.scale
+	if y < float32(v.oy) {
+		return -1
+	}
+	if y >= float32(v.oy+v.rows*v.cellH) {
+		return 1
+	}
+	return 0
 }
 
 // report reports the pointer to the program; t.mu is held.
