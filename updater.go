@@ -209,11 +209,20 @@ func installUpdate(ctx context.Context, m update.Manifest, key, current, target 
 	if err != nil {
 		return fmt.Errorf("cannot write next to the app: %w", err)
 	}
-	defer os.RemoveAll(work)
+	staged := false
+	defer func() {
+		if !staged {
+			os.RemoveAll(work)
+		}
+	}()
 	unpacked := filepath.Join(work, "app")
 	swap := swapFiles
 	if runtime.GOOS == "darwin" {
-		swap = swapBundle
+		swap = func(dir, target string) error {
+			err := stageBundle(work, dir, target)
+			staged = err == nil
+			return err
+		}
 	}
 
 	if d := m.Delta(current); d != nil {
@@ -300,8 +309,28 @@ func download(ctx context.Context, url string, size int64, signature string, pub
 	return update.Verify(pub, sum.Sum(nil), signature)
 }
 
-// swapBundle replaces the bundle at target with the one in dir.
-func swapBundle(dir, target string) error {
+// stagedUpdate is a new version of the app bundle target, at bundle in
+// work, a directory next to target that the update was made in, and the
+// helper process that installs it once the app has exited.
+type stagedUpdate struct {
+	work, bundle, target string
+	helper               *exec.Cmd
+}
+
+// pendingUpdate is the update that Install staged on macOS. It replaces the
+// app's bundle once the app has exited, however it exits: replacing it
+// while the app runs moved the bundle of the running app away, the Dock's
+// tile of the app followed it, and the new version, opened where the app
+// was, got a second tile.
+var pendingUpdate atomic.Pointer[stagedUpdate]
+
+// appPid is the process whose exit a staged update waits for: the app's,
+// which tests replace.
+var appPid = os.Getpid()
+
+// stageBundle leaves the bundle that dir holds to replace target once the
+// app has exited, in place of an update staged before.
+func stageBundle(work, dir, target string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -309,17 +338,48 @@ func swapBundle(dir, target string) error {
 	if len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), ".app") {
 		return errors.New("the update holds no app bundle")
 	}
-	old := filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".old-"+strconv.Itoa(os.Getpid()))
-	if err := os.Rename(target, old); err != nil {
+	p := &stagedUpdate{work: work, bundle: filepath.Join(dir, entries[0].Name()), target: target}
+	args := []string{"-c", installAfterExit, "mygo-update", strconv.Itoa(appPid), p.target, p.bundle, p.work, p.target}
+	if len(os.Args) > 1 {
+		args = append(append(args, "--args"), os.Args[1:]...)
+	}
+	p.helper = exec.Command("/bin/sh", args...)
+	if err := p.helper.Start(); err != nil {
 		return err
 	}
-	if err := os.Rename(filepath.Join(dir, entries[0].Name()), target); err != nil {
-		_ = os.Rename(old, target)
-		return err
+	if old := pendingUpdate.Swap(p); old != nil {
+		_ = old.helper.Process.Kill()
+		_ = old.helper.Wait()
+		_ = os.RemoveAll(old.work)
 	}
-	// The running app keeps its open files.
-	_ = os.RemoveAll(old)
 	return nil
+}
+
+// installAfterExit is the script of /bin/sh that installs a staged update:
+// with the pid of the app, the target, bundle and work of the update and
+// then the arguments of open, it waits for the app to exit, swaps the
+// bundles, putting the old one back if the new one cannot be moved in, and
+// opens the app again when Relaunch asked for it (relaunchUpdated). Through
+// Launch Services, as openBundle, but without -n: the app has exited, and
+// the Dock gives the new version the app's tile.
+const installAfterExit = `pid=$1 target=$2 new=$3 work=$4
+shift 4
+trap '' HUP
+while kill -0 "$pid" 2>/dev/null; do sleep 0.05; done
+if mv "$target" "$work/old"; then
+	mv "$new" "$target" || mv "$work/old" "$target"
+fi
+relaunch=
+if [ -e "$work/relaunch" ]; then relaunch=1; fi
+rm -rf "$work"
+if [ -n "$relaunch" ]; then exec /usr/bin/open "$@"; fi
+`
+
+// relaunchUpdated asks the helper of a staged update to open the app once
+// it has installed the update, reporting whether there is one.
+func relaunchUpdated() bool {
+	p := pendingUpdate.Load()
+	return p != nil && os.WriteFile(filepath.Join(p.work, "relaunch"), nil, 0o644) == nil
 }
 
 // swapFiles replaces the entries of the app directory target with those in
@@ -367,7 +427,7 @@ func relaunchNow() {
 	if launchedByDev() {
 		os.Exit(devRelaunchCode)
 	}
-	if runtime.GOOS == "darwin" && openBundle() {
+	if runtime.GOOS == "darwin" && (relaunchUpdated() || openBundle()) {
 		return
 	}
 	// The executable the app started from, which an update may have

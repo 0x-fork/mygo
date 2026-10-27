@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -160,11 +161,13 @@ func TestUpdater(t *testing.T) {
 	}
 
 	target, main := installedApp(t)
+	quit := runningApp(t)
 	var progress [2]int64
 	err = installUpdate(ctx, up.manifest, key, up.current, target, func(n, total int64) { progress = [2]int64{n, total} })
 	if err != nil {
 		t.Fatal(err)
 	}
+	quit()
 	if b, _ := os.ReadFile(main); string(b) != "v2" {
 		t.Errorf("after the update main = %q", b)
 	}
@@ -207,6 +210,7 @@ func TestUpdaterDelta(t *testing.T) {
 	install := func(m update.Manifest, current string, corrupt bool) (progress [][2]int64) {
 		t.Helper()
 		target, main := installedApp(t)
+		quit := runningApp(t)
 		if corrupt {
 			os.WriteFile(filepath.Join(target, "code"), newCode[:1000], 0o644)
 		}
@@ -214,6 +218,7 @@ func TestUpdaterDelta(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		quit()
 		if b, _ := os.ReadFile(main); string(b) != "v2, a bigger version" {
 			t.Errorf("after the update main = %q", b)
 		}
@@ -259,6 +264,66 @@ func TestUpdaterDelta(t *testing.T) {
 	install(unsigned, up.current, false)
 	if requests("/app.delta") != 3 || requests("/app.tar.gz") != 3 {
 		t.Errorf("downloaded the delta %d times and the archive %d", requests("/app.delta"), requests("/app.tar.gz"))
+	}
+}
+
+// runningApp stands in for the app that installUpdate updates on macOS,
+// where the update waits for the app to exit: quit ends it and returns once
+// the update is in place.
+func runningApp(t *testing.T) (quit func()) {
+	t.Helper()
+	if runtime.GOOS != "darwin" {
+		return func() {}
+	}
+	app := exec.Command("/bin/sleep", "60")
+	if err := app.Start(); err != nil {
+		t.Fatal(err)
+	}
+	old := appPid
+	appPid = app.Process.Pid
+	t.Cleanup(func() { appPid = old })
+	return func() {
+		t.Helper()
+		app.Process.Kill()
+		app.Wait()
+		p := pendingUpdate.Swap(nil)
+		if p == nil {
+			t.Fatal("no update staged")
+		}
+		if err := p.helper.Wait(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// On macOS the bundle of the running app stays in place until the app has
+// exited: moving it away took the app's Dock tile with it, and the
+// relaunched version got a second tile.
+func TestUpdaterWaitsForTheAppToExit(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS waits for the app to exit")
+	}
+	ctx := context.Background()
+	srv, key, _, _ := updateServer(t, "1.2.0", "v2", "")
+	up, err := checkUpdate(ctx, srv.URL+"/update.json", key, "1.1.9", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, main := installedApp(t)
+	quit := runningApp(t)
+	if err := installUpdate(ctx, up.manifest, key, up.current, target, nil); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if b, _ := os.ReadFile(main); string(b) != "v1" {
+		t.Errorf("while the app runs main = %q", b)
+	}
+	quit()
+	if b, _ := os.ReadFile(main); string(b) != "v2" {
+		t.Errorf("after the app exited main = %q", b)
+	}
+	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".*")); len(leftovers) > 0 {
+		t.Errorf("left behind: %q", leftovers)
 	}
 }
 

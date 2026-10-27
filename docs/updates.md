@@ -258,7 +258,9 @@ func checkForUpdates(ctx context.Context) {
   checks its signature, and replaces the app. The progress callback gets
   the bytes of the delta, and when the delta fails, starts over with those
   of the archive. The running app is not affected: the new version runs
-  after `App.Relaunch`, or at the next launch.
+  after `App.Relaunch`, or at the next launch. On macOS the new bundle
+  replaces the app's once the app has exited, so that the Dock keeps the
+  app's tile.
 - `Enabled` reports whether the app can update itself: it was built with
   updates, and it can write where it is installed. Development builds
   cannot, and `Check` returns `mygo.ErrUpdatesDisabled` in them.
