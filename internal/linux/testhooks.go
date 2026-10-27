@@ -14,7 +14,8 @@ import (
 // GUI tests in internal/e2e. They must run on the main thread.
 
 // TestActivateMenuItem activates an item of a window's menu bar, found by
-// the labels along its path.
+// the labels along its path. plugins/automation's menu request chooses
+// items with it too.
 func TestActivateMenuItem(handle uintptr, path ...string) error {
 	item, err := menuItemAt(handle, path)
 	if err == nil {

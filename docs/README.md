@@ -156,6 +156,9 @@ components, from buttons to tables.
   one standard layout.
 - [Loading](plugins/loading.md): loading.dev's 29 loading indicators for
   native UI.
+- [Automation](plugins/automation.md): drive a running app from another
+  process, as end-to-end test runners and agents do: its windows,
+  elements, input, menus and screenshots.
 
 ## Reference
 

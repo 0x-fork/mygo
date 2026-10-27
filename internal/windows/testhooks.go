@@ -19,6 +19,7 @@ import (
 
 // TestActivateMenuItem activates an item of a window's menu bar, found by
 // the labels along its path, e.g. TestActivateMenuItem(hwnd, "File", "New").
+// plugins/automation's menu request chooses items with it too.
 func TestActivateMenuItem(hwnd uintptr, path ...string) error {
 	w := theBackend.windows[hwnd]
 	if w == nil || w.menu == nil {

@@ -21,6 +21,7 @@ import (
 
 // TestPerformMenuItem activates an item of the application menu, found by
 // the titles along its path, e.g. TestPerformMenuItem("File", "New").
+// plugins/automation's menu request chooses items with it too.
 func TestPerformMenuItem(path ...string) error {
 	var err error
 	withPool(func() {
