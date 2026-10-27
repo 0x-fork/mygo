@@ -216,6 +216,12 @@ func composition(w *mygo.Window) (noRedirect, composed, supported bool) {
 	return noRedirect, composed, true
 }
 
+// canCompose reports whether DirectComposition is available.
+func canCompose() (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestCanCompose() })
+	return ok
+}
+
 // loseComposition takes the device of DirectComposition away, as a draw
 // that finds it invalid does, or, with removed, as a removed GPU does.
 func loseComposition(removed bool) (ok bool) {

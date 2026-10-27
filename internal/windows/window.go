@@ -149,8 +149,10 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	// style is the window's for life: Windows neither adds it nor removes it
 	// later.
 	w.noRedirect = o.Vibrancy != "" && systemBackdrops() && (!w.hiddenTitleBar && !o.Surface || b.composition() != nil)
-	if o.Flyout != nil {
-		// What the content leaves transparent shows what is behind.
+	if o.Flyout != nil || o.Transparent && o.Surface {
+		// What the content leaves transparent shows what is behind: native
+		// UI's frames show their alpha through DirectComposition, which an
+		// opaque redirection bitmap would cover.
 		w.noRedirect = b.composition() != nil
 	}
 	var owner uintptr

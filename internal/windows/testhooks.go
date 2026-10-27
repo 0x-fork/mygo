@@ -232,6 +232,10 @@ func TestComposed(hwnd uintptr) (noRedirect, composed bool) {
 	return w.noRedirect, c != nil && c.comp != nil && c.comp.dev != nil && c.comp.dev == theBackend.comp
 }
 
+// TestCanCompose reports whether DirectComposition is available, which
+// windows without a redirection bitmap need.
+func TestCanCompose() bool { return theBackend.composition() != nil }
+
 // TestLoseComposition takes the DirectComposition device away, as a draw
 // that finds it invalid does, or, with removed, signals that its GPU device
 // was removed. It reports false without a device, or, with removed,

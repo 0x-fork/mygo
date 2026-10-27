@@ -622,7 +622,10 @@ features GTK 4 lacks become X11-only code beside it.
   The material shows only in a window created without a redirection
   bitmap (`WS_EX_NOREDIRECTIONBITMAP`, which Windows neither adds nor
   removes later), whose opaque surface would cover it, so `SetVibrancy`
-  shows one only in windows created with `Vibrancy`. Such a window shows
+  shows one only in windows created with `Vibrancy`. A transparent window
+  of native UI (`Transparent` with `Content`) is created without one too,
+  as a flyout is, where DirectComposition is available: what its frames
+  leave transparent shows what is behind the window. Such a window shows
   nothing GDI draws: it has no menu bar, like a window without a caption,
   and the buttons of its hidden title bar, layered without a bitmap too,
   show their pixels through DirectComposition (`compositor.go`), on a
