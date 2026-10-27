@@ -306,7 +306,8 @@ func (s *surface) PlaceWebViews(views []platform.WebViewPlacement) {
 const dcompVisualRemoveAllVisuals = 18
 
 // placeEmbedded shows a web view where the content last showed it, or
-// hides it, once it has its controller.
+// hides it, once it has its controller. It stays hidden while its host
+// is.
 func (w *window) placeEmbedded() {
 	s := w.host.surface
 	if s == nil {
@@ -328,7 +329,7 @@ func (w *window) placeEmbedded() {
 	if w.shown {
 		putBounds(w.controller, rect{int32(fx), int32(fy), int32(px(w.frame.X + w.frame.W)), int32(px(w.frame.Y + w.frame.H))})
 	}
-	comCall(w.controller, ctlPutIsVisible, boolArg(w.shown))
+	comCall(w.controller, ctlPutIsVisible, boolArg(w.shown && !w.host.hidden))
 }
 
 // webViewAt returns the web view that takes the pointer at x, y in the

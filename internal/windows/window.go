@@ -81,13 +81,17 @@ type window struct {
 	// on runtimes having it; uia the provider of its page for UI
 	// Automation), in the visual webVis inside clipVis, at frame clipped
 	// to clip while shown. focused tells that it has the keyboard, and
-	// cursor is the cursor its page wants.
+	// cursor is the cursor its page wants. hidden tells that a host is
+	// hidden, which hides its web views too: WebView2 shows their pages
+	// in windows of its own, which hiding the host alone leaves on the
+	// desktop.
 	webViews         []*window
 	host             *window
 	comp, comp3, uia uintptr
 	clipVis, webVis  uintptr
 	frame, clip      platform.RectF
 	shown, focused   bool
+	hidden           bool
 	cursor           uintptr
 	saved            struct {
 		style, exStyle uintptr
@@ -430,6 +434,12 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			w.sized(wp)
 		}
 		return 0, true
+	case wmShowWindow:
+		w.hidden = wp == 0
+		for _, v := range w.webViews {
+			v.placeEmbedded()
+		}
+		return 0, false
 	case wmMove:
 		if w.controller != 0 {
 			comCall(w.controller, ctlNotifyParentWindowPositionChanged)
