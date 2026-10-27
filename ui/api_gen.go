@@ -2537,6 +2537,37 @@ func TreeItem(c *Context, label string, open *bool, children func()) Element {
 	return wrapElement(_e)
 }
 
+// Video creates an element showing a player's video, by default at its
+// size as DIPs, scaled to fit when given another size, as Image shows a
+// bitmap:
+//
+//	//go:embed waves.gif
+//	var wavesGIF []byte
+//
+//	d, err := ui.NewGIFDecoder(wavesGIF)
+//	...
+//	app.waves, err = ui.NewVideoPlayer(d)
+//	app.waves.SetLoop(true)
+//
+//	ui.Video(c, app.waves).Fill().Fit(ui.Cover)
+//
+// The video moves on only while the view builds it and some of the window
+// shows: one that went out of the view, or a window out of sight, goes on
+// from where it stood. Each frame of the video is a frame of the window,
+// which After asks for as it comes due. While the desktop asks for less
+// motion (Preferences.ReduceMotion), it shows its first frame and does
+// not play.
+func Video(c *Context, p *VideoPlayer) Element {
+	_ctx := c.build()
+	if _ctx == nil {
+		return Element{}
+	}
+	_ctx.rt.beginBuild()
+	_e := coreVideo(_ctx, p)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
+}
+
 // View returns the content of a window whose user interface view builds,
 // for mygo.WindowOptions.Content:
 //

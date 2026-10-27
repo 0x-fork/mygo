@@ -41,6 +41,8 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.SurfaceResize:
 		rt.requestFrame()
 	case platform.SurfaceShown:
+		// A video goes on from where it stood out of sight.
+		rt.shown = rt.now()
 		if rt.held {
 			// What moves goes on from where the time puts it.
 			rt.held = false

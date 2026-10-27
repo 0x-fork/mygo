@@ -140,7 +140,8 @@ framework safely. Read it before changing anything under `internal/`.
 │                       views in native UI); launcher (a Spotlight-like panel,
 │                       native UI); wind (a texture of glyphs lit by a
 │                       wind, two shaders of ui/shader); loading (the
-│                       loading plugin's indicators)
+│                       loading plugin's indicators); video (a GIF
+│                       looping behind a window's content)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
@@ -2396,7 +2397,14 @@ either.
   `Draw` and the work `After` drives wait until some of the window shows.
   `SurfaceShown`, sent as some of the window shows again
   (`windowDidChangeOcclusionState:`), draws what changed, and has a held
-  animation go on from where the time puts it. The window shows its last
+  animation go on from where the time puts it; a video (`VideoPlayer`)
+  goes on from where it stood instead, counting its time from then
+  (`engine.shown`), as one the view stopped building does. Its frames
+  decode on a goroutine, two ahead, into frames handed back for it to
+  decode into again; the view takes the last frame due, passing over the
+  others, has the bitmap show it (`Bitmap.Update`), and asks for the next
+  with `After`, or waits for the goroutine to wake the window (`waiting`)
+  when it has no frame due yet. The window shows its last
   frame until then, about a refresh: captures of it meanwhile, as sharing
   its window in a video call, see that frame. A frame still builds after
   input (`input`, as keys typed into a key window another app's covers),

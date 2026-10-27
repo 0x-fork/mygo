@@ -244,5 +244,7 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
 ## Images
 
 - [Image](image.md): bitmaps and SVGs in their own colors.
+- [Video](video.md): clips that play, as animated GIFs, behind the content
+  or as previews.
 - [Icon](icon.md): SVG icons in the color of the text.
 - [Avatar](avatar.md): a picture of a person, or their initials.
