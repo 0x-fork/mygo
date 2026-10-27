@@ -202,7 +202,8 @@ export interface MacOSConfig {
    * app icon named `AppIcon`, unless `infoPlist` sets `CFBundleIconName`), or
    * an Icon Composer `.icon`, which builds compile on a Mac with Xcode 26 or
    * later and skip elsewhere. The `.icns` made from `icon` remains the
-   * fallback.
+   * fallback. Or an `.icns` in place of the one made from `icon`, for an
+   * icon drawn per size.
    */
   icon?: string;
   /** The oldest macOS the app runs on (default: `12.0`). */
