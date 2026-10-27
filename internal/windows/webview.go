@@ -209,6 +209,16 @@ func (w *window) setUp(controller uintptr) {
 	}
 	comCall(s, setPutAreDefaultContextMenusEnabled, 1)
 	comCall(s, setPutIsZoomControlEnabled, 1)
+	// WebView2 has a touchscreen's pinch zoom and swipe navigation on:
+	// they are off unless the page asks, as in WKWebView.
+	if s5 := queryInterface(s, &iidICoreWebView2Settings5); s5 != 0 {
+		comCall(s5, set5PutIsPinchZoomEnabled, boolArg(o.PinchZoom))
+		release(s5)
+	}
+	if s6 := queryInterface(s, &iidICoreWebView2Settings6); s6 != 0 {
+		comCall(s6, set6PutIsSwipeNavigationEnabled, boolArg(o.SwipeNavigation))
+		release(s6)
+	}
 	if o.UserAgent != "" || o.UserAgentSuffix != "" {
 		w.setUpUserAgent()
 	}

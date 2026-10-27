@@ -593,6 +593,8 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		// Tab reaches every control, as desktop apps do, unless the app
 		// asked for Safari's behavior.
 		TabFocusesLinks: !po.SafariTabFocus,
+		SwipeNavigation: po.SwipeNavigation,
+		PinchZoom:       po.PinchZoom,
 		Schemes:         Protocol.schemes(),
 		Panel:           o.Panel,
 	}

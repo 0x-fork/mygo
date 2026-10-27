@@ -101,6 +101,42 @@ func TestWebViewTabFocus(t *testing.T) {
 	}
 }
 
+// TestPageGestures passes SwipeNavigation and PinchZoom to the backend for
+// a window's page and a web view's, both off unless asked for.
+func TestPageGestures(t *testing.T) {
+	gestures := PageOptions{SwipeNavigation: true, PinchZoom: true}
+	_, fw := testWindow(t, WindowOptions{})
+	if o := fw.Opts; o.SwipeNavigation || o.PinchZoom {
+		t.Errorf("a window's page swipes %v and pinches %v by default", o.SwipeNavigation, o.PinchZoom)
+	}
+	_, fw = testWindow(t, WindowOptions{Page: gestures})
+	if o := fw.Opts; !o.SwipeNavigation || !o.PinchZoom {
+		t.Errorf("a window's page asked to swipes %v and pinches %v", o.SwipeNavigation, o.PinchZoom)
+	}
+	_, fw = testWindow(t, WindowOptions{Page: PageOptions{PinchZoom: true}})
+	if o := fw.Opts; o.SwipeNavigation || !o.PinchZoom {
+		t.Errorf("a window's page asked to pinch swipes %v and pinches %v", o.SwipeNavigation, o.PinchZoom)
+	}
+
+	w, _, s := contentWindow(t, func(c *ui.Context) {})
+	if _, err := w.NewWebView(WebViewOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.NewWebView(WebViewOptions{Page: gestures}); err != nil {
+		t.Fatal(err)
+	}
+	views := s.WebViews()
+	if len(views) != 2 {
+		t.Fatalf("%d web views", len(views))
+	}
+	if o := views[0].Opts; o.SwipeNavigation || o.PinchZoom {
+		t.Errorf("a web view swipes %v and pinches %v by default", o.SwipeNavigation, o.PinchZoom)
+	}
+	if o := views[1].Opts; !o.SwipeNavigation || !o.PinchZoom {
+		t.Errorf("a web view asked to swipes %v and pinches %v", o.SwipeNavigation, o.PinchZoom)
+	}
+}
+
 func TestWebViewNeedsContent(t *testing.T) {
 	w, _ := testWindow(t, WindowOptions{})
 	if _, err := w.NewWebView(WebViewOptions{}); !errors.Is(err, errNoContent) {

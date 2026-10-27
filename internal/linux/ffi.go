@@ -456,6 +456,8 @@ var (
 	webkitPrintOperationSetPageSetup                  func(op, setup ptr)
 	webkitPrintOperationPrint                         func(op ptr)
 	webkitSettingsGetPrintBackgrounds                 func(s ptr) bool
+	gObjectGetData                                    func(obj ptr, key *byte) ptr
+	gtkEventControllerSetPropagationPhase             func(c ptr, phase int32)
 	webkitSettingsSetPrintBackgrounds                 func(s ptr, v bool)
 	webkitUserMediaPermissionRequestGetType           func() uintptr
 	webkitGeolocationPermissionRequestGetType         func() uintptr
@@ -941,6 +943,9 @@ func loadWebKit() error {
 	mustBind(w, &webkitWebViewGetZoomLevel, "webkit_web_view_get_zoom_level")
 	mustBind(w, &webkitWebViewSetBackgroundColor, "webkit_web_view_set_background_color")
 	bind(w, &webkitWebViewIsPlayingAudio, "webkit_web_view_is_playing_audio")
+	// To turn WebKit's zoom gesture off (stopPinchZoom).
+	bind(libGObject, &gObjectGetData, "g_object_get_data")
+	bind(libGTK, &gtkEventControllerSetPropagationPhase, "gtk_event_controller_set_propagation_phase")
 	if bind(w, &webkitWebViewSetIsMuted, "webkit_web_view_set_is_muted") {
 		mustBind(w, &webkitWebViewGetIsMuted, "webkit_web_view_get_is_muted")
 	}

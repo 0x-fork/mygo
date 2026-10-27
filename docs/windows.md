@@ -63,7 +63,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `AutoHideMenuBar` | shows the menu bar only while the keyboard is in it, from Alt or F10 (Linux, Windows), see [the menu bar](menus.md#the-menu-bar) |
 | `Parent`, `Modal` | a child window, modal to its parent; for one placed next to a part of it, see [flyouts](#flyouts) |
 | `Panel` | the window of a launcher or a quick entry, floating above all apps, see [panels](#panels) |
-| `Page` | the options of the window's [page](#pages): its preload script, trusted origins, web inspector, zoom, user agent and its suffix |
+| `Page` | the options of the window's [page](#pages): its preload script, trusted origins, web inspector, zoom, user agent and its suffix, swipes and pinches |
 
 ## Show windows without flashing
 
@@ -543,6 +543,8 @@ mygo.NewWindow(mygo.WindowOptions{
 | `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled`, which also turns WebView2's own keys, as F5 reloading, on or off (Windows); for a window of native UI, its [inspector](ui/inspector.md) |
 | `ZoomFactor`, `UserAgent` | the page's zoom (1 is 100%) and user agent |
 | `SafariTabFocus` | leaves Tab to text fields and elements with a tabindex, as Safari does unless the system's keyboard navigation is on; by default Tab reaches links, buttons, checkboxes and selects too (macOS) |
+| `SwipeNavigation` | a horizontal swipe goes back and forward through the page's history, as in browsers, see [gestures](#swipes-and-pinches) |
+| `PinchZoom` | a pinch magnifies the page, as in browsers, see [gestures](#swipes-and-pinches) |
 | `UserAgentSuffix` | appended to the user agent instead of replacing it, which `UserAgent` does, such as `"MyApp/1.2"`; it appends to `UserAgent` too, and `SetUserAgent` keeps it, and leading and trailing spaces are trimmed |
 | `ContentRules` | rules that block what the page loads and hide parts of it, see [blocking content](#blocking-content) |
 
@@ -580,6 +582,32 @@ check the host, or `mygo.IsDev()`, when your rule depends on the scheme.
 
 Links that open new windows go through the window's open handler, see
 [links and new windows](frontend.md#links-and-new-windows).
+
+### Swipes and pinches
+
+A page neither goes back on a swipe nor zooms on a pinch, as desktop apps
+don't: `SwipeNavigation` and `PinchZoom` turn them on, for a window's page
+and a [web view's](ui/web-view.md) alike.
+
+```go
+mygo.NewWindow(mygo.WindowOptions{
+	URL:  "https://example.com/",
+	Page: mygo.PageOptions{SwipeNavigation: true, PinchZoom: true},
+})
+```
+
+A pinch magnifies what the page shows without laying it out again, as
+browsers do, and leaves `ZoomFactor`, which lays the page out at another
+size, as it is.
+
+| | `SwipeNavigation` | `PinchZoom` |
+|---|---|---|
+| macOS | a trackpad's or a Magic Mouse's swipe between pages, as System Settings sets it up (`allowsBackForwardNavigationGestures`) | a trackpad's pinch and smart zoom (`allowsMagnification`) |
+| Linux | two fingers across a touchpad, one across a touchscreen (`enable-back-forward-navigation-gestures`) | a touchscreen's pinch, and a touchpad's, which GTK reports on Wayland only. WebKitGTK zooms with no setting to stop it: MyGo turns its zoom gesture off from WebKitGTK 2.38, and older versions always zoom |
+| Windows | a swipe across a touchscreen (`IsSwipeNavigationEnabled`) | a touchscreen's pinch (`IsPinchZoomEnabled`); a WebView2 Runtime without `ICoreWebView2Settings5` always zooms |
+
+WebKitGTK and WebView2 have pinches, and WebView2 swipes, on by default:
+MyGo turns them off unless the page asks for them.
 
 ### The theme color
 

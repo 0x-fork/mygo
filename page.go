@@ -175,6 +175,32 @@ type PageOptions struct {
 	// By default Tab reaches links, buttons, checkboxes and selects too,
 	// as it does in Chrome, Electron and WebView2.
 	SafariTabFocus bool
+	// SwipeNavigation lets a horizontal swipe go back and forward through
+	// the page's history, as browsers do. It is off by default, as an
+	// app's pages have their own way back:
+	//
+	//   - macOS: a trackpad's or a Magic Mouse's swipe between pages, as
+	//     System Settings sets it up (WKWebView's
+	//     allowsBackForwardNavigationGestures).
+	//   - Linux: two fingers across a touchpad, or one across a
+	//     touchscreen (WebKitSettings' enable-back-forward-navigation-gestures).
+	//   - Windows: a swipe across a touchscreen (WebView2's
+	//     IsSwipeNavigationEnabled, which MyGo turns off unless asked).
+	SwipeNavigation bool
+	// PinchZoom lets a pinch magnify the page, as browsers do: it scales
+	// what the page shows without laying it out again, which ZoomFactor
+	// does, and leaves ZoomFactor as it is. It is off by default, as in
+	// desktop apps, and MyGo turns off what the platform has on:
+	//
+	//   - macOS: a trackpad's pinch, and its smart zoom (WKWebView's
+	//     allowsMagnification).
+	//   - Linux: a touchscreen's pinch, and a touchpad's, which GTK reports
+	//     on Wayland only. WebKitGTK has no setting for it and zooms: MyGo
+	//     turns its zoom gesture off from WebKitGTK 2.38, and older
+	//     versions always zoom.
+	//   - Windows: a touchscreen's pinch (WebView2's IsPinchZoomEnabled); a
+	//     WebView2 Runtime without ICoreWebView2Settings5 always zooms.
+	PinchZoom bool
 	// UserAgentSuffix appends to the page's user agent instead of
 	// replacing it, as UserAgent does: the app's name and version, such as
 	// "MyApp/1.2", for the sites that read them. It appends to UserAgent

@@ -393,6 +393,12 @@ type WindowOptions struct {
 	// text fields (macOS, WKPreferences.tabFocusesLinks); the other
 	// platforms reach them already.
 	TabFocusesLinks bool
+	// SwipeNavigation lets a swipe go back and forward through the page's
+	// history (mygo.PageOptions.SwipeNavigation).
+	SwipeNavigation bool
+	// PinchZoom lets a pinch magnify the page; the backends turn it off
+	// where their webview has it on by default (mygo.PageOptions.PinchZoom).
+	PinchZoom bool
 	// Native carries backend specific state, e.g. the WKWebViewConfiguration
 	// WebKit hands us for window.open().
 	Native uintptr

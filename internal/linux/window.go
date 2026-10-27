@@ -319,6 +319,12 @@ func (w *window) createWebView() {
 	if o.Zoom > 0 && o.Zoom != 1 {
 		webkitWebViewSetZoomLevel(w.web, o.Zoom)
 	}
+	if o.SwipeNavigation { // off by default
+		gObjectSetBool(settings, cs("enable-back-forward-navigation-gestures"), true, 0)
+	}
+	if !o.PinchZoom {
+		stopPinchZoom(w.web)
+	}
 	switch {
 	case o.Transparent:
 		webkitWebViewSetBackgroundColor(w.web, &gdkRGBA{})
@@ -345,6 +351,24 @@ func (w *window) createWebView() {
 	connect(w.web, "permission-request", cbPermission, data)
 	w.connectAuth(data)
 	hookDownloads()
+}
+
+// zoomGesture is the GtkGestureZoom through which WebKitGTK magnifies the
+// page as a touchscreen's or a touchpad's pinch does, with no setting to
+// turn it off; WebKitGTK keeps it in its web view's data under this key
+// from 2.38 on.
+const zoomGesture = "wk-view-zoom-gesture"
+
+// stopPinchZoom keeps pinches from magnifying a web view's page: its zoom
+// gesture takes no more events. It does nothing on WebKitGTK older than
+// 2.38, whose zoom gesture can't be reached.
+func stopPinchZoom(web ptr) {
+	if gObjectGetData == nil || gtkEventControllerSetPropagationPhase == nil {
+		return
+	}
+	if g := gObjectGetData(web, cs(zoomGesture)); g != 0 {
+		gtkEventControllerSetPropagationPhase(g, 0) // GTK_PHASE_NONE
+	}
 }
 
 func (w *window) applyGeometry() {

@@ -453,6 +453,23 @@ func TestTabFocusesLinks(handle uintptr) bool {
 	return w != nil && w.web != 0 && sendBool(send(send(w.web, "configuration"), "preferences"), "tabFocusesLinks")
 }
 
+// TestPageGestures reports whether a swipe navigates and a pinch magnifies
+// the page of a window, or with webView 0 or more, of its web view of that
+// index, as WKWebView's properties say. ok is false without that page.
+func TestPageGestures(handle uintptr, webView int) (swipe, pinch, ok bool) {
+	w := theBackend.byNSWindow[id(handle)]
+	if w != nil && webView >= 0 {
+		if webView >= len(w.webViews) {
+			return false, false, false
+		}
+		w = w.webViews[webView]
+	}
+	if w == nil || w.web == 0 {
+		return false, false, false
+	}
+	return sendBool(w.web, "allowsBackForwardNavigationGestures"), sendBool(w.web, "allowsMagnification"), true
+}
+
 // TestIsFrontmost reports whether the application is the frontmost one,
 // which NSApp's isActive does not tell while a nonactivating panel is the
 // key window: it reports the app active then.

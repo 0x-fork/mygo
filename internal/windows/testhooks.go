@@ -651,6 +651,32 @@ func TestBrowserAcceleratorKeys(hwnd uintptr) (on, ok bool) {
 	return v != 0, true
 }
 
+// TestPageGestures reports whether a swipe navigates and a pinch zooms
+// the page of a window, or with webView 0 or more, of its web view of that
+// index, as its WebView2 settings say. ok is false without that page's web
+// view or a runtime with ICoreWebView2Settings6.
+func TestPageGestures(hwnd uintptr, webView int) (swipe, pinch, ok bool) {
+	w := theBackend.windows[hwnd]
+	if w != nil && webView >= 0 {
+		if webView >= len(w.webViews) {
+			return false, false, false
+		}
+		w = w.webViews[webView]
+	}
+	if w == nil || w.settings == 0 {
+		return false, false, false
+	}
+	s6 := queryInterface(w.settings, &iidICoreWebView2Settings6)
+	if s6 == 0 {
+		return false, false, false
+	}
+	defer release(s6)
+	var sw, pz int32
+	comCall(s6, set6GetIsSwipeNavigationEnabled, uintptr(unsafe.Pointer(&sw)))
+	comCall(s6, set5GetIsPinchZoomEnabled, uintptr(unsafe.Pointer(&pz)))
+	return sw != 0, pz != 0, true
+}
+
 // TestPinchSurface pinches a touchpad at (x, y), in DIPs, in a window
 // showing native UI, by scale, with the message Windows sends for it: the
 // wheel with Ctrl held, by less than a notch at a time. It reports the

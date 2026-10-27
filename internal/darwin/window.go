@@ -493,6 +493,13 @@ func (w *window) createWebView(content NSRect) {
 	if respondsTo(w.web, "setInspectable:") {
 		send(w.web, "setInspectable:", boolArg(o.DevTools))
 	}
+	// Both are off in a new WKWebView.
+	if o.SwipeNavigation {
+		send(w.web, "setAllowsBackForwardNavigationGestures:", 1)
+	}
+	if o.PinchZoom {
+		send(w.web, "setAllowsMagnification:", 1)
+	}
 	if o.UserAgent != "" {
 		ua := o.UserAgent
 		if o.UserAgentSuffix != "" {

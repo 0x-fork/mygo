@@ -501,6 +501,13 @@ func TestPinchSurface(handle uintptr, x, y, scale float64) bool {
 	if w == nil || w.surface == nil {
 		return false
 	}
+	return pinchGdkWindow(w.surface.eventWindow(), x, y, []float64{1, scale, scale})
+}
+
+// pinchGdkWindow sends a GDK window a touchpad's pinch at (x, y), in DIPs:
+// a begin event, then an update for each scale but the last, which ends
+// it.
+func pinchGdkWindow(win ptr, x, y float64, scales []float64) bool {
 	var eventNew func(typ int32) ptr
 	var doEvent func(event ptr)
 	var setDevice func(event, device ptr)
@@ -513,18 +520,24 @@ func TestPinchSurface(handle uintptr, x, y, scale float64) bool {
 		return false
 	}
 	device := pointer(seat(display()))
-	win := w.surface.eventWindow()
 	if win == 0 {
 		return false
 	}
 	// GdkEventTouchpadPinch: window 8, send_event 16, phase 17, n_fingers
 	// 18, x 24, y 32, scale 64.
-	for phase, at := range []float64{1, scale, scale} {
+	for i, at := range scales {
+		phase := int8(1) // update
+		switch i {
+		case 0:
+			phase = 0 // begin
+		case len(scales) - 1:
+			phase = 2 // end
+		}
 		ev := eventNew(42) // GDK_TOUCHPAD_PINCH
 		base := *(*unsafe.Pointer)(unsafe.Pointer(&ev))
 		*(*ptr)(unsafe.Add(base, 8)) = gObjectRef(win)
 		*(*int8)(unsafe.Add(base, 16)) = 1
-		*(*int8)(unsafe.Add(base, 17)) = int8(phase) // begin, update, end
+		*(*int8)(unsafe.Add(base, 17)) = phase
 		*(*int8)(unsafe.Add(base, 18)) = 2
 		*(*float64)(unsafe.Add(base, 24)) = x
 		*(*float64)(unsafe.Add(base, 32)) = y
@@ -534,6 +547,50 @@ func TestPinchSurface(handle uintptr, x, y, scale float64) bool {
 		gdkEventFree(ev)
 	}
 	return true
+}
+
+// pageOf returns the window whose handle is handle, or with webView 0 or
+// more, its web view of that index.
+func pageOf(handle uintptr, webView int) *window {
+	w := windowByHandle(handle)
+	if w == nil || webView < 0 {
+		return w
+	}
+	if webView >= len(w.webViews) {
+		return nil
+	}
+	return w.webViews[webView]
+}
+
+// TestPageGestures reports whether a swipe navigates and a pinch magnifies
+// the page of a window, or with webView 0 or more, of its web view of that
+// index: the web view's enable-back-forward-navigation-gestures setting,
+// and whether its zoom gesture takes events. ok is false without that page
+// or on WebKitGTK older than 2.38, whose zoom gesture can't be reached.
+func TestPageGestures(handle uintptr, webView int) (swipe, pinch, ok bool) {
+	w := pageOf(handle, webView)
+	if w == nil || w.web == 0 || gObjectGetData == nil {
+		return false, false, false
+	}
+	var phase func(c ptr) int32
+	g := gObjectGetData(w.web, cs(zoomGesture))
+	if g == 0 || !bind(libGTK, &phase, "gtk_event_controller_get_propagation_phase") {
+		return false, false, false
+	}
+	var on int32 // gboolean
+	gObjectGetPtr(webkitWebViewGetSettings(w.web), cs("enable-back-forward-navigation-gestures"), unsafe.Pointer(&on), 0)
+	return on != 0, phase(g) != 0, true // GTK_PHASE_NONE
+}
+
+// TestPinchPage pinches a touchpad at (x, y), in DIPs, over the page of a
+// window, or with webView 0 or more, of its web view of that index, from 1
+// through scales, as TestPinchSurface does over native UI.
+func TestPinchPage(handle uintptr, webView int, x, y float64, scales []float64) bool {
+	w := pageOf(handle, webView)
+	if w == nil || w.web == 0 {
+		return false
+	}
+	return pinchGdkWindow(gtkWidgetGetWindow(w.web), x, y, append([]float64{1}, scales...))
 }
 
 // TestTrayActivates tells whether the AppIndicator library can report
