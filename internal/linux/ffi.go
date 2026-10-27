@@ -889,6 +889,7 @@ func loadWebKit() error {
 		return err
 	}
 	bindCookies()
+	bindAuth()
 
 	w := libWebKit
 	mustBind(w, &webkitWebContextGetDefault, "webkit_web_context_get_default")

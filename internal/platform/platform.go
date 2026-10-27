@@ -679,6 +679,16 @@ type WindowHandler interface {
 	// PermissionRequested asks whether the page at origin may use kinds:
 	// "camera", "microphone", "geolocation" or "notifications".
 	PermissionRequested(kinds []string, origin string) bool
+	// AuthRequested answers an HTTP authentication challenge of the page,
+	// or of what it loads.
+	AuthRequested(req AuthRequest) AuthResponse
+	// CertificateError asks whether to load what a server sent with a
+	// certificate that does not verify: false fails it, as without the
+	// call. A backend that verifies certificates itself to tell (macOS)
+	// does so only while HandlesCertificateErrors reports true, and
+	// leaves them to the web view otherwise.
+	CertificateError(e CertificateError) bool
+	HandlesCertificateErrors() bool
 
 	// SurfaceEvent delivers input on the window's Surface, and changes of
 	// it. For FileDragOver and FileDrop it reports whether the content

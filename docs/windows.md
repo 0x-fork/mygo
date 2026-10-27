@@ -753,6 +753,44 @@ export default defineConfig({
 });
 ```
 
+### Sign-in and certificates
+
+A page behind HTTP authentication (Basic, Digest, NTLM), of its server or
+of a proxy, asks for a user name and a password. `Page.SetAuthHandler`
+answers, on the main thread, with the credentials, or with an empty
+`AuthResponse` to cancel, which shows the server's refusal:
+
+```go
+win.Page().SetAuthHandler(func(req mygo.AuthRequest) mygo.AuthResponse {
+	if req.Host == "router.lan" && !req.IsProxy {
+		return mygo.AuthResponse{Username: "admin", Password: password}
+	}
+	return mygo.AuthResponse{}
+})
+```
+
+The web view keeps the credentials a server accepted for the rest of the
+session. Without a handler, WebKitGTK and WebView2 show their own sign-in
+dialog, and macOS none. To ask the user in the app's own way, cancel,
+prompt, then `Reload` once the handler has the credentials.
+
+A server whose certificate does not verify, such as a dev server with a
+self-signed certificate, fails to load, as in a browser.
+`Page.SetCertificateErrorHandler` can load it anyway: allow only the
+certificate you expect, which `CertificateError.Certificate` holds
+(DER-encoded), never a host whatever its certificate:
+
+```go
+win.Page().SetCertificateErrorHandler(func(e mygo.CertificateError) bool {
+	sum := sha256.Sum256(e.Certificate)
+	return e.Host == "dev.example" && sum == devCertificateSHA256
+})
+```
+
+On Linux only the page itself is asked about, not what it loads, and on
+Linux and Windows a certificate allowed for a host stays allowed in every
+window until the app quits. Client certificates are left to the system.
+
 ### Blocking content
 
 Content rules block what pages load and hide parts of them, as ad and

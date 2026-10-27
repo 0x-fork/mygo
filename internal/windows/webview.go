@@ -243,6 +243,7 @@ func (w *window) setUp(controller uintptr) {
 	})
 	add(wvAddNewWindowRequested, w.newWindowRequested)
 	add(wvAddPermissionRequested, w.permissionRequested)
+	w.addAuthHandlers()
 	if wv4 := queryInterface(w.webview, &iidICoreWebView2_4); wv4 != 0 {
 		withHandler(w.downloadStarting, func(h uintptr) uintptr { return comCall(wv4, wv4AddDownloadStarting, h, uintptr(unsafe.Pointer(&tok))) })
 		release(wv4)

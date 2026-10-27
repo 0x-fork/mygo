@@ -318,11 +318,13 @@ type Window struct {
 	// about to be. Main thread only.
 	html *htmlDocument
 
-	mu                sync.Mutex
-	openHandler       func(WindowOpenRequest) *WindowOptions
-	permissionHandler func(PermissionRequest) bool
-	pageCtx           context.Context
-	pageCancel        context.CancelFunc
+	mu                 sync.Mutex
+	openHandler        func(WindowOpenRequest) *WindowOptions
+	permissionHandler  func(PermissionRequest) bool
+	authHandler        func(AuthRequest) AuthResponse
+	certificateHandler func(CertificateError) bool
+	pageCtx            context.Context
+	pageCancel         context.CancelFunc
 	// channels are those of the current page, by the page's id for them.
 	channels map[int64]*channel
 	// closedEarly holds the channels the current page closed before

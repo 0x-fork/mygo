@@ -82,6 +82,9 @@ type window struct {
 	closed       bool
 	programmatic bool
 	keepAbove    bool
+	// tlsRetry is the page to load again once WebKit finished its load
+	// that failed with a certificate the app allowed (auth.go).
+	tlsRetry string
 	// requested holds bounds set with SetBounds until the window manager
 	// answers: GTK resizes and moves asynchronously. requestFrame is the
 	// window manager's frame they were asked for with, and requestInside
@@ -340,6 +343,7 @@ func (w *window) createWebView() {
 	connect(w.web, "drag-data-received", cbDragData, data)
 	connect(w.web, "drag-drop", cbDragDrop, data)
 	connect(w.web, "permission-request", cbPermission, data)
+	w.connectAuth(data)
 	hookDownloads()
 }
 
