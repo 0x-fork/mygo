@@ -2935,8 +2935,10 @@ either.
     mark. Runs are kept maximal. An edit splits and joins both trees,
     copying the chunks and paths it touches; paragraphs joined or split
     take the style of the one their first rune comes from, as AppKit's
-    `fixParagraphStyleAttributeInRange:`. Lists are flat, an indent per
-    item, as Quill and Automerge keep them, which leaves room for a CRDT.
+    `fixParagraphStyleAttributeInRange:`, but for the app's `ID`, which
+    follows the text and never comes from what is inserted. Lists are
+    flat, an indent per item, as Quill and Automerge keep them, which
+    leaves room for a CRDT.
   - *The document* (`document.go`, `commands.go`). A `Document` holds a
     text, the selection, the typing attributes, and the steps of undo as
     the texts before and after each, which share all they did not change,
@@ -2952,7 +2954,14 @@ either.
     places them by heights in two Fenwick trees from an anchor paragraph,
     as a text area does. Every edit goes through the document, as a step
     of undo or part of the action's; typing joins typing's step.
-    Attachments are inline objects of the text system.
+    Attachments are inline objects of the text system, and so is a first
+    line's indent: a box that draws nothing at the start of the layout,
+    which the paragraph's offsets step over as they do a composition, so
+    that lines wrap around it and right-to-left paragraphs put it at
+    their right on every engine. `Document.VisibleParagraphs` lays out
+    what is in view as it is read, as painting does, and the paint that
+    finds the paragraphs elsewhere than read asks for a frame
+    (`Services.Invalidate`), as `ListState.Visible` builds another.
   - *Formats out of the process.* The clipboard carries the editor's JSON,
     HTML (`golang.org/x/net/html` reads what is pasted) and plain text;
     browsers carry each text format through the clipboard events. The
