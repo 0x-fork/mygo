@@ -178,32 +178,41 @@ const (
 	keyQueryValue   = 0x0001
 )
 
+// unthrottledArguments are the browser's arguments that keep the pages of
+// hidden, minimized and covered windows running at full speed
+// (PageOptions.BackgroundThrottling): timers unthrottled, renderers at
+// the priority of visible ones, and covered windows not taken for hidden.
+const unthrottledArguments = "--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows"
+
 // createEnvironment starts creating the WebView2 environment, in language,
-// the app's (envOptions), or the system's for ""; done runs on the main
-// thread with it, or with an error. A runtime that fails to create one with
-// the options is asked for one without them.
-func createEnvironment(userData, language string, done func(env uintptr, err error)) error {
-	err := createEnvironmentWith(userData, language, func(env uintptr, err error) {
-		if err != nil && language != "" {
+// the app's (envOptions), or the system's for "", with the browser's
+// additional arguments args; done runs on the main thread with it, and
+// whether it has args, or with an error. A runtime that fails to create
+// one with the options is asked for one without them.
+func createEnvironment(userData, language, args string, done func(env uintptr, withArgs bool, err error)) error {
+	options := language != "" || args != ""
+	without := func(env uintptr, err error) { done(env, false, err) }
+	err := createEnvironmentWith(userData, language, args, func(env uintptr, err error) {
+		if err != nil && options {
 			// A runtime that takes no options of ours: one without them,
 			// in the language of the system.
-			log.Printf("%v; creating it again without its language", err)
-			if err := createEnvironmentWith(userData, "", done); err != nil {
-				done(0, err)
+			log.Printf("%v; creating it again without its language and arguments", err)
+			if err := createEnvironmentWith(userData, "", "", without); err != nil {
+				without(0, err)
 			}
 			return
 		}
-		done(env, err)
+		done(env, args != "", err)
 	})
-	if err != nil && language != "" {
-		return createEnvironmentWith(userData, "", done)
+	if err != nil && options {
+		return createEnvironmentWith(userData, "", "", without)
 	}
 	return err
 }
 
 // createEnvironmentWith creates the environment as createEnvironment does,
-// with the options of language, or none for "".
-func createEnvironmentWith(userData, language string, done func(env uintptr, err error)) error {
+// with the options of language and args, or none when both are "".
+func createEnvironmentWith(userData, language, args string, done func(env uintptr, err error)) error {
 	completed := func(hr, env uintptr) {
 		if failed(hr) || env == 0 {
 			done(0, hresultError("creating the WebView2 environment", hr))
@@ -214,8 +223,8 @@ func createEnvironmentWith(userData, language string, done func(env uintptr, err
 	}
 	dataDir := u16(userData)
 	var options uintptr
-	if language != "" {
-		options = newEnvOptions(language)
+	if language != "" || args != "" {
+		options = newEnvOptions(language, args)
 		defer release(options) // the environment takes its own reference
 	}
 

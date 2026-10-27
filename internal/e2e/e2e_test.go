@@ -169,7 +169,9 @@ func TestMain(m *testing.M) {
 	mygo.App.OnWindowAllClosed(func() {})
 	// A window requested from a goroutine before Run waits for the app to
 	// be ready (TestEarlyWindow).
-	go func() { earlyWindow <- mygo.NewWindow(mygo.WindowOptions{Hidden: true, Title: "early"}) }()
+	go func() {
+		earlyWindow <- mygo.NewWindow(mygo.WindowOptions{Hidden: true, Title: "early", Page: firstPages()})
+	}()
 	code := 1
 	mygo.App.WhenReady(func() {
 		go func() {
@@ -191,7 +193,7 @@ func TestMain(m *testing.M) {
 // slow runner over ten seconds.
 func warmUp() {
 	start := time.Now()
-	w := mygo.NewWindow(mygo.WindowOptions{Hidden: true, Title: "warm-up"})
+	w := mygo.NewWindow(mygo.WindowOptions{Hidden: true, Title: "warm-up", Page: firstPages()})
 	defer w.Destroy()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -200,6 +202,17 @@ func warmUp() {
 	} else if d := time.Since(start); d > 3*time.Second {
 		fmt.Printf("e2e: the webview took %v to start\n", d.Round(time.Millisecond))
 	}
+}
+
+// firstPages are the options of the pages TestMain shows first, the one of
+// which that comes first decides the arguments of WebView2's browser:
+// with MYGO_E2E_UNTHROTTLED, those of ThrottlingOff
+// (TestBackgroundThrottling).
+func firstPages() mygo.PageOptions {
+	if os.Getenv("MYGO_E2E_UNTHROTTLED") != "" {
+		return mygo.PageOptions{BackgroundThrottling: mygo.ThrottlingOff}
+	}
+	return mygo.PageOptions{}
 }
 
 // quitDuringDialog is a helper process for TestQuitDuringDialog: it quits
@@ -910,6 +923,13 @@ func TestWindowButtonsTheme(t *testing.T) {
 	if _, _, _, ok := titleButtonColor(w, "minimize"); !ok {
 		t.Skip("mygo draws the window controls on Windows")
 	}
+	t.Cleanup(func() {
+		if t.Failed() {
+			r, g, b, ok := titleButtonColor(w, "minimize")
+			noRedirect, composed, _ := composition(w)
+			t.Logf("the minimize button shows %02x%02x%02x (read %v); no redirection bitmap %v, composed %v", r, g, b, ok, noRedirect, composed)
+		}
+	})
 	readable := false
 	for deadline := time.Now().Add(3 * time.Second); !readable && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		l, ok := light()

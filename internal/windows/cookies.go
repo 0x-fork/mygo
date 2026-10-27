@@ -228,7 +228,7 @@ func (b *Backend) cookieView(s *cookieStore, done func(error)) {
 			fn(err)
 		}
 	}
-	if err := b.startEnvironment(); err != nil {
+	if err := b.startEnvironment(nil); err != nil {
 		finish(err)
 		return
 	}

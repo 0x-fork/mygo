@@ -319,6 +319,9 @@ func (w *window) createWebView() {
 	} else if o.UserAgentSuffix != "" {
 		webkitSettingsSetUserAgentSuffix(settings, o.UserAgentSuffix)
 	}
+	if o.NoBackgroundThrottling {
+		disableBackgroundThrottling(settings)
+	}
 	if o.Zoom > 0 && o.Zoom != 1 {
 		webkitWebViewSetZoomLevel(w.web, o.Zoom)
 	}
@@ -1185,6 +1188,56 @@ func (w *window) SetUserAgent(ua string) {
 		return
 	}
 	webkitSettingsSetUserAgent(settings, cs(userAgentWithSuffix(ua, suffix)))
+}
+
+// backgroundFeatures are the WebKit features that slow down a page whose
+// web view is hidden: its timers fire at most once a second, and its CSS
+// animations stop.
+var backgroundFeatures = [...]string{"HiddenPageDOMTimerThrottling", "HiddenPageCSSAnimationSuspension"}
+
+// WebKitGTK's features API (2.42+), bound the first time a page asks for
+// it (webkitFeaturesOnce); webkitFeatures tells it is there.
+var (
+	webkitFeaturesOnce              sync.Once
+	webkitFeatures                  bool
+	webkitSettingsGetAllFeatures    func() ptr
+	webkitFeatureListGetLength      func(list ptr) uintptr
+	webkitFeatureListGet            func(list ptr, i uintptr) ptr
+	webkitFeatureListUnref          func(list ptr)
+	webkitFeatureGetIdentifier      func(f ptr) ptr
+	webkitSettingsSetFeatureEnabled func(settings, f ptr, enabled bool)
+)
+
+// eachBackgroundFeature calls fn with each of backgroundFeatures that
+// WebKitGTK has.
+func eachBackgroundFeature(fn func(f ptr)) {
+	webkitFeaturesOnce.Do(func() {
+		webkitFeatures = bind(libWebKit, &webkitSettingsGetAllFeatures, "webkit_settings_get_all_features") &&
+			bind(libWebKit, &webkitFeatureListGetLength, "webkit_feature_list_get_length") &&
+			bind(libWebKit, &webkitFeatureListGet, "webkit_feature_list_get") &&
+			bind(libWebKit, &webkitFeatureListUnref, "webkit_feature_list_unref") &&
+			bind(libWebKit, &webkitFeatureGetIdentifier, "webkit_feature_get_identifier") &&
+			bind(libWebKit, &webkitSettingsSetFeatureEnabled, "webkit_settings_set_feature_enabled")
+	})
+	if !webkitFeatures {
+		return
+	}
+	list := webkitSettingsGetAllFeatures()
+	defer webkitFeatureListUnref(list)
+	for i := range webkitFeatureListGetLength(list) {
+		f := webkitFeatureListGet(list, i)
+		if slices.Contains(backgroundFeatures[:], goStr(webkitFeatureGetIdentifier(f))) {
+			fn(f)
+		}
+	}
+}
+
+// disableBackgroundThrottling turns backgroundFeatures off in a web
+// view's settings (PageOptions.BackgroundThrottling). The page still
+// goes hidden with its window: it draws no frames, so that
+// requestAnimationFrame waits, but its timers keep their rate.
+func disableBackgroundThrottling(settings ptr) {
+	eachBackgroundFeature(func(f ptr) { webkitSettingsSetFeatureEnabled(settings, f, false) })
 }
 
 // userAgentWithSuffix appends the suffix the options set, after a space.

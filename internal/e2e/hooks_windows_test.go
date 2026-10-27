@@ -376,6 +376,14 @@ func panelStyles(w *mygo.Window) (tool, topmost, owned, supported bool) {
 	return tool, topmost, owned, true
 }
 
+// throttlingOff reports whether the page of w, or of its first web view,
+// is set up to keep running while it can't be seen, and how many of the
+// settings that take the platform has.
+func throttlingOff(w *mygo.Window, webView bool) (off bool, settings int) {
+	mygo.RunOnMain(func() { off, settings = win.TestBackgroundThrottlingOff(w.NativeHandle(), webView) })
+	return off, settings
+}
+
 // WebView2 tells no capture.
 func mockCapture(*mygo.Window) bool { return false }
 
@@ -389,3 +397,15 @@ func pageGestures(w *mygo.Window, webView int) (swipe, pinch, ok bool) {
 // WebView2 takes touch input from Windows' pointer messages, which a test
 // can't send it.
 func pinchPage(*mygo.Window, int, float64, float64, ...float64) bool { return false }
+
+// takeForeground brings a window to the foreground, after Alt pressed and
+// released when Windows refuses it: a process that sent the last input may
+// take the foreground.
+func takeForeground(w *mygo.Window) {
+	mygo.RunOnMain(func() {
+		if !win.TestForeground(w.NativeHandle()) {
+			win.TestPressKeys(0x12) // VK_MENU
+			win.TestForeground(w.NativeHandle())
+		}
+	})
+}

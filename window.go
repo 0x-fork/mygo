@@ -608,12 +608,13 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		Zoom:              po.ZoomFactor,
 		// Tab reaches every control, as desktop apps do, unless the app
 		// asked for Safari's behavior.
-		TabFocusesLinks:  !po.SafariTabFocus,
-		PictureInPicture: po.PictureInPicture,
-		Schemes:          Protocol.schemes(),
-		Panel:            o.Panel,
-		SwipeNavigation:  po.SwipeNavigation,
-		PinchZoom:        po.PinchZoom,
+		TabFocusesLinks:        !po.SafariTabFocus,
+		NoBackgroundThrottling: po.BackgroundThrottling == ThrottlingOff,
+		SwipeNavigation:        po.SwipeNavigation,
+		PinchZoom:              po.PinchZoom,
+		Schemes:                Protocol.schemes(),
+		Panel:                  o.Panel,
+		PictureInPicture:       po.PictureInPicture,
 	}
 	if o.Panel {
 		p.Minimizable, p.Maximizable, p.Fullscreenable = false, false, false

@@ -453,6 +453,43 @@ func TestTabFocusesLinks(handle uintptr) bool {
 	return w != nil && w.web != 0 && sendBool(send(send(w.web, "configuration"), "preferences"), "tabFocusesLinks")
 }
 
+// TestBackgroundThrottlingOff reports whether the page of a window, or of
+// its first web view, keeps running while it can't be seen: every one of
+// throttlingPrefs WebKit has at its value for that, and the web view's
+// window occlusion detection off where WebKit has it; and how many of
+// those settings WebKit has.
+func TestBackgroundThrottlingOff(handle uintptr, webView bool) (off bool, settings int) {
+	w := theBackend.byNSWindow[id(handle)]
+	if w != nil && webView {
+		if len(w.webViews) == 0 {
+			return false, 0
+		}
+		w = w.webViews[0]
+	}
+	if w == nil || w.web == 0 {
+		return false, 0
+	}
+	off = true
+	withPool(func() {
+		prefs := send(send(w.web, "configuration"), "preferences")
+		for _, p := range throttlingPrefs {
+			if respondsTo(prefs, p.get) {
+				settings++
+				v := uintptr(send(prefs, p.get))
+				if p.boolean {
+					v = boolArg(byte(v) != 0)
+				}
+				off = off && v == p.off
+			}
+		}
+		if respondsTo(w.web, "_windowOcclusionDetectionEnabled") {
+			settings++
+			off = off && !sendBool(w.web, "_windowOcclusionDetectionEnabled")
+		}
+	})
+	return off, settings
+}
+
 // TestMockCaptureDevices gives a window's page WebKit's mock camera and
 // microphone, which getUserMedia() captures without devices or the
 // system's permission (private -[WKPreferences

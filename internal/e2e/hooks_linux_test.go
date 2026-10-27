@@ -347,6 +347,14 @@ func endSheetButton(*mygo.Window, int) bool               { return false }
 // Panels' window styles are Windows'.
 func panelStyles(*mygo.Window) (bool, bool, bool, bool) { return false, false, false, false }
 
+// throttlingOff reports whether the page of w, or of its first web view,
+// is set up to keep running while it can't be seen, and how many of the
+// settings that take the platform has.
+func throttlingOff(w *mygo.Window, webView bool) (off bool, settings int) {
+	mygo.RunOnMain(func() { off, settings = linux.TestBackgroundThrottlingOff(w.NativeHandle(), webView) })
+	return off, settings
+}
+
 // mockCapture gives a window's page WebKit's mock camera and microphone.
 func mockCapture(w *mygo.Window) (ok bool) {
 	mygo.RunOnMain(func() { ok = linux.TestMockCaptureDevices(w.NativeHandle()) })
@@ -367,3 +375,6 @@ func pinchPage(w *mygo.Window, webView int, x, y float64, scales ...float64) (ok
 	mygo.RunOnMain(func() { ok = linux.TestPinchPage(w.NativeHandle(), webView, x, y, scales) })
 	return ok
 }
+
+// Only Windows' tests start a process that takes the foreground.
+func takeForeground(*mygo.Window) {}

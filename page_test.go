@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/ui"
 )
 
 func TestPage(t *testing.T) {
@@ -182,6 +183,32 @@ func TestPageAudio(t *testing.T) {
 		t.Errorf("a closed window's page: IsAudible %v, IsAudioMuted %v", p.IsAudible(), p.IsAudioMuted())
 	}
 	p.SetAudioMuted(false) // does nothing
+}
+
+// TestPageBackgroundThrottling passes BackgroundThrottling to the platform,
+// for a window's page and a web view's: ThrottlingOn, the zero value,
+// leaves the page to the web view.
+func TestPageBackgroundThrottling(t *testing.T) {
+	for _, tt := range []struct {
+		throttling BackgroundThrottling
+		off        bool
+	}{{ThrottlingOn, false}, {ThrottlingOff, true}} {
+		w := NewWindow(WindowOptions{Hidden: true, Page: PageOptions{BackgroundThrottling: tt.throttling}})
+		fw := fb.Windows()[len(fb.Windows())-1]
+		if got := fw.Opts.NoBackgroundThrottling; got != tt.off {
+			t.Errorf("window with throttling %d: NoBackgroundThrottling %v, want %v", tt.throttling, got, tt.off)
+		}
+		w.Destroy()
+	}
+	w, _, s := contentWindow(t, func(c *ui.Context) {})
+	for _, throttling := range []BackgroundThrottling{ThrottlingOff, ThrottlingOn} {
+		if _, err := w.NewWebView(WebViewOptions{Page: PageOptions{BackgroundThrottling: throttling}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if views := s.WebViews(); len(views) != 2 || !views[0].Opts.NoBackgroundThrottling || views[1].Opts.NoBackgroundThrottling {
+		t.Errorf("web views %d: BackgroundThrottling not applied", len(views))
+	}
 }
 
 func TestPageCapture(t *testing.T) {

@@ -591,6 +591,7 @@ mygo.NewWindow(mygo.WindowOptions{
 | `PinchZoom` | a pinch magnifies the page, as in browsers, see [gestures](#swipes-and-pinches) |
 | `UserAgentSuffix` | appended to the user agent instead of replacing it, which `UserAgent` does, such as `"MyApp/1.2"`; it appends to `UserAgent` too, and `SetUserAgent` keeps it, and leading and trailing spaces are trimmed |
 | `ContentRules` | rules that block what the page loads and hide parts of it, see [blocking content](#blocking-content) |
+| `BackgroundThrottling` | `ThrottlingOn` (the web view's own) or `ThrottlingOff`, which keeps the page running while its window is hidden, minimized or covered, see [background pages](#background-pages) |
 | `Session` | the store of the page's cookies, storage and caches, apart from other sessions', see [sessions](app.md#sessions); nil is the default session |
 
 `UserAgentSuffix` is for the sites that want to see the app, and for the ones
@@ -732,6 +733,44 @@ counting, which can take a moment after the sound stops.
 Where a platform can't mute, `IsAudioMuted` is false. Both are false for a
 window showing native UI and after the window closed. A [web view's](ui/web-view.md)
 page has them too.
+
+### Background pages
+
+Web views slow down a page nobody can see, to save power: once its window is
+hidden, minimized or behind others, its timers fire once a second at most,
+`requestAnimationFrame` waits, and macOS may suspend it. A page that plays,
+syncs or computes in the background keeps running with `ThrottlingOff`, as
+Electron's `backgroundThrottling: false`:
+
+```go
+mygo.NewWindow(mygo.WindowOptions{
+	URL:  "/player",
+	Page: mygo.PageOptions{BackgroundThrottling: mygo.ThrottlingOff},
+})
+```
+
+Its timers keep their rate and its process the priority of a visible page's,
+in windows and in [web views](ui/web-view.md) alike. A covered window's page keeps
+its animation frames too on macOS and Windows, but the page of a hidden or
+minimized window still goes hidden (`document.visibilityState`) on macOS and
+Linux, and so does a web view of a hidden window on Windows, which draws
+nothing then: run what must go on with timers.
+
+| | |
+|---|---|
+| macOS | `WKPreferences.inactiveSchedulingPolicy` none (macOS 14+), WebKit's private hidden-page timer throttling, CSS animation suspension and process suppression off, and window occlusion detection off, so that a covered window counts as visible |
+| Linux | WebKitGTK's `HiddenPageDOMTimerThrottling` and `HiddenPageCSSAnimationSuspension` features off (WebKitGTK 2.42+; nothing before) |
+| Windows | its browser runs with `--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows` |
+
+On Windows those arguments are the WebView2 environment's, which all of an
+app's pages share and which the first window or web view that shows a page
+creates: give the option to that one. Then no page of the app has its timers
+throttled; a page that asks later is too late, and the log says so. Two
+processes of the app share the browser too, so they must agree: WebView2
+refuses web views to a second one whose first page asks otherwise than the
+running one's did. A web
+view in a hidden window's [native UI](ui/web-view.md) still goes hidden, as
+it must for its window to leave the screen.
 
 ### Camera and microphone
 

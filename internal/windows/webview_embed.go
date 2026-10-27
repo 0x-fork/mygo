@@ -132,7 +132,7 @@ func clipVisual(visual uintptr, w, h float32) {
 
 func (s *surface) NewWebView(o *platform.WindowOptions, h platform.WindowHandler) (platform.WebView, error) {
 	b := s.w.b
-	if err := b.startEnvironment(); err != nil {
+	if err := b.startEnvironment(o); err != nil {
 		return nil, err
 	}
 	if s.layer == nil {

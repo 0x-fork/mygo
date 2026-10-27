@@ -158,6 +158,9 @@ func endSheetButton(*mygo.Window, int) bool               { return false }
 // Panels' window styles are Windows'.
 func panelStyles(*mygo.Window) (bool, bool, bool, bool) { return false, false, false, false }
 
+func throttlingOff(*mygo.Window, bool) (bool, int)                   { return false, 0 }
 func mockCapture(*mygo.Window) bool                                  { return false }
 func pageGestures(*mygo.Window, int) (bool, bool, bool)              { return false, false, false }
 func pinchPage(*mygo.Window, int, float64, float64, ...float64) bool { return false }
+
+func takeForeground(*mygo.Window) {}

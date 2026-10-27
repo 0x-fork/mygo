@@ -399,6 +399,11 @@ type WindowOptions struct {
 	// text fields (macOS, WKPreferences.tabFocusesLinks); the other
 	// platforms reach them already.
 	TabFocusesLinks bool
+	// NoBackgroundThrottling keeps the page running at full speed while
+	// its window is hidden, minimized or covered
+	// (mygo.PageOptions.BackgroundThrottling): its timers unthrottled, its
+	// process at the priority of a visible one.
+	NoBackgroundThrottling bool
 	// PictureInPicture lets the page's videos go into picture in picture
 	// (macOS, WebKit's private _allowsPictureInPictureMediaPlayback);
 	// WebView2 lets them already, and WebKitGTK has none.

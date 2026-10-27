@@ -43,6 +43,10 @@ type Backend struct {
 	envErr     error
 	envStarted bool
 	envWaiters []func()
+	// envUnthrottled tells that the environment's browser runs with
+	// unthrottledArguments, which the page that started it asked for;
+	// envWarned that a page that asked later was told it was too late.
+	envUnthrottled, envWarned bool
 	// envResult is whether the environment was created (1) or failed (2),
 	// 0 before, for WebViewAvailable, which any goroutine may call.
 	envResult atomic.Int32
@@ -151,9 +155,20 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 // startEnvironment starts creating the WebView2 environment, the first time
 // a window that shows a web page is created, and returns why it cannot,
 // such as a missing WebView2 Runtime. Windows that show native UI need
-// none: an app whose windows all do runs without the runtime.
-func (b *Backend) startEnvironment() error {
+// none: an app whose windows all do runs without the runtime. o are the
+// options of the page that needs it, nil for none.
+//
+// The environment's browser runs with unthrottledArguments when that first
+// page asked not to be throttled: the arguments are the browser's, which
+// all the app's pages share, and a page that asks once it runs is too
+// late, which the log tells.
+func (b *Backend) startEnvironment(o *platform.WindowOptions) error {
+	unthrottled := o != nil && o.NoBackgroundThrottling
 	if b.envStarted {
+		if unthrottled && !b.envUnthrottled && !b.envWarned {
+			b.envWarned = true
+			log.Print("mygo: ThrottlingOff of a page shown after the first one: WebView2's browser already runs without the arguments that keep hidden pages running; give the option to the first window or web view that shows a page")
+		}
 		return nil
 	}
 	dir := os.Getenv("LOCALAPPDATA")
@@ -166,8 +181,13 @@ func (b *Backend) startEnvironment() error {
 	if len(b.languages) > 0 {
 		language = b.languages[0]
 	}
-	err := createEnvironment(userData, language, func(env uintptr, err error) {
+	args := ""
+	if unthrottled {
+		args = unthrottledArguments
+	}
+	err := createEnvironment(userData, language, args, func(env uintptr, withArgs bool, err error) {
 		b.env, b.envErr = env, err
+		b.envUnthrottled = err == nil && withArgs
 		if err != nil {
 			log.Print(err)
 			b.envResult.Store(2)
