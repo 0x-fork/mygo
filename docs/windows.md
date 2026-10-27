@@ -842,7 +842,9 @@ closed, and for a window showing native UI.
   pages know as `runtime().windowId`.
 - `mygo.CallerWindow(ctx)` returns the window whose page called a bound
   method, and `mygo.CallerPage(ctx)` the page: the window's, or that of a
-  web view in a window of native UI ([Web view](ui/web-view.md)).
+  web view in a window of native UI ([Web view](ui/web-view.md)). Given
+  the `r.Context()` of a request to a custom scheme, they return the
+  window and the page that made it.
 - `mygo.App.OnWindowCreated` is called for every new window.
 
 ## Native access

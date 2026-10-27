@@ -1054,10 +1054,16 @@ func (c clipboard) Close() {
 
 type shell struct{}
 
-func (shell) OpenExternal(string) error { return nil }
-func (shell) OpenPath(string) error     { return nil }
-func (shell) ShowItemInFolder(string)   {}
-func (shell) Beep()                     {}
+// OpenedExternal are the URLs OpenExternal was given. Main thread only.
+var OpenedExternal []string
+
+func (shell) OpenExternal(url string) error {
+	OpenedExternal = append(OpenedExternal, url)
+	return nil
+}
+func (shell) OpenPath(string) error   { return nil }
+func (shell) ShowItemInFolder(string) {}
+func (shell) Beep()                   {}
 
 // Trashed are the paths TrashItem was given.
 var Trashed []string

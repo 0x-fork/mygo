@@ -186,4 +186,22 @@ type PageOptions struct {
 	// ContentRules block what the page loads and hide parts of it, as
 	// Page.SetContentRules does, from its first load.
 	ContentRules []*ContentRules
+	// Untrusted makes the page someone else's, whatever its URL: a
+	// plugin's UI or a preview of a user's HTML served from a custom
+	// scheme. TrustedOrigins no longer count, and the page:
+	//
+	//   - calls no Go method, bound or MyGo's own (window.mygo.window),
+	//     and its window's drag regions do nothing; MyGo drops whatever
+	//     else the page posts above 4 KiB without decoding it;
+	//   - hears no Broadcast, nor the Emit of the window of native UI its
+	//     web view is in: send to it with EmitPage;
+	//   - gets no permission, opens no window, downloads nothing and
+	//     navigates to no other origin than its page's, unless
+	//     SetPermissionHandler, SetWindowOpenHandler, OnWillDownload or
+	//     OnWillNavigate decide.
+	//
+	// Its requests to custom schemes reach their handlers, which tell it
+	// with CallerPage(r.Context()), but it cannot read the responses of
+	// other origins than its own.
+	Untrusted bool
 }

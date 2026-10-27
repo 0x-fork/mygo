@@ -247,9 +247,17 @@ func (w *Window) sendTitleBar() {
 	}
 }
 
+// maxUntrustedMessage is the size of the largest message an untrusted
+// page (PageOptions.Untrusted) may post: what MyGo's bridge posts in pages
+// that call no Go method is much smaller.
+const maxUntrustedMessage = 4 << 10
+
 // handleMessage routes a message posted by the page bridge. It runs on the
 // main thread.
 func (w *Window) handleMessage(msg string) {
+	if w.untrusted && len(msg) > maxUntrustedMessage {
+		return // what the bridge posts is smaller
+	}
 	msg, ok := strings.CutPrefix(msg, w.secret)
 	if !ok {
 		return // not from the bridge
@@ -257,6 +265,11 @@ func (w *Window) handleMessage(msg string) {
 	// Calls are decoded and executed off the main thread. The page context
 	// is captured here so a navigation cannot slip in between.
 	if len(msg) > 12 && msg[:12] == `{"t":"call",` {
+		if w.untrusted {
+			// Rejected right away, without a goroutine per message.
+			handleCall(w, nil, msg, false)
+			return
+		}
 		go handleCall(w, w.pageContext(), msg, w.trusted)
 		return
 	}
@@ -296,11 +309,11 @@ func (w *Window) handleMessage(msg string) {
 	case "content-size":
 		w.fitContentSize(contentSize{m.W, m.H, m.SW, m.SH})
 	case "drag":
-		if w.native != nil {
+		if w.native != nil && !w.untrusted {
 			w.native.StartDrag()
 		}
 	case "dblclick":
-		if w.native != nil {
+		if w.native != nil && !w.untrusted {
 			w.native.TitleBarDoubleClicked()
 		}
 	case "escape":

@@ -310,6 +310,10 @@ type Window struct {
 	// Main thread only.
 	trusted        bool
 	trustedOrigins []string
+	// untrusted is PageOptions.Untrusted; origin is the origin of its
+	// current page. Main thread only.
+	untrusted bool
+	origin    string
 	// html is the document LoadHTML loaded, while it is the page's or
 	// about to be. Main thread only.
 	html *htmlDocument
@@ -479,7 +483,7 @@ func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyou
 	id := windows.nextID
 	windows.Unlock()
 
-	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, secret: randomText(), stateKey: opts.StateKey, background: bg, content: opts.Content, panel: opts.Panel && flyout == nil}
+	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, untrusted: opts.Page.Untrusted, secret: randomText(), stateKey: opts.StateKey, background: bg, content: opts.Content, panel: opts.Panel && flyout == nil}
 	w.pg = &Page{w}
 	if opts.Content == nil {
 		if flyout != nil {
@@ -1249,7 +1253,7 @@ func resolveFile(path string) (string, error) {
 // isTrusted reports whether a page at rawURL may call bound methods.
 func (w *Window) isTrusted(rawURL string) bool {
 	u, err := url.Parse(rawURL)
-	if err != nil {
+	if err != nil || w.untrusted {
 		return false
 	}
 	scheme := strings.ToLower(u.Scheme)
@@ -1820,12 +1824,30 @@ func (h *windowHandler) WillNavigate(nav platform.Navigation) bool {
 	if !nav.IsMainFrame || nav.Unasked {
 		return true
 	}
+	if h.w.untrusted && h.w.onWillNavigate.len() == 0 {
+		return pageOrigin(nav.URL) == h.w.origin
+	}
 	e := &NavigateEvent{URL: nav.URL, UserInitiated: nav.UserInitiated}
 	fire1(&h.w.onWillNavigate, e)
 	return !e.prevented
 }
 
 func (h *windowHandler) NavigationStarted(string) {}
+
+// pageOrigin returns the origin of a page at rawURL, as scheme://host,
+// that of the page that made it for a blob: URL.
+func pageOrigin(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	if strings.EqualFold(u.Scheme, "blob") {
+		if u, err = url.Parse(u.Opaque); err != nil {
+			return ""
+		}
+	}
+	return strings.ToLower(u.Scheme + "://" + u.Host)
+}
 
 func (h *windowHandler) NavigationCommitted(url string) {
 	if doc := h.w.html; doc != nil {
@@ -1837,6 +1859,9 @@ func (h *windowHandler) NavigationCommitted(url string) {
 		}
 	}
 	h.w.trusted = h.w.isTrusted(url)
+	if h.w.untrusted {
+		h.w.origin = pageOrigin(url)
+	}
 	h.w.outMu.Lock()
 	h.w.domReady = false
 	h.w.outMu.Unlock()
@@ -1875,6 +1900,9 @@ func (h *windowHandler) NewWindow(req platform.NewWindowRequest) platform.Window
 	h.w.mu.Unlock()
 	r := WindowOpenRequest{URL: req.URL, FrameName: req.FrameName, Width: req.Width, Height: req.Height, UserInitiated: req.UserInitiated}
 	if handler == nil {
+		if h.w.untrusted {
+			return nil
+		}
 		if u, err := url.Parse(req.URL); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
 			go Shell.OpenExternal(req.URL)
 		}

@@ -31,6 +31,12 @@ func (pageService) Where(ctx context.Context) string {
 // view, its page loaded.
 func webViewWindow(t *testing.T, show *bool) (*Window, *WebView, *fake.Surface, *fake.WebView) {
 	t.Helper()
+	return webViewWindowOpts(t, show, WebViewOptions{})
+}
+
+// webViewWindowOpts is webViewWindow for a web view made with opts.
+func webViewWindowOpts(t *testing.T, show *bool, opts WebViewOptions) (*Window, *WebView, *fake.Surface, *fake.WebView) {
+	t.Helper()
 	var v *WebView
 	w, _, s := contentWindow(t, func(c *ui.Context) {
 		ui.Column(c).Fill().AlignItems(ui.Stretch).Children(func() {
@@ -40,7 +46,7 @@ func webViewWindow(t *testing.T, show *bool) (*Window, *WebView, *fake.Surface, 
 			}
 		})
 	})
-	v, err := w.NewWebView(WebViewOptions{})
+	v, err := w.NewWebView(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
