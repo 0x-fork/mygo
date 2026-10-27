@@ -33,7 +33,8 @@ type WebView struct{ w *Window }
 // WebViewOptions configure Window.NewWebView.
 type WebViewOptions struct {
 	// URL is loaded right away. "/" and other URLs without a scheme are
-	// pages of the app's frontend (see Page.LoadURL).
+	// pages of the app's frontend (see Page.LoadURL). Page.SessionState,
+	// when set, takes its place.
 	URL string
 	// Page configures the web view's page.
 	Page PageOptions
@@ -100,10 +101,8 @@ func (w *Window) newWebView(opts WebViewOptions, bg *background) (*WebView, erro
 	w.webViews = append(w.webViews, pw)
 	windows.Unlock()
 
-	if opts.URL != "" {
-		if err := pw.pg.LoadURL(opts.URL); err != nil {
-			log.Printf("mygo: web view: %v", err)
-		}
+	if err := pw.loadPage(opts.Page.SessionState, opts.URL); err != nil {
+		log.Printf("mygo: web view: %v", err)
 	}
 	return v, nil
 }
@@ -291,6 +290,10 @@ func (n *webViewNative) ProcessID() int         { return n.web.ProcessID() }
 func (n *webViewNative) IsAudible() bool        { return n.web.IsAudible() }
 func (n *webViewNative) SetAudioMuted(v bool)   { n.web.SetAudioMuted(v) }
 func (n *webViewNative) IsAudioMuted() bool     { return n.web.IsAudioMuted() }
+func (n *webViewNative) SessionState() []byte   { return n.web.SessionState() }
+func (n *webViewNative) RestoreSessionState(state []byte) bool {
+	return n.web.RestoreSessionState(state)
+}
 func (n *webViewNative) OpenDevTools()          { n.web.OpenDevTools() }
 func (n *webViewNative) CloseDevTools()         { n.web.CloseDevTools() }
 func (n *webViewNative) IsDevToolsOpened() bool { return n.web.IsDevToolsOpened() }

@@ -1417,6 +1417,39 @@ func (w *window) IsAudioMuted() bool {
 	return w.canMute() && uintptr(send(w.web, "_mediaMutedState"))&wkMediaAudioMuted != 0
 }
 
+// SessionState returns WKWebView's interactionState (macOS 12+), which
+// is NSData of WebKit's own encoding of the back/forward list (its
+// _sessionStateData, which Safari keeps), nil before macOS 12 or when
+// WebKit gives something else.
+func (w *window) SessionState() []byte {
+	if !respondsTo(w.web, "interactionState") {
+		return nil
+	}
+	var b []byte
+	withPool(func() {
+		s := send(w.web, "interactionState")
+		if s != 0 && sendBool(s, "isKindOfClass:", uintptr(class("NSData"))) {
+			b = goBytes(s)
+		}
+	})
+	return b
+}
+
+// RestoreSessionState sets WKWebView's interactionState, which restores
+// the back/forward list and goes to its current item. WebKit ignores data
+// it can't decode, which leaves the list without a current item.
+func (w *window) RestoreSessionState(state []byte) bool {
+	if !respondsTo(w.web, "setInteractionState:") {
+		return false
+	}
+	var ok bool
+	withPool(func() {
+		send(w.web, "setInteractionState:", uintptr(nsData(state)))
+		ok = send(send(w.web, "backForwardList"), "currentItem") != 0
+	})
+	return ok
+}
+
 func (w *window) inspector() id {
 	if !w.opts.DevTools || !respondsTo(w.web, "_inspector") {
 		return 0

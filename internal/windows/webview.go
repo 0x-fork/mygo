@@ -1038,6 +1038,13 @@ func (w *window) IsAudioMuted() bool {
 	return w.getBool8(wv8GetIsMuted)
 }
 
+// SessionState is nil: WebView2 has no API for the back/forward list,
+// so the core keeps the page's URL alone.
+func (w *window) SessionState() []byte { return nil }
+
+// RestoreSessionState can't, for the core to load the page's URL.
+func (w *window) RestoreSessionState([]byte) bool { return false }
+
 func (w *window) OpenDevTools() {
 	if !w.opts.DevTools {
 		return

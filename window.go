@@ -65,6 +65,7 @@ type WindowOptions struct {
 	Title string
 	// URL is loaded right after the window is created. "/" and other URLs
 	// without a scheme are pages of the app's frontend (see LoadURL).
+	// Page.SessionState, when set, takes its place.
 	URL string
 
 	// Width and Height of the window in DIPs (default 800x600).
@@ -544,8 +545,8 @@ func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyou
 	windows.Unlock()
 
 	fire1(&App.onWindowCreated, w)
-	if opts.URL != "" && w.content == nil {
-		w.pg.LoadURL(opts.URL)
+	if w.content == nil {
+		w.loadPage(opts.Page.SessionState, opts.URL)
 	}
 	if !opts.Hidden {
 		w.Show()

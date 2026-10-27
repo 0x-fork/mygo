@@ -127,6 +127,49 @@ quits, on the main thread. Windows open with their options when there are
 no states or loading them fails; a save that fails is tried again the next
 time.
 
+### Bring a page back
+
+A window's position comes back with its `StateKey`; its page comes back
+with its session state: `Page.SessionState` saves the back/forward list,
+with the scroll positions and form fields the engine saved, and
+`PageOptions.SessionState` brings it back in a new window or web view, in
+place of its `URL`, Back included. An app keeps the state where it keeps
+its data, to bring the page back at the next launch, or to close a page it
+isn't showing and bring it back later, as a browser's sleeping tabs:
+
+```go
+win.OnClose(func(e *mygo.CloseEvent) {
+	if state, err := win.Page().SessionState(); err == nil {
+		os.WriteFile(sessionFile, state, 0o600)
+	}
+})
+
+// At the next launch:
+state, _ := os.ReadFile(sessionFile)
+win := mygo.NewWindow(mygo.WindowOptions{StateKey: "main", URL: "/", Page: mygo.PageOptions{SessionState: state}})
+```
+
+The state is opaque bytes in a format MyGo versions: the page's URL and the
+engine's own state. A state the platform can't read, saved on another
+platform or by a web engine that encodes it otherwise, brings back the page
+it was at alone, and one that is no state at all (a missing file) loads
+`URL`. It may hold what the user typed into forms: keep it as the user's
+data. The HTML that `LoadHTML` loaded is not in it.
+
+WebKit saves the scroll positions and form fields as it goes: the scroll
+position of the page it shows a moment after the user stops scrolling
+(WebKitGTK 2.38 and Safari 16's WebKit or later), its form fields only as
+it goes out of view (its window hidden, for one), and the other entries'
+scroll positions as the page leaves them. A state saved since has them, so a page saved
+while it shows comes back at its scroll position, but with the form fields
+it had when it last went out of view.
+
+| Platform | Session state |
+|---|---|
+| macOS | `WKWebView`'s `interactionState`, macOS 12 or later; the page's URL alone before |
+| Linux | `webkit_web_view_get_session_state`, serialized, and `webkit_web_view_restore_session_state` |
+| Windows | the page's URL alone: WebView2 has no API for the back/forward list |
+
 ## Size, position and state
 
 ```go

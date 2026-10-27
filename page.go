@@ -230,4 +230,12 @@ type PageOptions struct {
 	// with CallerPage(r.Context()), but it cannot read the responses of
 	// other origins than its own.
 	Untrusted bool
+	// SessionState brings back a page as Page.SessionState saved it, in
+	// place of the window's or web view's URL: its back/forward list,
+	// with the scroll positions and form fields saved, at the entry it
+	// was at. Where the platform keeps no such state (Windows), or can't
+	// read this one (it comes from another platform, or a version of the
+	// web engine that encodes it otherwise), the page loads the URL it
+	// was at alone; a state that isn't one loads URL.
+	SessionState []byte
 }
