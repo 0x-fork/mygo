@@ -121,7 +121,7 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
 - [Link](link.md): text that opens a URL, or a page of a router.
 - [Menu button](menu-button.md): a button opening a menu below it.
 - [Context menu](context-menu.md): a menu of the system's for any element,
-  on a right click.
+  on a right click, or one MyGo draws in the window with the theme's look.
 - [Toggle](toggle.md): a button that stays pressed, and toggles joined in a
   group.
 - [Segmented control](segmented.md): segments choosing one of a few views.

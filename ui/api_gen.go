@@ -3346,6 +3346,8 @@ func (_handle Element) ContentTransition(t ContentTransition) Element {
 //		m.Separator()
 //		m.EditItems()
 //	})
+//
+// PopoverMenu draws the same menu in the window, with the theme's look.
 func (_handle Element) ContextMenu(build func(m *Menu)) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -4977,6 +4979,47 @@ func (_handle Element) PointerPosition() (float32, float32, bool) {
 	return _node.PointerPosition()
 }
 
+// PopoverMenu gives the element a context menu, as ContextMenu does, which
+// MyGo draws in the window with the theme's look, as a popover, rather
+// than the system showing one of its own. It opens where the element is
+// clicked with the secondary button, or Control-clicked on macOS, and,
+// while the element or one inside it has the focus, below it when the
+// menu key or Shift+F10 is pressed. build fills it with the items
+// ContextMenu's function takes, and the item chosen reports Chosen as
+// there:
+//
+//	row.PopoverMenu(func(m *ui.Menu) {
+//		if m.Item("Rename").Shortcut(0, ui.KeyF2).Chosen() {
+//			app.renaming = i
+//		}
+//		if m.Item("Pinned").Checked(note.pinned).Chosen() {
+//			note.pinned = !note.pinned
+//		}
+//		m.Separator()
+//		if m.Item("Delete").Disabled(note.locked).Chosen() {
+//			app.delete(i)
+//		}
+//	})
+//
+// The menu takes the focus as it opens and gives it back as it closes, to
+// the element that had it. Up and Down move among its items, past those
+// disabled, as do Home, End and typing the first letters of an item;
+// Right opens a submenu and Left closes it, the other way round right to
+// left (Direction); Enter and Space choose an item, Escape closes the
+// submenu on top, and a press outside the menu closes it. It shows below
+// and after where it opened, and on the other side where the window has
+// no room. Assistive technology sees a menu of items, check box items and
+// radio items, as the system's.
+func (_handle Element) PopoverMenu(build func(m *Menu)) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PopoverMenu(build))
+}
+
 // Pressed reports whether the element is being pressed with the pointer,
 // unless it is disabled.
 func (_handle Element) Pressed() bool {
@@ -4996,7 +5039,8 @@ func (_handle Element) Pressed() bool {
 // closes then, the press going on to what is under the pointer, as
 // PopoverBase does. The last press decides: one on the button opening a
 // popover after a press elsewhere, as on a web view's page, in the same
-// frame, keeps it open.
+// frame, keeps it open. A press before the element showed, as the one
+// opening it, is not outside it: an Overlay opened by a press stays.
 func (_handle Element) PressedOutside() bool {
 	_node := _handle.node()
 	if _node == nil {

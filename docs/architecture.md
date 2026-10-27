@@ -3155,7 +3155,9 @@ either.
   a popover to its anchor, which keeps presses in popovers of elements
   inside the panel, and on its anchor, inside it, as the press goes on to
   what is under it; a press on the anchor after one elsewhere in the same
-  pass, as on a web view's page, leaves open the popover it opens. A select's popup keeps a backdrop taking the presses outside,
+  pass, as on a web view's page, leaves open the popover it opens, and an
+  element the frame first builds was pressed outside of by none, as the
+  press opening it is still in `downs` when a quick click opens it. A select's popup keeps a backdrop taking the presses outside,
   as the system's pop-up menus do.
 - **Web views** (`webview.go`, `ui/webview.go`, `webview.go` of each
   backend). `Window.NewWebView` makes a web view of a window showing
@@ -3260,7 +3262,22 @@ either.
   main loop, since native menus wait in a loop of their own. A choice
   comes back as the item's place and label, which the next frame's run of
   the function matches to report `Chosen`; text inputs' menus queue their
-  editing commands instead.
+  editing commands instead. `PopoverMenu` opens the same way and draws
+  the menu in the window instead (`ui/popovermenu.go`): the frame that
+  would show it notes it (`menuState.drawn`: where it opened, from the
+  element's corner, and the submenus open with their highlights), and
+  while it shows, each frame runs the function to collect the
+  `platform.Menu` and builds from it an overlay of a point attached to
+  the element where the menu opened, so that the menu flips about that
+  point at the window's edges, and a panel (`RoleMenu`) for the menu and
+  each submenu open, each attached to the item opening it. A panel keeps
+  the focus for its items, which the keys and the pointer highlight
+  (`ActiveDescendant`), and the menu closes for presses outside it but in
+  the frame it opened, whose press opened it. An item chosen runs the
+  function again at once, as the choice from a menu of the system's does
+  in the next frame, or does its editing command; the overlay going gives
+  the focus back to the element that had it. A menu whose element a pass
+  does not build closes (`resolveMenu`).
 - **Scenes** are flat lists of operations in device pixels: rounded
   rectangles with borders of a width per side, solid or dashed, filled
   with a color, a linear gradient mixed in sRGB or Oklab, a gradient of
