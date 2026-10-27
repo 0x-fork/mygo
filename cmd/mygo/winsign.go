@@ -24,6 +24,12 @@ type Windows struct {
 	// and the files that name or slug names keep their names, so that an
 	// app named "weather" shows as "天气助手" (default: name).
 	DisplayName string `json:"displayName"`
+	// InstallDirName is the name of the folder the installer installs the
+	// app in, in %LOCALAPPDATA%\Programs, when it is not name, e.g. an ASCII
+	// "ZhiLian" for an app named "智链"; the shortcuts and everything else
+	// Windows shows keep the name. Changing it moves new installs only:
+	// an installed app is updated in its folder (default: name).
+	InstallDirName string `json:"installDirName"`
 	// Certificate is a code signing certificate (.pfx) to sign the
 	// executable, the installer and its uninstaller with, which keeps
 	// SmartScreen from warning users; signing the uninstaller needs NSIS

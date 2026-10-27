@@ -388,6 +388,77 @@ func TestNSISDisplayName(t *testing.T) {
 	}
 }
 
+// TestNSISInstallDirName checks windows.installDirName: it names the
+// install folder, and nothing else, while the executable, the shortcuts,
+// the entry in Settings > Apps and the messages keep the name; the
+// installer of a later version installs where the app is. makensis takes
+// InstallDirRegKey in TestNSISDisplayName's scripts.
+func TestNSISInstallDirName(t *testing.T) {
+	key := `Software\Microsoft\Windows\CurrentVersion\Uninstall\com.example.zhilian`
+	for _, tc := range []struct {
+		installDirName, dir string
+	}{
+		{"", "智链"},
+		{"  ", "智链"},
+		{" ZhiLian ", "ZhiLian"},
+		{"Wen Jing $1", "Wen Jing $$1"},
+	} {
+		c := &Config{Name: "智链", Identifier: "com.example.zhilian", Version: "1.0.0", Windows: Windows{InstallDirName: tc.installDirName}}
+		exe := c.executableName() + ".exe"
+		script, err := installerScript(c, `C:\out\setup.exe`, exe, "  File \"C:\\stage\\"+exe+"\"\n", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range []string{
+			`InstallDir "$LOCALAPPDATA\Programs\` + tc.dir + `"` + "\n",
+			`InstallDirRegKey HKCU "` + key + `" "InstallLocation"` + "\n",
+			"\nName \"智链\"\n",
+			`CreateShortCut "$SMPROGRAMS\智链.lnk" "$INSTDIR\智链.exe"`,
+			`CreateShortCut "$DESKTOP\智链.lnk" "$INSTDIR\智链.exe"`,
+			`"DisplayName" "智链"`,
+			`"DisplayIcon" "$INSTDIR\智链.exe"`,
+			`"InstallLocation" "$INSTDIR"`,
+			`"智链 is running. Close it to continue?"`,
+			`RMDir /r "$INSTDIR"`,
+		} {
+			if !strings.Contains(script, s) {
+				t.Errorf("%q: no %q in:\n%s", tc.installDirName, s, script)
+			}
+		}
+		if tc.dir != "智链" && strings.Contains(script, `Programs\智链`) {
+			t.Errorf("%q: the script names the folder after the name:\n%s", tc.installDirName, script)
+		}
+	}
+}
+
+// TestNSISSourceLanguage checks that the installer of an app written in
+// Chinese alone is in Chinese only, and that of an app with more languages
+// in each of them, the app's own first, which it falls back to.
+func TestNSISSourceLanguage(t *testing.T) {
+	for _, tc := range []struct {
+		catalogs map[string]string
+		want     string
+	}{
+		{map[string]string{"zh-Hans.json": "{}"}, "!insertmacro MUI_LANGUAGE \"SimpChinese\"\n"},
+		{map[string]string{"zh-Hans.json": "{}", "en.json": "{}"}, "!insertmacro MUI_LANGUAGE \"SimpChinese\"\n!insertmacro MUI_LANGUAGE \"English\"\n"},
+	} {
+		c := project(t, `{"name": "智链", "identifier": "com.example.zhilian", "version": "1.0.0", "i18n": {"source": "zh-Hans"}}`, tc.catalogs)
+		script, err := installerScript(c, `C:\out\setup.exe`, "智链.exe", "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got string
+		for _, line := range strings.SplitAfter(script, "\n") {
+			if strings.HasPrefix(line, "!insertmacro MUI_LANGUAGE ") {
+				got += line
+			}
+		}
+		if got != tc.want {
+			t.Errorf("with %v, the installer's languages are\n%swant\n%s", tc.catalogs, got, tc.want)
+		}
+	}
+}
+
 // TestNSISHooks checks windows.installerInclude: the installer includes the
 // script after MUI2.nsh and the languages, and runs its customInit,
 // customInstall and customUnInstall macros, each only when the script

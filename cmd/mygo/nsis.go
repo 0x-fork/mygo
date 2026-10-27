@@ -198,7 +198,11 @@ ManifestDPIAware true
 SetCompressor /SOLID lzma
 ` + nsisName(c.windowsName()) + `
 OutFile ` + nsisString(out) + `
-` + signing + `InstallDir "$LOCALAPPDATA\Programs\` + nsisEscape(fsName(c.Name)) + `"
+` + signing + `InstallDir "$LOCALAPPDATA\Programs\` + nsisEscape(c.installDirName()) + `"
+; An installed app is updated in its folder, the one the user chose or the
+; one of a version with another windows.installDirName, as install.ps1 and
+; the app's own updates do.
+InstallDirRegKey HKCU ` + nsisString(uninstallKey) + ` "InstallLocation"
 RequestExecutionLevel user
 BrandingText " "
 ` + icon + `!define MUI_FINISHPAGE_RUN "$INSTDIR\` + nsisEscape(exe) + `"

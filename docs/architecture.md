@@ -4189,9 +4189,12 @@ renderer's (`gputest.Compare`).
   remove what the previous build placed and this one lacks.
 - Packages for the other platforms. Windows gets "<name> Setup
   <version>.exe", made with NSIS (`nsis.go`): a per-user install in
-  `%LOCALAPPDATA%\Programs\<name>`, where the updater can write, a Start
-  menu shortcut, a desktop shortcut that the finish page's second check
-  box (MUI's "show readme" one) creates, and an uninstaller registered
+  `%LOCALAPPDATA%\Programs\<name>` (`windows.installDirName` names the
+  folder otherwise), where the updater can write and where the installers
+  of later versions install too (`InstallDirRegKey` reads the uninstall
+  entry's `InstallLocation`), a Start menu shortcut, a desktop shortcut
+  that the finish page's second check box (MUI's "show readme" one)
+  creates, and an uninstaller registered
   under `HKCU\…\Uninstall\<identifier>`; `/S /D=<dir>` installs
   silently, without the desktop shortcut. The uninstaller runs from a
   copy of itself that nothing waits for, so it removes the app's folder
