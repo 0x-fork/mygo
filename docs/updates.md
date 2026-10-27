@@ -264,6 +264,8 @@ func checkForUpdates(ctx context.Context) {
 - `Enabled` reports whether the app can update itself: it was built with
   updates, and it can write where it is installed. Development builds
   cannot, and `Check` returns `mygo.ErrUpdatesDisabled` in them.
+- `Check` and `Install` go through the proxy of the system's settings,
+  or of `HTTPS_PROXY` when it is set (see [proxies](native.md#proxies)).
 
 ## Your own update service
 

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/internal/update"
+	"github.com/egoist/mygo/netproxy"
 )
 
 // Set by `mygo build` with -ldflags -X when mygo.config.ts configures updates:
@@ -535,7 +536,7 @@ func cleanUpdateLeftovers() {
 }
 
 // httpGet fetches a URL over HTTPS (or plain HTTP from the loopback
-// interface, for tests).
+// interface, for tests), through the system's proxy (package netproxy).
 func httpGet(ctx context.Context, rawURL string) (io.ReadCloser, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -552,7 +553,7 @@ func httpGet(ctx context.Context, rawURL string) (io.ReadCloser, error) {
 	// answers 400 to a User-Agent with bytes outside ASCII, as 云音乐, for
 	// every file its CDN has not cached yet.
 	req.Header.Set("User-Agent", "mygo-updater")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Transport: netproxy.Transport()}).Do(req)
 	if err != nil {
 		return nil, err
 	}
