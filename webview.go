@@ -88,8 +88,17 @@ func (w *Window) newWebView(opts WebViewOptions, bg *background) (*WebView, erro
 		pw.background = nil
 	}
 	pw.devTools = popts.DevTools
+	if s := opts.Page.Session; s != nil {
+		store, err := s.attach()
+		if err != nil {
+			return nil, fmt.Errorf("mygo: cannot create a web view: %w", err)
+		}
+		pw.joinSession(s)
+		popts.DataStore = store
+	}
 	nv, err := w.conn.Surface.NewWebView(popts, &windowHandler{pw})
 	if err != nil {
+		pw.detachSession()
 		return nil, fmt.Errorf("mygo: cannot create a web view: %w", err)
 	}
 	pw.native = &webViewNative{Window: w.native, web: nv}
@@ -190,6 +199,7 @@ func (w *Window) destroyWebView() {
 	n.web.Close()
 	w.native = nil
 	w.destroyed.Store(true)
+	w.detachSession()
 	windows.Lock()
 	if h := w.host; h != nil {
 		for i, x := range h.webViews {

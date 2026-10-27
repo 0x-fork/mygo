@@ -49,6 +49,10 @@ type Backend struct {
 
 	// cookies gives cookie calls a cookie manager (cookies.go).
 	cookies cookieStore
+	// stores are the profiles of sessions (session.go), privateStores
+	// the number of InPrivate ones made.
+	stores        []*dataStore
+	privateStores int
 
 	menus menuTable
 
@@ -655,11 +659,12 @@ func (a appController) Package() (platform.PackageInfo, bool) {
 	return info, true
 }
 
-// ClearBrowsingData clears the profile the app's web views share, through
-// the web view cookie calls use: a window's, or a hidden one before a
-// window shows a page (cookies.go).
-func (a appController) ClearBrowsingData(done func(error)) {
-	a.withCookieManager(func(_ []platform.Cookie, err error) { done(err) }, func(r *cookieRequest) {
+// ClearBrowsingData clears the profile of store, the one the app's web
+// views share for nil, through the web view cookie calls use: a window's,
+// or a hidden one before a window shows a page (cookies.go). SiteDataAll
+// is ClearBrowsingDataAll, other types ClearBrowsingData of their kinds.
+func (a appController) ClearBrowsingData(store platform.DataStore, types platform.SiteData, done func(error)) {
+	a.withCookieManager(store, func(_ []platform.Cookie, err error) { done(err) }, func(r *cookieRequest) {
 		wv13 := queryInterface(r.webview, &iidICoreWebView2_13)
 		if wv13 == 0 {
 			r.finish(nil, errors.New("mygo: clearing browsing data needs a newer WebView2 Runtime"))
@@ -681,7 +686,12 @@ func (a appController) ClearBrowsingData(done func(error)) {
 				return
 			}
 			r.finish(nil, nil)
-		}, func(h uintptr) uintptr { return comCall(p2, profile2ClearBrowsingDataAll, h) })
+		}, func(h uintptr) uintptr {
+			if types.All() {
+				return comCall(p2, profile2ClearBrowsingDataAll, h)
+			}
+			return comCall(p2, profile2ClearBrowsingData, browsingDataKinds(types), h)
+		})
 		if failed(hr) {
 			r.finish(nil, hresultError("clearing browsing data", hr))
 		}

@@ -168,12 +168,7 @@ func (s *surface) NewWebView(o *platform.WindowOptions, h platform.WindowHandler
 // createEmbedded asks WebView2 for the composition controller of a web
 // view in a window of native UI, through handler.
 func (w *window) createEmbedded(handler uintptr) uintptr {
-	env3 := queryInterface(w.b.env, &iidICoreWebView2Environment3)
-	if env3 == 0 {
-		return 0x80004002 // E_NOINTERFACE: a runtime older than visual hosting
-	}
-	defer release(env3)
-	return comCall(env3, env3CreateCompositionController, w.host.surface.hwnd, handler)
+	return w.b.createController(storeOf(w.opts.DataStore), w.host.surface.hwnd, true, handler)
 }
 
 // setUpEmbedded connects a web view's composition controller to its

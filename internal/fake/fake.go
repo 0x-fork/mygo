@@ -105,10 +105,13 @@ type Backend struct {
 	// ActivationToken is the token of WithActivationToken while its
 	// function runs.
 	ActivationToken string
-	// Cleared counts ClearBrowsingData calls.
+	// Cleared counts ClearBrowsingData calls for the default store.
 	Cleared int
-	// cookies holds the cookies of the pages, by name, domain and path.
+	// cookies holds the cookies of the default store's pages, by name,
+	// domain and path.
 	cookies map[platform.CookieKey]platform.Cookie
+	// DataStores are the stores NewDataStore made, in order.
+	DataStores []*DataStore
 	// contentLists are the content rule lists compiled, by identifier;
 	// ContentRuleCompiles counts the compiles.
 	contentLists        map[string]*ContentRuleList
@@ -970,14 +973,6 @@ func (a app) OpenAtLogin(id, name, arg string) bool {
 func (app) OpenedAtLogin() bool { return false }
 
 func (a app) SetDockMenu(m *platform.Menu) { a.b.mu.Lock(); a.b.DockMenu = m; a.b.mu.Unlock() }
-
-func (a app) ClearBrowsingData(done func(error)) {
-	a.b.mu.Lock()
-	a.b.Cleared++
-	clear(a.b.cookies)
-	a.b.mu.Unlock()
-	done(nil)
-}
 
 func (a app) IsURLSchemeRegistered(scheme, id, name string) bool {
 	a.b.mu.Lock()

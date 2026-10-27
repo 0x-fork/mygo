@@ -126,6 +126,10 @@ func (w *window) createWebView() {
 		w.webViewFailed(w.b.envErr)
 		return
 	}
+	if w.opts.DataStore != nil && !w.b.hasProfiles() {
+		w.webViewFailed(errNoProfiles)
+		return
+	}
 	fail := testFailWebViews > 0
 	if fail {
 		testFailWebViews--
@@ -163,7 +167,7 @@ func (w *window) createWebView() {
 		if w.host != nil {
 			return w.createEmbedded(h)
 		}
-		return comCall(w.b.env, envCreateController, w.hwnd, h)
+		return w.b.createController(storeOf(w.opts.DataStore), w.hwnd, false, h)
 	})
 	if failed(hr) {
 		w.creationFailed(hr)
@@ -323,7 +327,7 @@ func (w *window) becomeReady() {
 		return
 	}
 	w.ready = true
-	w.b.closeCookieView()
+	w.b.closeCookieView(w.b.cookiesOf(w.opts.DataStore))
 	pending := w.pending
 	w.pending = nil
 	for i, c := range pending {

@@ -263,6 +263,12 @@ type PageOptions struct {
 	// ContentRules block what the page loads and hide parts of it, as
 	// Page.SetContentRules does, from its first load.
 	ContentRules []*ContentRules
+	// Session is the website data store of the page: its cookies, storage
+	// and caches, which the pages of other sessions don't see. nil is the
+	// default session. A window opened by window.open keeps its opener's
+	// session, whatever the Session of the options its open handler
+	// returns.
+	Session *Session
 	// Untrusted makes the page someone else's, whatever its URL: a
 	// plugin's UI or a preview of a user's HTML served from a custom
 	// scheme. TrustedOrigins no longer count, and the page:

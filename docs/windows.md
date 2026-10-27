@@ -591,6 +591,7 @@ mygo.NewWindow(mygo.WindowOptions{
 | `PinchZoom` | a pinch magnifies the page, as in browsers, see [gestures](#swipes-and-pinches) |
 | `UserAgentSuffix` | appended to the user agent instead of replacing it, which `UserAgent` does, such as `"MyApp/1.2"`; it appends to `UserAgent` too, and `SetUserAgent` keeps it, and leading and trailing spaces are trimmed |
 | `ContentRules` | rules that block what the page loads and hide parts of it, see [blocking content](#blocking-content) |
+| `Session` | the store of the page's cookies, storage and caches, apart from other sessions', see [sessions](app.md#sessions); nil is the default session |
 
 `UserAgentSuffix` is for the sites that want to see the app, and for the ones
 that serve a bare web view older pages because its user agent names no browser:

@@ -452,6 +452,9 @@ func (w *window) createWebView(content NSRect) {
 		for _, s := range o.Schemes {
 			send(cfg, "setURLSchemeHandler:forURLScheme:", uintptr(schemeHandler()), uintptr(nsString(s)))
 		}
+		if o.DataStore != nil { // a session's (session.go)
+			send(cfg, "setWebsiteDataStore:", uintptr(websiteDataStore(o.DataStore)))
+		}
 	}
 	prefs := send(cfg, "preferences")
 	send(prefs, "setValue:forKey:", uintptr(nsBool(o.DevTools)), uintptr(nsString("developerExtrasEnabled")))

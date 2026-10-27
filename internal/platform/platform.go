@@ -202,17 +202,23 @@ type AppController interface {
 	SetDockIcon(png []byte) error
 	// SetDockMenu sets the menu of the Dock icon (macOS); nil removes it.
 	SetDockMenu(m *Menu)
-	// ClearBrowsingData deletes the data pages stored; done runs on the
-	// main thread.
-	ClearBrowsingData(done func(error))
-	// Cookie operations address the default page store. Calls and exactly-once
-	// completions run on main; ListCookies returns independent Go values:
-	// every cookie, or with an http or https url the cookies a request to
-	// it sends (CookieMatchesURL where the engine cannot tell).
-	ListCookies(url string, done func([]Cookie, error))
-	SetCookie(cookie Cookie, done func(error))
-	DeleteCookie(key CookieKey, done func(error))
-	ClearCookies(done func(error))
+	// NewDataStore makes a website data store other than the default one
+	// (mygo.Session), which WindowOptions.DataStore and the calls below
+	// take. The core makes one store per session and closes it with
+	// DataStore.Close.
+	NewDataStore(opts DataStoreOptions) (DataStore, error)
+	// ClearBrowsingData deletes the data of types pages stored in store,
+	// nil for the default one; done runs on the main thread.
+	ClearBrowsingData(store DataStore, types SiteData, done func(error))
+	// Cookie operations address store, nil for the default page store.
+	// Calls and exactly-once completions run on main; ListCookies returns
+	// independent Go values: every cookie, or with an http or https url
+	// the cookies a request to it sends (CookieMatchesURL where the engine
+	// cannot tell).
+	ListCookies(store DataStore, url string, done func([]Cookie, error))
+	SetCookie(store DataStore, cookie Cookie, done func(error))
+	DeleteCookie(store DataStore, key CookieKey, done func(error))
+	ClearCookies(store DataStore, done func(error))
 	// CompileContentRules makes a content rule list of rules, in WebKit's
 	// content blocker JSON format: it loads the list kept as identifier
 	// (ContentRulesIdentifier) where the engine keeps compiled lists,
@@ -403,6 +409,10 @@ type WindowOptions struct {
 	// PinchZoom lets a pinch magnify the page; the backends turn it off
 	// where their webview has it on by default (mygo.PageOptions.PinchZoom).
 	PinchZoom bool
+	// DataStore is the website data store of the page, one of
+	// AppController.NewDataStore; nil is the default store. A window
+	// opened by window.open has its opener's.
+	DataStore DataStore
 	// Native carries backend specific state, e.g. the WKWebViewConfiguration
 	// WebKit hands us for window.open().
 	Native uintptr
@@ -412,6 +422,51 @@ type WindowOptions struct {
 	// webview methods do nothing and the webview options are ignored.
 	Surface bool
 }
+
+// DataStoreOptions describe a website data store (AppController.NewDataStore).
+type DataStoreOptions struct {
+	// ID identifies a persistent store from one run to the next: a UUID
+	// in lowercase hex with dashes, which the core derives from the
+	// session's name. It is empty for an ephemeral store.
+	ID string
+	// Ephemeral keeps the store's data in memory, where it goes with the
+	// store.
+	Ephemeral bool
+	// DataDir and CacheDir are where a persistent store keeps its data and
+	// its caches, for the backends that choose (Linux).
+	DataDir, CacheDir string
+}
+
+// DataStore is a website data store a backend made: cookies, local and
+// session storage, IndexedDB, caches and service workers that the pages
+// using it share, apart from those of other stores.
+type DataStore interface {
+	// Close lets the store go once the backend no longer needs it: the
+	// core calls it when no page uses an ephemeral store, whose data then
+	// goes, and makes another store for the session's next page. Calls
+	// under way finish.
+	Close()
+}
+
+// SiteData are kinds of data pages store, for ClearBrowsingData.
+type SiteData uint
+
+const (
+	SiteDataCookies SiteData = 1 << iota
+	// SiteDataLocalStorage is localStorage and sessionStorage.
+	SiteDataLocalStorage
+	// SiteDataIndexedDB is IndexedDB, and WebSQL where the engine has it.
+	SiteDataIndexedDB
+	// SiteDataCaches is the HTTP caches, and Cache Storage.
+	SiteDataCaches
+	SiteDataServiceWorkers
+	// SiteDataAll is all the data the engine keeps for sites, the kinds
+	// above and the others (HSTS, media keys, …).
+	SiteDataAll SiteData = 1<<iota - 1 | 1<<31
+)
+
+// All reports whether t asks for all the data, SiteDataAll.
+func (t SiteData) All() bool { return t&SiteDataAll == SiteDataAll }
 
 // UserScript is JavaScript injected into pages.
 type UserScript struct {

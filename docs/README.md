@@ -87,7 +87,8 @@ What every app has, whether its windows show native UI or web pages.
   navigation, downloads, permissions, printing.
 - [The application](app.md): the lifecycle, quitting, a single instance,
   deep links, file associations, recent documents, starting at login,
-  well-known directories, the jump list, browsing data and cookies.
+  well-known directories, the jump list, browsing data, cookies and
+  sessions.
 - [Menus and the tray](menus.md): application, context and Dock menus,
   keyboard shortcuts and tray icons.
 - [Documents](documents.md): document-based apps, a window per file, with

@@ -1973,6 +1973,7 @@ var needsAppCalls = []struct {
 	{"App.SetBadgeCount", func() { App.SetBadgeCount(1) }},
 	{"App.ShowAboutPanel", func() { App.ShowAboutPanel(AboutPanelOptions{}) }},
 	{"App.ClearBrowsingData", func() { App.ClearBrowsingData() }},
+	{"Session.ClearData", func() { NewEphemeralSession().ClearData(SiteDataAll) }},
 	{"App.Dock.SetBadge", func() { App.Dock.SetBadge("1") }},
 	{"App.Dock.Badge", func() { App.Dock.Badge() }},
 	{"App.Dock.Bounce", func() { App.Dock.Bounce(false) }},

@@ -299,10 +299,7 @@ func (w *window) createWebView() {
 		w.b.webLanguages = true
 		w.b.applyWebLanguages()
 	}
-	for _, s := range o.Schemes {
-		w.b.registerScheme(s)
-	}
-	w.web = webkitWebViewNewWithUserContentManager(w.ucm)
+	w.web = w.newWebView()
 	webkitUserContentManagerRegisterHandler(w.ucm, cs("mygo"))
 	connect(w.ucm, "script-message-received::mygo", cbScriptMessage, data)
 	w.addUserScripts()
