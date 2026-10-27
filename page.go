@@ -149,6 +149,48 @@ func (p *Page) SetAudioMuted(muted bool) {
 // the window closed.
 func (p *Page) IsAudioMuted() bool { return pageGet(p.w, platform.Window.IsAudioMuted) }
 
+// TogglePictureInPicture moves a video of the page into picture in
+// picture, a small window floating over every app's, or back into the
+// page when one is out, as the button of a video's controls does, for a
+// menu item or a shortcut of the app; the page needs no click. Which video
+// is the platform's choice, and it does nothing when the page has none it
+// can move, for a window showing native UI and after the window closed:
+//
+//   - macOS: WebKit's private -[WKWebView _togglePictureInPicture], for
+//     the video WebKit picks for its media controls, when
+//     _canTogglePictureInPicture says it can (a Mac with a Touch Bar),
+//     both looked up with respondsToSelector:, else the page's script,
+//     as on Windows; nothing in a page without
+//     PageOptions.PictureInPicture.
+//   - Windows: requestPictureInPicture() of the video playing, else of the
+//     largest, in the page's document, not its frames, as a user's
+//     gesture; document.exitPictureInPicture() for one out.
+//   - Linux: nothing, WebKitGTK has no picture in picture.
+func (p *Page) TogglePictureInPicture() { p.w.page(platform.Window.TogglePictureInPicture) }
+
+// IsPictureInPictureActive reports whether a video of the page is in
+// picture in picture, whoever put it there: TogglePictureInPicture, the
+// video's controls or the page's script. It is false for a window showing
+// native UI, after the window closed and where the platform can't tell:
+//
+//   - macOS: WebKit's private -[WKWebView _isPictureInPictureActive],
+//     looked up with respondsToSelector:, which knows of the media
+//     controls' picture in picture, else, in a page with
+//     PageOptions.PictureInPicture, its document.pictureInPictureElement,
+//     as on Windows.
+//   - Windows: the page's document.pictureInPictureElement, which a video
+//     of one of its frames leaves null; it asks the page, and waits for
+//     its answer.
+//   - Linux: always false.
+func (p *Page) IsPictureInPictureActive() bool {
+	ch := make(chan bool, 1)
+	asked := pageGet(p.w, func(n platform.Window) bool {
+		n.PictureInPictureActive(func(active bool) { deliver(ch, active) })
+		return true
+	})
+	return asked && await(ch)
+}
+
 func nrgba(c platform.Color) color.NRGBA { return color.NRGBA{R: c.R, G: c.G, B: c.B, A: c.A} }
 
 // PageOptions configure the web page of a window.
@@ -175,6 +217,15 @@ type PageOptions struct {
 	// By default Tab reaches links, buttons, checkboxes and selects too,
 	// as it does in Chrome, Electron and WebView2.
 	SafariTabFocus bool
+	// PictureInPicture lets the page's videos go into picture in picture,
+	// a small window floating over every app's, as they do in Safari: the
+	// button of a video's controls, the item of its context menu, and
+	// requestPictureInPicture() in the page's script (macOS, where
+	// WKWebView keeps it to Safari; MyGo turns it on with WebKit's private
+	// preference). WebView2 lets them whatever this says, and WebKitGTK
+	// has no picture in picture. Page.TogglePictureInPicture moves one
+	// from Go.
+	PictureInPicture bool
 	// SwipeNavigation lets a horizontal swipe go back and forward through
 	// the page's history, as browsers do. It is off by default, as an
 	// app's pages have their own way back:

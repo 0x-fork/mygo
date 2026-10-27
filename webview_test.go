@@ -101,6 +101,23 @@ func TestWebViewTabFocus(t *testing.T) {
 	}
 }
 
+// TestWebViewPictureInPicture passes PictureInPicture to a web view, whose
+// page moves its video into picture in picture.
+func TestWebViewPictureInPicture(t *testing.T) {
+	w, _, s := contentWindow(t, func(c *ui.Context) {})
+	v, err := w.NewWebView(WebViewOptions{Page: PageOptions{PictureInPicture: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if views := s.WebViews(); len(views) != 1 || !views[0].Opts.PictureInPicture {
+		t.Fatalf("web views %d: PictureInPicture not applied", len(views))
+	}
+	v.Page().TogglePictureInPicture()
+	if !v.Page().IsPictureInPictureActive() {
+		t.Error("TogglePictureInPicture did not reach the web view")
+	}
+}
+
 // TestPageGestures passes SwipeNavigation and PinchZoom to the backend for
 // a window's page and a web view's, both off unless asked for.
 func TestPageGestures(t *testing.T) {

@@ -305,3 +305,9 @@ func (n *webViewNative) CapturePage(cb func([]byte, error)) {
 func (n *webViewNative) PrintToPDF(opts platform.PDFOptions, cb func([]byte, error)) {
 	n.web.PrintToPDF(opts, cb)
 }
+func (n *webViewNative) TogglePictureInPicture() {
+	n.web.TogglePictureInPicture()
+}
+func (n *webViewNative) PictureInPictureActive(cb func(bool)) {
+	n.web.PictureInPictureActive(cb)
+}

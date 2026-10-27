@@ -1038,6 +1038,26 @@ func (w *window) IsAudioMuted() bool {
 	return w.getBool8(wv8GetIsMuted)
 }
 
+// TogglePictureInPicture runs platform.TogglePictureInPicture through the
+// DevTools protocol as a user's gesture, which
+// requestPictureInPicture() needs.
+func (w *window) TogglePictureInPicture() {
+	params, _ := json.Marshal(map[string]any{"expression": platform.TogglePictureInPicture, "userGesture": true})
+	w.withWebView(func() { w.devtools("Runtime.evaluate", string(params), nil) })
+}
+
+// PictureInPictureActive asks the page for its
+// document.pictureInPictureElement; false before the web view is made.
+func (w *window) PictureInPictureActive(cb func(bool)) {
+	if !w.ready || w.closed {
+		cb(false)
+		return
+	}
+	w.CallAsyncFunction(platform.PictureInPictureActive, func(s string, err error) {
+		cb(err == nil && s == "true")
+	})
+}
+
 // SessionState is nil: WebView2 has no API for the back/forward list,
 // so the core keeps the page's URL alone.
 func (w *window) SessionState() []byte { return nil }

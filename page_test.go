@@ -183,3 +183,38 @@ func TestPageAudio(t *testing.T) {
 	}
 	p.SetAudioMuted(false) // does nothing
 }
+
+// TestPagePictureInPicture passes PictureInPicture to the backend, and
+// moves the page's video into picture in picture and back.
+func TestPagePictureInPicture(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{Hidden: true, Page: PageOptions{PictureInPicture: true}})
+	if !fw.Opts.PictureInPicture {
+		t.Error("PictureInPicture not passed to the backend")
+	}
+	if _, plain := testWindow(t, WindowOptions{Hidden: true}); plain.Opts.PictureInPicture {
+		t.Error("picture in picture on by default")
+	}
+	p := w.Page()
+	if p.IsPictureInPictureActive() {
+		t.Error("a new page's video in picture in picture")
+	}
+	p.TogglePictureInPicture()
+	if !p.IsPictureInPictureActive() {
+		t.Error("TogglePictureInPicture did not move the video out")
+	}
+	// From the main thread, as an event listener asks.
+	if !onMainValue(p.IsPictureInPictureActive) {
+		t.Error("IsPictureInPictureActive on the main thread: false")
+	}
+	p.TogglePictureInPicture()
+	if p.IsPictureInPictureActive() {
+		t.Error("TogglePictureInPicture again did not move the video back")
+	}
+
+	p.TogglePictureInPicture()
+	w.Destroy()
+	if p.IsPictureInPictureActive() {
+		t.Error("a closed window's page: IsPictureInPictureActive true")
+	}
+	p.TogglePictureInPicture() // does nothing
+}

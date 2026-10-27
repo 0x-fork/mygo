@@ -393,6 +393,10 @@ type WindowOptions struct {
 	// text fields (macOS, WKPreferences.tabFocusesLinks); the other
 	// platforms reach them already.
 	TabFocusesLinks bool
+	// PictureInPicture lets the page's videos go into picture in picture
+	// (macOS, WebKit's private _allowsPictureInPictureMediaPlayback);
+	// WebView2 lets them already, and WebKitGTK has none.
+	PictureInPicture bool
 	// SwipeNavigation lets a swipe go back and forward through the page's
 	// history (mygo.PageOptions.SwipeNavigation).
 	SwipeNavigation bool
@@ -573,6 +577,16 @@ type Page interface {
 	// IsAudioMuted reports what SetAudioMuted set, false where the
 	// backend cannot mute.
 	IsAudioMuted() bool
+	// TogglePictureInPicture moves a video of the page into picture in
+	// picture, or the one out back into the page (see
+	// Page.TogglePictureInPicture in package mygo for which video); a
+	// backend that cannot does nothing.
+	TogglePictureInPicture()
+	// PictureInPictureActive tells cb whether a video of the page is in
+	// picture in picture, false where the backend cannot tell. cb runs on
+	// the main thread exactly once, maybe before PictureInPictureActive
+	// returns.
+	PictureInPictureActive(cb func(active bool))
 	// SessionState returns the engine's own state of the page's
 	// back/forward list, with the scroll positions and form state it
 	// saved of its entries, nil where the backend keeps none.

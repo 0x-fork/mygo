@@ -586,6 +586,7 @@ mygo.NewWindow(mygo.WindowOptions{
 | `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled`, which also turns WebView2's own keys, as F5 reloading, on or off (Windows); for a window of native UI, its [inspector](ui/inspector.md) |
 | `ZoomFactor`, `UserAgent` | the page's zoom (1 is 100%) and user agent |
 | `SafariTabFocus` | leaves Tab to text fields and elements with a tabindex, as Safari does unless the system's keyboard navigation is on; by default Tab reaches links, buttons, checkboxes and selects too (macOS) |
+| `PictureInPicture` | lets the page's videos go into picture in picture, see [picture in picture](#picture-in-picture) (macOS; WebView2 lets them already) |
 | `SwipeNavigation` | a horizontal swipe goes back and forward through the page's history, as in browsers, see [gestures](#swipes-and-pinches) |
 | `PinchZoom` | a pinch magnifies the page, as in browsers, see [gestures](#swipes-and-pinches) |
 | `UserAgentSuffix` | appended to the user agent instead of replacing it, which `UserAgent` does, such as `"MyApp/1.2"`; it appends to `UserAgent` too, and `SetUserAgent` keeps it, and leading and trailing spaces are trimmed |
@@ -729,6 +730,40 @@ counting, which can take a moment after the sound stops.
 Where a platform can't mute, `IsAudioMuted` is false. Both are false for a
 window showing native UI and after the window closed. A [web view's](ui/web-view.md)
 page has them too.
+
+### Picture in picture
+
+`PageOptions.PictureInPicture` lets a page's videos float out into picture
+in picture, a small window over every app's, as they do in Safari: the
+button of a video's controls, the item of its context menu, and
+`requestPictureInPicture()` in the page's script. WKWebView keeps it to
+Safari, so a page on macOS needs the option; WebView2 lets videos go
+whatever it says. `TogglePictureInPicture` moves a video out, or the one
+out back into the page, without a click in the page, and
+`IsPictureInPictureActive` tells whether one is out, whoever put it there:
+
+```go
+win := mygo.NewWindow(mygo.WindowOptions{
+	URL:  "/player",
+	Page: mygo.PageOptions{PictureInPicture: true},
+})
+
+// A menu item that floats the video of the window it was chosen for.
+pip := &mygo.MenuItem{Label: "Picture in Picture", Accelerator: "CmdOrCtrl+Shift+P", Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+	if win != nil && win.Page() != nil {
+		win.Page().TogglePictureInPicture()
+	}
+}}
+```
+
+| Platform | |
+|---|---|
+| macOS | WebKit's private `_allowsPictureInPictureMediaPlayback` preference, and `_togglePictureInPicture`, `_canTogglePictureInPicture` and `_isPictureInPictureActive` for the video WebKit picks for its media controls; all do nothing, or false, if WebKit stops answering them. A page that navigates with its video out is left out of the back/forward cache (private `_setUsesPageCache:`), from which WebKit would bring it back believing its video still out |
+| Windows | Chromium's, on in every page. `TogglePictureInPicture` calls `requestPictureInPicture()` of the video playing, else of the largest, in the page's document, not its frames, as a user's gesture, and `IsPictureInPictureActive` asks the page for `document.pictureInPictureElement`, which a video in a frame leaves null |
+| Linux | none: WebKitGTK has no picture in picture, so `TogglePictureInPicture` does nothing and `IsPictureInPictureActive` is false |
+
+Both do nothing, or false, for a window showing native UI and after the
+window closed. A [web view's](ui/web-view.md) page has them too.
 
 ### Find in page
 

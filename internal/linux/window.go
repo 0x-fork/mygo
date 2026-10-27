@@ -1223,6 +1223,14 @@ func (w *window) IsAudioMuted() bool {
 	return webkitWebViewGetIsMuted != nil && webkitWebViewGetIsMuted(w.web)
 }
 
+// TogglePictureInPicture does nothing: WebKitGTK has no picture in
+// picture.
+func (w *window) TogglePictureInPicture() {}
+
+// PictureInPictureActive is always false: WebKitGTK has no picture in
+// picture.
+func (w *window) PictureInPictureActive(cb func(bool)) { cb(false) }
+
 func (w *window) OpenDevTools() {
 	if w.opts.DevTools {
 		webkitWebInspectorShow(webkitWebViewGetInspector(w.web))
