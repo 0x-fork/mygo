@@ -79,6 +79,7 @@ func registerMenuTarget() {
 		method("mygoMenuItemClicked:", func(self id, _ objc.SEL, item id) {
 			theBackend.h.MenuItemClicked(sendInt(item, "tag"))
 		}),
+		method("mygoContextItemClicked:", contextItemClicked),
 	})
 }
 

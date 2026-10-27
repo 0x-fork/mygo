@@ -808,6 +808,52 @@ func TestGDIObjects() int {
 	return int(n)
 }
 
+// TestRightClickPage right-clicks (x, y), in CSS pixels, in the page of a
+// window's web view, with the mouse events of the DevTools protocol, as a
+// mouse does. The page's context menu opens later. It reports false for a
+// window without a web view.
+func TestRightClickPage(hwnd uintptr, x, y float64) bool {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.webview == 0 {
+		return false
+	}
+	for _, typ := range []string{"mousePressed", "mouseReleased"} {
+		w.devtools("Input.dispatchMouseEvent", fmt.Sprintf(`{"type":%q,"x":%g,"y":%g,"button":"right","buttons":2,"clickCount":1}`, typ, x, y), nil)
+	}
+	return true
+}
+
+// TestPageMenu returns the labels of the items of the popup menu the main
+// thread shows, without their mnemonics' ampersands, "-" for separators,
+// and false when it shows none: a page's context menu MyGo draws. The
+// menu WebView2 draws itself is not MyGo's to read.
+func TestPageMenu() ([]string, bool) {
+	popups := threadPopups()
+	if len(popups) == 0 {
+		return nil, false
+	}
+	labels := popupLabels(popups[0])
+	for i, l := range labels {
+		labels[i] = withoutAmpersands(l)
+	}
+	return labels, true
+}
+
+// TestChoosePageMenuItem chooses the item labeled label, without its
+// mnemonic's ampersand, of that menu, and reports whether it has one.
+func TestChoosePageMenuItem(label string) bool {
+	popups := threadPopups()
+	if len(popups) == 0 {
+		return false
+	}
+	for _, l := range popupLabels(popups[0]) {
+		if withoutAmpersands(l) == label {
+			return TestChoosePopupItem(l)
+		}
+	}
+	return false
+}
+
 // TestBackgroundThrottlingOff reports whether the page of a window, or of
 // its first web view, keeps running while it can't be seen: WebView2's
 // browser runs with unthrottledArguments, the one setting, which all

@@ -812,6 +812,11 @@ type WindowHandler interface {
 	// leaves them to the web view otherwise.
 	CertificateError(e CertificateError) bool
 	HandlesCertificateErrors() bool
+	// ContextMenu asks what the page's context menu shows, as it is
+	// about to open, and HandlesContextMenu whether to ask at all: a
+	// backend describes its menu only while it does.
+	ContextMenu(m *ContextMenu) ContextMenuResponse
+	HandlesContextMenu() bool
 
 	// SurfaceEvent delivers input on the window's Surface, and changes of
 	// it. For FileDragOver and FileDrop it reports whether the content
@@ -923,6 +928,15 @@ type MenuItem struct {
 	// Icon is the image beside the label, nil for none.
 	Icon    *MenuIcon
 	Submenu *Menu
+	// Native is set on the web view's own items of a page's context menu
+	// (WindowHandler.ContextMenu): the backend's number for the item,
+	// from 1, which it shows where the core puts it, doing what the web
+	// view does; ID is then not the backend's business. Name is such an
+	// item's name (ContextMenuReload and the other names of package mygo,
+	// else the platform's own), and Accelerator the platform's own text of
+	// its shortcut, shown as it is, where the backend draws the menu.
+	Native int
+	Name   string
 }
 
 // FileFilter restricts the files shown in file dialogs.

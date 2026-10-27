@@ -398,6 +398,35 @@ func pageGestures(w *mygo.Window, webView int) (swipe, pinch, ok bool) {
 // can't send it.
 func pinchPage(*mygo.Window, int, float64, float64, ...float64) bool { return false }
 
+// pageMenusHooked tells that the tests can right-click a page and read
+// the menu it opens, through rightClickPage, pageMenu, choosePageMenuItem
+// and dismissPageMenu. A menu WebView2 draws itself can't be read: the
+// tests change theirs, which MyGo draws.
+const pageMenusHooked = true
+
+// rightClickPage right-clicks (x, y) in a window's page, with the
+// DevTools protocol's mouse events.
+func rightClickPage(w *mygo.Window, x, y float64) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestRightClickPage(w.NativeHandle(), x, y) })
+	return ok
+}
+
+// pageMenu returns the labels of the items of the context menu MyGo
+// draws over a page, "-" for separators, and whether one is shown. The
+// modal loop of a menu runs the main thread's work.
+func pageMenu() (labels []string, shown bool) {
+	mygo.RunOnMain(func() { labels, shown = win.TestPageMenu() })
+	return labels, shown
+}
+
+// choosePageMenuItem chooses an item of that menu by its label.
+func choosePageMenuItem(label string) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestChoosePageMenuItem(label) })
+	return ok
+}
+
+func dismissPageMenu() { mygo.RunOnMain(win.TestEndMenu) }
+
 // takeForeground brings a window to the foreground, after Alt pressed and
 // released when Windows refuses it: a process that sent the last input may
 // take the foreground.

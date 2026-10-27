@@ -382,6 +382,13 @@ type Window struct {
 	audible          bool
 	onAudibleChanged listeners[func(bool)]
 
+	// contextTarget is what the bridge recorded of the page's latest
+	// contextmenu event, until a context menu opens; shownContextMenu
+	// the menu shown last, whose items' Click is found by their weak IDs
+	// once chosen (context_menu.go). Main thread only.
+	contextTarget    *contextTarget
+	shownContextMenu *Menu
+	onContextMenu    listeners[func(*ContextMenuEvent)]
 	// capture is what the backend last told of the page's capture of
 	// each CaptureKind (CaptureStateChanged), so that listeners hear only
 	// changes. Main thread only.
@@ -1918,6 +1925,7 @@ func (h *windowHandler) NavigationCommitted(url string) {
 	h.w.domReady = false
 	h.w.outMu.Unlock()
 	h.w.resetPage()
+	h.w.contextTarget = nil
 	h.w.themeColorPending = true
 	fire1(&h.w.onDidNavigate, url)
 }

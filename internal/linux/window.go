@@ -360,6 +360,7 @@ func (w *window) createWebView() {
 	connect(w.web, "drag-data-received", cbDragData, data)
 	connect(w.web, "drag-drop", cbDragDrop, data)
 	connect(w.web, "permission-request", cbPermission, data)
+	connect(w.web, "context-menu", cbContextMenu, data)
 	w.connectAuth(data)
 	hookDownloads()
 }

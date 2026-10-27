@@ -358,5 +358,33 @@ func pageGestures(w *mygo.Window, webView int) (swipe, pinch, ok bool) {
 // phases, which a test can't make.
 func pinchPage(*mygo.Window, int, float64, float64, ...float64) bool { return false }
 
+// pageMenusHooked tells that the tests can right-click a page and read
+// the menu it opens, through rightClickPage, pageMenu, choosePageMenuItem
+// and dismissPageMenu.
+const pageMenusHooked = true
+
+// rightClickPage right-clicks (x, y) in a window's page.
+func rightClickPage(w *mygo.Window, x, y float64) bool {
+	waitOnScreen(w)
+	mygo.RunOnMain(func() { darwin.TestRightClickPage(w.NativeHandle(), x, y) })
+	return true
+}
+
+// pageMenu returns the titles of the items of the web view's context menu
+// shown over a page, "-" for separators, and whether one is shown. AppKit
+// tracks the menu in a loop of its own, which runs the main thread's work.
+func pageMenu() (labels []string, shown bool) {
+	mygo.RunOnMain(func() { labels, shown = darwin.TestPageMenu() })
+	return labels, shown
+}
+
+// choosePageMenuItem chooses an item of that menu by its title.
+func choosePageMenuItem(label string) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestChoosePageMenuItem(label) })
+	return ok
+}
+
+func dismissPageMenu() { mygo.RunOnMain(darwin.TestDismissPageMenu) }
+
 // Only Windows' tests start a process that takes the foreground.
 func takeForeground(*mygo.Window) {}

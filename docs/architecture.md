@@ -934,6 +934,7 @@ Trust):
 | `{"t":"theme-color","v":"#rrggbbaa"}` | the page's theme color changed; `""` for none |
 | `{"t":"content-size","w":W,"h":H,"sw":SW,"sh":SH}` | the size of the content of a window that fits it, and the room of its scrollbars, in CSS pixels |
 | `{"t":"drag"}` / `{"t":"dblclick"}` | mousedown / double click on a drag region |
+| `{"t":"context-menu","x":X,"y":Y,"l":link,"lt":text,"i":image,"m":media,"s":selection,"e":true}` | the page's `contextmenu` event, not cancelled, at X, Y in CSS pixels: what it opens on, empty parts left out (kept only while `OnContextMenu` has a listener) |
 
 Go → page, batched into one `__mygo.receive([...])` evaluation per
 main-loop turn. JavaScriptCore runs a script of that shape, `a.b(JSON)`,
@@ -1830,6 +1831,24 @@ get (`Menu.Apply`).
 
 macOS gets a default menu bar (App, File, Edit, View, Window), which is what
 makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
+
+A page's own context menu (`context_menu.go`, `Page.OnContextMenu`) goes the
+other way: while a listener is set (`WindowHandler.HandlesContextMenu`), the
+backend describes the menu the web view is about to show as a
+`platform.ContextMenu` whose items carry a `Native` number and a `Name`,
+and asks `WindowHandler.ContextMenu`. The core makes a `Menu` of template
+items of them (`Menu.transient`, which refreshes no installed menu), fires
+the listeners, and answers `Default` when the snapshot still shows the
+web view's items as they were, none when prevented, else the snapshot,
+each native item at most once. A native item the app gave a `Click`
+leaves the snapshot as an item of the app's. What the backend does not tell
+of the target comes from the bridge's `context-menu` record of the page's
+`contextmenu` event, which arrives just before the backend's request on the
+same connection, and is taken only when its point, times the page's zoom,
+is the menu's (a frame's click never reaches the page's document); a new
+page drops it. macOS and Linux change the native menu in place; Windows
+draws a changed menu itself (see [Platform
+differences](#platform-differences)). Its code is linked by `OnContextMenu`.
 
 ## Clipboard and drag data (`transfer`)
 
@@ -4614,6 +4633,7 @@ which npm allows only for packages that exist: the first release uses an
 | sessions (`PageOptions.Session`) | a `WKWebsiteDataStore` set on each web view's configuration: `dataStoreForIdentifier:` of a UUID made of the name (macOS 14+; before, `nonPersistentDataStore` kept until the app quits), `nonPersistentDataStore` for an ephemeral one, released when its last page closes; `window.open` hands the opener's configuration over | a `WebKitWebContext` per session, made with `webkit_web_context_new_with_website_data_manager` of a manager with base data and cache directories in `Sessions/<UUID>` of the user data and cache directories, or `webkit_website_data_manager_new_ephemeral`; web views made with `g_object_new` and `web-context`, which keeps a reference to it; custom schemes, languages and downloads set up on each context; unreferenced when an ephemeral one's last page closes | a WebView2 profile per session (`ICoreWebView2Environment10`'s controller options: `put_ProfileName` `mygo-<UUID>`, or `mygo-private-<n>` with `put_IsInPrivateModeEnabled` for an ephemeral one, a new name for each of its stores); windows, web views in native UI and the cookie calls' hidden web views made with those options |
 | HTTP sign-in (`SetAuthHandler`) | `webView:didReceiveAuthenticationChallenge:completionHandler:`, `NSURLCredential` for the session; none: no prompt, the 401 page; empty answer: `RejectProtectionSpace` | `WebKitWebView::authenticate`, `webkit_credential_new` for the session; none: WebKitGTK's dialog; empty answer: authenticates without credentials | `ICoreWebView2_10`'s `BasicAuthenticationRequested`, scheme and realm parsed from its challenge, no proxy flag; none: WebView2's dialog; empty answer: `Cancel` |
 | certificate errors (`SetCertificateErrorHandler`) | the server trust challenge of every connection, checked with `SecTrustEvaluateAsyncWithError` while a handler is set, allowed with `credentialForTrust:` for that connection | `load-failed-with-tls-errors`, the main frame only; allowed with `webkit_web_context_allow_tls_certificate_for_host` (app-wide) and loaded again | `ICoreWebView2_14`'s `ServerCertificateErrorDetected`, every request, after `NavigationCompleted` failed; allowed with `ALWAYS_ALLOW` (app-wide) |
+| a page's context menu (`OnContextMenu`) | `-[NSView willOpenMenu:withEvent:]` of `MyGoWebView`, on a menu with an item of `forwardContextMenuAction:` or a `WKMenuItemIdentifier*`: items named by their identifier, else WebKit's tag or AppKit's action, emptied and filled again in place; the target from the bridge alone, matched by the event's point; the app's items are `buildItem`'s, sent to `mygoContextItemClicked:` and the menu's window | `WebKitWebView::context-menu`: items named by their stock action, labels from their `GtkAction`, state from their `GAction`; the hit test tells all but the selection; renamed stock items are new ones of the same action; the app's items wrap a `GSimpleAction` (`webkit_context_menu_item_new_from_gaction`) | `ICoreWebView2_11`'s `ContextMenuRequested`, with the whole target (`Complete`); a changed menu is `Handled`, built by `buildMenu` and tracked after a deferral, and a WebView2 item chosen is its `SelectedCommandId`; a runtime without `_11` never asks |
 | permissions | `WKUIDelegate` media capture (camera, microphone) | `permission-request` (camera, microphone, geolocation, notifications) | `PermissionRequested` (the same four; WebView2 asks about others) |
 | user agent | `customUserAgent`; `UserAgentSuffix` is the configuration's `applicationNameForUserAgent`, which a `window.open()` window does not inherit | `WebKitSettings:user-agent`; `UserAgentSuffix` appends application details, split at the first "/" | `ICoreWebView2Settings2`'s user agent, and a suffix appended to the settings' own user agent; a runtime without `Settings2` ignores both |
 | swipes and pinches (`SwipeNavigation`, `PinchZoom`) | `allowsBackForwardNavigationGestures` and `allowsMagnification` of the `WKWebView`, both off unless asked for | `WebKitSettings:enable-back-forward-navigation-gestures`; WebKitGTK has no setting for pinches, so the web view's `GtkGestureZoom`, which it keeps in its data as `wk-view-zoom-gesture` (2.38+), is given `GTK_PHASE_NONE` unless `PinchZoom`: it then sees neither a touchpad's pinch nor a touchscreen's | `ICoreWebView2Settings6`'s `IsSwipeNavigationEnabled` and `ICoreWebView2Settings5`'s `IsPinchZoomEnabled`, both on in WebView2 and put to the options' values in `setUp`, before the first navigation |

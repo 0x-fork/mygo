@@ -427,6 +427,16 @@ func clickSurface(handle uintptr, x, y float64, button uint32) bool {
 // TestClickPage clicks (x, y), in DIPs, in the page of a window's web
 // view, through XTEST, as a user clicks it.
 func TestClickPage(handle uintptr, x, y float64) bool {
+	return clickPage(handle, x, y, 1)
+}
+
+// TestRightClickPage clicks (x, y) in a window's page with the secondary
+// button, as TestClickPage does with the primary.
+func TestRightClickPage(handle uintptr, x, y float64) bool {
+	return clickPage(handle, x, y, 3)
+}
+
+func clickPage(handle uintptr, x, y float64, button uint32) bool {
 	w := windowByHandle(handle)
 	if w == nil || w.surface != nil || w.web == 0 {
 		return false
@@ -438,7 +448,7 @@ func TestClickPage(handle uintptr, x, y float64) bool {
 	if !TestMovePointer(int((float64(ox)+x)*scale), int((float64(oy)+y)*scale)) {
 		return false
 	}
-	return pressButton(1, true) && pressButton(1, false)
+	return pressButton(button, true) && pressButton(button, false)
 }
 
 // TestSideButton clicks a mouse's back or forward button (buttons 8 and
@@ -655,6 +665,85 @@ func TestDecorations(handle uintptr) Decorations {
 	d.Room = [4]int{int(box.X), int(box.Y), int(win.Width - box.X - box.Width), int(win.Height - box.Y - box.Height)}
 	d.Content = [2]int{int(content.Width), int(content.Height)}
 	return d
+}
+
+// pageMenu returns the context menu WebKitGTK shows over a page of ours, a
+// GtkMenu in a popup window attached to the web view, or 0.
+func pageMenu() ptr {
+	var toplevels func() ptr
+	var attached func(menu ptr) ptr
+	var menuType func() uintptr
+	if !bind(libGTK, &toplevels, "gtk_window_list_toplevels") || !bind(libGTK, &attached, "gtk_menu_get_attach_widget") ||
+		!bind(libGTK, &menuType, "gtk_menu_get_type") {
+		return 0
+	}
+	loadMenuIcons() // gtk_bin_get_child
+	list := toplevels()
+	defer gListFree(list)
+	for node := list; node != 0; node = field[ptr](node, 8) {
+		win := field[ptr](node, 0)
+		menu := gtkBinGetChild(win)
+		if menu == 0 || !gtkWidgetGetMapped(win) || !gTypeCheckInstanceIsA(menu, menuType()) {
+			continue
+		}
+		if theBackend.byWebView[attached(menu)] != nil {
+			return menu
+		}
+	}
+	return 0
+}
+
+// TestPageMenu returns the labels of the items of the context menu shown
+// over a page, without their mnemonics' underscores, "-" for separators,
+// and false when none is shown.
+func TestPageMenu() ([]string, bool) {
+	menu := pageMenu()
+	if menu == 0 {
+		return nil, false
+	}
+	labels := []string{}
+	list := gtkContainerGetChildren(menu)
+	defer gListFree(list)
+	for node := list; node != 0; node = field[ptr](node, 8) {
+		item := field[ptr](node, 0)
+		if !gtkWidgetGetVisible(item) {
+			continue
+		}
+		label := withoutMnemonic(goStr(gtkMenuItemGetLabel(item)))
+		if label == "" {
+			label = "-"
+		}
+		labels = append(labels, label)
+	}
+	return labels, true
+}
+
+// TestChoosePageMenuItem chooses the item labeled label (without its
+// mnemonic) of the context menu shown over a page, which closes it, and
+// reports whether it has one.
+func TestChoosePageMenuItem(label string) bool {
+	menu := pageMenu()
+	if menu == 0 {
+		return false
+	}
+	list := gtkContainerGetChildren(menu)
+	defer gListFree(list)
+	for node := list; node != 0; node = field[ptr](node, 8) {
+		item := field[ptr](node, 0)
+		if gtkWidgetGetVisible(item) && withoutMnemonic(goStr(gtkMenuItemGetLabel(item))) == label {
+			gtkMenuItemActivate(item)
+			gtkMenuShellDeactivate(menu)
+			return true
+		}
+	}
+	return false
+}
+
+// TestDismissPageMenu closes the context menu shown over a page, if one is.
+func TestDismissPageMenu() {
+	if menu := pageMenu(); menu != 0 {
+		gtkMenuShellDeactivate(menu)
+	}
 }
 
 // TestBackgroundThrottlingOff reports whether the page of a window, or of

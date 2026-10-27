@@ -285,6 +285,14 @@ func (w *Window) handleMessage(msg string) {
 		H  float64 `json:"h"`
 		SW float64 `json:"sw"`
 		SH float64 `json:"sh"`
+		// context-menu: the link, its text, the image, the media, the
+		// selection, and whether it is editable.
+		L  string `json:"l"`
+		LT string `json:"lt"`
+		I  string `json:"i"`
+		M  string `json:"m"`
+		S  string `json:"s"`
+		E  bool   `json:"e"`
 	}
 	if err := json.Unmarshal(stringBytes(msg), &m); err != nil {
 		return
@@ -318,6 +326,16 @@ func (w *Window) handleMessage(msg string) {
 		}
 	case "escape":
 		w.escape()
+	case "context-menu":
+		// What a context menu about to open was opened on, which the
+		// backend may not tell (context_menu.go). An untrusted page's
+		// record over maxUntrustedMessage, as of a long selection, is
+		// dropped with the rest.
+		if w.onContextMenu.len() > 0 {
+			w.contextTarget = &contextTarget{platform.ContextMenuTarget{
+				LinkURL: m.L, LinkText: m.LT, ImageURL: m.I, MediaURL: m.M, SelectionText: m.S, Editable: m.E,
+			}, m.X, m.Y}
+		}
 	case "drop":
 		if w.native != nil {
 			w.filesDropped(w.native.DroppedFiles(), int(m.X), int(m.Y))

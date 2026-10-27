@@ -376,5 +376,31 @@ func pinchPage(w *mygo.Window, webView int, x, y float64, scales ...float64) (ok
 	return ok
 }
 
+// pageMenusHooked tells that the tests can right-click a page and read
+// the menu it opens, through rightClickPage, pageMenu, choosePageMenuItem
+// and dismissPageMenu.
+const pageMenusHooked = true
+
+// rightClickPage clicks (x, y) in a window's page with the secondary
+// button, through XTEST.
+func rightClickPage(w *mygo.Window, x, y float64) bool {
+	return fake(func() bool { return linux.TestRightClickPage(w.NativeHandle(), x, y) })
+}
+
+// pageMenu returns the labels of the items of the web view's context menu
+// shown over a page, "-" for separators, and whether one is shown.
+func pageMenu() (labels []string, shown bool) {
+	mygo.RunOnMain(func() { labels, shown = linux.TestPageMenu() })
+	return labels, shown
+}
+
+// choosePageMenuItem chooses an item of that menu by its label.
+func choosePageMenuItem(label string) (ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestChoosePageMenuItem(label) })
+	return ok
+}
+
+func dismissPageMenu() { mygo.RunOnMain(linux.TestDismissPageMenu) }
+
 // Only Windows' tests start a process that takes the foreground.
 func takeForeground(*mygo.Window) {}

@@ -648,6 +648,9 @@ func (w *window) cleanup() {
 	}
 	w.closeWebViews()
 	w.closed = true
+	if contextWindow == w {
+		contextWindow = nil
+	}
 	w.releaseChildren()
 	b := w.b
 	w.stopObserving()
@@ -1978,7 +1981,7 @@ func registerWindowClasses() {
 	})
 
 	registerClipViewClass()
-	classDef("MyGoWebView", "WKWebView", nil, append(webViewMethods(), []objc.MethodDef{
+	classDef("MyGoWebView", "WKWebView", nil, append(append(webViewMethods(), contextMenuMethods()...), []objc.MethodDef{
 		method("mouseDown:", func(self id, cmd objc.SEL, ev id) {
 			if w := theBackend.byWebView[self]; w != nil {
 				if w.host != nil {

@@ -1206,3 +1206,58 @@ func TestEndSheetButton(handle uintptr, i int) bool {
 	send(id(handle), "endSheet:returnCode:", uintptr(sheet), uintptr(nsAlertFirstButtonReturn+i))
 	return true
 }
+
+// TestRightClickPage right-clicks (x, y), in points from the top-left
+// corner of a window's content, as TestClick clicks. WebKit opens the
+// page's context menu once the page heard the click, later.
+func TestRightClickPage(handle uintptr, x, y float64) {
+	testMouse(handle, x, y, false, 3, 4) // NSEventTypeRightMouseDown, RightMouseUp
+}
+
+// TestPageMenu returns the titles of the items of the page's context menu
+// being shown, "-" for separators, and false when none is.
+func TestPageMenu() ([]string, bool) {
+	menu := openContextMenu
+	if menu == 0 {
+		return nil, false
+	}
+	labels := []string{}
+	for i := range sendInt(menu, "numberOfItems") {
+		item := send(menu, "itemAtIndex:", uintptr(i))
+		switch {
+		case sendBool(item, "isHidden"):
+		case sendBool(item, "isSeparatorItem"):
+			labels = append(labels, "-")
+		default:
+			labels = append(labels, goString(send(item, "title")))
+		}
+	}
+	return labels, true
+}
+
+// TestChoosePageMenuItem chooses the item titled label of the page's
+// context menu being shown, as a click on it does, closes the menu, and
+// reports whether it has one.
+func TestChoosePageMenuItem(label string) bool {
+	menu := openContextMenu
+	if menu == 0 {
+		return false
+	}
+	for i := range sendInt(menu, "numberOfItems") {
+		item := send(menu, "itemAtIndex:", uintptr(i))
+		if !sendBool(item, "isHidden") && !sendBool(item, "isSeparatorItem") && goString(send(item, "title")) == label {
+			send(menu, "performActionForItemAtIndex:", uintptr(i))
+			send(menu, "cancelTracking")
+			return true
+		}
+	}
+	return false
+}
+
+// TestDismissPageMenu closes the page's context menu being shown, if one
+// is.
+func TestDismissPageMenu() {
+	if openContextMenu != 0 {
+		send(openContextMenu, "cancelTracking")
+	}
+}

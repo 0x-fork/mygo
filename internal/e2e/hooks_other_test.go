@@ -163,4 +163,12 @@ func mockCapture(*mygo.Window) bool                                  { return fa
 func pageGestures(*mygo.Window, int) (bool, bool, bool)              { return false, false, false }
 func pinchPage(*mygo.Window, int, float64, float64, ...float64) bool { return false }
 
+// Right-clicking a page and reading the menu it opens are not hooked here.
+const pageMenusHooked = false
+
+func rightClickPage(*mygo.Window, float64, float64) bool { return false }
+func pageMenu() ([]string, bool)                         { return nil, false }
+func choosePageMenuItem(string) bool                     { return false }
+func dismissPageMenu()                                   {}
+
 func takeForeground(*mygo.Window) {}
