@@ -256,7 +256,8 @@ purego gives three primitives, used everywhere:
   local event monitor: `StartDrag` asks the window server
   (`performWindowDragWithEvent:`) while the pointer has not moved, and
   moves the window itself when it has, or when the window server did not
-  begin), `MyGoWindowDelegate` (window, navigation,
+  begin, which `windowWillMove:` tells, not the window's frame: it lags),
+  `MyGoWindowDelegate` (window, navigation,
   UI and script-message delegate in one object per window), the app delegate,
   scheme handler, menu and tray targets. Only protocols that exist at run
   time are adopted (`WKScriptMessageHandler` is not registered, and WebKit

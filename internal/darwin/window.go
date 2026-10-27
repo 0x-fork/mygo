@@ -1761,6 +1761,13 @@ func registerWindowClasses() {
 				}
 				w.h.Resized()
 			}),
+			method("windowWillMove:", func(self id, _ objc.SEL, n id) {
+				// The window server begins to move the window: a drag
+				// region's press is its (window_drag.go).
+				if w := b().windowFor(self); w != nil {
+					theDrag.willMove(w.win)
+				}
+			}),
 			method("windowDidMove:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {
 					w.h.Moved()

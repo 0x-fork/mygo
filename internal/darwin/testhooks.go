@@ -250,8 +250,8 @@ func TestAppMouseAt(handle uintptr, steps ...TestMouseStep) {
 }
 
 // TestWindowDrag tells where the press stands in moving a window
-// (StartDrag): "idle", "pressed", "native" or "manual"; "idle" for a
-// window no press is down in.
+// (StartDrag): "idle", "pressed", "native", "manual" or "server"; "idle"
+// for a window no press is down in.
 func TestWindowDrag(handle uintptr) string {
 	if theDrag.win != id(handle) {
 		return dragIdle.String()
