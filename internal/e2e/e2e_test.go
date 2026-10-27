@@ -135,6 +135,10 @@ func TestMain(m *testing.M) {
 		w.Header().Set("Content-Disposition", `attachment; filename="report.bin"`)
 		io.WriteString(w, "binary report")
 	})
+	mux.HandleFunc("/capture", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		io.WriteString(w, capturePage)
+	})
 	mux.HandleFunc("/pip", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		io.WriteString(w, pipPage)

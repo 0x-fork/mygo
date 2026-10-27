@@ -656,3 +656,17 @@ func TestDecorations(handle uintptr) Decorations {
 	d.Content = [2]int{int(content.Width), int(content.Height)}
 	return d
 }
+
+// TestMockCaptureDevices turns on a window's MediaStream and WebKit's
+// mock camera and microphone, which getUserMedia() captures without
+// devices, for the pages it loads from then on.
+func TestMockCaptureDevices(handle uintptr) bool {
+	w := windowByHandle(handle)
+	if w == nil || w.web == 0 {
+		return false
+	}
+	settings := webkitWebViewGetSettings(w.web)
+	gObjectSetBool(settings, cs("enable-media-stream"), true, 0)
+	gObjectSetBool(settings, cs("enable-mock-capture-devices"), true, 0)
+	return true
+}

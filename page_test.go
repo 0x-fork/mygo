@@ -184,6 +184,75 @@ func TestPageAudio(t *testing.T) {
 	p.SetAudioMuted(false) // does nothing
 }
 
+func TestPageCapture(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{Hidden: true})
+	p := w.Page()
+	type change struct {
+		kind  CaptureKind
+		state CaptureState
+	}
+	var changes []change // listeners run on the main thread, as SetCapture does
+	off := p.OnCaptureStateChanged(func(kind CaptureKind, state CaptureState) {
+		changes = append(changes, change{kind, state})
+	})
+	expect := func(what string, camera, microphone, display CaptureState, want ...change) {
+		t.Helper()
+		for kind, s := range map[CaptureKind]CaptureState{CaptureCamera: camera, CaptureMicrophone: microphone, CaptureDisplay: display} {
+			if got := p.CaptureState(kind); got != s {
+				t.Errorf("%s: CaptureState(%d) %d, want %d", what, kind, got, s)
+			}
+		}
+		if !slices.Equal(changes, want) {
+			t.Errorf("%s: changes %v, want %v", what, changes, want)
+		}
+		changes = nil
+	}
+	expect("a new page", CaptureNone, CaptureNone, CaptureNone)
+
+	// The page muted nothing: setting does nothing either.
+	p.SetCaptureState(CaptureMicrophone, CaptureMuted)
+	expect("muting a microphone the page doesn't capture", CaptureNone, CaptureNone, CaptureNone)
+
+	onMain(func() {
+		fw.SetCapture(platform.CaptureCamera, platform.CaptureActive)
+		fw.SetCapture(platform.CaptureMicrophone, platform.CaptureActive)
+	})
+	expect("a call", CaptureActive, CaptureActive, CaptureNone,
+		change{CaptureCamera, CaptureActive}, change{CaptureMicrophone, CaptureActive})
+	onMain(func() { fw.SetCapture(platform.CaptureCamera, platform.CaptureActive) })
+	expect("the camera again", CaptureActive, CaptureActive, CaptureNone) // told only when it changes
+
+	p.SetCaptureState(CaptureMicrophone, CaptureMuted)
+	expect("the microphone muted", CaptureActive, CaptureMuted, CaptureNone, change{CaptureMicrophone, CaptureMuted})
+	p.SetCaptureState(CaptureMicrophone, CaptureActive)
+	expect("the microphone unmuted", CaptureActive, CaptureActive, CaptureNone, change{CaptureMicrophone, CaptureActive})
+	p.SetCaptureState(CaptureCamera, CaptureNone)
+	expect("the camera stopped", CaptureNone, CaptureActive, CaptureNone, change{CaptureCamera, CaptureNone})
+	onMain(func() { fw.SetCapture(platform.CaptureDisplay, platform.CaptureActive) })
+	expect("sharing the screen", CaptureNone, CaptureActive, CaptureActive, change{CaptureDisplay, CaptureActive})
+
+	// Unknown kinds and states.
+	p.SetCaptureState(CaptureKind(3), CaptureMuted)
+	p.SetCaptureState(CaptureKind(-1), CaptureMuted)
+	p.SetCaptureState(CaptureMicrophone, CaptureState(3))
+	p.SetCaptureState(CaptureMicrophone, CaptureState(-1))
+	if got := p.CaptureState(CaptureKind(3)); got != CaptureNone {
+		t.Errorf("CaptureState of an unknown kind: %d", got)
+	}
+	onMain(func() { fw.H.CaptureStateChanged(platform.CaptureKind(3), platform.CaptureActive) })
+	expect("unknown kinds and states", CaptureNone, CaptureActive, CaptureActive)
+
+	off()
+	onMain(func() { fw.SetCapture(platform.CaptureDisplay, platform.CaptureNone) })
+	expect("after off", CaptureNone, CaptureActive, CaptureNone)
+
+	w.Destroy()
+	if got := p.CaptureState(CaptureMicrophone); got != CaptureNone {
+		t.Errorf("a closed window's page: CaptureState %d", got)
+	}
+	p.SetCaptureState(CaptureMicrophone, CaptureMuted) // does nothing
+}
+
 // TestPagePictureInPicture passes PictureInPicture to the backend, and
 // moves the page's video into picture in picture and back.
 func TestPagePictureInPicture(t *testing.T) {

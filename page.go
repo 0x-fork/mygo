@@ -149,6 +149,105 @@ func (p *Page) SetAudioMuted(muted bool) {
 // the window closed.
 func (p *Page) IsAudioMuted() bool { return pageGet(p.w, platform.Window.IsAudioMuted) }
 
+// CaptureKind is a kind of device a page captures with the camera and
+// microphone APIs of the web: getUserMedia() and getDisplayMedia().
+type CaptureKind int
+
+const (
+	CaptureCamera     = CaptureKind(platform.CaptureCamera)
+	CaptureMicrophone = CaptureKind(platform.CaptureMicrophone)
+	// CaptureDisplay is the capture of a screen or a window, which a page
+	// starts with getDisplayMedia().
+	CaptureDisplay = CaptureKind(platform.CaptureDisplay)
+)
+
+// CaptureState is whether a page captures a kind of device (CaptureKind).
+type CaptureState int
+
+const (
+	// CaptureNone is the zero value: the page captures no such device.
+	CaptureNone = CaptureState(platform.CaptureNone)
+	// CaptureActive is a capture going on: the page gets the device's
+	// sound or picture.
+	CaptureActive = CaptureState(platform.CaptureActive)
+	// CaptureMuted is a capture that is muted, by SetCaptureState or the
+	// system: the page keeps its tracks and gets silence or black frames.
+	CaptureMuted = CaptureState(platform.CaptureMuted)
+)
+
+// CaptureState reports whether the page captures the camera, the
+// microphone or the display (kind), from any of its frames, and whether
+// the capture is muted, as Safari's recording indicators show: to show
+// one in the app's window or menu bar. The page asks for the devices
+// first, which SetPermissionHandler decides. It is CaptureNone for an
+// unknown kind, for a window showing native UI, after the window closed
+// and where the platform can't tell:
+//
+//   - macOS: WKWebView's cameraCaptureState and microphoneCaptureState
+//     (macOS 12+), and WebKit's private _displayCaptureState (macOS 13+),
+//     looked up with respondsToSelector:; CaptureNone where WebKit doesn't
+//     answer them.
+//   - Linux: webkit_web_view_get_camera_capture_state and its microphone
+//     and display siblings, WebKitGTK 2.34 or later.
+//   - Windows: always CaptureNone, WebView2 tells no capture.
+func (p *Page) CaptureState(kind CaptureKind) CaptureState {
+	if !kind.valid() {
+		return CaptureNone
+	}
+	return CaptureState(pageGet(p.w, func(n platform.Window) platform.CaptureState {
+		return n.CaptureState(platform.CaptureKind(kind))
+	}))
+}
+
+// OnCaptureStateChanged is called when the page starts or stops capturing
+// a kind of device, or its capture is muted or unmuted (CaptureState), on
+// the main thread, as other events are. It is never called where
+// CaptureState is always CaptureNone.
+//
+//	page.OnCaptureStateChanged(func(kind mygo.CaptureKind, s mygo.CaptureState) {
+//		if kind == mygo.CaptureMicrophone {
+//			micItem.SetChecked(s == mygo.CaptureMuted)
+//		}
+//	})
+func (p *Page) OnCaptureStateChanged(fn func(kind CaptureKind, state CaptureState)) (off func()) {
+	return p.w.onCaptureStateChanged.add(fn, false)
+}
+
+// SetCaptureState mutes the page's capture of a kind of device
+// (CaptureMuted), unmutes it (CaptureActive), or stops it (CaptureNone),
+// as the mute button of a call app, without the page's help: a muted
+// capture keeps the page's tracks, which get silence or black frames, and
+// a stopped one ends them. The page can't unmute a capture itself: asking
+// for the device again goes to SetPermissionHandler, as a new capture
+// does. It does nothing while the page captures no such device, for an
+// unknown kind or state, for a window showing native UI and where the
+// platform can't. The change shows in CaptureState and
+// OnCaptureStateChanged once the page took it, a moment later:
+//
+//   - macOS: WKWebView's setCameraCaptureState:completionHandler: and
+//     setMicrophoneCaptureState:completionHandler: (macOS 12+), and
+//     WebKit's private _setDisplayCaptureState:completionHandler:
+//     (macOS 13+), looked up with respondsToSelector:; nothing where
+//     WebKit doesn't answer them. WebKit's mute of the page's sound
+//     (SetAudioMuted) mutes the camera and the microphone together, so
+//     while only one of them is muted, it mutes the other for a moment.
+//   - Linux: webkit_web_view_set_camera_capture_state and its microphone
+//     and display siblings, WebKitGTK 2.34 or later. WebKitGTK's mute of
+//     the page's sound (SetAudioMuted) unmutes every capture, which MyGo
+//     mutes again at once: a muted capture may be live for a moment as
+//     the page's sound is muted or unmuted.
+//   - Windows: nothing, WebView2 can't.
+func (p *Page) SetCaptureState(kind CaptureKind, state CaptureState) {
+	if !kind.valid() || state < CaptureNone || state > CaptureMuted {
+		return
+	}
+	p.w.page(func(n platform.Window) {
+		n.SetCaptureState(platform.CaptureKind(kind), platform.CaptureState(state))
+	})
+}
+
+func (k CaptureKind) valid() bool { return k >= CaptureCamera && k <= CaptureDisplay }
+
 // TogglePictureInPicture moves a video of the page into picture in
 // picture, a small window floating over every app's, or back into the
 // page when one is out, as the button of a video's controls does, for a

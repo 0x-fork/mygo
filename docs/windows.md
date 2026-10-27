@@ -610,6 +610,7 @@ Page events, on `win.Page()`:
 | `OnThemeColorChanged(func(c color.NRGBA, ok bool))` | the page's [theme color](#the-theme-color) changed; `ok` is false when it has none any more |
 | `OnRenderProcessGone(func(reason string))` | the web content process crashed or was killed; `Reload` recovers |
 | `OnAudibleChanged(func(audible bool))` | the page started or stopped [making sound](#sound) |
+| `OnCaptureStateChanged(func(kind mygo.CaptureKind, s mygo.CaptureState))` | the page started or stopped [capturing](#camera-and-microphone) the camera, the microphone or the display, or the capture was muted or unmuted |
 
 Keep a window on the app's own pages and open other links in the browser:
 
@@ -731,6 +732,55 @@ counting, which can take a moment after the sound stops.
 Where a platform can't mute, `IsAudioMuted` is false. Both are false for a
 window showing native UI and after the window closed. A [web view's](ui/web-view.md)
 page has them too.
+
+### Camera and microphone
+
+`CaptureState` tells whether a page captures the camera, the microphone or
+the display (`getUserMedia()`, `getDisplayMedia()`), from any of its frames,
+and whether the capture is muted: `CaptureNone`, `CaptureActive` or
+`CaptureMuted`. `OnCaptureStateChanged` tells when that changes, for a
+recording indicator in the window or the menu bar, as Safari shows.
+`SetCaptureState` mutes, unmutes or stops a capture without the page's
+help, as the mute button of a call app: a muted capture keeps the page's
+tracks, which get silence or black frames, and a stopped one ends them.
+
+```go
+page := win.Page()
+page.OnCaptureStateChanged(func(kind mygo.CaptureKind, s mygo.CaptureState) {
+	if kind == mygo.CaptureMicrophone {
+		log.Println("microphone live:", s == mygo.CaptureActive) // show a recording indicator
+	}
+})
+
+// A menu item that mutes or unmutes the microphone of the window it was chosen for.
+mute := &mygo.MenuItem{Label: "Mute or Unmute Microphone", Accelerator: "CmdOrCtrl+Shift+M", Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+	if win == nil || win.Page() == nil {
+		return
+	}
+	p := win.Page()
+	switch p.CaptureState(mygo.CaptureMicrophone) {
+	case mygo.CaptureActive:
+		p.SetCaptureState(mygo.CaptureMicrophone, mygo.CaptureMuted)
+	case mygo.CaptureMuted:
+		p.SetCaptureState(mygo.CaptureMicrophone, mygo.CaptureActive)
+	}
+}}
+```
+
+The page asks for the devices first, which [permissions](#permissions)
+decide. A change shows in `CaptureState` and the event once the page took
+it, a moment after `SetCaptureState`, which does nothing while the page
+captures no such device. The page can't unmute a capture itself: asking for
+the device again goes to the permission handler, as a new capture does.
+
+| Platform | Capture state | Muting and stopping |
+|---|---|---|
+| macOS | `cameraCaptureState` and `microphoneCaptureState` of `WKWebView` (macOS 12+), and WebKit's private `_displayCaptureState` (macOS 13+), observed; `CaptureNone` if WebKit doesn't answer them | `setCameraCaptureState:completionHandler:`, `setMicrophoneCaptureState:completionHandler:` and the private `_setDisplayCaptureState:completionHandler:`; while only one of the camera and the microphone is muted, muting or unmuting the page's sound (`SetAudioMuted`) mutes the other for a moment, as WebKit mutes them together |
+| Linux | `webkit_web_view_get_camera_capture_state` and its microphone and display siblings, WebKitGTK 2.34 or later, and their `notify` signals | their setters; muting or unmuting the page's sound (`SetAudioMuted`) unmutes every capture in WebKitGTK, which MyGo mutes again at once, so a muted capture may be live for a moment |
+| Windows | always `CaptureNone`: WebView2 tells no capture | does nothing |
+
+`CaptureState` is `CaptureNone` for a window showing native UI and after
+the window closed. A [web view's](ui/web-view.md) page has them too.
 
 ### Picture in picture
 

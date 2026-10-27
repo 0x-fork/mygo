@@ -332,6 +332,12 @@ func endSheetButton(w *mygo.Window, i int) (ok bool) {
 // Panels' window styles are Windows'.
 func panelStyles(*mygo.Window) (bool, bool, bool, bool) { return false, false, false, false }
 
+// mockCapture gives a window's page WebKit's mock camera and microphone.
+func mockCapture(w *mygo.Window) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestMockCaptureDevices(w.NativeHandle()) })
+	return ok
+}
+
 // pageGestures reports whether a swipe navigates and a pinch magnifies the
 // page of a window, or with webView 0 or more, of its web view of that
 // index.

@@ -439,6 +439,8 @@ var (
 	webkitWebViewIsPlayingAudio                       func(wv ptr) bool
 	webkitWebViewSetIsMuted                           func(wv ptr, muted bool) // 2.30+
 	webkitWebViewGetIsMuted                           func(wv ptr) bool        // 2.30+
+	webkitWebViewGetCaptureState                      [3]func(wv ptr) int32
+	webkitWebViewSetCaptureState                      [3]func(wv ptr, state int32)
 	webkitWebViewEvaluateJavascript                   func(wv ptr, script *byte, length int, world, sourceURI *byte, cancellable, cb, data ptr)
 	webkitWebViewRunJavascript                        func(wv ptr, script *byte, cancellable, cb, data ptr)
 	webkitWebViewCallAsyncJavascriptFunction          func(wv ptr, body *byte, length int, args ptr, world, sourceURI *byte, cancellable, cb, data ptr)
@@ -948,6 +950,13 @@ func loadWebKit() error {
 	bind(libGTK, &gtkEventControllerSetPropagationPhase, "gtk_event_controller_set_propagation_phase")
 	if bind(w, &webkitWebViewSetIsMuted, "webkit_web_view_set_is_muted") {
 		mustBind(w, &webkitWebViewGetIsMuted, "webkit_web_view_get_is_muted")
+	}
+	// The capture states of the camera, the microphone and the display
+	// (2.34+), in the order of platform.CaptureKind.
+	for kind, device := range [...]string{"camera", "microphone", "display"} {
+		if bind(w, &webkitWebViewGetCaptureState[kind], "webkit_web_view_get_"+device+"_capture_state") {
+			mustBind(w, &webkitWebViewSetCaptureState[kind], "webkit_web_view_set_"+device+"_capture_state")
+		}
 	}
 	bind(w, &webkitWebViewEvaluateJavascript, "webkit_web_view_evaluate_javascript")
 	bind(w, &webkitWebViewRunJavascript, "webkit_web_view_run_javascript")

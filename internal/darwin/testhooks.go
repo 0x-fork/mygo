@@ -453,6 +453,34 @@ func TestTabFocusesLinks(handle uintptr) bool {
 	return w != nil && w.web != 0 && sendBool(send(send(w.web, "configuration"), "preferences"), "tabFocusesLinks")
 }
 
+// TestMockCaptureDevices gives a window's page WebKit's mock camera and
+// microphone, which getUserMedia() captures without devices or the
+// system's permission (private -[WKPreferences
+// _setMockCaptureDevicesEnabled:]), even while the page is not focused
+// (_setGetUserMediaRequiresFocus:), for the pages it loads from then on;
+// false when WebKit doesn't answer them.
+func TestMockCaptureDevices(handle uintptr) bool {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.web == 0 {
+		return false
+	}
+	prefs := send(send(w.web, "configuration"), "preferences")
+	if !respondsTo(prefs, "_setMockCaptureDevicesEnabled:") {
+		return false
+	}
+	send(prefs, "_setMockCaptureDevicesEnabled:", boolArg(true))
+	if respondsTo(prefs, "_setMediaDevicesEnabled:") {
+		send(prefs, "_setMediaDevicesEnabled:", boolArg(true))
+	}
+	if respondsTo(prefs, "_setMockCaptureDevicesPromptEnabled:") {
+		send(prefs, "_setMockCaptureDevicesPromptEnabled:", boolArg(false))
+	}
+	if respondsTo(prefs, "_setGetUserMediaRequiresFocus:") {
+		send(prefs, "_setGetUserMediaRequiresFocus:", boolArg(false))
+	}
+	return true
+}
+
 // TestAllowsPictureInPicture reports whether a window's page lets its
 // videos go into picture in picture, and false for supported when WebKit
 // doesn't answer its private _allowsPictureInPictureMediaPlayback.

@@ -116,6 +116,12 @@ type window struct {
 	activationPrevious [2]int32
 	resizeIdle         uint32
 
+	// captureMuted tells, by platform.CaptureKind, the capture that
+	// SetCaptureState muted, until it stops, which SetAudioMuted mutes
+	// again. WebKit's own changes, which may be SetAudioMuted's on their
+	// way, don't change it.
+	captureMuted [3]bool
+
 	// dragged holds the paths of the files dragged over the page, dropped
 	// those of the files dropped on it, for DroppedFiles.
 	dragged, dropped []string
@@ -334,6 +340,11 @@ func (w *window) createWebView() {
 	connect(w.web, "notify::title", cbTitle, data)
 	if webkitWebViewIsPlayingAudio != nil {
 		connect(w.web, "notify::is-playing-audio", cbPlayingAudio, data)
+	}
+	for kind, property := range captureProperties {
+		if webkitWebViewGetCaptureState[kind] != nil {
+			connect(w.web, "notify::"+property, cbCaptureState, data)
+		}
 	}
 	connect(w.web, "decide-policy", cbDecidePolicy, data)
 	connect(w.web, "create", cbCreate, data)
@@ -1209,15 +1220,52 @@ func (w *window) IsAudible() bool {
 }
 
 // SetAudioMuted mutes the web view (webkit_web_view_set_is_muted,
-// WebKitGTK 2.30+); older versions can't.
+// WebKitGTK 2.30+); older versions can't. webkit_web_view_set_is_muted
+// sets the page's muted state to the sound's alone, which unmutes its
+// capture too, so the capture that was muted (captureMuted) is muted
+// again.
 func (w *window) SetAudioMuted(v bool) {
-	if webkitWebViewSetIsMuted != nil {
-		webkitWebViewSetIsMuted(w.web, v)
+	if webkitWebViewSetIsMuted == nil {
+		return
+	}
+	webkitWebViewSetIsMuted(w.web, v)
+	for kind, muted := range w.captureMuted {
+		if muted {
+			w.SetCaptureState(platform.CaptureKind(kind), platform.CaptureMuted)
+		}
 	}
 }
 
 func (w *window) IsAudioMuted() bool {
 	return webkitWebViewGetIsMuted != nil && webkitWebViewGetIsMuted(w.web)
+}
+
+// captureProperties are the web view's properties of its capture, by
+// platform.CaptureKind (WebKitGTK 2.34+). Their values are
+// WebKitMediaCaptureState's, none, active and muted, as
+// platform.CaptureState's.
+var captureProperties = [...]string{"camera-capture-state", "microphone-capture-state", "display-capture-state"}
+
+// CaptureState reports webkit_web_view_get_camera_capture_state, or its
+// microphone or display sibling (WebKitGTK 2.34+), whose notify signals
+// tell the changes of; CaptureNone on older versions.
+func (w *window) CaptureState(kind platform.CaptureKind) platform.CaptureState {
+	if get := webkitWebViewGetCaptureState[kind]; get != nil {
+		return platform.CaptureState(get(w.web))
+	}
+	return platform.CaptureNone
+}
+
+// SetCaptureState calls webkit_web_view_set_camera_capture_state, or its
+// microphone or display sibling (WebKitGTK 2.34+), which do nothing while
+// the page captures no such device.
+func (w *window) SetCaptureState(kind platform.CaptureKind, state platform.CaptureState) {
+	set := webkitWebViewSetCaptureState[kind]
+	if set == nil || w.CaptureState(kind) == platform.CaptureNone {
+		return
+	}
+	w.captureMuted[kind] = state == platform.CaptureMuted
+	set(w.web, int32(state))
 }
 
 // TogglePictureInPicture does nothing: WebKitGTK has no picture in
@@ -1406,7 +1454,7 @@ var (
 	cbCreate, cbClose, cbCrashed, cbButtonPress, cbAsyncReady, cbPNGWrite       ptr
 	cbDragData, cbDragDrop, cbPrintFinished, cbPrintFailed, cbPermission        ptr
 	cbMotion, cbControlsAllocated, cbDecorationLayout, cbActivationResize       ptr
-	cbCloseLater, cbPlayingAudio                                                ptr
+	cbCloseLater, cbPlayingAudio, cbCaptureState                                ptr
 )
 
 func field[T any](p ptr, offset uintptr) T {
@@ -1712,6 +1760,23 @@ func initWindowCallbacks() {
 		if w := b().window(data); w != nil {
 			w.h.AudibleChanged(webkitWebViewIsPlayingAudio(w.web))
 		}
+	})
+	// The notify signal of each of captureProperties, whose name is the
+	// second field of the GParamSpec.
+	cbCaptureState = purego.NewCallback(func(web, pspec, data ptr) {
+		w := b().window(data)
+		if w == nil {
+			return
+		}
+		kind := platform.CaptureKind(slices.Index(captureProperties[:], goStr(field[ptr](pspec, 8))))
+		if kind < 0 {
+			return
+		}
+		state := w.CaptureState(kind)
+		if state == platform.CaptureNone {
+			w.captureMuted[kind] = false
+		}
+		w.h.CaptureStateChanged(kind, state)
 	})
 	cbDecidePolicy = purego.NewCallback(func(web, decision ptr, kind int32, data ptr) bool {
 		w := b().window(data)

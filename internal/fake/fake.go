@@ -514,7 +514,9 @@ type Window struct {
 	pid       int  // SetProcessID
 	audible   bool // SetAudible
 	muted     bool // SetAudioMuted
-	pip       bool // TogglePictureInPicture
+	// capture is the page's capture of each kind (SetCapture).
+	capture [platform.CaptureDisplay + 1]platform.CaptureState
+	pip     bool // TogglePictureInPicture
 	// Restored is the last state RestoreSessionState put back.
 	Restored []byte
 	// Dropped is what DroppedFiles returns, once.
@@ -799,6 +801,32 @@ func (w *Window) SetAudible(v bool) {
 	w.audible = v
 	w.mu.Unlock()
 	w.H.AudibleChanged(v)
+}
+
+// SetCapture sets the page's capture of kind (CaptureState) and reports
+// it to the handler (CaptureStateChanged), as a backend does whenever the
+// page starts, mutes or stops capturing; it reports it even when it did
+// not change. Call it on the main thread, where backends report it.
+func (w *Window) SetCapture(kind platform.CaptureKind, state platform.CaptureState) {
+	w.mu.Lock()
+	w.capture[kind] = state
+	w.mu.Unlock()
+	w.H.CaptureStateChanged(kind, state)
+}
+
+func (w *Window) CaptureState(kind platform.CaptureKind) platform.CaptureState {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.capture[kind]
+}
+
+// SetCaptureState mutes, unmutes or stops the page's capture of kind, as
+// a page takes it, and reports it to the handler; it does nothing while
+// the page captures no such device.
+func (w *Window) SetCaptureState(kind platform.CaptureKind, state platform.CaptureState) {
+	if w.CaptureState(kind) != platform.CaptureNone {
+		w.SetCapture(kind, state)
+	}
 }
 
 // addHTML records a document LoadHTML loads.

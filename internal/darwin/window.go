@@ -127,6 +127,15 @@ type window struct {
 	// observesAudio tells that the window observes its web view's
 	// _isPlayingAudio, which WebKit answers (IsAudible).
 	observesAudio bool
+	// observesCapture tells, by platform.CaptureKind, that the window
+	// observes its web view's capture state (captureKeys), which WebKit
+	// answers.
+	observesCapture [3]bool
+	// captureMuted tells, by platform.CaptureKind, the capture that
+	// SetCaptureState muted, until it stops, which SetAudioMuted keeps
+	// apart for the camera and the microphone. WebKit's own changes, which
+	// may be SetAudioMuted's on their way, don't change it.
+	captureMuted [3]bool
 	// pageCacheOff tells that the window turned WebKit's back/forward
 	// cache off as its page left with a video in picture in picture
 	// (leavingPage).
@@ -536,6 +545,13 @@ func (w *window) createWebView(content NSRect) {
 		w.observesAudio = true
 		send(w.web, "addObserver:forKeyPath:options:context:", uintptr(w.delegate), uintptr(nsString("_isPlayingAudio")), 0, 0)
 	}
+	// WebKit tells their changes as for _isPlayingAudio.
+	for kind, key := range captureKeys {
+		if respondsTo(w.web, key) {
+			w.observesCapture[kind] = true
+			send(w.web, "addObserver:forKeyPath:options:context:", uintptr(w.delegate), uintptr(nsString(key)), 0, 0)
+		}
+	}
 }
 
 // stopObserving removes the key-value observers createWebView added.
@@ -544,6 +560,12 @@ func (w *window) stopObserving() {
 	if w.observesAudio {
 		w.observesAudio = false
 		send(w.web, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString("_isPlayingAudio")))
+	}
+	for kind, key := range captureKeys {
+		if w.observesCapture[kind] {
+			w.observesCapture[kind] = false
+			send(w.web, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString(key)))
+		}
 	}
 }
 
@@ -1422,9 +1444,17 @@ func (w *window) canMute() bool {
 	return respondsTo(w.web, "_mediaMutedState") && respondsTo(w.web, "_setPageMuted:")
 }
 
+// wkMediaCaptureDevicesMuted is _WKMediaCaptureDevicesMuted, the bit of
+// _WKMediaMutedState that _mediaMutedState sets when the camera or the
+// microphone is muted, and with which _setPageMuted: mutes both.
+const wkMediaCaptureDevicesMuted = 1 << 1
+
 // SetAudioMuted sets the _WKMediaAudioMuted bit of the page's
 // _mediaMutedState with _setPageMuted:, or does nothing when WebKit
-// doesn't answer them.
+// doesn't answer them. The other bits are kept, but one bit stands for
+// the camera and the microphone: when only one of them is muted
+// (captureMuted), the other is unmuted again after _setPageMuted: muted
+// both, so that the muted one is never live in between.
 func (w *window) SetAudioMuted(v bool) {
 	if !w.canMute() {
 		return
@@ -1436,10 +1466,71 @@ func (w *window) SetAudioMuted(v bool) {
 		state &^= wkMediaAudioMuted
 	}
 	send(w.web, "_setPageMuted:", state)
+	camera, microphone := w.captureMuted[platform.CaptureCamera], w.captureMuted[platform.CaptureMicrophone]
+	if state&wkMediaCaptureDevicesMuted != 0 && camera != microphone {
+		live := platform.CaptureCamera
+		if camera {
+			live = platform.CaptureMicrophone
+		}
+		w.setCaptureState(live, platform.CaptureActive)
+	}
 }
 
 func (w *window) IsAudioMuted() bool {
 	return w.canMute() && uintptr(send(w.web, "_mediaMutedState"))&wkMediaAudioMuted != 0
+}
+
+// captureKeys are the properties of WKWebView that tell the page's
+// capture, by platform.CaptureKind: the camera's and the microphone's
+// (macOS 12+), and WebKit's private _displayCaptureState (macOS 13+), all
+// key-value observable. Their values are WKMediaCaptureState's and
+// WKDisplayCaptureState's, none, active and muted, as
+// platform.CaptureState's.
+var captureKeys = [...]string{"cameraCaptureState", "microphoneCaptureState", "_displayCaptureState"}
+
+// captureSetters change the capture of captureKeys: their completion
+// handler may be nil.
+var captureSetters = [...]string{
+	"setCameraCaptureState:completionHandler:",
+	"setMicrophoneCaptureState:completionHandler:",
+	"_setDisplayCaptureState:completionHandler:",
+}
+
+// CaptureState reports the captureKeys property of kind, CaptureNone when
+// WebKit doesn't answer it.
+func (w *window) CaptureState(kind platform.CaptureKind) platform.CaptureState {
+	if !respondsTo(w.web, captureKeys[kind]) {
+		return platform.CaptureNone
+	}
+	return platform.CaptureState(send(w.web, captureKeys[kind]))
+}
+
+// SetCaptureState changes the page's capture of kind with its
+// captureSetters method, while the page captures such a device, as
+// WebKitGTK's setters do: WebKit would otherwise keep a mute set before
+// the page captures. It does nothing when WebKit doesn't answer it.
+func (w *window) SetCaptureState(kind platform.CaptureKind, state platform.CaptureState) {
+	if w.CaptureState(kind) == platform.CaptureNone {
+		return
+	}
+	w.captureMuted[kind] = state == platform.CaptureMuted
+	w.setCaptureState(kind, state)
+}
+
+func (w *window) setCaptureState(kind platform.CaptureKind, state platform.CaptureState) {
+	if respondsTo(w.web, captureSetters[kind]) {
+		send(w.web, captureSetters[kind], uintptr(state), 0)
+	}
+}
+
+// captureChanged tells the handler of the page's capture of kind, which
+// WebKit observed changing.
+func (w *window) captureChanged(kind platform.CaptureKind) {
+	state := w.CaptureState(kind)
+	if state == platform.CaptureNone {
+		w.captureMuted[kind] = false
+	}
+	w.h.CaptureStateChanged(kind, state)
 }
 
 // TogglePictureInPicture moves the page's video into picture in picture,
@@ -1999,8 +2090,8 @@ func registerWindowClasses() {
 				w.h.Message(goString(body))
 			}),
 
-			// Key-value observing of the page title and the window's
-			// appearance.
+			// Key-value observing of the page title, its sound and
+			// capture, and the window's appearance.
 			method("observeValueForKeyPath:ofObject:change:context:", func(self id, _ objc.SEL, keyPath, object, change id, ctx uintptr) {
 				w := b().windowFor(self)
 				if w == nil {
@@ -2011,6 +2102,12 @@ func registerWindowClasses() {
 					w.h.TitleChanged(goString(send(w.web, "title")))
 				case "_isPlayingAudio":
 					w.h.AudibleChanged(w.IsAudible())
+				case "cameraCaptureState":
+					w.captureChanged(platform.CaptureCamera)
+				case "microphoneCaptureState":
+					w.captureChanged(platform.CaptureMicrophone)
+				case "_displayCaptureState":
+					w.captureChanged(platform.CaptureDisplay)
 				case "effectiveAppearance":
 					// AppKit lays the title bar out again after telling us.
 					b().post(w.layoutTrafficLights)

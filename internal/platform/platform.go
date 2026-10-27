@@ -632,6 +632,15 @@ type Page interface {
 	// IsAudioMuted reports what SetAudioMuted set, false where the
 	// backend cannot mute.
 	IsAudioMuted() bool
+	// CaptureState reports whether the page captures kind, and whether
+	// it is muted, as WindowHandler.CaptureStateChanged reports its
+	// changes; CaptureNone where the backend cannot tell.
+	CaptureState(kind CaptureKind) CaptureState
+	// SetCaptureState mutes the page's capture of kind (CaptureMuted),
+	// lets it go on (CaptureActive) or stops it (CaptureNone). It does
+	// nothing while the page captures no such device, and where the
+	// backend cannot.
+	SetCaptureState(kind CaptureKind, state CaptureState)
 	// TogglePictureInPicture moves a video of the page into picture in
 	// picture, or the one out back into the page (see
 	// Page.TogglePictureInPicture in package mygo for which video); a
@@ -665,6 +674,27 @@ type Page interface {
 	DroppedFiles() []string
 	Print()
 }
+
+// CaptureKind is a kind of device a page captures (Page.CaptureState).
+type CaptureKind int
+
+const (
+	CaptureCamera CaptureKind = iota
+	CaptureMicrophone
+	// CaptureDisplay is the capture of a screen or a window,
+	// getDisplayMedia().
+	CaptureDisplay
+)
+
+// CaptureState is whether a page captures a kind of device. The values
+// are WebKit's WKMediaCaptureState and WebKitMediaCaptureState.
+type CaptureState int
+
+const (
+	CaptureNone CaptureState = iota
+	CaptureActive
+	CaptureMuted
+)
 
 // WebView is a web view in a window showing a Surface, which its content
 // places (Surface.NewWebView, Surface.PlaceWebViews): under the surface,
@@ -753,6 +783,9 @@ type WindowHandler interface {
 	RenderProcessGone(reason string)
 	// AudibleChanged is called when Page.IsAudible changes.
 	AudibleChanged(audible bool)
+	// CaptureStateChanged is called when Page.CaptureState of kind may
+	// have changed, with its state.
+	CaptureStateChanged(kind CaptureKind, state CaptureState)
 	SchemeRequest(req *SchemeRequest)
 	// DownloadStarted returns where to save a download, "" to cancel it;
 	// DownloadFinished reports how it ended.

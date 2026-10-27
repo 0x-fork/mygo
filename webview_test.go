@@ -264,6 +264,13 @@ func TestWebViewPage(t *testing.T) {
 	if !v.Page().IsAudible() || !slices.Equal(audible, []bool{true}) {
 		t.Errorf("a web view playing: IsAudible %v, changes %v", v.Page().IsAudible(), audible)
 	}
+	var muted []CaptureState
+	v.Page().OnCaptureStateChanged(func(_ CaptureKind, s CaptureState) { muted = append(muted, s) })
+	onMain(func() { fv.SetCapture(platform.CaptureMicrophone, platform.CaptureActive) })
+	v.Page().SetCaptureState(CaptureMicrophone, CaptureMuted)
+	if got := v.Page().CaptureState(CaptureMicrophone); got != CaptureMuted || !slices.Equal(muted, []CaptureState{CaptureActive, CaptureMuted}) {
+		t.Errorf("a web view's microphone muted: CaptureState %d, changes %v", got, muted)
+	}
 }
 
 // SetBackgroundColor fills the web view, not its window, and one in

@@ -1042,6 +1042,16 @@ func (w *window) IsAudioMuted() bool {
 	return w.getBool8(wv8GetIsMuted)
 }
 
+// CaptureState is always CaptureNone: WebView2 tells nothing of a page's
+// capture of the camera, the microphone or the display.
+func (w *window) CaptureState(platform.CaptureKind) platform.CaptureState {
+	return platform.CaptureNone
+}
+
+// SetCaptureState does nothing: WebView2 can't mute or stop a page's
+// capture.
+func (w *window) SetCaptureState(platform.CaptureKind, platform.CaptureState) {}
+
 // TogglePictureInPicture runs platform.TogglePictureInPicture through the
 // DevTools protocol as a user's gesture, which
 // requestPictureInPicture() needs.

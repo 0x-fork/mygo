@@ -381,6 +381,12 @@ type Window struct {
 	// only.
 	audible          bool
 	onAudibleChanged listeners[func(bool)]
+
+	// capture is what the backend last told of the page's capture of
+	// each CaptureKind (CaptureStateChanged), so that listeners hear only
+	// changes. Main thread only.
+	capture               [CaptureDisplay + 1]platform.CaptureState
+	onCaptureStateChanged listeners[func(CaptureKind, CaptureState)]
 }
 
 // LoadError describes a failed page load.
@@ -1986,6 +1992,17 @@ func (h *windowHandler) AudibleChanged(audible bool) {
 	}
 	h.w.audible = audible
 	fire1(&h.w.onAudibleChanged, audible)
+}
+
+func (h *windowHandler) CaptureStateChanged(kind platform.CaptureKind, state platform.CaptureState) {
+	k := CaptureKind(kind)
+	if !k.valid() || state == h.w.capture[k] {
+		return
+	}
+	h.w.capture[k] = state
+	for _, fn := range h.w.onCaptureStateChanged.snapshot() {
+		fn(k, CaptureState(state))
+	}
 }
 
 // filesDropped tells OnFileDrop listeners, and the app's own pages, about

@@ -246,3 +246,8 @@ func (w *window) PrintToPDF(_ platform.PDFOptions, cb func([]byte, error)) { cb(
 func (w *window) CallAsyncFunction(_ string, cb func(string, error)) {
 	cb("", errUnsupported)
 }
+
+func (w *window) CaptureState(platform.CaptureKind) platform.CaptureState {
+	return platform.CaptureNone
+}
+func (w *window) SetCaptureState(platform.CaptureKind, platform.CaptureState) {}
