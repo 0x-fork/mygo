@@ -273,7 +273,8 @@ mygo.App.WhenReady(func() {
 The icon is a PNG, ideally 16×16 points (a 32×32 image for high-resolution
 displays); a template icon, black on transparent, lets macOS tint it for
 light and dark menu bars. A tray with a menu shows it on click. Without a
-menu, clicks reach `OnClick`, and `OnRightClick` gets right-clicks. Change
+menu, clicks reach `OnClick`, and `OnRightClick` gets right-clicks, and on
+macOS Control-clicks, as a Control-click is a secondary click there. Change
 the tray with `SetIcon`, `SetMenu`, `SetToolTip` and, on macOS,
 `SetTitle`, the text next to the icon; `Destroy` removes it.
 
