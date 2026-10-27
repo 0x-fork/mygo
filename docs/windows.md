@@ -592,6 +592,7 @@ mygo.NewWindow(mygo.WindowOptions{
 | `UserAgentSuffix` | appended to the user agent instead of replacing it, which `UserAgent` does, such as `"MyApp/1.2"`; it appends to `UserAgent` too, and `SetUserAgent` keeps it, and leading and trailing spaces are trimmed |
 | `ContentRules` | rules that block what the page loads and hide parts of it, see [blocking content](#blocking-content) |
 | `BackgroundThrottling` | `ThrottlingOn` (the web view's own) or `ThrottlingOff`, which keeps the page running while its window is hidden, minimized or covered, see [background pages](#background-pages) |
+| `Autoplay` | `AutoplayUserGesture` (the web view's own policy) or `AutoplayAllow`, which lets the page play audible media before the user clicked or typed in it, in a hidden window too, see [autoplay](#autoplay) |
 | `Session` | the store of the page's cookies, storage and caches, apart from other sessions', see [sessions](app.md#sessions); nil is the default session |
 
 `UserAgentSuffix` is for the sites that want to see the app, and for the ones
@@ -771,6 +772,45 @@ refuses web views to a second one whose first page asks otherwise than the
 running one's did. A web
 view in a hidden window's [native UI](ui/web-view.md) still goes hidden, as
 it must for its window to leave the screen.
+
+### Autoplay
+
+WebKitGTK and WebView2 let a page start audible media only once the user
+clicked or typed in it: before, `play()` of an unmuted `<audio>` or `<video>`
+rejects with `NotAllowedError`, and muted media that plays pauses again when
+it is unmuted. The page of a hidden window never gets such a gesture, so
+there it can't play sound at all. An app whose interface is [native UI](native.md), and
+which plays its media in a page of a hidden window, lets that page play with
+`AutoplayAllow`:
+
+```go
+mygo.NewWindow(mygo.WindowOptions{
+	URL:    "/player",
+	Hidden: true,
+	Page:   mygo.PageOptions{Autoplay: mygo.AutoplayAllow},
+})
+```
+
+Then `play()` resolves and `autoplay` elements start with their sound, in
+windows and in [web views](ui/web-view.md) alike. `AutoplayUserGesture`, the
+default, leaves the page to its web view's own policy.
+
+| | |
+|---|---|
+| macOS | `WKWebViewConfiguration.mediaTypesRequiringUserActionForPlayback` none |
+| Linux | the website policies of the page's main-frame navigations allow autoplay (`WEBKIT_AUTOPLAY_ALLOW`, WebKitGTK 2.30+; nothing before) |
+| Windows | its browser runs with `--autoplay-policy=no-user-gesture-required` |
+
+On Windows, as with [`ThrottlingOff`](#background-pages), that argument is
+the WebView2 environment's, which all of an app's pages share and which the
+first window or web view that shows a page creates: give the option to that
+one. Then every page of the app may play without a gesture, those that keep
+`AutoplayUserGesture` too; a page that asks later is too late, and the log
+says so. In an app whose first window is native UI, the window of the page
+that plays is often the first to show a page, and its option is enough. One
+whose first window shows a page gives that window the option too, or creates
+the page that plays first. Two processes of the app must agree, as with
+`ThrottlingOff`.
 
 ### Camera and microphone
 

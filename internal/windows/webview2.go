@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -183,6 +184,24 @@ const (
 // (PageOptions.BackgroundThrottling): timers unthrottled, renderers at
 // the priority of visible ones, and covered windows not taken for hidden.
 const unthrottledArguments = "--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows"
+
+// autoplayArguments are the browser's arguments that let pages play
+// audible media without a user gesture (PageOptions.Autoplay).
+const autoplayArguments = "--autoplay-policy=no-user-gesture-required"
+
+// browserArguments are the browser's additional arguments for a first page
+// that asks not to be throttled, or to play without a user gesture, or
+// both; "" for neither.
+func browserArguments(unthrottled, autoplay bool) string {
+	var args []string
+	if unthrottled {
+		args = append(args, unthrottledArguments)
+	}
+	if autoplay {
+		args = append(args, autoplayArguments)
+	}
+	return strings.Join(args, " ")
+}
 
 // createEnvironment starts creating the WebView2 environment, in language,
 // the app's (envOptions), or the system's for "", with the browser's

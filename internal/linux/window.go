@@ -1357,6 +1357,35 @@ func (w *window) CapturePage(cb func([]byte, error)) {
 	webkitWebViewGetSnapshot(w.web, 0, 0, 0, cbAsyncReady, id)
 }
 
+// webkitAutoplayAllow is WEBKIT_AUTOPLAY_ALLOW of WebKitAutoplayPolicy.
+const webkitAutoplayAllow = 0
+
+// useWithAutoplay takes a main-frame navigation with website policies
+// that let its page play audible media without a user gesture
+// (PageOptions.Autoplay), and reports whether it could: WebKitGTK decides
+// autoplay from the policies of the navigation, by default
+// WEBKIT_AUTOPLAY_ALLOW_WITHOUT_SOUND, and its
+// media-playback-requires-user-gesture setting, off by default, does not
+// lift them. WebKitGTK before 2.30 has no website policies.
+//
+// webkit_website_policies_new_with_policies is variadic, NULL-terminated
+// name/value pairs, and is bound for the one pair as g_object_set is:
+// x86-64 and arm64 Linux pass a variadic function's integer and pointer
+// arguments as a fixed one's, and purego zeroes AL, the count of vector
+// registers an x86-64 variadic callee reads.
+func (w *window) useWithAutoplay(decision ptr) bool {
+	if webkitPolicyDecisionUseWithPolicies == nil || webkitWebsitePoliciesNewWithPolicies == nil {
+		return false
+	}
+	policies := webkitWebsitePoliciesNewWithPolicies(cs("autoplay"), webkitAutoplayAllow, 0)
+	if policies == 0 {
+		return false
+	}
+	webkitPolicyDecisionUseWithPolicies(decision, policies)
+	gObjectUnref(policies)
+	return true
+}
+
 // decideResponse makes attachments, and what WebKit cannot show,
 // downloads. WebKit cannot download what a custom scheme serves, so the app
 // serves it again into a download.
@@ -1862,6 +1891,9 @@ func initWindowCallbacks() {
 			nav.Unasked = true
 		}
 		if w.h.WillNavigate(nav) {
+			if nav.IsMainFrame && w.opts.Autoplay && w.useWithAutoplay(decision) {
+				return true
+			}
 			webkitPolicyDecisionUse(decision)
 		} else {
 			webkitPolicyDecisionIgnore(decision)

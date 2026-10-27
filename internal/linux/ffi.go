@@ -497,6 +497,8 @@ var (
 	webkitNavigationActionIsUserGesture               func(a ptr) bool
 	webkitURIRequestGetURI                            func(r ptr) ptr
 	webkitPolicyDecisionUse                           func(d ptr)
+	webkitPolicyDecisionUseWithPolicies               func(d ptr, p ptr)
+	webkitWebsitePoliciesNewWithPolicies              func(name *byte, value int32, end ptr) ptr
 	webkitPolicyDecisionIgnore                        func(d ptr)
 	webkitURISchemeRequestGetURI                      func(r ptr) ptr
 	webkitURISchemeRequestGetHTTPMethod               func(r ptr) ptr
@@ -991,6 +993,8 @@ func loadWebKit() error {
 	mustBind(w, &webkitNavigationActionIsUserGesture, "webkit_navigation_action_is_user_gesture")
 	mustBind(w, &webkitURIRequestGetURI, "webkit_uri_request_get_uri")
 	mustBind(w, &webkitPolicyDecisionUse, "webkit_policy_decision_use")
+	bind(w, &webkitPolicyDecisionUseWithPolicies, "webkit_policy_decision_use_with_policies")
+	bind(w, &webkitWebsitePoliciesNewWithPolicies, "webkit_website_policies_new_with_policies")
 	mustBind(w, &webkitPolicyDecisionIgnore, "webkit_policy_decision_ignore")
 	mustBind(w, &webkitURISchemeRequestGetURI, "webkit_uri_scheme_request_get_uri")
 	mustBind(w, &webkitURISchemeRequestGetWebView, "webkit_uri_scheme_request_get_web_view")

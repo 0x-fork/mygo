@@ -488,6 +488,7 @@ func (w *window) createWebView(content NSRect) {
 	if respondsTo(prefs, "_setAllowsPictureInPictureMediaPlayback:") {
 		send(prefs, "_setAllowsPictureInPictureMediaPlayback:", boolArg(o.PictureInPicture))
 	}
+	setAutoplay(cfg, o.Autoplay, o.Native != 0)
 
 	// Every window gets its own content controller so messages, scripts and
 	// the bridge configuration never leak between windows.
@@ -618,6 +619,25 @@ func setBackgroundThrottling(cfg, prefs id, throttle, shared bool) {
 			release(prefs) // the configuration keeps it
 		}
 		send(prefs, p.set, v)
+	}
+}
+
+// setAutoplay lets the page of cfg play audible media without a user
+// gesture (PageOptions.Autoplay): no media type requires the user's action
+// (WKAudiovisualMediaTypeNone). A configuration window.open() handed over
+// (opened) is a copy of the opener's, which a window that doesn't ask gets
+// WebKit's default back from. The property is macOS 10.12's, and still
+// looked up with respondsToSelector:.
+func setAutoplay(cfg id, allow, opened bool) {
+	const set = "setMediaTypesRequiringUserActionForPlayback:"
+	switch {
+	case !respondsTo(cfg, set):
+	case allow:
+		send(cfg, set, 0)
+	case opened:
+		defaults := alloc("WKWebViewConfiguration")
+		send(cfg, set, uintptr(send(defaults, "mediaTypesRequiringUserActionForPlayback")))
+		release(defaults)
 	}
 }
 

@@ -617,6 +617,7 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		// asked for Safari's behavior.
 		TabFocusesLinks:        !po.SafariTabFocus,
 		NoBackgroundThrottling: po.BackgroundThrottling == ThrottlingOff,
+		Autoplay:               po.Autoplay == AutoplayAllow,
 		SwipeNavigation:        po.SwipeNavigation,
 		PinchZoom:              po.PinchZoom,
 		Schemes:                Protocol.schemes(),

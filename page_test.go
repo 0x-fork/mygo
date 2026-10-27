@@ -211,6 +211,32 @@ func TestPageBackgroundThrottling(t *testing.T) {
 	}
 }
 
+// TestPageAutoplay passes Autoplay to the platform, for a window's page and
+// a web view's: AutoplayUserGesture, the zero value, leaves the page to
+// the web view's policy.
+func TestPageAutoplay(t *testing.T) {
+	for _, tt := range []struct {
+		autoplay Autoplay
+		allow    bool
+	}{{AutoplayUserGesture, false}, {AutoplayAllow, true}} {
+		w := NewWindow(WindowOptions{Hidden: true, Page: PageOptions{Autoplay: tt.autoplay}})
+		fw := fb.Windows()[len(fb.Windows())-1]
+		if got := fw.Opts.Autoplay; got != tt.allow {
+			t.Errorf("window with autoplay %d: Autoplay %v, want %v", tt.autoplay, got, tt.allow)
+		}
+		w.Destroy()
+	}
+	w, _, s := contentWindow(t, func(c *ui.Context) {})
+	for _, autoplay := range []Autoplay{AutoplayAllow, AutoplayUserGesture} {
+		if _, err := w.NewWebView(WebViewOptions{Page: PageOptions{Autoplay: autoplay}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if views := s.WebViews(); len(views) != 2 || !views[0].Opts.Autoplay || views[1].Opts.Autoplay {
+		t.Errorf("web views %d: Autoplay not applied", len(views))
+	}
+}
+
 func TestPageCapture(t *testing.T) {
 	w, fw := testWindow(t, WindowOptions{Hidden: true})
 	p := w.Page()

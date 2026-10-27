@@ -211,12 +211,17 @@ func warmUp() {
 // firstPages are the options of the pages TestMain shows first, the one of
 // which that comes first decides the arguments of WebView2's browser:
 // with MYGO_E2E_UNTHROTTLED, those of ThrottlingOff
-// (TestBackgroundThrottling).
+// (TestBackgroundThrottling), and with MYGO_E2E_AUTOPLAY, AutoplayAllow's
+// (TestAutoplay).
 func firstPages() mygo.PageOptions {
+	var o mygo.PageOptions
 	if os.Getenv("MYGO_E2E_UNTHROTTLED") != "" {
-		return mygo.PageOptions{BackgroundThrottling: mygo.ThrottlingOff}
+		o.BackgroundThrottling = mygo.ThrottlingOff
 	}
-	return mygo.PageOptions{}
+	if os.Getenv("MYGO_E2E_AUTOPLAY") != "" {
+		o.Autoplay = mygo.AutoplayAllow
+	}
+	return o
 }
 
 // quitDuringDialog is a helper process for TestQuitDuringDialog: it quits

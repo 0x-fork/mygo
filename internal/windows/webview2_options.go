@@ -14,7 +14,7 @@ import (
 // the language of the browser, which is the language of its own texts (the
 // context menus, the dialogs of pages) and the first of the pages'
 // navigator.languages and Accept-Language, and further arguments of the
-// browser (unthrottledArguments). Its other options are those of an
+// browser (browserArguments). Its other options are those of an
 // environment created without options: no version the runtime must be, no
 // single sign-on. It implements no later version of the interface, which
 // the environment asks for and does without.
