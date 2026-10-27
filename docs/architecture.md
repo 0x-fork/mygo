@@ -2623,7 +2623,8 @@ either.
   code editor as high as its lines makes as tall as the file. GTK and
   IMM32 use bounded surrounding context while
   macOS can query arbitrary document ranges directly. `ShapeText` and
-  `ShapeRichText` retain per-paragraph `TextLayout` geometry; an application
+  `ShapeRichText` retain per-paragraph `TextLayout` geometry, its lines
+  included (`Lines`), as a paginating reader needs; an application
   owns its buffer, selections, rendering, editing and undo policy.
 - **Right to left** (`ui/direction.go`). Each element has a direction
   (`node.dir`): built, it takes its parent's, and the root the window's,
@@ -2940,8 +2941,8 @@ either.
 - **Rich text** (`ui/richtext`). Package `richtext` edits attributed text
   on ui's public API, as `ui/editor` does: a focusable box with a text
   input client, `HandleInput`, `Draw`, `Access` and its own scrolling, and
-  four hooks of ui for it: `ShapeRichTextWith` aligns a paragraph's lines,
-  `Element.SetChanged` reports its edits as `Changed`,
+  four hooks of ui for it: `ShapeRichTextWith` aligns and indents a
+  paragraph's lines, `Element.SetChanged` reports its edits as `Changed`,
   `Services.ReadClipboardData` and `WriteClipboardData` carry its formats,
   and `InputSelect` takes a selection assistive technology made.
   - *The text* (`text.go`, `seq.go`). A `Text` is a value: its characters
@@ -2971,14 +2972,13 @@ either.
     places them by heights in two Fenwick trees from an anchor paragraph,
     as a text area does. Every edit goes through the document, as a step
     of undo or part of the action's; typing joins typing's step.
-    Attachments are inline objects of the text system, and so is a first
-    line's indent: a box that draws nothing at the start of the layout,
-    which the paragraph's offsets step over as they do a composition, so
-    that lines wrap around it and right-to-left paragraphs put it at
-    their right on every engine. `Document.VisibleParagraphs` lays out
-    what is in view as it is read, as painting does, and the paint that
-    finds the paragraphs elsewhere than read asks for a frame
-    (`Services.Invalidate`), as `ListState.Visible` builds another.
+    Attachments are inline objects of the text system; a first line's
+    indent is the layout's (`TextShape.Indent`), on the side the
+    paragraph starts at, the right of one reading right to left.
+    `Document.VisibleParagraphs` lays out what is in view as it is read,
+    as painting does, and the paint that finds the paragraphs elsewhere
+    than read asks for a frame (`Services.Invalidate`), as
+    `ListState.Visible` builds another.
   - *Formats out of the process.* The clipboard carries the editor's JSON,
     HTML (`golang.org/x/net/html` reads what is pasted) and plain text;
     browsers carry each text format through the clipboard events. The
@@ -3559,6 +3559,28 @@ either.
   (`rundelegate_darwin_*.s`); DirectWrite through `IDWriteInlineObject`s,
   their places found by hit testing, as its glyph runs' are; Pango through
   shape attributes; the canvas engine as clusters of their width.
+  A span's `BaselineShift` moves its glyphs and objects off the baseline
+  in the shared layout too, as the room the line takes for them and the
+  baseline its decorations are drawn from (`decoRange.shift`).
+  The engines break a paragraph at one width, which is all DirectWrite's
+  layouts take, so what else paragraphs need is the shared layout's
+  (`paragraph.go`), alike on every engine. A first line's indent
+  (`Params.Indent`) breaks that line narrower, then the rest anew from
+  where it ends. Justification (`Params.Justify`) widens the spaces and
+  the room after Han characters and kana of the lines the width wrapped,
+  but the last of each paragraph, moving each glyph by the room the
+  clusters left of it gain, so that carets and selection follow; it is
+  linked in once a `TextShape` asks for it (`System.UseJustify`), as
+  apps that do not justify text need none of it. The engines all break
+  lines at soft hyphens (U+00AD) and draw them as they please: the layout
+  hides those within lines (a glyph of no font and no advance, which
+  keeps the caret's place) and draws a hyphen, the engine's glyph for
+  U+002D in the soft hyphen's style, at the end of a line broken at one.
+  Only Pango leaves room for it as it breaks, so a line whose hyphen does
+  not fit is broken again, narrower by the hyphen, where Unicode's line
+  breaking allows (else the hyphen overflows, as a long word does), and
+  the rest anew (`breakLines`). A paragraph without an indent or a soft
+  hyphen is shaped once.
   Text elements built inside a text (`ui/inline.go`) are inline: the
   paragraph takes their text when its `Children` returns, and their
   styles as spans over its own when it lays out. At commit, each gets the

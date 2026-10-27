@@ -175,9 +175,8 @@ type paraView struct {
 	h            float32
 	// space is the space above and below it, in h.
 	space float32
-	// indent is how far its first line goes in (Theme.FirstLineIndent):
-	// an inline object that wide, which draws nothing, starts its layout,
-	// and local and global step over it.
+	// indent is how far its first line goes in (Theme.FirstLineIndent),
+	// as its layout indents it (ui.TextShape.Indent).
 	indent float32
 }
 
@@ -581,11 +580,6 @@ func (v *view) paraLayout(p int) *paraView {
 		typing = v.doc.typingAttributes()
 		v.doc.mu.Unlock()
 	}
-	if indent > 0 {
-		// The indent is a box at the start of the first line, which lines
-		// break after and right-to-left paragraphs put at their right.
-		spans = append(spans, ui.Span{Text: string(ObjectReplacement), ObjectWidth: indent})
-	}
 	off, done := 0, 0
 	add := func(n int, a Attributes) {
 		end := off
@@ -616,7 +610,9 @@ func (v *view) paraLayout(p int) *paraView {
 	if compose != "" {
 		spans = append(spans, v.look.span(compose, typing, para.style))
 	}
-	shape := ui.TextShape{Width: v.look.width, Align: para.style.Align}
+	// The indent is on the side the paragraph starts at, the right of one
+	// reading right to left.
+	shape := ui.TextShape{Width: v.look.width, Align: para.style.Align, Indent: indent}
 	l := ui.ShapeRichTextWith(spans, v.paraFont(para.style), shape)
 	units := pv.units[:0]
 	units = append(units, 0)
@@ -653,25 +649,19 @@ func (v *view) origin(p int) (x float32, y float64) {
 }
 
 // local returns where rune i of paragraph p is in its layout, which holds
-// the composition at the caret and, first, the box of its indent.
+// the composition at the caret.
 func (v *view) local(p, i int) int {
 	l := i - v.shown.paraStart(p)
 	if v.compose != "" && i > v.caret && v.shown.paraAt(v.caret) == p {
 		l += utf8.RuneCountInString(v.compose)
 	}
-	if v.paras[p].indent > 0 {
-		l++
-	}
 	return l
 }
 
 // global returns the rune of the text at rune l of the layout of
-// paragraph p: before the box of its indent is its start too.
+// paragraph p.
 func (v *view) global(p, l int) int {
 	start := v.shown.paraStart(p)
-	if v.paras[p].indent > 0 {
-		l = max(l-1, 0)
-	}
 	if v.compose != "" && v.shown.paraAt(v.caret) == p {
 		n, c := utf8.RuneCountInString(v.compose), v.caret-start
 		switch {

@@ -156,8 +156,7 @@ func (v *view) visual(dir int) (int, ui.TextAffinity) {
 	l := min(v.local(p, v.caret), len(pv.units)-1)
 	pos := ui.TextCaretPosition{Index: pv.units[l], Affinity: v.affinity}
 	next := pv.layout.MoveCaret(pos, dir)
-	if next.Index == pos.Index || pv.indent > 0 && next.Index == 0 {
-		// At the edge of the paragraph, or of the box of its indent.
+	if next.Index == pos.Index {
 		if dir < 0 {
 			return max(v.shown.paraStart(p)-1, 0), ui.TextDownstream
 		}

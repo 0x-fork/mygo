@@ -227,16 +227,10 @@ func (v *view) paintAttachments(p *ui.Painter, i int, pv *paraView, x, y float32
 	ps := v.shown.paraStart(i)
 	for _, o := range objects {
 		l := pv.runeOfUnit(o.Index)
-		if pv.indent > 0 {
-			if l == 0 {
-				continue // the indent's box
-			}
-			l--
-		}
 		if v.compose != "" && v.shown.paraAt(v.caret) == i && l >= v.caret-ps && l < v.caret-ps+len([]rune(v.compose)) {
 			continue
 		}
-		at := v.shown.AttributesAt(v.global(i, pv.runeOfUnit(o.Index))).Attachment
+		at := v.shown.AttributesAt(v.global(i, l)).Attachment
 		r := ui.Rect{X: x + o.Rect.X, Y: y + o.Rect.Y, W: o.Rect.W, H: o.Rect.H}
 		switch {
 		case at == nil:
