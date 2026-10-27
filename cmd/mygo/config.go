@@ -176,7 +176,8 @@ type MacOS struct {
 	// compiled with actool, whose app icon is named AppIcon unless
 	// infoPlist's CFBundleIconName says otherwise, or an Icon Composer .icon,
 	// which builds compile on a Mac with Xcode 26 or later and skip
-	// elsewhere. The .icns from icon remains the fallback.
+	// elsewhere. The .icns from icon remains the fallback. Or it is an .icns
+	// in place of the one rendered from icon, for an icon drawn per size.
 	Icon string `json:"icon"`
 	// MinimumSystemVersion is the oldest macOS version supported (default
 	// "12.0").
@@ -280,8 +281,8 @@ func (c *Config) validate() error {
 			return fmt.Errorf("fileAssociations[%d].role is Editor or Viewer", i)
 		}
 	}
-	if ext := strings.ToLower(filepath.Ext(c.MacOS.Icon)); c.MacOS.Icon != "" && ext != ".car" && ext != ".icon" {
-		return fmt.Errorf("macos.icon %s is an Assets.car or an Icon Composer .icon", c.MacOS.Icon)
+	if ext := strings.ToLower(filepath.Ext(c.MacOS.Icon)); c.MacOS.Icon != "" && ext != ".car" && ext != ".icon" && ext != ".icns" {
+		return fmt.Errorf("macos.icon %s is an Assets.car, an Icon Composer .icon or an .icns", c.MacOS.Icon)
 	}
 	for name, file := range c.MacOS.HelperEntitlements {
 		if name == "" || file == "" {

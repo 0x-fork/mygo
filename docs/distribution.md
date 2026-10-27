@@ -89,6 +89,11 @@ compiles with `actool` from Xcode 26 or later, with the `.icns` that
 the compilation fails, skips the `.icon` with a message, and the app keeps
 the PNG's `.icns`. `mygo dev` shows the `.icns`.
 
+`macos.icon` can also be an `.icns` of your own, which the app gets in place
+of the one rendered from the PNG: for an icon drawn per size, such as a
+closer crop for 16 and 32 points, made with `iconutil` from an `.iconset`.
+`mygo dev` still shows the PNG's.
+
 ```ts
 export default defineConfig({
   macos: { icon: "AppIcon.icon" }, // outside resources, which ship as they are
