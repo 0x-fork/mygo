@@ -28,7 +28,8 @@ export const showcase: ShowcaseApp[] = [
       "An open-source music player for macOS, Windows and Linux. One search looks through YouTube Music and Spotify, and one queue and library mix tracks from both.",
     url: "https://github.com/fzn0x/mixmusic",
     author: "fzn0x",
-    mode: "web",
+    mode: "native",
+    image: "/showcase/mixmusic.jpg",
   },
   {
     name: "Pulse",
