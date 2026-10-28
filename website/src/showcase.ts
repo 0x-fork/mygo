@@ -142,4 +142,13 @@ export const showcase: ShowcaseApp[] = [
     mode: "native",
     image: "/showcase/mytwig.svg",
   },
+  {
+    name: "Godwit",
+    description:
+      "An open-source, AI-native email client for macOS, Windows and Linux. It works with any IMAP/SMTP account, and its assistant reads, summarizes, translates and drafts mail with the model you choose; skills, plugins and MCP servers extend it.",
+    url: "https://godwit.email",
+    author: "baranwang",
+    mode: "native",
+    image: "/showcase/godwit.jpg",
+  },
 ]
