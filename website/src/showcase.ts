@@ -106,4 +106,31 @@ export const showcase: ShowcaseApp[] = [
     mode: "web",
     image: "/showcase/liubai.jpg",
   },
+  {
+    name: "Clipnest",
+    description:
+      "An open-source clipboard history for Mac. It keeps the text, links, code and images you copy and the snippets you reuse; press ⌘⇧V to pick one and paste it back where you were.",
+    url: "https://clipnest.echovic.com",
+    author: "echoVic",
+    mode: "web",
+    image: "/showcase/clipnest.jpg",
+  },
+  {
+    name: "Cleanzo",
+    description:
+      "An open-source disk cleaner for macOS. It clears junk, shows what fills the disk, finds large files and similar photos, uninstalls apps with their leftovers, and manages the skills used by AI tools like Claude Code and Codex.",
+    url: "https://cleanzo.echovic.com",
+    author: "echoVic",
+    mode: "web",
+    image: "/showcase/cleanzo.jpg",
+  },
+  {
+    name: "小海底 Little Reef",
+    description:
+      "A quiet, open-source focus timer for Mac. Every session you finish grows the seagrass a little and now and then a fish drops by; it also has a visitor log, 20 ambient sounds and a desktop widget.",
+    url: "https://reef.echovic.com",
+    author: "echoVic",
+    mode: "web",
+    image: "/showcase/little-reef.jpg",
+  },
 ]
