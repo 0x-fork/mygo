@@ -133,4 +133,13 @@ export const showcase: ShowcaseApp[] = [
     mode: "web",
     image: "/showcase/little-reef.jpg",
   },
+  {
+    name: "MyTwig",
+    description:
+      "A Git client for macOS, Windows and Linux. A commit graph of every branch, diffs and a conflict editor, with GitHub pull requests, Jenkins pipelines and Jira issues built in, plus optional AI with your own provider or CLI: explain a commit or a change, search history in plain words, plan Git steps to run and undo, and write commit messages and pull request descriptions.",
+    url: "https://mytwig.herosizy.dev",
+    author: "HeroSizy",
+    mode: "native",
+    image: "/showcase/mytwig.svg",
+  },
 ]
